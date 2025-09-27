@@ -1,6 +1,4 @@
 
-//Working Code of This Milestonetab creation new report and Create Report from previous report 
-
 import { useContext, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom"; // Import useNavigate
 import { UserContext } from "@/utils/auth/UserProvider";
@@ -88,16 +86,30 @@ interface LocalMilestoneData {
   expected_start_date?: string;
   expected_completion_date?: string;
   remarks?: string;
+  // --- START: Frontend-only field for validation ---
+  is_updated_for_current_report?: boolean; // New field for frontend validation
+  // --- END: Frontend-only field for validation ---
 }
 
+// Interface for data stored locally and retrieved from previous reports (can contain frontend-only fields)
 interface ProjectProgressReportData {
   name?: string;
   project: string;
   report_date: string;
   manpower_remarks?: string;
   manpower?: FrappeManpowerDetail[]; // Stores FrappeManpowerDetail (with 'label')
-  milestones?: LocalMilestoneData[];
+  milestones?: LocalMilestoneData[]; // Can contain frontend-only fields
 }
+
+// Frappe's expected payload structure (DOES NOT contain frontend-only fields)
+interface FrappeProjectProgressReportPayload {
+  project: string;
+  report_date: string;
+  manpower_remarks?: string;
+  manpower?: FrappeManpowerDetail[];
+  milestones?: Omit<LocalMilestoneData, 'is_updated_for_current_report'>[]; // Omit the frontend-only field
+}
+
 
 interface WorkMilestoneFromFrappe {
   name: string;
@@ -185,7 +197,7 @@ export const MilestoneTab = () => {
 
   // --- STATE FOR MILESTONE DIALOG AND LOCAL MANAGEMENT ---
   const [isUpdateMilestoneDialogOpen, setIsUpdateMilestoneDialogOpen] = useState(false);
-  const [selectedMilestoneForDialog, setSelectedMilestoneForDialog] = useState<WorkMilestoneFromFrappe | null>(null);
+  const [selectedMilestoneForDialog, setSelectedMilestoneForDialog] = useState<LocalMilestoneData | null>(null); // Changed type to LocalMilestoneData
   const [newStatus, setNewStatus] = useState<'Not Started' | 'WIP' | 'N/A' | 'Completed' | ''>('');
   const [progress, setProgress] = useState<number>(0);
   const [expectedDate, setExpectedDate] = useState<Date | null>(null);
@@ -241,7 +253,6 @@ export const MilestoneTab = () => {
           localStorage.setItem(storageKey, JSON.stringify(initialManpowerData));
         } else {
           // Initialize milestone tabs with inherited data or default data
-          console.log("project_work_header_name",tab.project_work_header_name)
           const inheritedMilestones = getInheritedMilestones(tab.project_work_header_name);
           const initialMilestoneData: ProjectProgressReportData = {
             project: projectId,
@@ -255,40 +266,67 @@ export const MilestoneTab = () => {
     });
   };
 
-  // Get inherited milestones from previous reports or default milestones
-  const getInheritedMilestones = (workHeader: string): LocalMilestoneData[] => {
-    // Check if we have a previous full report and it has milestones
-    console.log("previousReport header get milestone",workHeader)
+    const getInheritedMilestones = (workHeader: string): LocalMilestoneData[] => {
+    console.log(`DEBUG_INHERIT: Called for workHeader: "${workHeader}"`);
+    console.log(`DEBUG_INHERIT:   Current previousReport state:`, previousReport);
+    console.log(`DEBUG_INHERIT:   Current allFrappeMilestones state (defaults):`, allFrappeMilestones);
 
+
+    // Check if we have a previous full report and it has milestones
     if (previousReport && previousReport.milestones && previousReport.milestones.length > 0) {
+      console.log(`DEBUG_INHERIT:   previousReport EXISTS and has ${previousReport.milestones.length} total milestones.`);
+      
       // Get milestones from the latest previous report for this work header
-      const previousMilestones = previousReport.milestones.filter(m => m.work_header === workHeader) || [];
-      console.log("previousMilestones",previousMilestones)
-      if (previousMilestones?.length > 0) {
+      const previousMilestones = previousReport.milestones.filter(m => {
+        // CRITICAL CHECK: Log the work_header from the previous report's milestone
+        console.log(`DEBUG_INHERIT:     Comparing previous milestone header "${m.work_header}" with target "${workHeader}"`);
+        return m.work_header === workHeader;
+      }) || []; // Ensure it's always an array
+
+      console.log(`DEBUG_INHERIT:   Filtered previousMilestones for "${workHeader}":`, previousMilestones);
+
+      if (previousMilestones.length > 0) {
+        console.log(`DEBUG_INHERIT:   INHERITING ${previousMilestones.length} milestones from previous report for "${workHeader}".`);
         // Inherit previous milestone data as base for new report
         return previousMilestones.map(milestone => ({
           ...milestone,
           remarks: "", // Clear remarks for new report
+          // --- START: Set frontend-only flag ---
+          is_updated_for_current_report: false, // Not updated yet for *this* report
+          // --- END: Set frontend-only flag ---
         }));
+      } else {
+        console.log(`DEBUG_INHERIT:   No specific milestones found in previousReport for header: "${workHeader}".`);
       }
+    } else {
+      console.log(`DEBUG_INHERIT:   previousReport is null/empty or has no milestones. Falling back.`);
     }
     
-    // If no previous full report, or no relevant milestones in it, use default milestones from Frappe
+    // If no previous full report, or no relevant milestones in it, use default milestones from Frappe (master data)
+    console.log(`DEBUG_INHERIT:   Falling back to default Frappe Work Milestones for header: "${workHeader}".`);
     const defaultMilestones: LocalMilestoneData[] = [];
     const frappeMilestonesForHeader = allFrappeMilestones?.filter(m => m.work_header === workHeader) || [];
     
-    frappeMilestonesForHeader.forEach(frappeM => {
-      defaultMilestones.push({
-        name: frappeM.name,
-        work_milestone_name: frappeM.work_milestone_name,
-        work_header: frappeM.work_header,
-        status: frappeM.status || 'Not Started',
-        progress: frappeM.progress || 0,
-        expected_start_date: frappeM.expected_start_date,
-        expected_completion_date: frappeM.expected_completion_date,
-        remarks: "",
+    if (frappeMilestonesForHeader.length > 0) {
+      frappeMilestonesForHeader.forEach(frappeM => {
+        defaultMilestones.push({
+          name: frappeM.name,
+          work_milestone_name: frappeM.work_milestone_name,
+          work_header: frappeM.work_header,
+          status: frappeM.status || 'Not Started',
+          progress: frappeM.progress || 0,
+          expected_start_date: frappeM.expected_start_date,
+          expected_completion_date: frappeM.expected_completion_date,
+          remarks: "",
+          // --- START: Set frontend-only flag ---
+          is_updated_for_current_report: false, // Default not updated
+          // --- END: Set frontend-only flag ---
+        });
       });
-    });
+      console.log(`DEBUG_INHERIT:   Loaded ${defaultMilestones.length} default milestones for "${workHeader}".`);
+    } else {
+      console.log(`DEBUG_INHERIT:   No default Frappe Work Milestones found for header: "${workHeader}".`);
+    }
     
     return defaultMilestones;
   };
@@ -399,7 +437,7 @@ export const MilestoneTab = () => {
     });
 
     setCurrentTabMilestones(milestonesForCurrentTab);
-  }, [activeTabValue, localDailyReport, allFrappeMilestones,]);
+  }, [activeTabValue, localDailyReport, allFrappeMilestones,previousReport]);
 
   // --- Manpower Dialog Handlers ---
   const handleDialogManpowerCountChange = (index: number, value: string) => {
@@ -472,7 +510,7 @@ export const MilestoneTab = () => {
     const dateString = formatDate(summaryWorkDate);
     const allTabs = getAllAvailableTabs();
     let allManpower: FrappeManpowerDetail[] = [];
-    let allMilestones: LocalMilestoneData[] = [];
+    let allMilestones: LocalMilestoneData[] = []; // Still LocalMilestoneData to read from localStorage
     let manpowerRemarks = "";
 
     allTabs.forEach(tab => {
@@ -494,12 +532,20 @@ export const MilestoneTab = () => {
       }
     });
 
+    // --- START: Remove frontend-only field before sending to backend ---
+    const cleanedMilestones = allMilestones.map(milestone => {
+      // Destructure and omit 'is_updated_for_current_report'
+      const { is_updated_for_current_report, ...rest } = milestone;
+      return rest; // Returns an object without 'is_updated_for_current_report'
+    });
+    // --- END: Remove frontend-only field before sending to backend ---
+
     return {
       project: projectId,
       report_date: dateString,
       manpower_remarks: manpowerRemarks,
       manpower: allManpower,
-      milestones: allMilestones,
+      milestones: cleanedMilestones, // Use the cleaned array
     };
   };
 
@@ -517,7 +563,26 @@ export const MilestoneTab = () => {
   const handleSyncAndSubmitAllData = async (isCalledFromManpowerDialog = false) => {
     setIsLocalSaving(true);
 
-    // Save current tab data before proceeding
+    // --- START: Validation Logic for Milestones ---
+    if (activeTabValue !== "Work force") { // Only apply this validation to milestone tabs
+      const hasUnupdatedMilestones = currentTabMilestones.some(
+        (m) => !m.is_updated_for_current_report && m.status !== 'N/A' // Don't block if N/A, assuming N/A means it doesn't need explicit 'updating'
+      );
+
+      if (hasUnupdatedMilestones) {
+        setIsLocalSaving(false);
+        toast({
+          title: "Validation Error 🚫",
+          description: `Please update all visible milestones in the '${activeTabValue}' tab before continuing.`,
+          variant: "destructive",
+        });
+        return; // Prevent saving, tab switch, or submission
+      }
+    }
+    // --- END: Validation Logic for Milestones ---
+
+
+    // Save current tab data before proceeding (this includes `is_updated_for_current_report` to local storage, which is fine)
     saveCurrentTabData();
 
     // Show sync success message
@@ -529,8 +594,6 @@ export const MilestoneTab = () => {
 
     if (isCalledFromManpowerDialog) {
       setIsUpdateManpowerDialogOpen(false);
-      setIsLocalSaving(false);
-      return
     }
 
     // Determine if it's the last tab and move to next if not
@@ -542,7 +605,7 @@ export const MilestoneTab = () => {
       // --- Final Frappe Submission Logic ---
       console.log("Attempting to submit to Frappe backend...");
 
-      const finalPayload = collectAllTabData();
+      const finalPayload = collectAllTabData(); // This is where the frontend-only flag is removed!
 
       try {
         const response = await createDoc("Project Progress Reports", finalPayload);
@@ -579,9 +642,6 @@ export const MilestoneTab = () => {
   // --- MILESTONE LOGIC ---
 
   const openUpdateMilestoneDialog = (milestone: LocalMilestoneData) => {
-    // When opening the dialog, we need the original Frappe milestone to get its default properties
-    // like work_milestone_name and work_header, and the Frappe-defined expected dates.
-    // const originalFrappeMilestone = allFrappeMilestones?.find(m => m.name === milestone.name && m.work_header === milestone.work_header);
     setSelectedMilestoneForDialog(milestone || null);
 
     // Populate dialog state with the *current local state* of the milestone
@@ -598,10 +658,7 @@ export const MilestoneTab = () => {
   };
   
   const handleUpdateMilestone = async () => {
-    console.log("selectedMilestoneForDialog",selectedMilestoneForDialog,activeTabValue)
     if (!selectedMilestoneForDialog || !activeTabValue) return;
-    console.log("selectedMilestoneForDialog3",selectedMilestoneForDialog,activeTabValue)
-
 
     const updatedLocalMilestone: LocalMilestoneData = {
       name: selectedMilestoneForDialog.name,
@@ -610,6 +667,9 @@ export const MilestoneTab = () => {
       status: newStatus,
       progress:progress,
       remarks: milestoneRemarks,
+      // --- START: Set frontend-only flag ---
+      is_updated_for_current_report: true, // Mark as updated for the current report
+      // --- END: Set frontend-only flag ---
     };
 
     if (newStatus === 'Not Started') {
@@ -619,7 +679,7 @@ export const MilestoneTab = () => {
     } else if (newStatus === 'WIP') {
       updatedLocalMilestone.expected_completion_date = expectedDate ? formatDate(expectedDate) : undefined;
       updatedLocalMilestone.expected_start_date = undefined; 
-      updatedLocalMilestone.progress = progress; // Reset progress if Not Started
+      updatedLocalMilestone.progress = progress; // Use input progress if WIP
     }else if(newStatus === 'Completed'){
       updatedLocalMilestone.expected_completion_date = undefined;
       updatedLocalMilestone.expected_start_date = undefined; 
@@ -627,7 +687,7 @@ export const MilestoneTab = () => {
     }else if(newStatus==='N/A'){
       updatedLocalMilestone.expected_completion_date = undefined;
       updatedLocalMilestone.expected_start_date = undefined; 
-      updatedLocalMilestone.progress = 0; // Reset progress if Not Started
+      updatedLocalMilestone.progress = 0; // Reset progress if N/A
     }
 
     const updatedMilestonesForCurrentTab = [...currentTabMilestones];
@@ -649,7 +709,7 @@ export const MilestoneTab = () => {
       variant: "default",
     });
 
-    loadDailyReport(); // Reload the current tab's data from local storage
+    // loadDailyReport(); // No need to reload, state and local storage are already updated.
   };
 
   const getStatusColor = (status: string) => {
@@ -670,8 +730,12 @@ export const MilestoneTab = () => {
   // Combine all loading states
   const isGlobalLoading = projectLoading || reportsLoading || frappeMilestonesLoading || previousReportsListLoading || previousReportLoading;
   const isGlobalError = projectError || frappeMilestonesError || previousReportsListError || previousReportError;
-  const isGlobalSyncDisabled = isLocalSaving || isCreatingDoc;
 
+
+
+  const isGlobalSyncDisabled = isLocalSaving || isCreatingDoc
+
+console.log("currentDetails",currentTabMilestones)
 
   if (isGlobalLoading) {
     return (
@@ -854,8 +918,13 @@ export const MilestoneTab = () => {
                                   </span>
                                 </p>
                                 <div className="flex justify-end mt-4">
-                                  <Button onClick={() => openUpdateMilestoneDialog(milestone)}>
-                                    UPDATE
+                                  <Button 
+                                    onClick={() => openUpdateMilestoneDialog(milestone)}
+                                    // Optionally, visually indicate if a milestone hasn't been updated
+                                    variant={milestone.is_updated_for_current_report ? 'default' : 'secondary'}
+                                    className={!milestone.is_updated_for_current_report && milestone.status !== 'N/A' ? 'border-red-500 text-red-500 hover:bg-red-50' : ''}
+                                  >
+                                    {milestone.is_updated_for_current_report ? 'EDITED' : 'UPDATE'}
                                   </Button>
                                 </div>
                               </div>
