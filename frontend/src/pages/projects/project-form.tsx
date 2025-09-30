@@ -182,6 +182,7 @@ const projectFormSchema = z.object({
         // NEW FIELDS FOR MILESTONE TRACKING
 
     enable_project_milestone_tracking: z.boolean().default(false), // Boolean field
+
     project_work_header_entries: z.array( // Array for work headers
         z.object({
             work_header_name: z.string(),
@@ -189,7 +190,18 @@ const projectFormSchema = z.object({
         })
     ).optional(),
    
-})
+}).superRefine((data, ctx) => { // Add superRefine here
+    if (data.enable_project_milestone_tracking) {
+        // If milestone tracking is enabled, check if any work header is enabled
+        if (!data.project_work_header_entries || data.project_work_header_entries.length === 0 || data.project_work_header_entries.every(entry => !entry.enabled)) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'At least one Work Header must be selected when milestone tracking is enabled.',
+                path: ['project_work_header_entries'], // Points to the specific field for error message
+            });
+        }
+    }
+});
 
 type ProjectFormValues = z.infer<typeof projectFormSchema>
 
@@ -380,12 +392,13 @@ export const ProjectForm = () => {
                 throw new Error('Please select atleast one work package associated with this project!')
             }
               // Add validation for work headers if milestone tracking is enabled but none are selected
-            if (values.enable_project_milestone_tracking && (!values.project_work_header_entries || values.    project_work_header_entries.every(entry => !entry.enabled))) {
-                throw new Error('Please select at least one Work Header for milestone tracking, or disable tracking.');
-            }
+           let projectWorkHeaderEntriesForSubmission = [];
+        if (values.enable_project_milestone_tracking && values.project_work_header_entries) {
+            projectWorkHeaderEntriesForSubmission = values.project_work_header_entries.filter(entry => entry.enabled);
+        }
             // console.log("Final Data", ...values, areaNames )
             const response = await createProjectAndAddress({
-                values: { ...values, areaNames },
+                values: { ...values, areaNames,project_work_header_entries: projectWorkHeaderEntriesForSubmission },
             });
 
             if (response.message.status === 200) {
@@ -425,7 +438,7 @@ export const ProjectForm = () => {
             // Initialize with all work headers, default to unchecked
             const initialEntries = work_header_list.map(header => ({
                 work_header_name: header.work_header_name,
-                enabled: false
+               enabled: true // Changed to true for "select all by default"
             }));
             form.setValue("project_work_header_entries", initialEntries, { shouldValidate: false });
         } else if (!enableMilestoneTracking) {
@@ -520,7 +533,10 @@ export const ProjectForm = () => {
             });
             return; // Stop further execution if this validation fails
        
-
+         // For project_end_date, if it's conditionally required for this section, this is fine.
+          // --- NEW: Check for selected Work Headers if milestone tracking is enabled ---
+      
+       
         if (section === "projectTimeline" && !form.getValues("project_end_date")) {
             toast({
                 title: "Failed!",
@@ -559,7 +575,7 @@ export const ProjectForm = () => {
             case "projectAddressDetails":
                 return ["address_line_1", "address_line_2", "project_city", "project_state", "pin", 'email', 'phone'];
             case "projectTimeline":
-                return ["project_start_date", "project_end_date"];
+                return ["project_start_date", "project_end_date", "enable_project_milestone_tracking", "project_work_header_entries"];
             // case "projectTimeline":
             // // Add enable_project_milestone_tracking and its dependent fields to validation
             //     const fields = ["project_start_date", "project_end_date", "enable_project_milestone_tracking"];

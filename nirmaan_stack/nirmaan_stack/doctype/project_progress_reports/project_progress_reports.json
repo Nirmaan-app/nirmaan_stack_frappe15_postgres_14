@@ -41,7 +41,7 @@
   },
   {
    "fieldname": "manpower_remarks",
-   "fieldtype": "Data",
+   "fieldtype": "Text",
    "label": "Manpower Remarks"
   },
   {
@@ -81,7 +81,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-09-26 11:53:50.812200",
+ "modified": "2025-09-29 23:16:31.166928",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Progress Reports",

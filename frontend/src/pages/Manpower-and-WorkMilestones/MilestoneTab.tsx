@@ -97,7 +97,7 @@ interface LocalMilestoneData {
   work_header: string;
   status: 'Not Started' | 'WIP' | 'N/A' | 'Completed';
   progress: number;
-  expected_start_date?: string;
+  expected_starting_date?: string;
   expected_completion_date?: string;
   remarks?: string;
   is_updated_for_current_report?: boolean; // New field for frontend validation
@@ -131,7 +131,7 @@ interface WorkMilestoneFromFrappe {
   work_milestone_name: string;
   status: 'Not Started' | 'WIP' | 'N/A' | 'Completed';
   progress: number;
-  expected_start_date: string;
+  expected_starting_date: string;
   expected_completion_date: string;
   work_header: string;
 }
@@ -315,7 +315,7 @@ export const MilestoneTab = () => {
           work_header: frappeM.work_header,
           status: frappeM.status || 'Not Started',
           progress: frappeM.progress || 0,
-          expected_start_date: frappeM.expected_start_date,
+          expected_starting_date: frappeM.expected_starting_date,
           expected_completion_date: frappeM.expected_completion_date,
           remarks: "",
           is_updated_for_current_report: false,
@@ -658,6 +658,18 @@ export const MilestoneTab = () => {
       console.log("Attempting to submit to Frappe backend...");
 
       const finalPayload = collectAllTabData();
+      console.log("FinalPayload",finalPayload)
+
+       const hasPhotos = finalPayload.attachments && finalPayload.attachments.length > 0;
+      if (!hasPhotos) {
+        setIsLocalSaving(false);
+        toast({
+          title: "Submission Validation Error 🚫",
+          description: "Please upload at least one photo before final submission.",
+          variant: "destructive",
+        });
+        return;
+      }
 
       try {
         const response = await createDoc("Project Progress Reports", finalPayload);
@@ -670,7 +682,7 @@ export const MilestoneTab = () => {
         });
         
         clearAllTabData();
-        navigate('/prs&milestones/milestone-report');
+        navigate('/prs&milestones/milestone-report', { replace: true });
 
       } catch (error: any) {
         console.error("Error submitting to Frappe:", error);
@@ -694,8 +706,8 @@ export const MilestoneTab = () => {
     setNewStatus(milestone.status);
     setProgress(milestone.progress);
     setExpectedDate(
-      milestone.status === 'Not Started' && milestone.expected_start_date
-        ? new Date(milestone.expected_start_date)
+      milestone.status === 'Not Started' && milestone.expected_starting_date
+        ? new Date(milestone.expected_starting_date)
         : (milestone.expected_completion_date ? new Date(milestone.expected_completion_date) : null)
     );
     setMilestoneRemarks(milestone.remarks || '');
@@ -760,20 +772,20 @@ export const MilestoneTab = () => {
     };
 
     if (newStatus === 'Not Started') {
-      updatedLocalMilestone.expected_start_date = expectedDate ? formatDate(expectedDate) : undefined;
+      updatedLocalMilestone.expected_starting_date = expectedDate ? formatDate(expectedDate) : undefined;
       updatedLocalMilestone.expected_completion_date = undefined;
       updatedLocalMilestone.progress = 0;
     } else if (newStatus === 'WIP') {
       updatedLocalMilestone.expected_completion_date = expectedDate ? formatDate(expectedDate) : undefined;
-      updatedLocalMilestone.expected_start_date = undefined; 
+      updatedLocalMilestone.expected_starting_date = undefined; 
       updatedLocalMilestone.progress = progress;
     }else if(newStatus === 'Completed'){
       updatedLocalMilestone.expected_completion_date = undefined;
-      updatedLocalMilestone.expected_start_date = undefined; 
+      updatedLocalMilestone.expected_starting_date = undefined; 
       updatedLocalMilestone.progress = 100;
     }else if(newStatus==='N/A'){
       updatedLocalMilestone.expected_completion_date = undefined;
-      updatedLocalMilestone.expected_start_date = undefined; 
+      updatedLocalMilestone.expected_starting_date = undefined; 
       updatedLocalMilestone.progress = 0;
     }
 
@@ -872,21 +884,47 @@ export const MilestoneTab = () => {
     <div className="flex flex-col h-full">
       
       <div className="flex-1">
-        <div className="px-4 py-2 bg-white">
+        <div className="px-1  bg-white">
           <Tabs value={activeTabValue} className="w-full" onValueChange={setActiveTabValue}>
             <TabsList
-              className="flex w-full justify-center p-1 bg-gray-100 rounded-md gap-1"
+              className="flex w-full justify-evenly p-1 bg-gray-100 rounded-md "
             >
-              {visibleTabs.map((tab) => (
-                <TabsTrigger
-                  key={tab.name || tab.project_work_header_name}
-                  value={tab.project_work_header_name}
-                  className="flex-1 data-[state=active]:bg-blue-100 data-[state=active]:text-blue-700"
-                >
-                  {tab.project_work_header_name}
-                </TabsTrigger>
-              ))}
-            </TabsList>
+
+        {visibleTabs.map((tab, index, arr) => {
+    // Find the index of the currently active tab within the visibleTabs array
+    const currentActiveTabIndex = arr.findIndex(
+      (t) => t.project_work_header_name === activeTabValue
+    );
+    
+    const isUpcoming = currentActiveTabIndex !== -1 && index > currentActiveTabIndex;
+    return (
+      <TabsTrigger
+        key={tab.name || tab.project_work_header_name} // Unique key for each tab
+        value={tab.project_work_header_name}
+        disabled={isUpcoming} // Apply disabled state based on 'isUpcoming'
+        className={`
+          flex-none                    
+          w-auto                        
+          max-w-[150px]                 
+          truncate overflow-hidden whitespace-nowrap 
+          text-xs p-2 rounded-md        
+          data-[state=active]:bg-blue-100 data-[state=active]:text-blue-700
+          data-[state=active]:font-semibold 
+          
+          disabled:opacity-50 disabled:cursor-not-allowed
+          disabled:bg-gray-50 disabled:text-gray-500
+          
+          
+          md:flex-1 md:max-w-none md:w-auto
+          transition-colors duration-200 ease-in-out
+        `}
+      >
+        {tab.project_work_header_name}
+      </TabsTrigger>
+    );
+  })}
+</TabsList>
+            
 
             <TabsContent value="Work force" className="mt-4 p-0">
               <Card className="shadow-none border-none">
@@ -965,7 +1003,7 @@ export const MilestoneTab = () => {
               </Card>
             </TabsContent>
             
-            <TabsContent value="Photos" className="mt-4 p-1">
+            {/* <TabsContent value="Photos" className="mt-4 p-1">
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between">
                         <CardTitle className="text-lg font-semibold text-gray-800">Photos & Attachments ({localPhotos.length})</CardTitle>
@@ -996,7 +1034,7 @@ export const MilestoneTab = () => {
                                         <div className="flex-1 space-y-2">
                                             <div className="flex items-center text-sm text-gray-700">
                                                 <MapPin className="h-4 w-4 mr-1 text-red-500" />
-                                                <span className="font-semibold">{photo.location || 'Location Not Found'}</span> {/* Use photo.location */}
+                                                <span className="font-semibold">{photo.location || 'Location Not Found'}</span> 
                                             </div>
                                             <Textarea
                                                 value={photo.remarks || ''} // Use photo.remarks
@@ -1016,7 +1054,67 @@ export const MilestoneTab = () => {
                         )}
                     </CardContent>
                 </Card>
-            </TabsContent>
+            </TabsContent> */}
+      <TabsContent value="Photos" className="mt-4 p-1">
+      <Card className="border-none shadow-none bg-transparent">
+        <CardHeader className="flex flex-col items-center pb-4 pt-0">
+          <Button
+            className="bg-red-500 hover:bg-red-600 text-white font-semibold py-3 px-8 rounded-full shadow-md transition-all duration-200 ease-in-out transform hover:scale-105"
+            onClick={() => setIsCaptureDialogOpen(true)}
+          >
+            ADD PHOTOS
+          </Button>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {localPhotos.length > 0 ? (
+            <div className="space-y-4"> {/* Vertical spacing between each photo-remarks pair */}
+              {localPhotos.map((photo) => (
+                <div 
+                  key={photo.local_id} 
+                  className="flex items-center gap-4 p-3 bg-white rounded-xl shadow-sm border border-gray-100" // Overall card for the image+remarks row
+                >
+                  {/* Image Container (Left Side) */}
+                  <div className="relative flex-shrink-0 w-[180px] h-[140px] border-2 border-pink-500 rounded-xl overflow-hidden">
+                    <img
+                      src={photo.image_link}
+                      alt={`Photo ${photo.local_id}`}
+                      className="w-full h-full object-cover"
+                    />
+                    {/* Delete Button */}
+                    <Button
+                      variant="destructive"
+                      size="icon"
+                      className="absolute top-1.5 right-1.5 h-6 w-6 p-0 rounded-full bg-red-500 hover:bg-red-600 z-10"
+                      onClick={() => handleRemovePhoto(photo.local_id)}
+                    >
+                      <X className="h-3 w-3" />
+                      <span className="sr-only">Remove Photo</span>
+                    </Button>
+                  </div>
+
+                  {/* Remarks Textarea (Right Side) */}
+                  <div className="flex-grow"> {/* Allows textarea to take remaining space */}
+                    <Textarea
+                      value={photo.remarks || ''}
+                      onChange={(e) => handlePhotoRemarksChange(photo.local_id, e.target.value)}
+                      placeholder="Enter Remarks" // Placeholder matches image
+                      maxLength={250}
+                      className="min-h-[124px] h-[124px] text-sm border-gray-300 rounded-xl resize-none" // Fixed height, rounded corners, no manual resize
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12 px-4 bg-white rounded-lg shadow-md border border-dashed border-gray-300">
+              
+              <p className="text-lg text-gray-600 font-semibold mb-2">No photos captured yet!</p>
+              <p className="text-gray-500 text-sm">Click the "ADD PHOTOS" button above to get started.</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </TabsContent>
 
             {allAvailableTabs.map((tab) => (
               tab.project_work_header_name !== "Work force" && tab.project_work_header_name!=="Photos"? (
@@ -1049,7 +1147,7 @@ export const MilestoneTab = () => {
                                         
                                         <span className="font-semibold text-gray-800 flex items-center mt-0.5 border-2 p-2 rounded-md">
                                             <CalendarIcon className="h-4 w-4 mr-1 text-gray-500" />
-                                            {milestone.status === 'Not Started' ? (milestone.expected_start_date || '--') : (milestone.expected_completion_date || '--')}
+                                            {milestone.status === 'Not Started' ? (milestone.expected_starting_date || '--') : (milestone.expected_completion_date || '--')}
                                         </span>
                                 </div>
                                 <div className="flex justify-end mt-4">
@@ -1072,7 +1170,7 @@ export const MilestoneTab = () => {
                                             {/* Date Value */}
                                             <span className="font-semibold text-gray-800 flex items-center mt-0.5 border-2 border-gray-300 p-2 rounded-md">
                                                 <CalendarIcon className="h-4 w-4 mr-1 text-gray-500" />
-                                                {milestone.status === 'Not Started' ? (milestone.expected_start_date || '--') : (milestone.expected_completion_date || '--')}
+                                                {milestone.status === 'Not Started' ? (milestone.expected_starting_date || '--') : (milestone.expected_completion_date || '--')}
                                             </span>
                                         </div>)}
            
@@ -1103,7 +1201,7 @@ export const MilestoneTab = () => {
         </div>
       </div>
 
-      <div className="sticky bottom-0 w-full p-4 bg-white border-t z-10">
+      <div className="sticky bottom-0 w-full p-2 bg-white border-t z-10">
         <Button
           className="w-full bg-blue-600 hover:bg-blue-700 text-white text-lg py-3"
           onClick={() => handleSyncAndSubmitAllData(false)}
@@ -1211,7 +1309,7 @@ export const MilestoneTab = () => {
               <Button variant="outline">Cancel</Button>
             </DialogClose>
             <Button
-              className="bg-blue-600 hover:bg-blue-700 text-white"
+              className="bg-red-600 hover:bg-red-700 text-white"
               onClick={() => handleSyncAndSubmitAllData(true)}
               disabled={isGlobalSyncDisabled}
             >
@@ -1221,107 +1319,7 @@ export const MilestoneTab = () => {
         </DialogContent>
       </Dialog>
 
-{/* 
-      <Dialog open={isUpdateMilestoneDialogOpen} onOpenChange={setIsUpdateMilestoneDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Update Work</DialogTitle>
-            <DialogDescription className="text-gray-600">
-              <span className="font-semibold text-base">{selectedMilestoneForDialog?.work_milestone_name}</span>
-              <span className="block text-sm text-gray-500">Package: {activeTabValue}</span> 
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="flex justify-between items-center text-sm font-medium">
-              <span>Current Status: <span className={`px-2 py-1 rounded-full text-xs font-semibold ${getStatusColor(selectedMilestoneForDialog?.status || '')}`}>{selectedMilestoneForDialog?.status}</span></span>
-              <span>Exp. Completion Date: <span className="font-semibold">{selectedMilestoneForDialog?.expected_completion_date || '--'}</span></span>
-            </div>
-            
-            <div className="flex flex-col">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Select New Status</label>
-              <div className="grid grid-cols-2 gap-2">
-                <Button 
-                  variant={newStatus === 'Not Started' ? 'default' : 'outline'} 
-                  className={newStatus === 'Not Started' ? 'bg-red-500 text-white hover:bg-red-600' : ''}
-                  onClick={() => setNewStatus('Not Started')}>Not Started</Button>
-                <Button 
-                  variant={newStatus === 'N/A' ? 'default' : 'outline'} 
-                  className={newStatus === 'N/A' ? 'bg-gray-500 text-white hover:bg-gray-600' : ''}
-                  onClick={() => setNewStatus('N/A')}>N/A</Button>
-                <Button 
-                  variant={newStatus === 'WIP' ? 'default' : 'outline'} 
-                  className={newStatus === 'WIP' ? 'bg-yellow-500 text-white hover:bg-yellow-600' : ''}
-                  onClick={() => setNewStatus('WIP')}>WIP</Button>
-                <Button 
-                  variant={newStatus === 'Completed' ? 'default' : 'outline'} 
-                  className={newStatus === 'Completed' ? 'bg-green-500 text-white hover:bg-green-600' : ''}
-                  onClick={() => setNewStatus('Completed')}>Completed</Button>
-              </div>
-            </div>
 
-            {newStatus === 'WIP' && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Progress (%)</label>
-                <div className="relative">
-                  <Input
-                    type="number"
-                    value={progress}
-                    onChange={(e) => setProgress(Math.max(0, Math.min(100, Number(e.target.value))))}
-                    min={0}
-                    max={100}
-                    className="pr-8"
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">%</span>
-                </div>
-              </div>
-            )}
-            
-            {(newStatus === 'Not Started' || newStatus === 'WIP') && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Expected {newStatus === 'Not Started' ? 'Starting' : 'Completion'} Date
-                </label>
-                <Popover open={isMilestoneDatePickerOpen} onOpenChange={setIsMilestoneDatePickerOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant={"outline"}
-                      className={"w-full justify-start text-left font-normal"}
-                    >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {expectedDate ? formatDate(expectedDate) : "Pick a date"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <Calendar
-                      mode="single"
-                      selected={expectedDate || undefined}
-                      onSelect={(date) => {
-                        setExpectedDate(date || null);
-                        setIsMilestoneDatePickerOpen(false);
-                      }}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
-            )}
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Remarks</label>
-              <Textarea
-                value={milestoneRemarks}
-                onChange={(e) => setMilestoneRemarks(e.target.value)}
-                placeholder="Enter Remarks"
-                className="min-h-[80px]"
-              />
-            </div>
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={handleUpdateMilestone}>Save as it is</Button>
-            <Button className="bg-blue-600 hover:bg-blue-700 text-white" onClick={handleUpdateMilestone}>Update</Button>
-          </div>
-        </DialogContent>
-      </Dialog> */}
     <Dialog open={isUpdateMilestoneDialogOpen} onOpenChange={setIsUpdateMilestoneDialogOpen}>
  
     <DialogContent className="sm:max-w-[425px] overflow-hidden">
@@ -1423,7 +1421,7 @@ export const MilestoneTab = () => {
             </div>
 
             {/* Percentage Completed Input (Visible for WIP, like in the image) */}
-            {(newStatus === 'WIP' || newStatus === 'Completed') && (
+            {(newStatus === 'WIP') && (
                 <div>
                     <label className="block text-base font-semibold text-gray-900 mb-1">Percentage Completed</label>
                     <div className="relative">
@@ -1441,7 +1439,8 @@ export const MilestoneTab = () => {
             )}
             
             {/* Expected Completion Date (Visible in the image, separate from status conditional logic) */}
-            <div>
+            {(newStatus == 'Not Started' || newStatus == 'WIP')&&(
+  <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Expected {newStatus === 'Not Started' ? 'Starting' : 'Completion'} Date
                 </label>
@@ -1469,6 +1468,8 @@ export const MilestoneTab = () => {
                 </Popover>
             </div>
 
+            )}
+          
             {/* Remarks */}
             <div>
                 <label className="block text-base font-semibold text-gray-900 mb-1">Remarks</label>
@@ -1621,7 +1622,7 @@ export const MilestoneTab = () => {
 //   work_header: string;
 //   status: 'Not Started' | 'WIP' | 'N/A' | 'Completed';
 //   progress: number; // Changed from percentage_completed to progress
-//   expected_start_date?: string;
+//   expected_starting_date?: string;
 //   expected_completion_date?: string;
 //   remarks?: string;
 //   // --- START: Frontend-only field for validation ---
@@ -1656,7 +1657,7 @@ export const MilestoneTab = () => {
 //   work_milestone_name: string;
 //   status: 'Not Started' | 'WIP' | 'N/A' | 'Completed';
 //   progress: number; // Changed from percentage_completed to progress
-//   expected_start_date: string;
+//   expected_starting_date: string;
 //   expected_completion_date: string;
 //   work_header: string;
 // }
@@ -1868,7 +1869,7 @@ export const MilestoneTab = () => {
 //           work_header: frappeM.work_header,
 //           status: frappeM.status || 'Not Started',
 //           progress: frappeM.progress || 0,
-//           expected_start_date: frappeM.expected_start_date,
+//           expected_starting_date: frappeM.expected_starting_date,
 //           expected_completion_date: frappeM.expected_completion_date,
 //           remarks: "",
 //           // --- START: Set frontend-only flag ---
@@ -2278,8 +2279,8 @@ export const MilestoneTab = () => {
 //     setProgress(milestone.progress);
 //     // Use the milestone's stored expected dates first, fallback to Frappe defaults for start date if applicable
 //     setExpectedDate(
-//       milestone.status === 'Not Started' && milestone.expected_start_date
-//         ? new Date(milestone.expected_start_date)
+//       milestone.status === 'Not Started' && milestone.expected_starting_date
+//         ? new Date(milestone.expected_starting_date)
 //         : (milestone.expected_completion_date ? new Date(milestone.expected_completion_date) : null)
 //     );
 //     setMilestoneRemarks(milestone.remarks || '');
@@ -2302,20 +2303,20 @@ export const MilestoneTab = () => {
 //     };
 
 //     if (newStatus === 'Not Started') {
-//       updatedLocalMilestone.expected_start_date = expectedDate ? formatDate(expectedDate) : undefined;
+//       updatedLocalMilestone.expected_starting_date = expectedDate ? formatDate(expectedDate) : undefined;
 //       updatedLocalMilestone.expected_completion_date = undefined;
 //       updatedLocalMilestone.progress = 0; // Reset progress if Not Started
 //     } else if (newStatus === 'WIP') {
 //       updatedLocalMilestone.expected_completion_date = expectedDate ? formatDate(expectedDate) : undefined;
-//       updatedLocalMilestone.expected_start_date = undefined; 
+//       updatedLocalMilestone.expected_starting_date = undefined; 
 //       updatedLocalMilestone.progress = progress; // Use input progress if WIP
 //     }else if(newStatus === 'Completed'){
 //       updatedLocalMilestone.expected_completion_date = undefined;
-//       updatedLocalMilestone.expected_start_date = undefined; 
+//       updatedLocalMilestone.expected_starting_date = undefined; 
 //       updatedLocalMilestone.progress = 100; // Set progress to 100% if Completed
 //     }else if(newStatus==='N/A'){
 //       updatedLocalMilestone.expected_completion_date = undefined;
-//       updatedLocalMilestone.expected_start_date = undefined; 
+//       updatedLocalMilestone.expected_starting_date = undefined; 
 //       updatedLocalMilestone.progress = 0; // Reset progress if N/A
 //     }
 
@@ -2595,7 +2596,7 @@ export const MilestoneTab = () => {
 //                                 <p className="text-sm text-gray-600 mt-1">
 //                                   Expected date of {milestone.status === 'Not Started' ? 'Starting' : 'completion'}:
 //                                   <span className="font-semibold ml-1">
-//                                     {milestone.status === 'Not Started' ? (milestone.expected_start_date || '--') : (milestone.expected_completion_date || '--')}
+//                                     {milestone.status === 'Not Started' ? (milestone.expected_starting_date || '--') : (milestone.expected_completion_date || '--')}
 //                                   </span>
 //                                 </p>
 //                                 <div className="flex justify-end mt-4">
