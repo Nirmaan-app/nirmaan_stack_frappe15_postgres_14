@@ -264,6 +264,8 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
         );
     }
 
+   
+
     if (!allWorkHeaders || allWorkHeaders.length === 0) {
         return (
             <div className="p-4 text-center text-gray-600">
@@ -284,7 +286,6 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
         <>
             {current_role === "Nirmaan Admin Profile" && (
                 <div className="p-4 border rounded-md shadow-sm bg-white">
-                    {/* Toggle Switch Section */}
                     <div className="flex items-center justify-between mb-6 pb-4 border-b">
                         <div>
                             <h3 className="text-lg font-semibold">Work Headers</h3>
@@ -341,15 +342,15 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
                     </div>
 
                     {/* Work Headers Section - Only shown when tracking is enabled */}
-                    {isMilestoneTrackingEnabled && (
-                        <>
+                    {isMilestoneTrackingEnabled ? (
+                        <div>
                             <div className="flex items-center justify-between mb-4">
                                 <h3 className="text-lg font-semibold">Tracked Work Headers</h3>
-                                {!isEditing ? (
+                                {!isEditing && (
                                     <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
                                         <PencilIcon size={20} className="mr-2" /> Edit
                                     </Button>
-                                ) : null}
+                                )}
                                 {isEditing && (
                                     <div className="flex justify-end space-x-2">
                                         <Button variant="outline" onClick={handleCancel}>
@@ -386,7 +387,7 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
                                             </span>
                                         )}
                                         <Label
-                                            htmlFor={isEditing ? `wh-${entry.name || `new-${entry.project_work_header_name}-${index}`}` : undefined}
+                                            htmlFor={isEditing && `wh-${entry.name || `new-${entry.project_work_header_name}-${index}`}`}
                                             className={isEditing ? "cursor-pointer" : ""}
                                         >
                                             {entry.project_work_header_name}
@@ -394,10 +395,11 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
                                     </div>
                                 ))}
                             </div>
-                        </>
-                    )}
+                        </div>
+                    ):("")}
                 </div>
             )}
+            
             <MilestonesSummary 
                 workReport={true} 
                 projectIdForWorkReport={projectData?.name}

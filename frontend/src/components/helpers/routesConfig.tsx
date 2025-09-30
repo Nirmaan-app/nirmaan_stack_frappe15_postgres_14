@@ -66,6 +66,7 @@ import AllProjectExpensesPage from "@/pages/ProjectExpenses/AllProjectExpenses";
 import AdminApprovedQuotationsTable from "@/pages/ApprovedQuotationsFlow/AdminApprovedQuotationsTable";
 import { MilestonesSummary } from "@/pages/Manpower-and-WorkMilestones/MilestonesSummary";
 import { MilestoneTab } from "@/pages/Manpower-and-WorkMilestones/MilestoneTab";
+import { WorkHeaderMilestones } from "@/components/workHeaderMilestones";
 // --- End component imports ---
 
 export const appRoutes: RouteObject[] = [
@@ -438,6 +439,9 @@ export const appRoutes: RouteObject[] = [
           // --- Other Top-Level Routes within MainLayout ---
           { path: "wp", element: <WorkPackages /> },
           { path: "product-packages", element: <ProcurementPackages /> },
+          // {path:"milestones-packages",element:}
+          { path: "milestone-packages", element: <WorkHeaderMilestones /> },
+          
           { path: "pdf", element: <PDF /> }, // Should PDF rendering be a route? Or triggered differently?
           { path: "milestone-update", element: <NewMilestones /> },
           // Commented out routes from original:

@@ -10,7 +10,8 @@ import { MapPin, ChevronDown, ChevronUp,MessagesSquare } from "lucide-react";
 import { useContext, useEffect, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate } from "react-router-dom";
-import ProjectSelect from "@/components/custom-select/project-select";
+// import ProjectSelect from "@/components/custom-select/project-select";
+import ProjectMilestoneSelect from "@/components/custom-select/project-milestone-select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -193,7 +194,10 @@ export const MilestonesSummary = ({workReport=false,projectIdForWorkReport}) => 
                <div className="flex items-center gap-2">
           
           <div className="flex-1">
-            <ProjectSelect onChange={handleChange} />
+            <ProjectMilestoneSelect
+            onChange={handleChange}
+            universal={true} // Or false, depending on if you want to remember the selection
+              />
           </div>
           
           {selectedProject && (
