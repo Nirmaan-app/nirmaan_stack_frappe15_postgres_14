@@ -297,7 +297,7 @@ export const Projects: React.FC<ProjectsProps> = ({
 
 {
       accessorKey: "project_value", header:"Value (excl.GST)",
-      cell: ({ row }) => (formatToRoundedIndianRupee(row.original.project_value / 100000)),
+      cell: ({ row }) => (<span className="tabular-nums">{formatToRoundedIndianRupee(row.original.project_value / 100000)} L</span>),
        size: 100,
       meta: {
         exportHeaderName: "Value ",
