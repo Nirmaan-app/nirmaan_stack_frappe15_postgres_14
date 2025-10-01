@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { CircleDollarSign, ClipboardMinus, HandPlatter, HardHat, ShoppingCart, Truck } from "lucide-react";
+import { CircleDollarSign, ClipboardMinus,Milestone, HandPlatter, HardHat, ShoppingCart, Truck } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 function DashboardCard({ title, icon, onClick, className, beta = false }: any) {
@@ -42,6 +42,13 @@ export const ProjectManager = () => {
                             onClick={() => navigate("/milestone-update")}
                             className="bg-red-600"
                         /> */}
+           <DashboardCard
+                            title="Milestones Report"
+                            icon={<Milestone className="h-8 w-8 text-white" />}
+                            onClick={() => navigate("/prs&milestones/milestone-report")}
+                            className="bg-red-600"
+          />
+          
           <DashboardCard
             title="Delivery Notes"
             icon={<Truck className="h-8 w-8 text-white" />}

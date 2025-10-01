@@ -84,6 +84,7 @@ const ProjectEstimates = React.lazy(() => import("./add-project-estimates"));
 const ProjectPOSummaryTable = React.lazy(() => import("./components/ProjectPOSummaryTable"));
 const ProjectMaterialUsageTab = React.lazy(() => import("./components/ProjectMaterialUsageTab"));
 import { ProjectExpensesTab } from "./components/ProjectExpenseTab"; // NEW
+import { ProjectWorkReportTab } from "./ProjectWorkReportTab";
 
 import { KeyedMutator } from "swr";
 import { useUrlParam } from "@/hooks/useUrlParam";
@@ -232,6 +233,7 @@ export const Component = Project;
 
 export const PROJECT_PAGE_TABS = {
   OVERVIEW: 'overview',
+  WORK_REPORT: 'workreport', // ADD THIS NEW KEY
   PR_SUMMARY: 'prsummary',
   SR_SUMMARY: 'srsummary',
   PO_SUMMARY: 'posummary',
@@ -318,6 +320,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     {
       label: "Overview",
       key: PROJECT_PAGE_TABS.OVERVIEW,
+    },
+    { // ADD THIS NEW MENU ITEM
+      label: "Work Report", // This is the displayed text
+      key: PROJECT_PAGE_TABS.WORK_REPORT, // This is the unique key
     },
     // role === "Nirmaan Admin Profile"
     //   ? {
@@ -899,6 +905,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       case PROJECT_PAGE_TABS.OVERVIEW:
         // Pass necessary data to ProjectOverviewTab
         return <ProjectOverviewTab projectData={data} estimatesTotal={estimatesTotal} projectCustomer={projectCustomer} totalPOAmountWithGST={totalPOAmountWithGST} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getTotalAmountPaid={getTotalAmountPaid} />;
+      case PROJECT_PAGE_TABS.WORK_REPORT: // ADD THIS NEW CASE
+            return <ProjectWorkReportTab projectData={data} project_mutate={project_mutate} current_role={role}/>;
       case PROJECT_PAGE_TABS.PR_SUMMARY:
         return <ProjectPRSummaryTable projectId={projectId} />;
       case PROJECT_PAGE_TABS.SR_SUMMARY:

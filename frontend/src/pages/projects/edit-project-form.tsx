@@ -278,7 +278,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
     projectId ? ProjectQueryKeys.project(projectId) : null
   );
 
-  // console.log("projectData", data)
+  console.log("projectData", data)
 
   const {
     data: procuremeent_packages_list,
