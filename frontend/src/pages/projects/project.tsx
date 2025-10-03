@@ -355,35 +355,37 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     //     key: "projectspends",
     //   }
     //   : null,
-    {
-      label: "Project Spends",
-      key: PROJECT_PAGE_TABS.SPENDS,
+     {
+      label: "Material Usage",
+      key: PROJECT_PAGE_TABS.MATERIAL_USAGE
     },
-    {
-      label: "PR Summary",
-      key: PROJECT_PAGE_TABS.PR_SUMMARY,
+     {
+      label: "Project Makes",
+      key: PROJECT_PAGE_TABS.MAKES
     },
+    
     // {
     //   label: "Financials",
     //   key: PROJECT_PAGE_TABS.FINANCIALS,
     // },
     {
+      label: "Misc. Project Expenses",
+      key: PROJECT_PAGE_TABS.PROJECT_EXPENSES
+    },
+    
+    {
+      label: "PR Summary",
+      key: PROJECT_PAGE_TABS.PR_SUMMARY,
+    },
+    {
+      label: "Project Spends",
+      key: PROJECT_PAGE_TABS.SPENDS,
+    },
+    // --- (Indicator) NEW MENU ITEM ---
+   {
       label: "Project Estimates",
       key: PROJECT_PAGE_TABS.ESTIMATES
     },
-    {
-      label: "Project Makes",
-      key: PROJECT_PAGE_TABS.MAKES
-    },
-    {
-      label: "Material Usage",
-      key: PROJECT_PAGE_TABS.MATERIAL_USAGE
-    },
-    // --- (Indicator) NEW MENU ITEM ---
-    {
-      label: "Misc. Project Expenses",
-      key: PROJECT_PAGE_TABS.PROJECT_EXPENSES
-    }
   ], [role]);
 
   // Define tabs available based on role or other logic
