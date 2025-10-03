@@ -56,6 +56,7 @@ export const PO_SUMMARY_LIST_FIELDS_TO_FETCH: (
         "vendor_name",
         "procurement_request",
         "status",
+        "po_amount_delivered",
         "custom", // Add custom if used for badge
         // Add invoice_data if needed for a column in this specific summary table
     ];
@@ -460,6 +461,26 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                     exportHeaderName: "Amount Paid",
                     exportValue: (row: ProcurementOrder) => {
                         return formatForReport(row.amount_paid); // Use the direct field for export
+                    },
+                },
+            },
+             {
+                // Use 'accessorKey' to make it sortable by the data table library
+                accessorKey: "po_amount_delivered",
+                header: ({ column }) => (
+                    <DataTableColumnHeader column={column} title="Payable Amount" />
+                ),
+                cell: ({ row }) => (
+                    <div className="font-medium pr-2 text-center tabular-nums">
+                        {formatToRoundedIndianRupee(row.original.po_amount_delivered)}
+                    </div>
+                ),
+                size: 160,
+                // enableSorting is true by default when using accessorKey
+                meta: {
+                    exportHeaderName: "Amount Paid",
+                    exportValue: (row: ProcurementOrder) => {
+                        return formatForReport(row.po_amount_delivered); // Use the direct field for export
                     },
                 },
             },

@@ -37,8 +37,9 @@ interface ProjectFinancialsTabProps {
   }
   totalPOAmountWithGST: number;
   getAllSRsTotalWithGST: number;
+  getAllPODeliveredAmount:number;
 }
-export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ projectData, projectCustomer, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST }) => {
+export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ projectData, projectCustomer, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST,getAllPODeliveredAmount }) => {
 
   const initialTab = useMemo(() => {
     return getUrlStringParam("fTab", "All Payments");
@@ -72,7 +73,7 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
   }, [initialTab]); // Depend on `tab` to avoid stale closures
 
   const { data: CreditData } = useCredits()
-console.log("CreditData financials",CreditData)
+// console.log("CreditData financials",CreditData)
   const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status !== "Paid"));
   const dueByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status !== "Paid" && cr.term_status !== "Created"));
 
@@ -163,7 +164,25 @@ console.log("CreditData financials",CreditData)
         poAmount: getTotalAmountPaid.poAmount,
         srAmount: getTotalAmountPaid.srAmount,
         projectExpensesAmount: getTotalAmountPaid.projectExpensesAmount
-      }
+      },
+       
+    },
+    {
+      label: "PO Payable Amount",
+      value: getAllPODeliveredAmount,
+      style: ""
+    },
+    {
+      label: "PO Payment Against Delivered",
+      value: Math.min(getTotalAmountPaid.poAmount,getAllPODeliveredAmount),
+      style: ""
+    },
+    {
+      label: "Advance Against PO",
+      // value: getTotalAmountPaid.poAmount-getAllPODeliveredAmount,
+
+      value: Math.max(0,getTotalAmountPaid.poAmount-getAllPODeliveredAmount),
+      style: ""
     },
 
 
