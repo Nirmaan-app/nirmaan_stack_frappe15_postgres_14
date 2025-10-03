@@ -507,6 +507,17 @@ export const MilestoneTab = () => {
     setDialogManpowerRoles([...dialogManpowerRoles, { id: `new_role_${Date.now()}`, label: "New Role", count: 0 }]);
   };
 
+  // --- NEW FUNCTION TO ADD ---
+  const handleRemoveManpowerRole = (indexToRemove: number) => {
+    setDialogManpowerRoles(prevRoles => prevRoles.filter((_, index) => index !== indexToRemove));
+    toast({
+      title: "Role Removed",
+      description: "Manpower role has been removed.",
+      variant: "default",
+    });
+  };
+  // --- END NEW FUNCTION ---
+
   const openUpdateManpowerDialog = () => {
     setIsUpdateManpowerDialogOpen(true);
   };
@@ -660,12 +671,12 @@ export const MilestoneTab = () => {
       const finalPayload = collectAllTabData();
       console.log("FinalPayload",finalPayload)
 
-       const hasPhotos = finalPayload.attachments && finalPayload.attachments.length > 0;
+       const hasPhotos = finalPayload.attachments && finalPayload.attachments.length > 2;
       if (!hasPhotos) {
         setIsLocalSaving(false);
         toast({
           title: "Submission Validation Error 🚫",
-          description: "Please upload at least one photo before final submission.",
+          description: "Please upload at least Three photo before final submission.",
           variant: "destructive",
         });
         return;
@@ -908,7 +919,7 @@ export const MilestoneTab = () => {
           max-w-[150px]                 
           truncate overflow-hidden whitespace-nowrap 
           text-xs p-2 rounded-md        
-          data-[state=active]:bg-blue-100 data-[state=active]:text-blue-700
+          data-[state=active]:bg-red-100 data-[state=active]:text-red-700
           data-[state=active]:font-semibold 
           
           disabled:opacity-50 disabled:cursor-not-allowed
@@ -929,7 +940,12 @@ export const MilestoneTab = () => {
             <TabsContent value="Work force" className="mt-4 p-0">
               <Card className="shadow-none border-none">
                 <CardHeader className="pt-0">
-                  <CardTitle className="text-lg font-semibold text-gray-800">Man power</CardTitle>
+                  <CardTitle className="text-base font-semibold text-gray-800">
+                    <div className="flex justify-between "><span>Man power </span><span className=" text-sm border border-2 rounded-md p-1"> 
+                          Report Date: {summaryWorkDate && formatDate(summaryWorkDate)}</span>
+                          </div>
+
+                          </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <Card className="bg-white p-4 shadow-sm rounded-lg">
@@ -993,7 +1009,7 @@ export const MilestoneTab = () => {
                       </PopoverContent>
                     </Popover> */}
                     <Button
-                      className="bg-blue-600 hover:bg-blue-700 text-white"
+                      className="bg-red-600 hover:bg-red-700 text-white"
                       onClick={openUpdateManpowerDialog}
                     >
                       UPDATE
@@ -1007,7 +1023,7 @@ export const MilestoneTab = () => {
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between">
                         <CardTitle className="text-lg font-semibold text-gray-800">Photos & Attachments ({localPhotos.length})</CardTitle>
-                        <Button className="bg-blue-600 hover:bg-blue-700 text-white" onClick={() => setIsCaptureDialogOpen(true)}>
+                        <Button className="bg-red-600 hover:bg-red-700 text-white" onClick={() => setIsCaptureDialogOpen(true)}>
                             <Camera className="h-4 w-4 mr-2" /> Capture Photo
                         </Button>
                     </CardHeader>
@@ -1203,7 +1219,7 @@ export const MilestoneTab = () => {
 
       <div className="sticky bottom-0 w-full p-2 bg-white border-t z-10">
         <Button
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white text-lg py-3"
+          className="w-full bg-red-600 hover:bg-red-700 text-white text-lg py-3"
           onClick={() => handleSyncAndSubmitAllData(false)}
           disabled={isGlobalSyncDisabled}
         >
@@ -1223,14 +1239,14 @@ export const MilestoneTab = () => {
       <Dialog open={isUpdateManpowerDialogOpen} onOpenChange={setIsUpdateManpowerDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Update Manpower</DialogTitle>
-            <DialogDescription>
+            <DialogTitle className="text-xl text-center font-bold text-red-600">Update Manpower</DialogTitle>
+            <DialogDescription className="text-sm text-center">
               Edit manpower counts, add new roles, and provide remarks for the selected date.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="flex justify-between items-center text-sm font-medium">
-              <span>Project: <span className="text-blue-600">{projectData?.project_name || "N/A"}</span></span>
+              <span>Project: <span className="text-red-600">{projectData?.project_name || "N/A"}</span></span>
               <div className="flex items-center gap-2">
                 {/* <span>Work Date:</span> */}
                 {/* <Popover open={isDialogDatePickerOpen} onOpenChange={setIsDialogDatePickerOpen}>
@@ -1265,29 +1281,53 @@ export const MilestoneTab = () => {
               {dialogManpowerRoles.map((manpowerItem, index) => (
                 <div key={manpowerItem.id || index} className="flex items-center gap-2">
                   {manpowerItem.id?.startsWith('new_role_') ? (
-                    <Input
+                    <>
+                    {![
+  "MEP Engineer",
+  "Safety Engineer",
+  "Electrical Team",
+  "Fire Fighting Team",
+  "Data & Networking Team",
+  "HVAC Team",
+  "ELV Team",
+].includes(manpowerItem.label) && (
+      <Button
+        variant="destructive"
+        className="h-8 w-8 p-0"
+        onClick={() => handleRemoveManpowerRole(index)}
+      >
+        <X className="h-4 w-4" />
+        <span className="sr-only">Remove Role</span>
+      </Button>
+    )}
+    <Input
                       type="text"
                       value={manpowerItem.label}
                       onChange={(e) => handleDialogRoleNameChange(index, e.target.value)}
                       className="flex-1 text-sm"
                       placeholder="Enter role name"
                     />
+                    </>
+                    
                   ) : (
                     <label className="flex-1 text-sm">{manpowerItem.label}</label>
                   )}
+                  
                   <Input
                     type="number"
                     value={manpowerItem.count.toString()}
                     onChange={(e) => handleDialogManpowerCountChange(index, e.target.value)}
                     className="w-20 text-center"
                   />
+                  
                 </div>
+                
               ))}
             </div>
 
             <Button
               variant="outline"
-              className="w-full flex items-center gap-2 text-blue-600 border-blue-600"
+              className="w-full flex items-center gap-2 text-red-600 border-red-600"
               onClick={handleAddManpowerRole}
             >
               <PlusCircledIcon className="h-4 w-4" /> Add Manpower
@@ -2437,7 +2477,7 @@ export const MilestoneTab = () => {
 //                 <TabsTrigger
 //                   key={tab.name || tab.project_work_header_name}
 //                   value={tab.project_work_header_name}
-//                   className="flex-1 data-[state=active]:bg-blue-100 data-[state=active]:text-blue-700"
+//                   className="flex-1 data-[state=active]:bg-red-100 data-[state=active]:text-red-700"
 //                 >
 //                   {tab.project_work_header_name}
 //                 </TabsTrigger>
@@ -2510,7 +2550,7 @@ export const MilestoneTab = () => {
 //                       </PopoverContent>
 //                     </Popover>
 //                     <Button
-//                       className="bg-blue-600 hover:bg-blue-700 text-white"
+//                       className="bg-red-600 hover:bg-red-700 text-white"
 //                       onClick={openUpdateManpowerDialog}
 //                     >
 //                       UPDATE
@@ -2523,7 +2563,7 @@ export const MilestoneTab = () => {
 //                 <Card>
 //                     <CardHeader className="flex flex-row items-center justify-between">
 //                         <CardTitle className="text-lg font-semibold text-gray-800">Photos & Attachments ({localPhotos.length})</CardTitle>
-//                         <Button className="bg-blue-600 hover:bg-blue-700 text-white" onClick={() => setIsCaptureDialogOpen(true)}>
+//                         <Button className="bg-red-600 hover:bg-red-700 text-white" onClick={() => setIsCaptureDialogOpen(true)}>
 //                             <Camera className="h-4 w-4 mr-2" /> Capture Photo
 //                         </Button>
 //                     </CardHeader>
@@ -2627,7 +2667,7 @@ export const MilestoneTab = () => {
 
 //       <div className="sticky bottom-0 w-full p-4 bg-white border-t z-10">
 //         <Button
-//           className="w-full bg-blue-600 hover:bg-blue-700 text-white text-lg py-3"
+//           className="w-full bg-red-600 hover:bg-red-700 text-white text-lg py-3"
 //           onClick={() => handleSyncAndSubmitAllData(false)}
 //           disabled={isGlobalSyncDisabled}
 //         >
@@ -2655,7 +2695,7 @@ export const MilestoneTab = () => {
 //           </DialogHeader>
 //           <div className="grid gap-4 py-4">
 //             <div className="flex justify-between items-center text-sm font-medium">
-//               <span>Project: <span className="text-blue-600">{projectData?.project_name || "N/A"}</span></span>
+//               <span>Project: <span className="text-red-600">{projectData?.project_name || "N/A"}</span></span>
 //               <div className="flex items-center gap-2">
 //                 <span>Work Date:</span>
 //                 <Popover open={isDialogDatePickerOpen} onOpenChange={setIsDialogDatePickerOpen}>
@@ -2712,7 +2752,7 @@ export const MilestoneTab = () => {
 
 //             <Button
 //               variant="outline"
-//               className="w-full flex items-center gap-2 text-blue-600 border-blue-600"
+//               className="w-full flex items-center gap-2 text-red-600 border-red-600"
 //               onClick={handleAddManpowerRole}
 //             >
 //               <PlusCircledIcon className="h-4 w-4" /> Add Manpower
@@ -2734,7 +2774,7 @@ export const MilestoneTab = () => {
 //               <Button variant="outline">Cancel</Button>
 //             </DialogClose>
 //             <Button
-//               className="bg-blue-600 hover:bg-blue-700 text-white"
+//               className="bg-red-600 hover:bg-red-700 text-white"
 //               onClick={() => handleSyncAndSubmitAllData(true)}
 //               disabled={isGlobalSyncDisabled}
 //             >
@@ -2842,7 +2882,7 @@ export const MilestoneTab = () => {
 //           </div>
 //           <div className="flex justify-end gap-2">
 //             <Button variant="outline" onClick={() => setIsUpdateMilestoneDialogOpen(false)}>Cancel</Button>
-//             <Button className="bg-blue-600 hover:bg-blue-700 text-white" onClick={handleUpdateMilestone}>Update</Button>
+//             <Button className="bg-red-600 hover:bg-red-700 text-white" onClick={handleUpdateMilestone}>Update</Button>
 //           </div>
 //         </DialogContent>
 //       </Dialog>

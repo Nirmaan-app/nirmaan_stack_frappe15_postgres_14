@@ -304,8 +304,8 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
             <Button variant="secondary" onClick={switchCamera} disabled={!stream || isLoading}>
               <RefreshCw className="h-5 w-5 mr-2" /> Switch Camera
             </Button>
-            <Button className="bg-blue-600 hover:bg-blue-700 text-white p-6 rounded-full shadow-lg" onClick={captureImage} disabled={!stream || isLoading}>
-              <Camera className="h-6 w-6" />
+            <Button className="bg-red-600 hover:bg-red-700 text-white p-4 rounded-full shadow-lg" onClick={captureImage} disabled={!stream || isLoading}>
+              <Camera className="h-5 w-6" />
             </Button>
           </>
         ) : (
@@ -313,7 +313,7 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
             <Button variant="outline" onClick={retakePhoto} disabled={isLoading || isUploading}>
               <X className="h-5 w-5 mr-2" /> Retake
             </Button>
-            <Button variant="default" className="bg-green-600 hover:bg-green-700" onClick={uploadAndSave} disabled={isLoading || isUploading || !capturedImage}>
+            <Button variant="default" className="bg-red-600 hover:bg-red-700" onClick={uploadAndSave} disabled={isLoading || isUploading || !capturedImage}>
               {isUploading ? <TailSpin height={20} width={20} color="#fff" /> : <Upload className="h-5 w-5 mr-2" />}
               Upload & Save
             </Button>
@@ -338,7 +338,7 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
         </div>
       )}
 
-      <Button variant="ghost" onClick={handleCancel} className="mt-4 text-gray-400 hover:text-white">
+      <Button variant="ghost" onClick={handleCancel} className="mt-4 text-white">
         Cancel
       </Button>
     </div>

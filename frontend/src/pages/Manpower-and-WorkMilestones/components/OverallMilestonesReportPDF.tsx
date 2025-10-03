@@ -88,7 +88,7 @@ const PDFReportHeader: React.FC<PDFReportHeaderProps> = ({ projectData, reportDa
                 Nirmaan(Stratos Infra Technologies Pvt. Ltd.)
               </div>
               <div className="text-sm text-gray-500 mt-0.5">
-                First floor, 244, 9th Main, 16th Cross Rd, Sector 6, HSR Layout, Bengaluru, Karnataka 560102
+                First floor, 234, 9th Main, 16th Cross Rd, Sector 6, HSR Layout, Bengaluru, Karnataka 560102
               </div>
             </div>
           </div>
@@ -104,7 +104,7 @@ const PDFReportHeader: React.FC<PDFReportHeaderProps> = ({ projectData, reportDa
           </div>
           <div className="flex justify-between items-center">
             <span className="font-semibold">Project Manager :</span>
-            <span className="text-right">{projectData?.project_manager || "--"}</span>
+            <span className="text-right">{projectData?.owner || "--"}</span>
           </div>
           <div className="flex justify-between items-center">
             <span className="font-semibold">Start Date :</span>
