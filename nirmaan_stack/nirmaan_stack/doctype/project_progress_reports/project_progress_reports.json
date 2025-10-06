@@ -12,6 +12,8 @@
   "manpower_remarks",
   "attachment_remarks",
   "report_status",
+  "draft_owner",
+  "draft_last_updated",
   "child_tables_section",
   "milestones",
   "manpower",
@@ -76,13 +78,23 @@
    "fieldname": "report_status",
    "fieldtype": "Data",
    "label": "Report Status"
+  },
+  {
+   "fieldname": "draft_owner",
+   "fieldtype": "Data",
+   "label": "Draft Owner"
+  },
+  {
+   "fieldname": "draft_last_updated",
+   "fieldtype": "Datetime",
+   "label": "Draft Last Updated"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-09-29 23:16:31.166928",
- "modified_by": "Administrator",
+ "modified": "2025-10-06 16:05:01.115123",
+ "modified_by": "nitesh@nirmaan.app",
  "module": "Nirmaan Stack",
  "name": "Project Progress Reports",
  "owner": "Administrator",
