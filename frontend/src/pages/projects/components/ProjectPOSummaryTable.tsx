@@ -4,6 +4,8 @@ import { Link } from "react-router-dom";
 import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
 import memoize from "lodash/memoize";
+import { Info } from "lucide-react";
+import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
 
 // --- UI Components ---
 import {
@@ -731,9 +733,18 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                                 ) : aggregates ? (
                                     <div className="grid grid-cols-1  gap-x-8 gap-y-4">
                                         {/* Column 2: PO Totals (inc. GST/exc. GST/Paid) - Updated */}
-                                       <div className="grid grid-cols-2 gap-y-2 gap-x-20 text-sm"> {/* Changed to items-start for consistent alignment */}
+                                        <div className="grid grid-cols-2 gap-y-2 gap-x-20 text-sm"> {/* Changed to items-start for consistent alignment */}
                                             <p className="flex justify-between w-full">
-                                                <span className="font-medium">Total (inc. GST):</span>{" "}
+                                                <span className="font-medium inline-flex items-center gap-1 group">Total (inc. GST)
+                                                    <HoverCard>
+                                                        <HoverCardTrigger asChild>
+                                                            <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
+                                                        </HoverCardTrigger>
+                                                        <HoverCardContent className="text-xs w-auto p-1.5">
+                                                            Total project value including GST.
+                                                        </HoverCardContent>
+                                                    </HoverCard>
+                                                </span>{" "}
                                                 <span className="text-blue-600 font-semibold">
                                                     {formatToRoundedIndianRupee(
                                                         aggregates.sum_of_total_amount
@@ -741,7 +752,15 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                                                 </span>
                                             </p>
                                             <p className="flex justify-between w-full">
-                                                <span className="font-medium">PO Payable Amount:</span>{" "}
+                                                <span className="font-medium inline-flex items-center gap-1 group">PO Payable Amount<HoverCard>
+                                                    <HoverCardTrigger asChild>
+                                                        <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
+                                                    </HoverCardTrigger>
+                                                    <HoverCardContent className="text-xs w-auto p-1.5">
+                                                        Total amount for delivered POs that are now payable.
+                                                    </HoverCardContent>
+                                                </HoverCard>
+                                                </span>{" "}
                                                 <span className="text-yellow-600 font-semibold">
                                                     {formatToRoundedIndianRupee(
                                                         aggregates.sum_of_po_amount_delivered
@@ -749,7 +768,15 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                                                 </span>
                                             </p>
                                             <p className="flex justify-between w-full">
-                                                <span className="font-medium">Total (exc. GST):</span>{" "}
+                                                <span className="font-medium inline-flex items-center gap-1 group">Total (exc. GST)<HoverCard>
+                                                    <HoverCardTrigger asChild>
+                                                        <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
+                                                    </HoverCardTrigger>
+                                                    <HoverCardContent className="text-xs w-auto p-1.5">
+                                                        Total project value excluding GST.
+                                                    </HoverCardContent>
+                                                </HoverCard>
+                                                </span>{" "}
                                                 <span className="text-blue-600 font-semibold">
                                                     {formatToRoundedIndianRupee(
                                                         aggregates.sum_of_amount
@@ -757,7 +784,16 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                                                 </span>
                                             </p>
                                             <p className="flex justify-between w-full">
-                                                <span className="font-medium">PO Payment Against Delivered:</span>{" "}
+                                                <span className="font-medium inline-flex items-center gap-1 group">PO Payment Against Delivered<HoverCard>
+                                                    <HoverCardTrigger asChild>
+                                                        <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
+                                                    </HoverCardTrigger>
+                                                    <HoverCardContent className="text-xs w-auto p-1.5">
+                                                        Amount paid against delivered items in this project’s POs.
+
+                                                    </HoverCardContent>
+                                                </HoverCard>
+                                                </span>{" "}
                                                 <span className="text-green-600 font-semibold">
                                                     {formatToRoundedIndianRupee(
                                                         Math.min(aggregates.sum_of_amount_paid, aggregates.sum_of_po_amount_delivered)
@@ -765,17 +801,33 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                                                 </span>
                                             </p>
                                             <p className="flex justify-between w-full">
-                                                <span className="font-medium">Total Amt Paid:</span>{" "}
+                                                <span className="font-medium inline-flex items-center gap-1 group">Total Amt Paid<HoverCard>
+                                                    <HoverCardTrigger asChild>
+                                                        <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
+                                                    </HoverCardTrigger>
+                                                    <HoverCardContent className="text-xs w-auto p-1.5">
+                                                       Total expenses recorded for the project.
+                                                    </HoverCardContent>
+                                                </HoverCard>
+                                                </span>{" "}
                                                 <span className="text-green-600 font-semibold">
                                                     {formatToRoundedIndianRupee(
                                                         aggregates.sum_of_amount_paid
                                                     )}
                                                 </span>
                                             </p>
-                                            
-                                            
+
+
                                             <p className="flex justify-between w-full">
-                                                <span className="font-medium">Advance Against PO:</span>{" "}
+                                                <span className="font-medium inline-flex items-center gap-1 group">Advance Against PO<HoverCard>
+                                                    <HoverCardTrigger asChild>
+                                                        <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
+                                                    </HoverCardTrigger>
+                                                    <HoverCardContent className="text-xs w-auto p-1.5">
+                                                        Advance amount paid before delivery for this project’s POs.
+                                                    </HoverCardContent>
+                                                </HoverCard>
+                                                </span>{" "}
                                                 <span className="text-red-600 font-semibold">
                                                     {formatToRoundedIndianRupee(
                                                         Math.max(0, aggregates.sum_of_amount_paid - aggregates.sum_of_po_amount_delivered)
@@ -794,7 +846,15 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                                                 <div className="flex gap-y-2 gap-x-20 justify-between items-start text-sm">
 
                                                     <p className="flex justify-between w-full">
-                                                        <span className="font-medium">Total Liabilities:</span>{" "}
+                                                        <span className="font-medium inline-flex items-center gap-1 group">Total Liabilities<HoverCard>
+                                                            <HoverCardTrigger asChild>
+                                                                <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
+                                                            </HoverCardTrigger>
+                                                            <HoverCardContent className="text-xs w-auto p-1.5">
+                                                               Total value of credit POs scheduled for future payment.
+                                                            </HoverCardContent>
+                                                        </HoverCard>
+                                                        </span>{" "}
                                                         <span className="text-yellow-600 font-semibold">
                                                             {formatToRoundedIndianRupee(
                                                                 relatedTotalBalanceCredit
@@ -804,7 +864,15 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
 
                                                     {/* Total Due Not Paid */}
                                                     <p className="flex justify-between w-full">
-                                                        <span className="font-medium">Total Due Not Paid:</span>{" "}
+                                                        <span className="font-medium inline-flex items-center gap-1 group">Total Due Not Paid<HoverCard>
+                                                            <HoverCardTrigger asChild>
+                                                                <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
+                                                            </HoverCardTrigger>
+                                                            <HoverCardContent className="text-xs w-auto p-1.5">
+                                                                Total value of credit POs that are due but not yet paid.
+                                                            </HoverCardContent>
+                                                        </HoverCard>
+                                                        </span>{" "}
                                                         <span className="text-red-600 font-semibold">
                                                             {formatToRoundedIndianRupee(
                                                                 relatedTotalDue
