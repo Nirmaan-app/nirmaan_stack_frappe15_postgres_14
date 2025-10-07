@@ -163,7 +163,7 @@ export const getCreditsColumns = (
       accessorKey: "amount",
       header: ({ column }) => (
         <div className="flex justify-end">
-          <DataTableColumnHeader column={column} title="Amount" />
+          <DataTableColumnHeader column={column} title="Due Amount" />
         </div>
       ),
       cell: ({ row }) => (
@@ -181,7 +181,7 @@ export const getCreditsColumns = (
         </div>
       ),
       cell: ({ row }) => (
-        <div className="text-center">{formatDate(row.original.due_date)}</div>
+        <div className="text-left">{formatDate(row.original.due_date)}</div>
       ),
     },
     // ...(currentStatus=="Scheduled"?[

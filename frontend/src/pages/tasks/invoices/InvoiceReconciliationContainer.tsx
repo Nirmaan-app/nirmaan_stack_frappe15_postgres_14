@@ -9,6 +9,9 @@ import { urlStateManager } from '@/utils/urlStateManager';
 
 const TaskHistoryTable = React.lazy(() => import('./components/TaskHistoryTable'));
 const PendingTasksTable = React.lazy(() => import('./components/PendingTasksTable'));
+const AllPoInvocies=React.lazy(()=>import('./components/PoInvoices'))
+const AllSRInvocies=React.lazy(()=>import('./components/SrInvoices'))
+
 
 export default function InvoiceReconciliationContainer() {
     // Use your hook to sync tab state with URL param 'tab'
@@ -68,8 +71,33 @@ export default function InvoiceReconciliationContainer() {
                   </div>
               ),
               value: INVOICE_TASK_TABS.HISTORY,
-          }
+          },
         ], [role])
+
+        const invoicesTab=useMemo(() => [
+
+            {
+              label: (
+                  <div className="flex items-center">
+                      <span>SR Invoices</span>
+                      {/* <span className="ml-2 text-xs font-bold">
+                          {role === "Nirmaan Admin Profile" ? adminPaymentsCount?.requested : paymentsCount?.requested}
+                      </span> */}
+                  </div>
+              ),
+              value: INVOICE_TASK_TABS.SR_INVOICES,
+          },{
+              label: (
+                  <div className="flex items-center">
+                      <span>PO Invoices</span>
+                      {/* <span className="ml-2 text-xs font-bold">
+                          {role === "Nirmaan Admin Profile" ? adminPaymentsCount?.requested : paymentsCount?.requested}
+                      </span> */}
+                  </div>
+              ),
+              value: INVOICE_TASK_TABS.PO_INVOICES,
+          }
+        ],[role])
          
 
     const onClick = useCallback(
@@ -81,7 +109,7 @@ export default function InvoiceReconciliationContainer() {
 
     return (
         <div 
-        className="flex-1 space-y-4"
+        className="flex-1 space-y-4 space-x-4"
         >
                 {tabs && (
                     <Radio.Group
@@ -93,15 +121,31 @@ export default function InvoiceReconciliationContainer() {
                         onChange={(e) => onClick(e.target.value)}
                     />
                 )}
+                {invoicesTab && (
+                    <Radio.Group
+                        options={invoicesTab}
+                        optionType="button"
+                        buttonStyle="solid"
+                        value={tab}
+                        onChange={(e) => onClick(e.target.value)}
+                    />
+                )}
                 
 
                 <Suspense fallback={
                     <LoadingFallback />
                 }>
-                    {tab === "pending" ? (
+                    {tab==="history" &&(
+                       <TaskHistoryTable />
+                    )}
+                    {tab === "pending" && (
                     <PendingTasksTable />
-                    ) : (
-                        <TaskHistoryTable />
+                    )}
+                    {tab==="po_invoices" &&(
+                       <AllPoInvocies />
+                    )}
+                    {tab==="sr_invoices" &&(
+                       <AllSRInvocies />
                     )}
                 </Suspense>
 

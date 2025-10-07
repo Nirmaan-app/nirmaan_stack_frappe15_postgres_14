@@ -91,6 +91,7 @@ export const MilestonesSummary = ({workReport=false,projectIdForWorkReport}) => 
       fields: ["name", "report_date", "project"],
       filters: [
         ["project", "=", selectedProject],
+        ["report_status", "=", "Completed"]
       ],
     },
     selectedProject ? undefined : null
@@ -184,7 +185,34 @@ export const MilestonesSummary = ({workReport=false,projectIdForWorkReport}) => 
 
   // Loading and Error States
   if (projectLoading || projectProgressLoading || dailyReportLoading) return <h1>Loading</h1>;
-  if (projectError || projectProgressError || dailyReportError) return <h1>Error</h1>;
+  if (projectError) {
+    const specificErrorMessage = projectError?.message ||"An unexpected issue occurred while fetching data.";
+
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[50vh] p-6 bg-red-50 text-red-800 rounded-lg shadow-md m-4">
+        <h3 className="text-2xl font-bold mb-2 text-center text-red-900">
+          Failed to Load Data!
+        </h3>
+        <p className="text-lg text-center text-red-700 mb-4">
+          We encountered a problem trying to fetch the necessary project information.
+        </p>
+        <p className="text-md text-center text-red-600 mb-6">
+          Error Details: <span className="font-semibold">{specificErrorMessage}</span>
+        </p>
+        <Button
+          onClick={() =>{
+sessionStorage.removeItem('selectedProject'); // ADD THIS LINE
+navigate('/prs&milestones/milestone-report')
+          } }
+          className="bg-red-600 hover:bg-red-700 text-white text-lg py-3 px-8 rounded-full shadow-lg transition-all duration-300 ease-in-out hover:scale-105"
+        >
+          Go Back to Reports Overview
+        </Button>
+      </div>
+    );
+  }
+  // --- End: Improved Generic Global Error Display ---
+
 
   return (
     <>

@@ -28,7 +28,7 @@ const ReportPageHeader = ({ projectData, dailyReportDetails }) => (
                 Nirmaan(Stratos Infra Technologies Pvt. Ltd.)
               </div>
               <div className="text-sm text-gray-500 mt-0.5">
-                First floor, 244, 9th Main, 16th Cross Rd, Sector 6, HSR Layout, Bengaluru, Karnataka 560102
+                First floor, 234, 9th Main, 16th Cross Rd, Sector 6, HSR Layout, Bengaluru, Karnataka 560102
               </div>
             </div>
           </div>
@@ -193,7 +193,7 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
                         </div>
                         <div className="flex justify-between items-center">
                           <span className="font-semibold">Project Manager :</span>
-                          <span className="text-right">{projectData?.project_manager || "--"}</span>
+                          <span className="text-right">{projectData?.owner || "--"}</span>
                         </div>
                         <div className="flex justify-between items-center">
                           <span className="font-semibold">Start Date :</span>
@@ -292,7 +292,7 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
                                   <th className="border p-2 text-left w-[45%] font-semibold">WORK</th>
                                   <th className="border p-2 text-center w-[15%] font-semibold">STATUS</th>
                                   <th className="border p-2 text-center w-[20%] font-semibold">PROGRESS</th>
-                                  <th className="border p-2 text-center w-[20%] font-semibold">DATE</th>
+                                  <th className="border p-2 text-center w-[20%] font-semibold">Exp Date/start Date</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -341,7 +341,10 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
                                           {milestone.expected_starting_date ? formatDate(milestone.expected_starting_date) : 'N/A'}
                                         </span>
                                       ) : (
-                                        milestone.expected_completion_date ? formatDate(milestone.expected_completion_date) : 'N/A'
+                                        <span className="text-yellow-600 font-medium">
+                                        {milestone.expected_completion_date ? formatDate(milestone.expected_completion_date) : 'N/A'}
+                                        </span>
+
                                       )}
                                     </td>
                                   </tr>

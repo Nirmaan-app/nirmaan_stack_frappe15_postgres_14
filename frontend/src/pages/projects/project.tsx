@@ -355,35 +355,37 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     //     key: "projectspends",
     //   }
     //   : null,
-    {
-      label: "Project Spends",
-      key: PROJECT_PAGE_TABS.SPENDS,
+     {
+      label: "Material Usage",
+      key: PROJECT_PAGE_TABS.MATERIAL_USAGE
     },
-    {
-      label: "PR Summary",
-      key: PROJECT_PAGE_TABS.PR_SUMMARY,
+     {
+      label: "Project Makes",
+      key: PROJECT_PAGE_TABS.MAKES
     },
+    
     // {
     //   label: "Financials",
     //   key: PROJECT_PAGE_TABS.FINANCIALS,
     // },
     {
+      label: "Misc. Project Expenses",
+      key: PROJECT_PAGE_TABS.PROJECT_EXPENSES
+    },
+    
+    {
+      label: "PR Summary",
+      key: PROJECT_PAGE_TABS.PR_SUMMARY,
+    },
+    {
+      label: "Project Spends",
+      key: PROJECT_PAGE_TABS.SPENDS,
+    },
+    // --- (Indicator) NEW MENU ITEM ---
+   {
       label: "Project Estimates",
       key: PROJECT_PAGE_TABS.ESTIMATES
     },
-    {
-      label: "Project Makes",
-      key: PROJECT_PAGE_TABS.MAKES
-    },
-    {
-      label: "Material Usage",
-      key: PROJECT_PAGE_TABS.MATERIAL_USAGE
-    },
-    // --- (Indicator) NEW MENU ITEM ---
-    {
-      label: "Misc. Project Expenses",
-      key: PROJECT_PAGE_TABS.PROJECT_EXPENSES
-    }
   ], [role]);
 
   // Define tabs available based on role or other logic
@@ -496,7 +498,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const { data: po_data, isLoading: po_loading } = useFrappeGetDocList<ProcurementOrdersType>(
     "Procurement Orders",
     {
-      fields: ["name", "procurement_request", "status", "amount", "tax_amount", "total_amount", "invoice_data"] as const,
+      fields: ["name", "procurement_request", "status", "amount", "tax_amount", "total_amount", "invoice_data","po_amount_delivered"] as const,
       filters: [
         ["project", "=", projectId],
         ["status", "!=", "Merged"],
@@ -555,6 +557,22 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     }, 0); // <-- 3. CRITICAL FIX: The initial value for the sum is now correctly set to 0.
 
   }, [po_data]);
+
+  const totalPoDeliveredAmount = useMemo(() => {
+    // 1. Guard Clause: This part is correct and should be kept.
+    if (!po_data || po_data.length === 0) {
+      return 0;
+    }
+
+    // 2. Corrected `reduce` implementation
+    return po_data.reduce((accumulator, currentOrder) => {
+      // For each order, add its 'amount' to the running total (accumulator).
+      // The parseNumber helper gracefully handles cases where 'amount' might be null or not a number.
+      return accumulator + parseNumber(currentOrder.po_amount_delivered);
+    }, 0); // <-- 3. CRITICAL FIX: The initial value for the sum is now correctly set to 0.
+
+  }, [po_data]);
+
 
   const [workPackageTotalAmounts, setWorkPackageTotalAmounts] = useState<{ [key: string]: any }>({});
 
@@ -915,7 +933,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         return <ProjectPOSummaryTable projectId={projectId} />;
       case PROJECT_PAGE_TABS.FINANCIALS:
         return <ProjectFinancialsTab projectData={data} projectCustomer={projectCustomer}
-          totalPOAmountWithGST={totalPOAmountWithGST} getTotalAmountPaid={getTotalAmountPaid} getAllSRsTotalWithGST={getAllSRsTotalWithGST} />;
+          totalPOAmountWithGST={totalPOAmountWithGST} getTotalAmountPaid={getTotalAmountPaid} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getAllPODeliveredAmount={totalPoDeliveredAmount}/>;
       case PROJECT_PAGE_TABS.SPENDS:
         return <ProjectSpendsTab projectId={data?.name} po_data={po_data} options={options}
           categorizedData={categorizedData} getTotalAmountPaid={getTotalAmountPaid} workPackageTotalAmounts={workPackageTotalAmounts} totalServiceOrdersAmt={totalServiceOrdersAmt} />; // Example
