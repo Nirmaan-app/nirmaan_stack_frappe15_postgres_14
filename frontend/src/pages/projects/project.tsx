@@ -501,12 +501,13 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       fields: ["name", "procurement_request", "status", "amount", "tax_amount", "total_amount", "invoice_data","po_amount_delivered"] as const,
       filters: [
         ["project", "=", projectId],
-        ["status", "!=", "Merged"],
+        ["status", "not in", ["Merged","Inactive"]],
       ], // removed ["status", "!=", "PO Approved"] for now
       limit: 0,
       orderBy: { field: "creation", order: "desc" },
     }
   );
+
 
   // console.log("ProjectOverView DATA", po_data)
 

@@ -1529,6 +1529,7 @@ export const PurchaseOrder = ({
                   documentData={invoicePO}
                   docMutate={poMutate}
                   project={project}
+                  disabledAddInvoice={PO?.status=="Inactive"}
                 />
 
                 {/* <POAttachments PO={PO} poMutate={poMutate} /> */}

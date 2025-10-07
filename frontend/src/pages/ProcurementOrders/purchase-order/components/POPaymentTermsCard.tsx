@@ -902,7 +902,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
   
   
 
-  const isReadOnly = accountsPage || estimatesViewing || summaryPage;
+  const isReadOnly = accountsPage || estimatesViewing || summaryPage|| PO.status ==="Inactive";
 
   // const isPaymentTermsEditable = useMemo(() => {
   //   if (
@@ -1109,7 +1109,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
               </span>
             </p>
             <ul className="space-y-1">
-              {processedPaymentTerms.length > 0 ? (
+              {processedPaymentTerms.length > 0 && PO.status!=="Inactive" ? (
                 processedPaymentTerms.map((term) => (
                   <PaymentTermRow
                     key={term.name}
@@ -1120,7 +1120,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
                 ))
               ) : (
                 <p className="text-sm text-gray-400 text-center py-4">
-                  No payment terms defined.
+                   {PO.status==="Inactive"?"This Payment Terms Are in InActive Mode":"No payment terms defined" }.
                 </p>
               )}
             </ul>

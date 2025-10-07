@@ -57,6 +57,7 @@ interface DocumentAttachmentsProps<T extends DocumentType> {
   // Mutator specifically for the *parent* document (PO or SR)
   docMutate: KeyedMutator<T[]>; // Use 'any' for flexibility or define a more specific SWRResponse type if possible
   project?: FrappeDoc<Projects>;
+  disabledAddInvoice?:boolean;
 }
 
 interface SrInvoiceDialogData {
@@ -75,6 +76,7 @@ export const DocumentAttachments = <T extends DocumentType>({
   documentData,
   docMutate,
   project,
+  disabledAddInvoice,
 }: DocumentAttachmentsProps<T>) => {
 //   console.log("DocumentAttachments", project, documentData);
 
@@ -425,6 +427,7 @@ export const DocumentAttachments = <T extends DocumentType>({
                 size="sm" // Consistent button size
                 className="text-primary border-primary hover:bg-primary/5" // Subtle hover
                 onClick={toggleNewInvoiceDialog}
+                disabled={disabledAddInvoice||false}
               >
                 Add Invoice
               </Button>

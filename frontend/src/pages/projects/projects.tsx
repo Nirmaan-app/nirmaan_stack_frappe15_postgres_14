@@ -133,7 +133,7 @@ export const Projects: React.FC<ProjectsProps> = ({
   // console.log("CreditData", CreditData);
 
   const { data: poData, isLoading: poDataLoading, error: poDataError } = useFrappeGetDocList<ProcurementOrder>(
-    "Procurement Orders", { fields: ["name", "project", "status", "amount", "tax_amount", "total_amount", "invoice_data"], filters: [["status", "!=", "Merged"]], limit: 100000 }, "POs_For_ProjectsList"
+    "Procurement Orders", { fields: ["name", "project", "status", "amount", "tax_amount", "total_amount", "invoice_data"], filters: [["status", "not in", ["Merged","Inactive"]],], limit: 100000 }, "POs_For_ProjectsList"
   );
 
 
