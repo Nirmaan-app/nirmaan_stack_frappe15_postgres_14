@@ -227,6 +227,17 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({ pr
             cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(row.original.amount_paid)}</div>, // Example badge
             enableColumnFilter: true, size: 120,
         },
+        {
+            id: "amount_payable", header: ({ column }) => <DataTableColumnHeader column={column} title="Amt payable" />,
+            cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(row.original.total_amount-row.original.amount_paid)}</div>, // Example badge
+            enableColumnFilter: true, size: 120,
+            meta: {
+                exportHeaderName: "Amt payable",
+                exportValue: (row: ServiceRequests) => {
+                    return formatToRoundedIndianRupee(row.total_amount-row.amount_paid);
+                }
+            }
+        },
         // {
         //     id: "amount_paid_po", header: ({ column }) => <DataTableColumnHeader column={column} title="Amt. Paid" />,
         //     cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(getTotalAmountPaidForSR(row.original.name, ["Paid"]))}</div>,
@@ -306,6 +317,12 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({ pr
                                             <span className="font-medium">Total Amt Paid:</span>{" "}
                                             <span className="text-green-600 font-semibold">
                                                 {formatToRoundedIndianRupee(srAggregates.total_amount_paid_for_srs)}
+                                            </span>
+                                        </p>
+                                         <p className="text-gray-700">
+                                            <span className="font-medium">Total Amt Payable:</span>{" "}
+                                            <span className="text-yellow-600 font-semibold">
+                                                {formatToRoundedIndianRupee(srAggregates.total_sr_value_inc_gst-srAggregates.total_amount_paid_for_srs)}
                                             </span>
                                         </p>
                                     </div>

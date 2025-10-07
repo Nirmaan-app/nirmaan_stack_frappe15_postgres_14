@@ -11,6 +11,8 @@ import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { SelectUnit } from "@/components/helpers/SelectUnit";
 import { ListChecks } from "lucide-react";
 import { Category as CategoryType } from "@/types/NirmaanStack/Category";
+import ReactSelect from 'react-select';
+
 import { CATEGORY_DOCTYPE, CATEGORY_LIST_FIELDS_TO_FETCH } from '../items.constants';
 
 interface AddItemDialogProps {
@@ -96,13 +98,26 @@ export const AddItemDialog: React.FC<AddItemDialogProps> = ({ isOpen, onOpenChan
                 <div className="grid gap-5 py-4">
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="category" className="text-right col-span-1">Category<sup className="text-red-500">*</sup></Label>
-                        <Select value={selectedCategory} onValueChange={setSelectedCategory} disabled={categoryLoading}>
+
+                        {/* <Select value={selectedCategory} onValueChange={setSelectedCategory} disabled={categoryLoading}>
                             <SelectTrigger className="col-span-3"><SelectValue placeholder={categoryLoading ? "Loading..." : "Select Category"} /></SelectTrigger>
                             <SelectContent>
                                 {categoryFetchError && <SelectItem value="error" disabled>Error loading categories</SelectItem>}
                                 {categoryOptions.map(cat => <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>)}
                             </SelectContent>
-                        </Select>
+                        </Select> */}
+                         <div className="col-span-3"> {/* Wrap ReactSelect to fit grid */}
+                                                                      <ReactSelect
+                                                                          options={categoryOptions}
+                                                                          // Value needs to be the full option object for react-select
+                                                                          value={categoryOptions.find(option => option.value === selectedCategory) || null}
+                                                                          onChange={val => setSelectedCategory(val ? val.value as string : undefined)}
+                                                                          menuPosition="auto"
+                                                                          isClearable={true} // Allows clearing the selection
+                                                                          placeholder="Select Category"
+                                                               
+                                                                      />
+                                                                  </div>
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="itemName" className="text-right col-span-1">Name<sup className="text-red-500">*</sup></Label>

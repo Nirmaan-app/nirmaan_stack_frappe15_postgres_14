@@ -20,6 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import ReactSelect from 'react-select';
+
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { Customers } from "@/types/NirmaanStack/Customers";
@@ -58,6 +60,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
 
   const [selectedUser, setSelectedUser] = useState<string | undefined>();
   const [userOptions, setUserOptions] = useState<{ label: JSX.Element; value: string }[]>([]);
+ 
 
 
   const [assignUserDialog, setAssignUserDialog] = useState(false);
@@ -131,6 +134,31 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
       {}));
   }, [groupedAssignees]);
 
+  // useEffect(() => {
+  //   if (usersList && projectAssignees) {
+  //     const options =
+  //       usersList
+  //         ?.filter(
+  //           (user) =>
+  //             !projectAssignees?.some((i) => i?.user === user?.name) &&
+  //             !["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(user?.role_profile) &&
+  //             user?.full_name !== "Administrator"
+  //         )
+  //         ?.map((op) => ({
+  //           label: (
+  //             <div>
+  //               {op?.full_name}
+  //               <span className="text-red-700 font-light">
+  //                 ({op?.role_profile?.split(" ").slice(1, 3).join(" ")})
+  //               </span>
+  //             </div>
+  //           ),
+  //           value: op?.name,
+  //         })) || [];
+  //     setUserOptions(options);
+  //   }
+  // }, [usersList, projectAssignees]);
+
   useEffect(() => {
     if (usersList && projectAssignees) {
       const options =
@@ -142,8 +170,10 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
               user?.full_name !== "Administrator"
           )
           ?.map((op) => ({
+            // This is the structure react-select expects.
+            // We'll keep the JSX here and use `formatOptionLabel` for rendering.
             label: (
-              <div>
+              <div key={op.name}> {/* Add a key to the root of the JSX label */}
                 {op?.full_name}
                 <span className="text-red-700 font-light">
                   ({op?.role_profile?.split(" ").slice(1, 3).join(" ")})
@@ -151,6 +181,8 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
               </div>
             ),
             value: op?.name,
+            // You can also add a string version for searching if formatOptionLabel is complex
+            searchableLabel: `${op?.full_name} (${op?.role_profile?.split(" ").slice(1, 3).join(" ")})`
           })) || [];
       setUserOptions(options);
     }
@@ -374,7 +406,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
                       >
                         Assign:
                       </label>
-                      <Select
+                      {/* <Select
                         defaultValue={
                           selectedUser ? selectedUser : undefined
                         }
@@ -391,8 +423,24 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
                               </SelectItem>
                             ))
                             : "No more users available for assigning!"}
-                        </SelectContent>
-                      </Select>
+                        </SelectContent>x
+                      </Select> */}
+                      <div className="col-span-3"> {/* Wrap ReactSelect to fit grid */}
+                        <ReactSelect
+                            options={userOptions}
+                            // Value needs to be the full option object for react-select
+                            value={userOptions.find(option => option.value === selectedUser) || null}
+                            onChange={val => setSelectedUser(val ? val.value as string : undefined)}
+                            menuPosition="auto"
+                            isClearable={true} // Allows clearing the selection
+                            placeholder="Select User"
+                            // If you want to render the JSX label
+                            formatOptionLabel={(option) => option.label}
+                            // If you added a searchableLabel to your options, you can use getOptionLabel for search
+                            getOptionLabel={(option) => (option as any).searchableLabel || option.value}
+                            // classNamePrefix="react-select" 
+                        />
+                    </div>
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
                       <span className="text-right font-light">To:</span>
