@@ -7,10 +7,14 @@ interface UseCategoryListProps {
 }
 
 export const useCategoryList = ({ workPackage }: UseCategoryListProps) => {
+    console.log("workPackage",workPackage)
     const options = getCategoryListOptions(workPackage);
     // Generate the key based on the options used for the fetch
     const queryKey = queryKeys.categories.list(options);
-    const enabled = !!workPackage; // Fetch only if workPackage is provided
+    // const enabled = !!workPackage && "Tool & Equipments"; // Fetch only if workPackage is provided
+    // const enabled = !!workPackage// Fetch only if workPackage is provided
+    const enabled=true
+
 
     return useFrappeGetDocList<Category>(
         "Category",

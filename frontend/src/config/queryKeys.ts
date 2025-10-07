@@ -301,7 +301,7 @@ export const getProjectExpenseListOptions = (): NonProjectExpenseListParams => (
 // Helper function to generate standardized Frappe options for reuse
 export const getCategoryListOptions = (workPackage?: string): CategoryListParams => ({
   fields: ["name", "category_name", "work_package", "tax"], // Specify needed fields
-  filters: workPackage ? [["work_package", "=", workPackage]] : [],
+  filters: workPackage ? [["work_package", "in", [workPackage,"Tool & Equipments"]]] : [],
   orderBy: { field: "category_name", order: "asc" },
   limit: 10000, // Consider pagination if needed
   workPackage: workPackage, // Include the parameter used in filtering for key uniqueness
