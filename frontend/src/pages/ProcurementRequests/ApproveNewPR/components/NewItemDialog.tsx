@@ -141,7 +141,7 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
                                                  </CardDescription>
                                              </CardHeader>
                                              <CardContent className='space-y-2'>
-                                                 {fuzzyMatches?.slice(0, 3).map((match) => (
+                                                 {fuzzyMatches?.slice(0,5).map((match) => (
                                                      <div key={match.name} className="flex justify-between items-center border rounded p-2 bg-white text-sm">
                                                          <div>
                                                              <strong className='block'>{match.item_name}</strong>

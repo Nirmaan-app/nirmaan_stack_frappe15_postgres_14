@@ -925,7 +925,7 @@ export const useApprovePRLogic = ({
             ...result.item,
             matchPercentage: Math.round((1 - result.score!) * 100),
         }));
-        setFuzzyMatches(matches.slice(0, 5)); // Limit matches shown
+        setFuzzyMatches(matches.slice(0,10)); // Limit matches shown
     }, [fuseInstance]);
 
     const handleOpenRequestItemDialog = useCallback((item: PRItemUIData) => {
