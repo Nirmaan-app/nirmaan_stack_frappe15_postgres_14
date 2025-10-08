@@ -42,7 +42,10 @@ def generate_project_wise_invoice_data(project_id: str):
         # Fetch all procurement orders for the given project.
         procurement_orders = frappe.get_all(
             "Procurement Orders",
-            filters={"project": project_id},
+            filters={
+                "project": project_id,
+                "status": ("not in", [ "Merged", "Inactive"])
+                },
             fields=["name", "invoice_data", "vendor", "vendor_name"]
         )
 

@@ -23,6 +23,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import ReactSelect from 'react-select';
+
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { UserProfileSkeleton } from "@/components/ui/skeleton";
 import { useUserData } from "@/hooks/useUserData";
@@ -328,7 +330,7 @@ export default function Profile() {
                       >
                         Assign:
                       </label>
-                      <Select value={curProj} onValueChange={(item) => setCurProj(item)}>
+                      {/* <Select value={curProj} onValueChange={(item) => setCurProj(item)}>
                         <SelectTrigger className="col-span-3">
                           <SelectValue placeholder="Select Project" />
                         </SelectTrigger>
@@ -338,7 +340,20 @@ export default function Profile() {
                                 </SelectItem>
                             )}
                         </SelectContent>
-                      </Select>
+                      </Select> */}
+                      <div className="col-span-3"> {/* Wrap ReactSelect to fit grid */}
+                                              <ReactSelect
+                                                  options={options}
+                                                  // Value needs to be the full option object for react-select
+                                                  value={options.find(option => option.value === curProj) || null}
+                                                  onChange={val => setCurProj(val ? val.value as string : undefined)}
+                                                  menuPosition="auto"
+                                                  isClearable={true} // Allows clearing the selection
+                                                  placeholder="Select Project"
+                                       
+                                              />
+                                          </div>
+
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
                       <span className="text-right font-light">To:</span>

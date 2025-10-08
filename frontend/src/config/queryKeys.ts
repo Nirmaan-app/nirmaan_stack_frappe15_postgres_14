@@ -237,7 +237,7 @@ export const getProjectReportListOptions = (): ProjectListParams => ({
 
 export const getPOForProjectInvoiceOptions = (): POListParams => ({
   fields: ['name', 'project', 'loading_charges', 'freight_charges', 'invoice_data',"total_amount","amount","tax_amount"], // Only fields needed for invoice calc
-  filters: [["status", "not in", ["Merged", "Cancelled", "PO Amendment"]]], // Match PO report filters
+  filters: [["status", "not in", ["Merged", "Cancelled", "PO Amendment","Inactive"]]], // Match PO report filters
   limit: 100000,
 });
 
@@ -301,7 +301,7 @@ export const getProjectExpenseListOptions = (): NonProjectExpenseListParams => (
 // Helper function to generate standardized Frappe options for reuse
 export const getCategoryListOptions = (workPackage?: string): CategoryListParams => ({
   fields: ["name", "category_name", "work_package", "tax"], // Specify needed fields
-  filters: workPackage ? [["work_package", "=", workPackage]] : [],
+  filters: workPackage ? [["work_package", "in", [workPackage,"Tool & Equipments"]]] : [],
   orderBy: { field: "category_name", order: "asc" },
   limit: 10000, // Consider pagination if needed
   workPackage: workPackage, // Include the parameter used in filtering for key uniqueness

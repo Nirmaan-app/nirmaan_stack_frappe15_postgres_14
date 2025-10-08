@@ -15,6 +15,7 @@ import { useEffect, useMemo, useState } from "react"
 import { useParams } from "react-router-dom"
 import React, { Suspense } from "react";
 import { TailSpin } from "react-loader-spinner";
+import ReactSelect from 'react-select';
 
 const ApprovedQuotationsTable = React.lazy(()=>import("../ApprovedQuotationsFlow/ApprovedQuotationsTable"));
 
@@ -146,7 +147,7 @@ const ItemView = ({ productId }: { productId: string }) => {
                                         </div>
                                         <div className="flex flex-col items-start">
                                             <label htmlFor="itemUnit" className="block text-sm font-medium text-gray-700">Category<sup className="pl-1 text-sm text-red-600">*</sup></label>
-                                            <Select onValueChange={(value) => setCategory(value)} defaultValue={category}>
+                                            {/* <Select onValueChange={(value) => setCategory(value)} defaultValue={category}>
                                                 <SelectTrigger className="">
                                                     <SelectValue className="text-gray-200" />
                                                 </SelectTrigger>
@@ -157,7 +158,19 @@ const ItemView = ({ productId }: { productId: string }) => {
                                                         )
                                                     })}
                                                 </SelectContent>
-                                            </Select>
+                                            </Select> */}
+                                             <div className="w-full"> {/* Wrap ReactSelect to fit grid */}
+                                                                                                                  <ReactSelect
+                                                                                                                      options={category_options}
+                                                                                                                      // Value needs to be the full option object for react-select
+                                                                                                                      value={category_options.find(option => option.value === category) || null}
+                                                                                                                      onChange={val => setCategory(val ? val.value as string : undefined)}
+                                                                                                                      menuPosition="auto"
+                                                                                                                      isClearable={true} // Allows clearing the selection
+                                                                                                                      placeholder="Select Category"
+                                                                                                           
+                                                                                                                  />
+                                                                                                              </div>
                                         </div>
                                     </div>
                                     <DialogClose className="flex justify-center">

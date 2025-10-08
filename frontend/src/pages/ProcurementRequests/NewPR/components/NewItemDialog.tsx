@@ -261,7 +261,7 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
                         {isFocused && fuzzyMatches.length > 0 && selectedCategory && (
                             <ul className="absolute z-20 mt-1 top-full left-0 right-0 bg-white border border-gray-300 rounded-md shadow-lg max-h-40 w-full overflow-y-auto">
                                 <li className='px-2 py-1 text-xs font-semibold text-gray-500 bg-gray-50'>Similar Existing Items:</li>
-                                {fuzzyMatches.slice(0, 5).map(({ item, score }) => (
+                                {fuzzyMatches.slice(0,10).map(({ item, score }) => (
                                      <li
                                         key={item.name}
                                         className="p-2 hover:bg-gray-100 flex justify-between items-center text-sm cursor-default"

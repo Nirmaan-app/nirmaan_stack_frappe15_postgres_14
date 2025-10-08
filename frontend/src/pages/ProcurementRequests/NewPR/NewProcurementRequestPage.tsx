@@ -237,12 +237,12 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
         project.project_wp_category_makes.forEach(item => {
             // Skip empty procurement_package
             // Add a check for item integrity as well, if items can be malformed
-            if (item && typeof item === 'object' && item.procurement_package && item.procurement_package !== "Additional Charges") {
+            if (item && typeof item === 'object' && item.procurement_package && item.procurement_package !== "Additional Charges" && item.procurement_package !== "Tool & Equipments") {
                 uniqueWPDocNames.add(item.procurement_package);
             }
         });
 
-        uniqueWPDocNames.add("Tool & Equipments"); // Ensure "Tool & Equipments" is always included
+        // uniqueWPDocNames.add("Tool & Equipments"); // Ensure "Tool & Equipments" is always included
 
         return Array.from(uniqueWPDocNames)
         // .map(docName => wpNameMap.get(docName) || docName) // This part effectively did nothing as wpNameMap was empty
@@ -302,6 +302,7 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
     }
 
 
+// console.log("uniqueProcurementPackageDisplayNames",wpList,uniqueProcurementPackageDisplayNames)
 
     return (
         <div className="flex-1 space-y-4 px-4 py-4">
