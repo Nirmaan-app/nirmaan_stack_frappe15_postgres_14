@@ -74,11 +74,11 @@ export const useCredits = () => {
 
   const additionalFilters = useMemo(() => {
 
-    const filters = [['status', 'not in', ["Merged","Inactive"]], ['PO Payment Terms', 'payment_type', '=', 'Credit']
+    const filters = [['status', 'not in', ["Merged","Inactive", "PO Amendment"]], ['PO Payment Terms', 'payment_type', '=', 'Credit']
     ];
 
     if (currentStatus !== "All") {
-      filters.push(['status', 'not in', ["Merged","Inactive"]], ['PO Payment Terms', 'term_status', '=', currentStatus],);
+      filters.push(['status', 'not in', ["Merged","Inactive", "PO Amendment"]], ['PO Payment Terms', 'term_status', '=', currentStatus],);
     }
     // --- NEW LOGIC ---
     // Translate TanStack column filters into Frappe API filters

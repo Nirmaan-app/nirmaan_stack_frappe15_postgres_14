@@ -23,7 +23,7 @@ def get_po_ledger_data(vendor_id):
     # --- Step 1: Fetch Purchase Orders (No change here) ---
     vendor_pos = frappe.get_all(
         "Procurement Orders",
-        filters={"vendor": vendor_id, "status": ("not in", [ "Merged", "Inactive"])},
+        filters={"vendor": vendor_id, "status": ("not in", [ "Merged", "Inactive", "PO Amendment"])},
         fields=["name", "creation", "total_amount", "project_name", "invoice_data"]
     )
     print(f"DEBUG LEDGER: Found {len(vendor_pos)} total historical Purchase Orders.")

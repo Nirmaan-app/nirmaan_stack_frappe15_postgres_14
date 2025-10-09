@@ -36,7 +36,9 @@ def generate_all_po_invoice_data():
         # Include 'project' field as it might be relevant for some POs.
         procurement_orders = frappe.get_all(
             "Procurement Orders",
-            filters={}, # No filters applied, fetches all
+           filters={
+                "status": ("not in", [ "Merged", "Inactive", "PO Amendment"])
+                },
             fields=["name", "invoice_data", "vendor", "vendor_name", "project"] # Added 'project'
         )
 
