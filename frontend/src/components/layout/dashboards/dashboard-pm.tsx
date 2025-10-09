@@ -43,7 +43,7 @@ export const ProjectManager = () => {
                             className="bg-red-600"
                         /> */}
            <DashboardCard
-                            title="Milestones Report"
+                            title="Daily Progress Report"
                             icon={<Milestone className="h-8 w-8 text-white" />}
                             onClick={() => navigate("/prs&milestones/milestone-report")}
                             className="bg-red-600"
@@ -55,12 +55,12 @@ export const ProjectManager = () => {
             onClick={() => navigate("/prs&milestones/delivery-notes")}
             className="bg-red-600"
           />
-          <DashboardCard
+          {/* <DashboardCard
             title="Generate Daily Manpower Report"
             icon={<HardHat className="h-8 w-8 text-white" />}
             onClick={() => navigate("/prs&milestones/man-power-report")}
             className="bg-red-600"
-          />
+          /> */}
           <DashboardCard
             title="View Service Requests"
             icon={<HandPlatter className="h-8 w-8 text-white" />}

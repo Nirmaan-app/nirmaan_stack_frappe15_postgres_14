@@ -92,7 +92,7 @@
 //   name: string;
 //   work_milestone_name: string;
 //   work_header: string;
-//   status: 'Not Started' | 'WIP' | 'N/A' | 'Completed';
+//   status: 'Not Started' | 'WIP' | 'Not Applicable' | 'Completed';
 //   progress: number;
 //   expected_starting_date?: string;
 //   expected_completion_date?: string;
@@ -1646,7 +1646,7 @@ interface LocalMilestoneData {
   name: string;
   work_milestone_name: string;
   work_header: string;
-  status: 'Not Started' | 'WIP' | 'N/A' | 'Completed';
+  status: 'Not Started' | 'WIP' | 'Not Applicable' | 'Completed';
   progress: number;
   expected_starting_date?: string;
   expected_completion_date?: string;
@@ -1659,7 +1659,7 @@ interface FrappeMilestoneChildPayload {
   name?: string; // Only present if updating an existing child row; omit for new rows.
   work_milestone_name: string;
   work_header: string;
-  status: 'Not Started' | 'WIP' | 'N/A' | 'Completed';
+  status: 'Not Started' | 'WIP' | 'Not Applicable' | 'Completed';
   progress: number;
   expected_starting_date?: string;
   expected_completion_date?: string;
@@ -1695,7 +1695,7 @@ interface FrappeProjectProgressReportPayload {
 interface WorkMilestoneFromFrappe {
   name: string;
   work_milestone_name: string;
-  status: 'Not Started' | 'WIP' | 'N/A' | 'Completed';
+  status: 'Not Started' | 'WIP' | 'Not Applicable' | 'Completed';
   progress: number;
   expected_starting_date: string;
   expected_completion_date: string;
@@ -1833,7 +1833,7 @@ const latestCompletedReportDateIsToday =
   // --- STATE FOR MILESTONE DIALOG AND LOCAL MANAGEMENT ---
   const [isUpdateMilestoneDialogOpen, setIsUpdateMilestoneDialogOpen] = useState(false);
   const [selectedMilestoneForDialog, setSelectedMilestoneForDialog] = useState<LocalMilestoneData | null>(null);
-  const [newStatus, setNewStatus] = useState<'Not Started' | 'WIP' | 'N/A' | 'Completed' | ''>('');
+  const [newStatus, setNewStatus] = useState<'Not Started' | 'WIP' | 'Not Applicable' | 'Completed' | ''>('');
   const [progress, setProgress] = useState<number>(0);
   const [expectedDate, setExpectedDate] = useState<Date | null>(null);
   const [isMilestoneDatePickerOpen, setIsMilestoneDatePickerOpen] = useState(false);
@@ -1891,7 +1891,7 @@ const latestCompletedReportDateIsToday =
           name: frappeM.name,
           work_milestone_name: frappeM.work_milestone_name,
           work_header: frappeM.work_header,
-          status: frappeM.status || 'Not Started',
+          status: frappeM.status || 'Not Applicable',
           progress: frappeM.progress || 0,
           expected_starting_date: frappeM.expected_starting_date,
           expected_completion_date: frappeM.expected_completion_date,
@@ -2414,7 +2414,7 @@ console.log(user)
 
     if (activeTabValue !== "Work force" && activeTabValue !== "Photos") {
       const hasUnupdatedMilestones = currentTabMilestones.some(
-        (m) => !m.is_updated_for_current_report && m.status !== 'N/A'
+        (m) => !m.is_updated_for_current_report && m.status !== 'Not Applicable'
       );
 
       if (hasUnupdatedMilestones) {
@@ -2573,7 +2573,7 @@ console.log(user)
         });
         return;
       }
-      if (!expectedDate) {
+      if (progress>75 && !expectedDate) {
         toast({
           title: "Validation Error 🚫",
           description: "Please provide an expected completion date for 'WIP' milestones.",
@@ -2598,14 +2598,21 @@ console.log(user)
       updatedLocalMilestone.expected_completion_date = undefined;
       updatedLocalMilestone.progress = 0;
     } else if (newStatus === 'WIP') {
+      if(progress>75){
       updatedLocalMilestone.expected_completion_date = expectedDate ? formatDate(expectedDate) : undefined;
       updatedLocalMilestone.expected_starting_date = undefined; 
       updatedLocalMilestone.progress = progress;
-    }else if(newStatus === 'Completed'){
+      }else{
+         updatedLocalMilestone.expected_completion_date = undefined;
+      updatedLocalMilestone.expected_starting_date = undefined; 
+      updatedLocalMilestone.progress = progress;
+      } 
+    }
+    else if(newStatus === 'Completed'){
       updatedLocalMilestone.expected_completion_date = undefined;
       updatedLocalMilestone.expected_starting_date = undefined; 
       updatedLocalMilestone.progress = 100;
-    }else if(newStatus==='N/A'){
+    }else if(newStatus==='Not Applicable'){
       updatedLocalMilestone.expected_completion_date = undefined;
       updatedLocalMilestone.expected_starting_date = undefined; 
       updatedLocalMilestone.progress = 0;
@@ -2639,7 +2646,7 @@ console.log(user)
         return 'bg-yellow-100 text-yellow-700';
       case 'Completed':
         return 'bg-green-100 text-green-700';
-      case 'N/A':
+      case 'Not Applicable':
         return 'bg-gray-100 text-gray-700';
       default:
         return 'bg-gray-100 text-gray-700';
@@ -2856,14 +2863,67 @@ console.log(user)
 
   const visibleTabs = getVisibleTabs(activeTabValue);
 
+  // Helper function to get the dynamic header title
+  const getHeaderTitle = () => {
+    if (activeTabValue === "Work force") {
+      return "Manpower";
+    } else if (activeTabValue === "Photos") {
+      return "Photos";
+    } else {
+      return "Milestones"; // For all other work header tabs
+    }
+  };
+  const headerTitle = getHeaderTitle(); // Call the helper function
+
+
+  const moveToPreviousTab = () => {
+    const allTabs = getAllAvailableTabs();
+    const currentIndex = allTabs.findIndex(tab => tab.project_work_header_name === activeTabValue);
+
+    if (currentIndex > 0) { // Only move back if not on the first tab
+      const previousTab = allTabs[currentIndex - 1];
+      setActiveTabValue(previousTab.project_work_header_name);
+      return true;
+    }
+    return false; // Already on the first tab
+  };
+
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full overflow-y-auto">
+      <div className="sticky top-0 w-full bg-gray-100 shadow-sm p-4 z-20">
+  <div className="flex justify-between items-center ">
+    <div className="flex flex-col">
+      {/* Dynamic Step and Title */}
+      <span className="text-base font-semibold text-gray-800">
+        Step {currentIndex + 1}/{allAvailableTabs.length}: {headerTitle}
+      </span>
+      {/* Conditional subtitle for "Work force" tab */}
+      {activeTabValue === "Work force" ? (
+        <span className="text-sm text-gray-600">Specify the workforce details</span>
+      ):(
+        activeTabValue ==="Photos"?(
+          <span className="text-sm text-gray-600">Specify the Photos Proof</span>
+        ):(
+          <span className="text-sm text-gray-600">Specify the Milestones details</span>
+        )
+      )}
+     
+    </div>
+    <div className="flex flex-col items-end">
+      {/* Dynamic Report Date */}
+      <span className="text-base font-semibold text-gray-800">
+        {summaryWorkDate && formatDate(summaryWorkDate)}
+      </span>
+      <span className="text-xs text-gray-500">Report Date</span>
+    </div>
+  </div>
+</div>
       {draftMessage&&<div className="text-center text-sm bg-red-400 border p-1 rounded-md mb-2">
         {draftMessage}
         </div>}
       
-      <div className="flex-1">
-        <div className="px-1  bg-white">
+      <div className="flex-1 mt-1">
+        <div className="px-1 bg-white">
           <Tabs value={activeTabValue} className="w-full" onValueChange={setActiveTabValue}>
             <TabsList
               className="flex w-full justify-evenly p-1 bg-gray-100 rounded-md "
@@ -2885,12 +2945,13 @@ console.log(user)
           w-auto                        
           max-w-[150px]                 
           truncate overflow-hidden whitespace-nowrap 
-          text-xs p-2 rounded-md        
-          data-[state=active]:bg-red-100 data-[state=active]:text-red-700
-          data-[state=active]:font-semibold 
+          text-xs p-2 rounded-md   
+          font-semibold     
+          data-[state=active]:bg-white data-[state=active]:text-red-500
+          data-[state=active]:font-bold 
           
           disabled:opacity-50 disabled:cursor-not-allowed
-          disabled:bg-gray-50 disabled:text-gray-500
+          disabled:bg-gray-50 disabled:text-gray-700
           
           
           md:flex-1 md:max-w-none md:w-auto
@@ -2905,17 +2966,21 @@ console.log(user)
             
 
             <TabsContent value="Work force" className="mt-4 p-0">
-              <Card className="shadow-none border-none">
-                <CardHeader className="pt-0">
-                  <CardTitle className="text-base font-semibold text-gray-800">
+              {/* <Card className="shadow-none border-none"> */}
+                   {/*<CardHeader className="pt-0">
+                <CardTitle className="text-base font-semibold text-gray-800">
                     <div className="flex justify-between "><span>Man power </span><span className=" text-sm border border-2 rounded-md p-1"> 
                           Report Date: {summaryWorkDate && formatDate(summaryWorkDate)}</span>
                           </div>
 
                           </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <Card className="bg-white p-4 shadow-sm rounded-lg">
+                </CardHeader> */}
+                {/* <CardContent className="space-y-4"> */}
+                {
+                  summaryManpowerRoles.reduce((sum, item) => sum + item.count, 0).toString().padStart(2, "0") >0 ?(
+
+
+                    <Card className="bg-white p-4 shadow-sm rounded-lg">
                     <CardContent className="p-0">
                       <div className="flex justify-between font-semibold text-sm mb-2 border-b pb-2">
                         <span>Team /Roles</span>
@@ -2946,20 +3011,75 @@ console.log(user)
                         )}
                       </div>
                     </CardContent>
-                  </Card>
+                  {/* <div className="flex items-center justify-between mt-4 gap-20"> 
+    <Button
+      className="bg-gray-600 hover:bg-gray-700"
+      onClick={openUpdateManpowerDialog}
+      disabled={isBlockedByDraftOwnership}
+    >
+      Edit
+    </Button>
 
-                  <div className="flex items-center justify-end mt-4">
+    <Button
+      className="bg-red-600 hover:bg-red-700 text-white"
+       onClick={() => handleSyncAndSubmitAllData(false)}
+      disabled={isBlockedByDraftOwnership}
+    >
+      Continue
+    </Button>
+</div> */}
+<div className="flex items-center mt-4 gap-4 w-full"> 
 
-                    <Button
+    <Button
+      // Removed w-1/2. Added flex-1.
+         variant="outline"
+      className="flex-1 text-red-600 border-red-600"
+      onClick={openUpdateManpowerDialog}
+      disabled={isBlockedByDraftOwnership}
+    >
+      Edit
+    </Button>
+
+    <Button
+      // Removed w-1/2. Added flex-1.
+      className="bg-red-600 hover:bg-red-700 flex-1 text-white" 
+    
+       onClick={() => handleSyncAndSubmitAllData(false)}
+      disabled={isBlockedByDraftOwnership}
+    >
+      Continue
+    </Button>
+</div>
+
+
+                </Card>
+               
+                  
+
+                  ):(
+                    <div className="flex items-center justify-center mt-4">
+
+                    {/* <Button
                       className="bg-red-600 hover:bg-red-700 text-white"
                       onClick={openUpdateManpowerDialog}
                       disabled={isBlockedByDraftOwnership} // MODIFIED: Disable if blocked
                     >
-                      UPDATE
-                    </Button>
+                         Add Manpower 
+                    </Button> */}
+                     <Button
+              variant="outline"
+              className="flex items-center gap-2 text-red-600 border-red-600"
+              onClick={openUpdateManpowerDialog}
+                      disabled={isBlockedByDraftOwnership} // MODIFIED: Disable if blocked
+            >
+              <PlusCircledIcon className="h-4 w-4" /> Add Manpower Details
+            </Button>
                   </div>
-                </CardContent>
-              </Card>
+                  )
+                }
+                  
+                {/* </CardContent> */}
+              {/* </Card> */}
             </TabsContent>
             
       <TabsContent value="Photos" className="mt-4 p-1">
@@ -3021,14 +3141,15 @@ console.log(user)
           )}
         </CardContent>
       </Card>
+      
     </TabsContent>
-
+{/* 
             {allAvailableTabs.map((tab) => (
               tab.project_work_header_name !== "Work force" && tab.project_work_header_name!=="Photos"? (
                 <TabsContent key={tab.name || tab.project_work_header_name} value={tab.project_work_header_name} className="p-1">
                   <Card>
                     <CardHeader className="border-b">
-                      <CardTitle >{tab.project_work_header_name} Milestones -{currentTabMilestones.length}</CardTitle>
+                      <CardTitle >{tab.project_work_header_name} {currentTabMilestones.length}</CardTitle>
                     </CardHeader>
                     <CardContent>
                       {currentTabMilestones && currentTabMilestones.length > 0 ? (
@@ -3046,7 +3167,7 @@ console.log(user)
                                 </p>
                                  <div className="flex justify-between items-end w-full mt-2">
             
-                                    {milestone?.status !== 'N/A' && milestone.status!=="Completed" &&( 
+                                    {milestone?.status !== 'Not Applicable' && milestone.status!=="Completed" &&( 
                                         <div className="text-sm text-gray-600 flex flex-col items-start">
                                             <span>
                                                 Expected date of {milestone.status === 'Not Started' ? 'Starting' : 'completion'}
@@ -3063,7 +3184,7 @@ console.log(user)
                                             <Button 
                                                                   onClick={() => openUpdateMilestoneDialog(milestone)}
                                                                   variant={milestone.is_updated_for_current_report ? 'default' : 'secondary'}
-                                                                  className={!milestone.is_updated_for_current_report && milestone.status !== 'N/A' ? 'border-red-500 text-red-500 hover:bg-red-50' : ''}
+                                                                  className={!milestone.is_updated_for_current_report && milestone.status !== 'Not Applicable' ? 'border-red-500 text-red-500 hover:bg-red-50' : ''}
                                                                   disabled={isBlockedByDraftOwnership} // MODIFIED: Disable if blocked
                                                                 >
                                                                   {milestone.is_updated_for_current_report ? 'EDITED' : 'UPDATE'}
@@ -3080,13 +3201,131 @@ console.log(user)
                     </CardContent>
                   </Card>
                 </TabsContent>
+
+
               ) : null
-            ))}
+            ))} */}
+
+{allAvailableTabs.map((tab) => {
+              if (tab.project_work_header_name !== "Work force" && tab.project_work_header_name !== "Photos") {
+                // --- Start of new calculation for this specific tab ---
+                // const dateString = formatDate(summaryWorkDate);
+                // const storageKey = `project_${projectId}_date_${dateString}_tab_${tab.project_work_header_name}`;
+                // const storedTabData = sessionStorage.getItem(storageKey);
+
+                // let milestonesForThisTab: LocalMilestoneData[] = [];
+
+                // if (storedTabData) {
+                //   const parsedTabData: ProjectProgressReportData = JSON.parse(storedTabData);
+                //   milestonesForThisTab = parsedTabData.milestones || [];
+                // }
+
+                // // If no local data or local data has no milestones, fallback to inherited
+                // if (milestonesForThisTab.length === 0) {
+                //     milestonesForThisTab = getInheritedMilestones(tab.project_work_header_name);
+                // }
+
+                const updatedMilestonesCount = currentTabMilestones.filter(m => m.is_updated_for_current_report).length;
+                const totalMilestonesCount =  currentTabMilestones.length;
+                // --- End of new calculation for this specific tab ---
+                const colorCount=totalMilestonesCount==updatedMilestonesCount
+
+                return (
+                  <TabsContent key={tab.name || tab.project_work_header_name} value={tab.project_work_header_name} className="p-1">
+                    <Card>
+                      <CardHeader className="border-b">
+                        <CardTitle >
+                          {tab.project_work_header_name}
+                        </CardTitle>
+                        {/* NEW LINE: Displaying the updated milestones count */}
+                        {totalMilestonesCount > 0 && ( // Only show this line if there are milestones to count
+                          <p className={`text-sm ${colorCount?"text-green-500":"text-red-500"} mt-1`}>
+                            Adding {updatedMilestonesCount}/{totalMilestonesCount} milestones updated
+                          </p>
+                        )}
+                      </CardHeader>
+                      <CardContent>
+                        {currentTabMilestones && currentTabMilestones.length > 0 ? (
+                            <div className="">
+                              {currentTabMilestones.map(milestone => (
+                                <div key={milestone.name} className="py-2 border-b">
+                                   <p className={`w-fit px-2 py-0.5 text-sm font-semibold rounded ${getStatusColor(milestone.status)}`}>
+                                      {milestone.status}
+                                  </p>
+                                  <div className="flex justify-between items-center mb-2">
+                                    <h4 className="font-bold text-lg">{milestone.work_milestone_name}</h4>
+                                  </div>
+                                  <p >
+                                    <span className="font-semibold test-md">{milestone.progress}%</span> <span className="test-sm text-gray-600">completed</span>
+                                  </p>
+                                   <div className="flex justify-between items-end w-full mt-2">
+              
+                                      {milestone?.status !== 'Not Applicable' && milestone.status!=="Completed" &&( 
+                                          <div className="text-sm text-gray-600 flex flex-col items-start">
+                                              <span>
+                                                  Expected date of {milestone.status === 'Not Started' ? 'Starting' : 'completion'}
+                                              </span>
+                                              
+                                              <span className="font-semibold text-gray-800 flex items-center mt-0.5 border-2 border-gray-300 p-2 rounded-md">
+                                                  <CalendarIcon className="h-4 w-4 mr-1 text-gray-500" />
+                                                  {milestone.status === 'Not Started' ? (milestone.expected_starting_date || '--') : (milestone.expected_completion_date || '--')}
+                                              </span>
+                                          </div>)}
+             
+              
+                                            {/* <div className="flex-shrink-0 ml-auto">
+                                              <Button 
+                                                                    onClick={() => openUpdateMilestoneDialog(milestone)}
+                                                                    variant={milestone.is_updated_for_current_report ? 'default' : 'secondary'}
+                                                                    className={!milestone.is_updated_for_current_report && milestone.status !== 'Not Applicable' ? 'border-red-500 text-red-500 hover:bg-red-50' : ''}
+                                                                    disabled={isBlockedByDraftOwnership} // MODIFIED: Disable if blocked
+                                                                  >
+                                                                    {milestone.is_updated_for_current_report ? 'EDIT' : 'UPDATE'}
+                                                                  </Button>
+                                            </div> */}
+                                            <div className="flex-shrink-0 ml-auto">
+  {milestone.is_updated_for_current_report ? (
+    // Button for 'EDIT' (when milestone is updated)
+    <Button
+      onClick={() => openUpdateMilestoneDialog(milestone)}
+      className="bg-gray-200 text-gray-800 hover:bg-gray-300 flex items-center gap-1" // Gray background, dark text, hover, and flex for icon
+      disabled={isBlockedByDraftOwnership}
+    >
+      <CheckCircle className="h-4 w-4 text-green-700 mr-1" /> {/* Green tick icon */}
+      EDIT
+    </Button>
+  ) : (
+    // Button for 'UPDATE' (when milestone is not updated)
+    <Button
+      onClick={() => openUpdateMilestoneDialog(milestone)}
+      className="bg-red-600 text-white border border-gray-300 hover:bg-red-700" // Red background, white text, gray border, hover
+      disabled={isBlockedByDraftOwnership}
+    >
+      UPDATE
+    </Button>
+  )}
+</div>
+                                   </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-gray-500">No milestones found for this section.</p>
+                          )
+                        }
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
+                );
+              }
+              return null;
+            })}
+
           </Tabs>
         </div>
       </div>
 
-      <div className="sticky bottom-0 w-full p-2 bg-white border-t z-10">
+      {/* <div className="sticky bottom-0 w-full p-2 bg-white border-t z-10">
         <Button
           className="w-full bg-red-600 hover:bg-red-700 text-white text-lg py-3"
           onClick={() => handleSyncAndSubmitAllData(false)}
@@ -3103,6 +3342,37 @@ console.log(user)
         <div className="text-center mt-2 text-sm text-gray-500">
           Tab {currentIndex + 1} of {allAvailableTabs.length}
         </div>
+      </div> */}
+      <div className="sticky bottom-0 w-full p-2 bg-white border-t z-10">
+        <div className="flex items-center gap-4"> {/* Flex container for both buttons */}
+          {currentIndex > 0 && ( // Show 'Back' button only if not on the first tab
+            <Button
+             variant="outline"
+              className="flex-1 text-red-600 border-red-600  text-lg py-3 "
+              onClick={() => moveToPreviousTab()}
+              disabled={isGlobalSyncDisabled}
+            >
+              Back
+            </Button>
+          )}
+
+          <Button
+            // Use flex-1 to make it take available space.
+            // If 'Back' is present, they share. If not, it expands.
+            className="flex-1 bg-red-600 hover:bg-red-700 text-white text-lg py-3"
+            onClick={() => handleSyncAndSubmitAllData(false)}
+            disabled={isGlobalSyncDisabled}
+          >
+            {isGlobalSyncDisabled && isFrappeOperationLoading ? (
+              <TailSpin height={20} width={20} color="#fff" />
+            ) : isLastTab ? (
+              "Submit Final Report"
+            ) : (
+              `Save & Continue` // Simplified text
+            )}
+          </Button>
+        </div>
+        {/* Removed the old Tab X of X display as it's now in the header */}
       </div>
 
       <Dialog open={isUpdateManpowerDialogOpen} onOpenChange={setIsUpdateManpowerDialogOpen}>
@@ -3115,7 +3385,7 @@ console.log(user)
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="flex justify-between items-center text-sm font-medium">
-              <span>Project: <span className="text-red-600">{projectData?.project_name || "N/A"}</span></span>
+              <span>Project: <span className="text-red-600">{projectData?.project_name || "Not Applicable"}</span></span>
               <div className="flex items-center gap-2">
               </div>
             </div>
@@ -3200,7 +3470,7 @@ console.log(user)
               onClick={() => handleSyncAndSubmitAllData(true)}
               disabled={isGlobalSyncDisabled} // MODIFIED: Uses combined disabled state
             >
-              {isGlobalSyncDisabled && isFrappeOperationLoading ? <TailSpin height={20} width={20} color="#fff" /> : "Update & Continue"}
+              {isGlobalSyncDisabled && isFrappeOperationLoading ? <TailSpin height={20} width={20} color="#fff" /> : "Save"}
             </Button>
           </div>
         </DialogContent>
@@ -3212,20 +3482,23 @@ console.log(user)
     <DialogContent className="sm:max-w-[425px] overflow-hidden">
         
         <DialogHeader className="p-2 pb-4 border-b">
-            <div className="flex justify-between items-start">
+            <div className="flex justify-center items-center">
                 <DialogTitle className="text-xl font-bold text-red-600">
-                    {selectedMilestoneForDialog?.work_milestone_name || "Marking and placement"}
+                    {/* {selectedMilestoneForDialog?.work_milestone_name || "Milestones Update"} */}
+                    {"Milestones Update"}
+
+
                 </DialogTitle>
                 
             </div>
             
             <div className="flex justify-between text-sm font-medium mt-2">
                 <div className="text-left">
-                    <p className="text-gray-600">Work</p>
+                    <p className="font-semibold">Work</p>
                     <p className="text-sm text-gray-700">{selectedMilestoneForDialog?.work_milestone_name || 'Sprinklers'}</p>
                 </div>
                 <div className="text-right">
-                    <p className="text-gray-600 ">Package</p>
+                    <p className="font-semibold">Package</p>
                     <p className="text-sm text-gray-700">{activeTabValue || 'Ducting'}</p> 
                 </div>
             </div>
@@ -3235,9 +3508,9 @@ console.log(user)
             
             <div className="flex justify-between items-center text-sm font-medium">
                 <div className="flex flex-col items-start">
-                    <span className="text-gray-900">Current Status</span>
+                    <span className="text-gray-900">Pervious Status</span>
                     <span className="px-2 py-1 rounded-full text-xs font-semibold bg-red-500 text-white mt-1">
-                        {selectedMilestoneForDialog?.status || 'Not Started'}
+                        {selectedMilestoneForDialog?.status || 'Not Applicable'}
                     </span>
                 </div>
                 
@@ -3253,6 +3526,14 @@ console.log(user)
             <div className="flex flex-col">
                 <label className="block text-base font-semibold text-gray-900 mb-2">Select New Status</label>
                 <div className="grid grid-cols-2 gap-3">
+                  <Button 
+                        className={`py-3 text-sm font-semibold ${newStatus === 'Not Applicable' ? 'bg-gray-700 text-white hover:bg-gray-500' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                        onClick={() => setNewStatus('Not Applicable')}
+                        disabled={isBlockedByDraftOwnership} // MODIFIED: Disable if blocked
+                    >
+                        Not Applicable
+                    </Button>
+
                     <Button 
                         className={`py-3 text-sm font-semibold ${newStatus === 'Not Started' ? 'bg-red-700 text-white hover:bg-red-500' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
                         onClick={() => setNewStatus('Not Started')}
@@ -3261,13 +3542,7 @@ console.log(user)
                         Not Started
                     </Button>
 
-                    <Button 
-                        className={`py-3 text-sm font-semibold ${newStatus === 'N/A' ? 'bg-gray-700 text-white hover:bg-gray-500' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
-                        onClick={() => setNewStatus('N/A')}
-                        disabled={isBlockedByDraftOwnership} // MODIFIED: Disable if blocked
-                    >
-                        N/A
-                    </Button>
+                    
                     <Button 
                         className={`py-3 text-sm font-semibold ${newStatus === 'WIP' ? 'bg-yellow-400 text-gray-900 hover:bg-yellow-500' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
                         onClick={() => setNewStatus('WIP')}
@@ -3292,8 +3567,8 @@ console.log(user)
                     <div className="relative">
                         <Input
                             type="number"
-                            value={progress}
-                            onChange={(e) => setProgress(Math.max(0, Math.min(100, Number(e.target.value))))}
+                            value={progress||null}
+                            onChange={(e) => setProgress(Math.max(0, Math.min(99, Number(e.target.value))))}
                             min={0}
                             max={100}
                             className="pr-8 h-10 text-base"
@@ -3304,7 +3579,7 @@ console.log(user)
                 </div>
             )}
             
-            {(newStatus == 'Not Started' || newStatus == 'WIP')&&(
+            {/* {(newStatus == 'Not Started' || newStatus == 'WIP')&&(
   <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Expected {newStatus === 'Not Started' ? 'Starting' : 'Completion'} Date
@@ -3317,7 +3592,7 @@ console.log(user)
                             disabled={isBlockedByDraftOwnership} // MODIFIED: Disable if blocked
                         >
                             <CalendarIcon className="mr-2 h-4 w-4 text-gray-500" />
-                            {expectedDate ? formatDate(expectedDate) : "15/Aug/2025"}
+                            {expectedDate ? formatDate(expectedDate) : ""}
                         </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0">
@@ -3334,6 +3609,70 @@ console.log(user)
                 </Popover>
             </div>
 
+            )} */}
+
+            {/* Conditional Date Picker for 'Not Started' */}
+            {newStatus === 'Not Started' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Expected Starting Date
+                </label>
+                <Popover open={isMilestoneDatePickerOpen} onOpenChange={setIsMilestoneDatePickerOpen}>
+                    <PopoverTrigger asChild>
+                        <Button
+                            variant={"outline"}
+                            className={"w-full justify-start text-left font-normal h-10 text-base border-gray-300"}
+                            disabled={isBlockedByDraftOwnership}
+                        >
+                            <CalendarIcon className="mr-2 h-4 w-4 text-gray-500" />
+                            {expectedDate ? formatDate(expectedDate) : "Select starting date"} {/* Changed placeholder */}
+                        </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0">
+                        <Calendar
+                            mode="single"
+                            selected={expectedDate || undefined}
+                            onSelect={(date) => {
+                                setExpectedDate(date || null);
+                                setIsMilestoneDatePickerOpen(false);
+                            }}
+                            initialFocus
+                        />
+                    </PopoverContent>
+                </Popover>
+              </div>
+            )}
+
+            {/* Conditional Date Picker for 'WIP' */}
+            {(newStatus === 'WIP' && progress>75) && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Expected Completion Date
+                </label>
+                <Popover open={isMilestoneDatePickerOpen} onOpenChange={setIsMilestoneDatePickerOpen}>
+                    <PopoverTrigger asChild>
+                        <Button
+                            variant={"outline"}
+                            className={"w-full justify-start text-left font-normal h-10 text-base border-gray-300"}
+                            disabled={isBlockedByDraftOwnership}
+                        >
+                            <CalendarIcon className="mr-2 h-4 w-4 text-gray-500" />
+                            {expectedDate ? formatDate(expectedDate) : "Select completion date"} {/* Changed placeholder */}
+                        </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0">
+                        <Calendar
+                            mode="single"
+                            selected={expectedDate || undefined}
+                            onSelect={(date) => {
+                                setExpectedDate(date || null);
+                                setIsMilestoneDatePickerOpen(false);
+                            }}
+                            initialFocus
+                        />
+                    </PopoverContent>
+                </Popover>
+              </div>
             )}
           
             <div>
@@ -3370,6 +3709,11 @@ console.log(user)
 
         <Dialog open={isCaptureDialogOpen} onOpenChange={setIsCaptureDialogOpen}>
     <DialogContent className="sm:max-w-[90vw] md:max-w-[600px] p-0 border-none bg-transparent">
+               <DialogClose className="absolute right-4 top-4 h-8 w-8 rounded-full flex items-center justify-center bg-white/10 text-white transition-colors duration-200 hover:bg-white/20 focus:outline-none  z-30">
+            <X className="h-5 w-5" /> {/* Smaller X for better fit in 8x8 circle */}
+            <span className="sr-only">Close</span>
+        </DialogClose>
+
         <DialogHeader className="sr-only">
             <DialogTitle>Project Photo Capture</DialogTitle>
             <DialogDescription>Use the camera to capture a new site image and add remarks.</DialogDescription>
