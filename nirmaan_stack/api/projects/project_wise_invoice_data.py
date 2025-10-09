@@ -44,7 +44,7 @@ def generate_project_wise_invoice_data(project_id: str):
             "Procurement Orders",
             filters={
                 "project": project_id,
-                "status": ("not in", [ "Merged", "Inactive"])
+                "status": ("not in", [ "Merged", "Inactive", "PO Amendment"])
                 },
             fields=["name", "invoice_data", "vendor", "vendor_name"]
         )

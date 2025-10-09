@@ -26,6 +26,8 @@ import {
 import { toast } from "@/components/ui/use-toast";
 import MilestoneReportPDF from "./components/MilestoneReportPDF";
 import OverallMilestonesReport from "./components/OverallMilestonesReport"
+  import { useUserData } from "@/hooks/useUserData";
+
 
 // Helper function to format date for input type="date" (YYYY-MM-DD)
 const formatDateForInput = (date: Date): string => {
@@ -55,6 +57,8 @@ const getStatusBadgeClasses = (status: string) => {
 export const MilestonesSummary = ({workReport=false,projectIdForWorkReport}) => {
   const { selectedProject, setSelectedProject } = useContext(UserContext);
   const navigate = useNavigate();
+      const { role, has_project } = useUserData()
+  
 
  console.log(selectedProject,projectIdForWorkReport)
  if(workReport){
@@ -232,9 +236,9 @@ navigate('/prs&milestones/milestone-report')
             <Button
               onClick={() => navigate(`${selectedProject}`)}
               className="text-xs"
-              disabled={dailyReportDetails ||reportType!=="Daily"}
+              disabled={dailyReportDetails ||reportType!=="Daily" ||!selectedProject}
             >
-              {dailyReportDetails ? "Today's Milestone Updated" : "Update Milestone"}
+              {"Add Today's Report"}
             </Button>
           )}
         </div>
@@ -257,18 +261,20 @@ navigate('/prs&milestones/milestone-report')
                   >
                     Daily
                   </button>
-                  <button
+                  {role !== 'Nirmaan Project Manager Profile'&&(<button
                     className={`flex-1 px-4 py-2 text-sm font-medium ${reportType === 'Overall' ? 'bg-blue-600 text-white' : 'bg-white text-blue-600'}`}
                     onClick={() => setReportType('Overall')}
                   >
                     Overall
-                  </button>
+                  </button>)}
+                  
+                  
                 </div>
               </div>
 
               {reportType === 'Daily' && ( // Only show date picker for Daily report type
                 <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
-                  <span className="font-semibold text-gray-700 whitespace-nowrap">Show by Date</span>
+                  <span className="font-semibold text-gray-700 whitespace-nowrap">Report Date</span>
                   <div className="relative w-full md:w-auto">
                     <input
                       type="date"

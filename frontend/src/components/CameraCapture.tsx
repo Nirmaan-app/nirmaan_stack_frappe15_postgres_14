@@ -1,6 +1,6 @@
 // CameraCapture.tsx
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Camera, RefreshCw, MapPin, Upload, X } from "lucide-react"; // Import X for retake button
+import { Camera, RefreshCw, MapPin, Upload, X ,Repeat2} from "lucide-react"; // Import X for retake button
 import { Button } from "@/components/ui/button";
 import { TailSpin } from "react-loader-spinner";
 import { toast } from "@/components/ui/use-toast";
@@ -94,6 +94,7 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
 
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
+     await new Promise(resolve => setTimeout(resolve, 300)); 
     }
     setStream(null);
     if (videoRef.current) {
@@ -101,11 +102,12 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
     }
 
     try {
-      const isMobile = /Mobi|Android/i.test(navigator.userAgent);
+      // const isMobile = /Mobi|Android/i.test(navigator.userAgent);
 
       const constraints: MediaStreamConstraints = {
         video: {
-          facingMode: isMobile ? mode : undefined,
+          // facingMode: isMobile ? mode : undefined,
+          facingMode: { ideal: mode }, 
           width: { ideal: 1280 },
           height: { ideal: 720 },
         },
@@ -141,10 +143,15 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
         await playVideo(videoRef.current);
       }
     } catch (err) {
-      console.error("CameraCapture: Error accessing camera:", err);
+       console.error("CameraCapture: Error accessing camera:", err);
+      // *** FIX: Log the error name/message for better debugging ***
+      console.error("CameraCapture: Error details:", err?.name, err?.message); 
       toast({
         title: "Camera Access Error 🚫",
-        description: "Could not access camera. Please check permissions.",
+        // Provide more detail in the description based on the common error types
+        description: err?.name === 'NotReadableError' 
+            ? "Camera is busy or not released. Retrying may help."
+            : `Could not access camera (${err?.name}). Check permissions.`,
         variant: "destructive",
       });
       setStream(null);
@@ -175,7 +182,7 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
   };
 
   const captureImage = async () => {
-    if (videoRef.current && canvasRef.current) {
+    if (videoRef.current && canvasRef.current && stream) {
       setIsLoading(true);
       const video = videoRef.current;
       const canvas = canvasRef.current;
@@ -190,7 +197,50 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
 
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        // --- START: NEW CODE FOR DATE/TIME STAMP ---
+        const now = new Date();
+        const dateTimeString = now.toLocaleString('en-GB', { // 'en-GB' for DD/MM/YYYY HH:MM:SS format
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false // Use 24-hour format
+        }).replace(/,/g, ''); // Remove commas if present, e.g., "09 Oct 2025 13:16:45"
+
+        const padding = 10; // Padding from canvas edges and around text
+        const fontSize = 18; // Font size in pixels
+        const fontFamily = 'Arial, sans-serif'; // Font family
+
+        // Set font for measurement
+        ctx.font = `${fontSize}px ${fontFamily}`;
+        ctx.textAlign = 'right';    // Align text to the right
+        ctx.textBaseline = 'bottom'; // Align baseline to the bottom
+
+        // Measure text dimensions
+        const textMetrics = ctx.measureText(dateTimeString);
+        const textWidth = textMetrics.width;
+        // Approximation for text height, can be refined for exact line height
+        const textHeight = fontSize * 1.2; 
+
+        // Calculate background rectangle dimensions and position
+        const bgWidth = textWidth + padding * 2;
+        const bgHeight = textHeight + padding;
+        const bgX = canvas.width - bgWidth - padding; // X position of the background rect (from left)
+        const bgY = canvas.height - bgHeight - padding; // Y position of the background rect (from top)
+
+        // Draw semi-transparent light gray background rectangle
+        ctx.fillStyle = 'rgba(229, 231, 235, 0.8)'; // Tailwind gray-200 with 80% opacity
+        ctx.fillRect(bgX, bgY, bgWidth, bgHeight);
+
+        // Draw black text (timestamp)
+        ctx.fillStyle = '#000000'; // Black text color
+        ctx.fillText(dateTimeString, canvas.width - padding, canvas.height - padding);
+        // --- END: NEW CODE FOR DATE/TIME STAMP ---
+
         const imageDataUrl = canvas.toDataURL('image/jpeg');
         setCapturedImage(imageDataUrl);
 
@@ -200,6 +250,19 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
       setIsLoading(false);
     }
   };
+
+
+
+  const stopCameraStream = useCallback(() => {
+    if (stream) {
+        console.log("CameraCapture: Explicitly stopping camera stream tracks.");
+        stream.getTracks().forEach(track => track.stop());
+    }
+    if (videoRef.current) {
+        console.log("CameraCapture: Clearing video srcObject.");
+        videoRef.current.srcObject = null;
+    }
+}, []);
 
   const uploadAndSave = async () => {
     if (!capturedImage) {
@@ -235,7 +298,7 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
       });
 
       onCaptureSuccess(photoPayload);
-    stopCameraStream(); 
+     stopCameraStream(); 
 
 
     } catch (error: any) {
@@ -252,16 +315,6 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
   };
 
 
-  const stopCameraStream = useCallback(() => {
-    if (stream) {
-        console.log("CameraCapture: Explicitly stopping camera stream tracks.");
-        stream.getTracks().forEach(track => track.stop());
-    }
-    if (videoRef.current) {
-        console.log("CameraCapture: Clearing video srcObject.");
-        videoRef.current.srcObject = null;
-    }
-}, []);
 
  // NEW Local Cancel Handler
   const handleCancel = () => {
@@ -311,7 +364,7 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
         ) : (
           <>
             <Button variant="outline" onClick={retakePhoto} disabled={isLoading || isUploading}>
-              <X className="h-5 w-5 mr-2" /> Retake
+              <Repeat2 className="h-5 w-5 mr-2" /> Retake
             </Button>
             <Button variant="default" className="bg-red-600 hover:bg-red-700" onClick={uploadAndSave} disabled={isLoading || isUploading || !capturedImage}>
               {isUploading ? <TailSpin height={20} width={20} color="#fff" /> : <Upload className="h-5 w-5 mr-2" />}
@@ -338,9 +391,9 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
         </div>
       )}
 
-      <Button variant="ghost" onClick={handleCancel} className="mt-4 text-white">
+      {/* <Button variant="ghost" onClick={handleCancel} className="mt-4 text-white">
         Cancel
-      </Button>
+      </Button> */}
     </div>
   );
 };

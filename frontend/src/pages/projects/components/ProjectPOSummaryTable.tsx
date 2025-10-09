@@ -307,7 +307,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     // --- Static Filters for useServerDataTable ---
     const staticFilters = useMemo(() => {
         const filters: Array<[string, string, any]> = [
-            ["status", "not in", ["Cancelled", "Merged","Inactive"]],
+            ["status", "not in", ["Cancelled", "Merged","Inactive", "PO Amendment"]],
         ];
         if (projectId) {
             filters.push(["project", "=", projectId]);

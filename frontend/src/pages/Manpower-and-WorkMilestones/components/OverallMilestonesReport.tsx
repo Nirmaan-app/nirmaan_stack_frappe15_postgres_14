@@ -4,11 +4,10 @@ import { formatDate } from '@/utils/FormatDate';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ChevronDown, ChevronUp, AlertCircle, Info } from 'lucide-react';
+import { ChevronDown, ChevronUp, AlertCircle, Info ,MapPin,MessagesSquare} from 'lucide-react';
 import { TailSpin } from 'react-loader-spinner';
 import { Card, CardContent } from '@/components/ui/card';
 import OverallMilestonesReportPDF from './OverallMilestonesReportPDF';
-
 // Define types
 interface MilestoneSnapshot {
   work_milestone_name: string;
@@ -264,7 +263,7 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
       )}
 
       {/* Manpower Comparison Section */}
-      <div className="mb-6">
+      {/* <div className="mb-6">
         <div className="flex justify-between items-center mb-3">
           <h3 className="text-lg font-bold">Manpower Comparison</h3>
         </div>
@@ -296,7 +295,7 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
             </TableBody>
           </Table>
         </div>
-      </div>
+      </div> */}
 
       {/* Expand/Collapse All Button */}
       {latestReport.milestones && latestReport.milestones.length > 0 && (
@@ -350,28 +349,28 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
               <Table className="w-full min-w-[700px]">
                 <TableHeader className="bg-gray-100">
                  <TableRow>
-  <TableHead className="w-[30%] font-semibold text-gray-700 text-sm py-2">Work</TableHead>
-  <TableHead className="w-[14%] text-center font-semibold text-gray-700 text-sm py-2">Status<br/>(Current)</TableHead>
-  <TableHead className="w-[14%] text-center font-semibold text-gray-700 text-sm py-2">% Done<br/>(Current)</TableHead>
-  {/* Modified the date formatting for -7 Days report */}
-  <TableHead className="w-[14%] text-center font-semibold text-gray-700 text-sm py-2">
-    Status<br/>
-    {report7DaysAgo?.report_date ? formatDate(report7DaysAgo.report_date, { month: 'short', day: 'numeric'}) : '--'}
-  </TableHead>
-  <TableHead className="w-[14%] text-center font-semibold text-gray-700 text-sm py-2">
-    % Done<br/>
-    {report7DaysAgo?.report_date ? formatDate(report7DaysAgo.report_date, { month: 'short', day: 'numeric'}) : '--'}
-  </TableHead>
-  {/* Modified the date formatting for -14 Days report */}
-  <TableHead className="w-[14%] text-center font-semibold text-gray-700 text-sm py-2">
-    Status<br/>
-    {report14DaysAgo?.report_date ? formatDate(report14DaysAgo.report_date, { month: 'short', day: 'numeric'}) : '--'}
-  </TableHead>
-  <TableHead className="w-[14%] text-center font-semibold text-gray-700 text-sm py-2">
-    % Done<br/>
-    {report14DaysAgo?.report_date ? formatDate(report14DaysAgo.report_date, { month: 'short', day: 'numeric'}) : '--'}
-  </TableHead>
-</TableRow>
+                    <TableHead className="w-[30%] font-semibold text-gray-700 text-sm py-2">Work</TableHead>
+                    <TableHead className="w-[14%] text-center font-semibold text-gray-700 text-sm py-2">Status<br/>(Current)</TableHead>
+                    <TableHead className="w-[14%] text-center font-semibold text-gray-700 text-sm py-2">% Done<br/>(Current)</TableHead>
+                    {/* Modified the date formatting for -7 Days report */}
+                    <TableHead className="w-[14%] text-center font-semibold text-gray-700 text-sm py-2">
+                      Status<br/>
+                      {report7DaysAgo?.report_date ? formatDate(report7DaysAgo.report_date, { month: 'short', day: 'numeric'}) : '--'}
+                    </TableHead>
+                    <TableHead className="w-[14%] text-center font-semibold text-gray-700 text-sm py-2">
+                      % Done<br/>
+                      {report7DaysAgo?.report_date ? formatDate(report7DaysAgo.report_date, { month: 'short', day: 'numeric'}) : '--'}
+                    </TableHead>
+                    {/* Modified the date formatting for -14 Days report */}
+                    <TableHead className="w-[14%] text-center font-semibold text-gray-700 text-sm py-2">
+                      Status<br/>
+                      {report14DaysAgo?.report_date ? formatDate(report14DaysAgo.report_date, { month: 'short', day: 'numeric'}) : '--'}
+                    </TableHead>
+                    <TableHead className="w-[14%] text-center font-semibold text-gray-700 text-sm py-2">
+                      % Done<br/>
+                      {report14DaysAgo?.report_date ? formatDate(report14DaysAgo.report_date, { month: 'short', day: 'numeric'}) : '--'}
+                    </TableHead>
+                  </TableRow>
                 </TableHeader>
                 <TableBody>
                   {(milestones as MilestoneSnapshot[]).map((milestone, idx) => {
@@ -424,7 +423,52 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
           )}
         </div>
       ))}
+       
+ <div className="mt-6">
+                    <h3 className="text-base md:text-lg font-bold mb-3">Work Images</h3>
+                    {latestReport.attachments && latestReport.attachments.length > 0 ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-1 lg:grid-cols-2 xl:grid-cols-2 gap-3 md:gap-4">
+                        {latestReport.attachments.map((attachment, idx) => (
+                          <div
+                            key={idx}
+                            className="rounded-lg overflow-hidden shadow-md bg-white border border-gray-200" // Card wrapper
+                          >
+                            {/* Responsive container for image and text details */}
+                            {/* Stacks on mobile (flex-col), becomes row on small screens and up (sm:flex-row) */}
+                            <div className="flex flex-col sm:flex-row h-full"> 
+                              {/* Image container */}
+                              <div className="w-full sm:w-1/2 flex-shrink-0">
+                                <img
+                                  src={attachment.image_link}
+                                  alt={`Work Image ${idx + 1}`}
+                                  className="w-full h-[180px] sm:h-full object-cover rounded-t-lg sm:rounded-l-lg sm:rounded-tr-none" // Adjust rounding based on layout
+                                />
+                              </div>
 
+                              <div className="w-full sm:w-1/2 p-3 flex flex-col justify-between"> 
+                                {/* Location */}
+                                <div className="flex items-center text-xs text-gray-700 mb-2">
+                                  <MapPin className="h-4 w-4 mr-1 text-red-500 flex-shrink-0" />
+                                  <span className="font-medium break-words">
+                                    {attachment.location || `Lat: ${attachment.latitude?.toFixed(2)}, Lon: ${attachment.longitude?.toFixed(2)}`}
+                                  </span>
+                                </div>
+                                {/* Remarks - highlighted yellow card style, pushed to bottom if space */}
+                                <p className="p-2 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs mt-auto">
+                                  <MessagesSquare className="h-4 w-4 inline-block mr-1 flex-shrink-0" />
+                                  {attachment.remarks || "No remarks provided."}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="w-full h-32 bg-gray-100 flex items-center justify-center text-gray-500 rounded-lg border-2 border-dashed border-gray-300">
+                        <p className="text-base font-medium">No Work Images Available</p>
+                      </div>
+                    )}
+                  </div>
       {/* PDF Download Button */}
       <div className="mt-6 flex justify-end">
         <OverallMilestonesReportPDF

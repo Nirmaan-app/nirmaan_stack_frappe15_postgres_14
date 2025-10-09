@@ -25,7 +25,7 @@ export default function ProjectMilestoneSelect({ onChange, universal = true }: P
     const { data: data, isLoading: loading, error: error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ['name', 'project_name', 'project_address', "project_manager", "status", "enable_project_milestone_tracking"],
         filters: projectMilestoneFilters, // Always apply these filters
-        limit: 1000,
+        limit: 0,
         orderBy: { field: 'creation', order: 'desc' },
     });
 
@@ -80,7 +80,7 @@ export default function ProjectMilestoneSelect({ onChange, universal = true }: P
             isLoading={loading}
             value={selectedOption}
             onChange={handleChange}
-            placeholder="Select Project (Milestone Tracking Enabled)" // Updated placeholder
+            placeholder="Select Project" // Updated placeholder
             isClearable
         ></ReactSelect>
     );
