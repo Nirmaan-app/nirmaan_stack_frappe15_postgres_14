@@ -643,6 +643,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Download } from 'lucide-react';
 import { ChevronDown, ChevronUp, AlertCircle, Info ,MapPin,MessagesSquare} from 'lucide-react';
 import logo from "@/assets/logo-svg.svg";
+import { MilestoneProgress } from '../MilestonesSummary';
 
 // Define types
 interface MilestoneSnapshot {
@@ -819,7 +820,7 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
     );
     
     return foundMilestone 
-      ? { status: foundMilestone.status, progress: `${foundMilestone.progress}%` }
+      ? { status: foundMilestone.status, progress: `${foundMilestone.progress}` }
       : { status: "N/A", progress: "N/A" };
   };
 
@@ -1138,7 +1139,19 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
                                           {currentData.status}
                                         </Badge>
                                       </TableCell>
-                                      <TableCell className="text-center py-3 px-2 text-sm font-medium">{currentData.progress}</TableCell>
+                                      <TableCell className="text-center py-3 px-2 text-sm font-medium">
+                                        <MilestoneProgress
+                                                                                                              // 1. Pass the status for the N/A check
+                                                                                                              milestoneStatus={currentData.status}
+                                                                  
+                                                                                                              // 2. Pass the progress value for the circle and color logic
+                                                                                                              value={currentData.progress}
+                                                                  
+                                                                                                              // 3. Set the desired size and text size
+                                                                                                              sizeClassName="size-[60px]"
+                                                                                                              textSizeClassName="text-md"
+                                                                                                            />
+                                        </TableCell>
                                       
                                       <TableCell className="text-center py-3 px-2">
                                         {report7DaysAgo ? (

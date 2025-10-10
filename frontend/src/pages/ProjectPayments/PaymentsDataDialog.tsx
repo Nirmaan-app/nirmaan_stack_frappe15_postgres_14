@@ -57,19 +57,19 @@ export const PaymentsDataDialog = ({
             {dataAttributes?.project && (
               <div className="flex items-center gap-2">
                 <Label className="text-red-700 min-w-[80px]">Project:</Label>
-                <span className="text-sm font-medium">{dataAttributes?.project}</span>
+                <span className="text-sm font-medium truncate max-w-xs">{dataAttributes?.project}</span>
               </div>
             )}
             {dataAttributes?.document_name && (
               <div className="flex items-center gap-2">
                 <Label className="text-red-700 min-w-[100px]">{isPO ? "PO" : "SR"} Number:</Label>
-                <span className="text-sm font-medium">{dataAttributes?.document_name}</span>
+                <span className="text-sm font-medium truncate max-w-xs">{dataAttributes?.document_name}</span>
               </div>
             )}
             {dataAttributes?.vendor && (
               <div className="flex items-center gap-2">
                 <Label className="text-red-700 min-w-[80px]">Vendor:</Label>
-                <span className="text-sm font-medium">{dataAttributes?.vendor}</span>
+                <span className="text-sm font-medium truncate max-w-xs">{dataAttributes?.vendor} </span>
               </div>
             )}
           </div>
@@ -96,13 +96,15 @@ export const PaymentsDataDialog = ({
                         {formatToRoundedIndianRupee(parseNumber(payment?.tds) || "N/A")}
                       </TableCell>
                       {payment?.payment_attachment ? (
-                          <TableCell className="font-semibold text-blue-500 underline">
-                              <a href={`${SITEURL}${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
+                          <TableCell className="font-semibold text-blue-500 underline overflow-hidden truncate max-w-28">
+                              <a href={`${SITEURL}${payment?.payment_attachment}`} target="_blank" rel="noreferrer"
+                              >
                                   {payment?.utr}
+                                  
                               </a>
                       </TableCell>
                       ) : (
-                          <TableCell className="font-semibold">{payment?.utr || "--"}</TableCell>
+                          <TableCell className="font-semibold overflow-hidden truncate max-w-28">{payment?.utr || "--"}</TableCell>
                       )}
                     </TableRow>
                   ))

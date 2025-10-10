@@ -1,8 +1,10 @@
 import React, { useRef, useMemo } from 'react';
 import { useReactToPrint } from 'react-to-print';
 import { formatDate } from '@/utils/FormatDate';
-import { MapPin ,MessagesSquare} from 'lucide-react';
+import { MapPin, MessagesSquare } from 'lucide-react';
 import logo from "@/assets/logo-svg.svg";
+import { ProgressCircle } from '@/components/ui/ProgressCircle';
+import { MilestoneProgress } from '../MilestonesSummary';
 
 interface MilestoneReportPDFProps {
   dailyReportDetails: any;
@@ -49,7 +51,7 @@ const estimateMilestoneRowHeight = (milestone) => {
   const nameLineHeight = 16; // Approx line-height for work_milestone_name text
   const nameLines = Math.ceil((milestone.work_milestone_name?.length || 0) / nameCharsPerLine);
   if (nameLines > 1) {
-    estimatedHeight += (nameLines - 1) * nameLineHeight; 
+    estimatedHeight += (nameLines - 1) * nameLineHeight;
   }
 
   // 2. NEW: Estimate height based on remarks length, if present
@@ -70,9 +72,9 @@ const estimateMilestoneRowHeight = (milestone) => {
 };
 // Helper function to estimate height of an entire milestone group (header + table)
 const estimateMilestoneGroupHeight = (milestonesInGroup) => {
-  const groupHeaderDivHeight = 60; 
-  const tableHeaderRowHeight = 40; 
-  const tableBottomMargin = 24; 
+  const groupHeaderDivHeight = 60;
+  const tableHeaderRowHeight = 40;
+  const tableBottomMargin = 24;
   let totalRowsHeight = 0;
   milestonesInGroup.forEach(milestone => {
     totalRowsHeight += estimateMilestoneRowHeight(milestone);
@@ -161,7 +163,7 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
 
   return (
     <>
-  
+
       <button
         onClick={handlePrint}
         className="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-6 rounded-lg text-lg flex items-center justify-end-safe gap-2"
@@ -172,7 +174,7 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
         Download PDF
       </button>
 
-      
+
 
       {/* Hidden component for PDF generation */}
       <div className="hidden">
@@ -197,11 +199,11 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
                         </div>
                         <div className="flex justify-between items-center">
                           <span className="font-semibold">Start Date :</span>
-                          <span className="text-right">{formatDate(projectData?.project_start_date )|| "--"}</span> 
+                          <span className="text-right">{formatDate(projectData?.project_start_date) || "--"}</span>
                         </div>
                         <div className="flex justify-between items-center">
                           <span className="font-semibold">Report Date :</span>
-                          <span className="text-right">{formatDate(dailyReportDetails?.report_date)|| "--"} </span>
+                          <span className="text-right">{formatDate(dailyReportDetails?.report_date) || "--"} </span>
                         </div>
                       </div>
                     </td>
@@ -237,25 +239,37 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
                         <div className="mb-6">
                           <h3 className="text-lg font-bold mb-3 text-gray-800">MANPOWER DETAILS</h3>
                           <div className="grid grid-cols-2 gap-3">
-                            {dailyReportDetails.manpower.map((mp_detail, idx) => (
-                              <div key={idx} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg border">
-                                <span className="font-medium">{mp_detail.label}</span>
-                                <span className="font-semibold">{mp_detail.count.toString().padStart(2, '0')}</span>
-                              </div>
-                            ))}
-                            
-                          </div>
-                          
-                         {dailyReportDetails.manpower_remarks && (
-                             
-                              <div className={"mt-4"}>
-                                          <p className="text-xs text-muted-foreground">{"Remarks"}</p>
-                              
-                                          <div className="mt-1 p-3 rounded-md bg-gray-50 border border-gray-200 text-gray-800 text-sm whitespace-pre-wrap break-words">
-                                             {dailyReportDetails.manpower_remarks}
-                                          </div> 
+                            {dailyReportDetails.manpower
+                              // 1. Filter the array to only include items where 'count' is greater than 0
+                              .filter(mp_detail => mp_detail.count > 0)
+                              // 2. Map over the filtered array
+                              .map((mp_detail, idx) => (
+                                <div
+                                  key={idx}
+                                  className="flex justify-between items-center p-3 bg-gray-50 rounded-lg border"
+                                >
+                                  <span className="font-medium">{mp_detail.label}</span>
+                                  {/* 
+        3. Display the count, padded with '0' if it's a single digit.
+           Since we've filtered, we know mp_detail.count is > 0.
+      */}
+                                  <span className="font-semibold">
+                                    {mp_detail.count.toString().padStart(2, '0')}
+                                  </span>
                                 </div>
-                            )}
+                              ))}
+                          </div>
+
+                          {dailyReportDetails.manpower_remarks && (
+
+                            <div className={"mt-4"}>
+                              <p className="text-xs text-muted-foreground">{"Remarks"}</p>
+
+                              <div className="mt-1 p-3 rounded-md bg-gray-50 border border-gray-200 text-gray-800 text-sm whitespace-pre-wrap break-words">
+                                {dailyReportDetails.manpower_remarks}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -277,46 +291,46 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
                         <h3 className="text-lg font-bold mb-3 text-gray-800">
                           WORK PROGRESS {pageIndex > 0 ? "(Contd.)" : ""}
                         </h3>
-                        
+
                         {pageGroups.map(({ header, milestones }, groupIdx) => (
                           <div key={groupIdx} className="mb-6 avoid-page-break-inside"> {/* Keep group header + table together */}
                             {/* Milestone Header */}
                             <div className="mb-4 p-3 bg-gray-100 rounded-lg border-l-4 border-red-600">
                               <h4 className="text-md font-bold">{header} ({(milestones as any[]).length})</h4>
                             </div>
-                            
+
                             {/* Milestone Table */}
                             <table className="w-full border-collapse mb-6">
                               <thead>
                                 <tr className="bg-gray-100">
-                                  <th className="border p-2 text-left w-[45%] font-semibold">WORK</th>
+                                  <th className="border p-2 text-center w-[45%] font-semibold">WORK</th>
                                   <th className="border p-2 text-center w-[15%] font-semibold">STATUS</th>
                                   <th className="border p-2 text-center w-[20%] font-semibold">PROGRESS</th>
-                                  <th className="border p-2 text-center w-[20%] font-semibold">Exp Date/start Date</th>
+                                  <th className="border p-2 text-center w-[20%] font-semibold">Excepted Starting/completion Date</th>
                                 </tr>
                               </thead>
                               <tbody>
                                 {(milestones as any[]).map((milestone, idx) => (
                                   <tr key={idx} className="page-break-inside-avoid"> {/* Ensure rows don't break */}
-                                    <td className="border p-2 align-top">
+                                    <td className="border item-center text-center p-2 align-center">
                                       {milestone.work_milestone_name}
                                       {milestone.remarks && (
-                                          <p className="flex items-center p-1 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs">
-                                              {/* Icon: Added classes to control size and ensure it's vertically centered */}
-                                              <MessagesSquare className="h-4 w-4 flex-shrink-0" />
-                                              
-                                              {/* Remarks text */}
-                                              <span className="flex-grow" >
-                                                  {milestone.remarks}
-                                              </span>
-                                          </p>
-                                                                          )}
-                                      
+                                        <p className="flex items-center p-1 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs">
+                                          {/* Icon: Added classes to control size and ensure it's vertically centered */}
+                                          <MessagesSquare className="h-4 w-4 flex-shrink-0" />
+
+                                          {/* Remarks text */}
+                                          <span className="flex-grow" >
+                                            {milestone.remarks}
+                                          </span>
+                                        </p>
+                                      )}
+
                                     </td>
                                     <td className="border p-2 text-center">
-                                      <span 
+                                      <span
                                         className="px-2 py-1 rounded text-xs font-medium inline-block"
-                                        style={{ 
+                                        style={{
                                           backgroundColor: `${getStatusColor(milestone.status)}20`,
                                           color: getStatusColor(milestone.status)
                                         }}
@@ -325,7 +339,31 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
                                       </span>
                                     </td>
                                     <td className="border p-2 text-center">
-                                      <div className="flex flex-col items-center">
+                                      {/* {milestone.status !== "Not Applicable" ? (
+                                        <div className="flex flex-col items-center">
+                                          <span className="text-sm font-semibold mb-1">{milestone.progress}%</span>
+                                          <div className="w-full max-w-[120px] h-2 bg-gray-200 rounded-full overflow-hidden">
+                                            <div
+                                              className="h-full bg-blue-500 rounded-full"
+                                              style={{ width: `${milestone.progress}%` }}
+                                            ></div>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <span className="text-sm font-semibold mb-1">{"N/A"}</span>
+                                      )} */}
+                                         <MilestoneProgress
+                                                                                    // 1. Pass the status for the N/A check
+                                                                                    milestoneStatus={milestone.status}
+                                        
+                                                                                    // 2. Pass the progress value for the circle and color logic
+                                                                                    value={milestone.progress}
+                                        
+                                                                                    // 3. Set the desired size and text size
+                                                                                    sizeClassName="size-[60px]"
+                                                                                    textSizeClassName="text-md"
+                                                                                  />
+                                      {/* <div className="flex flex-col items-center">
                                         <span className="mb-1 font-medium">{milestone.progress}%</span>
                                         <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
                                           <div 
@@ -333,7 +371,7 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
                                             style={{ width: `${milestone.progress}%` }}
                                           ></div>
                                         </div>
-                                      </div>
+                                      </div> */}
                                     </td>
                                     <td className="border p-2 text-center">
                                       {milestone.status === "Not Started" ? (
@@ -341,8 +379,8 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
                                           {milestone.expected_starting_date ? formatDate(milestone.expected_starting_date) : 'N/A'}
                                         </span>
                                       ) : (
-                                        <span className="text-yellow-600 font-medium">
-                                        {milestone.expected_completion_date ? formatDate(milestone.expected_completion_date) : 'N/A'}
+                                        <span className="text-green-500 font-medium">
+                                          {milestone.expected_completion_date ? formatDate(milestone.expected_completion_date) : 'N/A'}
                                         </span>
 
                                       )}
@@ -441,7 +479,7 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
               </div>
             </div>
           )}
-          
+
         </div>
       </div>
 

@@ -8,6 +8,7 @@ import { ChevronDown, ChevronUp, AlertCircle, Info ,MapPin,MessagesSquare} from 
 import { TailSpin } from 'react-loader-spinner';
 import { Card, CardContent } from '@/components/ui/card';
 import OverallMilestonesReportPDF from './OverallMilestonesReportPDF';
+import { MilestoneProgress } from '../MilestonesSummary';
 // Define types
 interface MilestoneSnapshot {
   work_milestone_name: string;
@@ -130,7 +131,7 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
     );
     
     return foundMilestone 
-      ? { status: foundMilestone.status, progress: `${foundMilestone.progress}%` }
+      ? { status: foundMilestone.status, progress: `${foundMilestone.progress}` }
       : { status: "N/A", progress: "N/A" };
   };
 
@@ -387,7 +388,19 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
                             {currentData.status}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-center py-3 px-2 text-sm font-medium">{currentData.progress}</TableCell>
+                        <TableCell className="text-center py-3 px-2 text-sm font-medium">
+                            <MilestoneProgress
+                                                                      // 1. Pass the status for the N/A check
+                                                                      milestoneStatus={currentData.status}
+                          
+                                                                      // 2. Pass the progress value for the circle and color logic
+                                                                      value={currentData.progress}
+                          
+                                                                      // 3. Set the desired size and text size
+                                                                      sizeClassName="size-[60px]"
+                                                                      textSizeClassName="text-md"
+                                                                    />
+                         </TableCell>
                         
                         <TableCell className="text-center py-3 px-2">
                           {report7DaysAgo ? (
