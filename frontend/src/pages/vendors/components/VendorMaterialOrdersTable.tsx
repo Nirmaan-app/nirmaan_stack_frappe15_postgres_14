@@ -264,7 +264,7 @@ export const VendorMaterialOrdersTable: React.FC<VendorMaterialOrdersTableProps>
         fetchFields: PO_TABLE_FIELDS as string[],
         searchableFields: PO_SEARCHABLE_FIELDS,
         urlSyncKey: `vendor_po_list_${vendorId}`,
-        additionalFilters: [["vendor", "=", vendorId], ["status", "!=", "Merged"]],
+        additionalFilters: [["vendor", "=", vendorId], ["status", "not in", ["Merged","Inactive", "PO Amendment"]]],
     });
 
     if (tableError) return <AlertDestructive error={tableError} />;

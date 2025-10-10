@@ -412,7 +412,7 @@ export const getPOReportColumns = (
     role === "Nirmaan Project Manager Profile"
       ? [...basePOColumnsForPM]
       : [...basePOColumns];
-  console.log("reportType", reportType);
+  // console.log("reportType", reportType);
 
   if (reportType === "Dispatched for 3 days") {
     // Filter out the 'latest_delivery_date' column if it exists

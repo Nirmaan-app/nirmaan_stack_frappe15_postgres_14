@@ -1,0 +1,118 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-09-23 20:25:51.210105",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "details_section",
+  "work_milestone_name",
+  "work_header",
+  "milestone_update_section",
+  "status",
+  "expected_starting_date",
+  "expected_completion_date",
+  "progress",
+  "remarks",
+  "milestone_history_section",
+  "previous_status",
+  "previous_starting_date",
+  "previous_completion_date",
+  "previous_remarks",
+  "previous_progress"
+ ],
+ "fields": [
+  {
+   "fieldname": "details_section",
+   "fieldtype": "Section Break",
+   "label": "Details"
+  },
+  {
+   "fieldname": "work_milestone_name",
+   "fieldtype": "Data",
+   "label": "Work Milestone Name",
+   "options": "Work Milestones"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Data",
+   "label": "Status"
+  },
+  {
+   "fieldname": "expected_starting_date",
+   "fieldtype": "Date",
+   "label": "Expected Starting Date"
+  },
+  {
+   "fieldname": "expected_completion_date",
+   "fieldtype": "Date",
+   "label": "Expected Completion Date"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Text",
+   "label": "Remarks"
+  },
+  {
+   "fieldname": "progress",
+   "fieldtype": "Data",
+   "label": "Progress"
+  },
+  {
+   "fieldname": "work_header",
+   "fieldtype": "Link",
+   "label": "Work header",
+   "options": "Work Headers"
+  },
+  {
+   "fieldname": "milestone_update_section",
+   "fieldtype": "Section Break",
+   "label": "Milestone Update"
+  },
+  {
+   "fieldname": "milestone_history_section",
+   "fieldtype": "Section Break",
+   "label": "Milestone History"
+  },
+  {
+   "fieldname": "previous_status",
+   "fieldtype": "Data",
+   "label": "Previous Status"
+  },
+  {
+   "fieldname": "previous_starting_date",
+   "fieldtype": "Date",
+   "label": "Previous Starting Date"
+  },
+  {
+   "fieldname": "previous_completion_date",
+   "fieldtype": "Date",
+   "label": "Previous Completion Date"
+  },
+  {
+   "fieldname": "previous_remarks",
+   "fieldtype": "Data",
+   "label": "Previous Remarks"
+  },
+  {
+   "fieldname": "previous_progress",
+   "fieldtype": "Data",
+   "label": "Previous Progress"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2025-09-29 23:17:00.300383",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Project Progress Report Work Milestones",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

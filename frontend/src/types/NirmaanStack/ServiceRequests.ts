@@ -13,7 +13,7 @@ export interface ServiceItemType {
 	rate?: string | number
 }
 
-export interface ServiceRequests{
+export interface ServiceRequests {
 	name: string
 	creation: string
 	modified: string
@@ -30,11 +30,11 @@ export interface ServiceRequests{
 	vendor: string
 	/**	Service Order List : JSON	*/
 	service_order_list: {
-		list : ServiceItemType[]
+		list: ServiceItemType[]
 	}
 	/**	Service Category List : JSON	*/
 	service_category_list: {
-		list : ServiceCategoryType[]
+		list: ServiceCategoryType[]
 	}
 	/**	Status : Data	*/
 	status: string
@@ -46,8 +46,10 @@ export interface ServiceRequests{
 	advance?: string
 	/**	Project GST : Data	*/
 	project_gst?: string
-	invoice_data?: {data : InvoiceDataType}
+	invoice_data?: { data: InvoiceDataType }
 
 	invoice_no?: string
 	invoice_date?: string
+	total_amount?: string
+	amount_paid?: string
 }

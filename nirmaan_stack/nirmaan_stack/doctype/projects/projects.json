@@ -32,7 +32,10 @@
   "project_scopes",
   "subdivisions",
   "subdivision_list",
-  "project_wp_category_makes"
+  "project_wp_category_makes",
+  "project_milestone_details_section",
+  "enable_project_milestone_tracking",
+  "project_work_header_entries"
  ],
  "fields": [
   {
@@ -187,12 +190,29 @@
    "fieldname": "project_value_gst",
    "fieldtype": "Data",
    "label": "Project Value with GST"
+  },
+  {
+   "fieldname": "project_milestone_details_section",
+   "fieldtype": "Section Break",
+   "label": "Project Milestone Details"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_project_milestone_tracking",
+   "fieldtype": "Check",
+   "label": "Enable Project Milestone Tracking"
+  },
+  {
+   "fieldname": "project_work_header_entries",
+   "fieldtype": "Table",
+   "label": "Project Work Header Entries",
+   "options": "Project Work Headers"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-07-21 13:58:22.500021",
+ "modified": "2025-09-23 13:04:45.276203",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Projects",

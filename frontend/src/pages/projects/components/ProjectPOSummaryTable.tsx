@@ -4,6 +4,8 @@ import { Link } from "react-router-dom";
 import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
 import memoize from "lodash/memoize";
+import { Info } from "lucide-react";
+import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
 
 // --- UI Components ---
 import {
@@ -12,12 +14,19 @@ import {
 } from "@/components/data-table/new-data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription } from "@/components/ui/card";
+import {
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
+} from "@/components/ui/card";
+
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { TailSpin } from "react-loader-spinner";
 
 // --- Hooks & Utils ---
-import { useServerDataTable } from "@/hooks/useServerDataTable";
+import { useServerDataTable, AggregationConfig, GroupByConfig } from "@/hooks/useServerDataTable";
 import { formatDate } from "@/utils/FormatDate";
 import {
     formatForReport,
@@ -50,13 +59,13 @@ export const PO_SUMMARY_LIST_FIELDS_TO_FETCH: (
         "project",
         "project_name",
         "total_amount",
+        "amount_paid",
         "amount",
         "vendor",
         "vendor_name",
         "procurement_request",
         "status",
-        "loading_charges",
-        "freight_charges",
+        "po_amount_delivered",
         "custom", // Add custom if used for badge
         // Add invoice_data if needed for a column in this specific summary table
     ];
@@ -119,6 +128,42 @@ interface POAggregates {
 interface POAggregatesResponse extends POAggregates {
     po_amounts_dict: POAmountsDict;
 }
+
+
+//Aggregations
+const POS_AGGREGATES_CONFIG: AggregationConfig[] = [
+    { field: 'amount', function: 'sum' },
+    {
+        field: 'total_amount', function: 'sum'
+    },
+    { field: 'amount_paid', function: 'sum' },
+    { field: 'po_amount_delivered', function: 'sum' },
+
+];
+// NEW: Configuration for the "Top 5" group by request
+const POS_GROUP_BY_CONFIG: GroupByConfig = {
+    groupByField: 'type',
+    aggregateField: 'amount',
+    aggregateFunction: 'sum',
+    limit: 5,
+};
+const AppliedFiltersDisplay = ({ filters, search }) => {
+    const hasFilters = filters.length > 0 || !!search;
+    if (!hasFilters) {
+        return <p className="text-sm text-gray-500">Overview of all PO Summary expenses.</p>;
+    }
+    return (
+        <div className="text-sm text-gray-500 flex flex-wrap gap-2 items-center mt-2">
+            <span className="font-medium">Filtered by:</span>
+            {search && <span className="px-2 py-1 bg-gray-200 rounded-md text-xs">{`Search: "${search}"`}</span>}
+            {filters.map(filter => (
+                <span key={filter.id} className="px-2 py-1 bg-blue-100 text-blue-800 rounded-md text-xs capitalize whitespace-nowrap">
+                    {filter.id.replace(/_/g, ' ')}
+                </span>
+            ))}
+        </div>
+    );
+};
 
 // --- Component ---
 export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
@@ -205,8 +250,8 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
 
     const { data: CreditData } = useCredits()
 
-    const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.status !== "Paid"));
-    const dueByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.status !== "Paid" && cr.status !== "Created"));
+    const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status !== "Paid"));
+    const dueByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status !== "Paid" && cr.status !== "Created"));
 
     const relatedTotalBalanceCredit = creditsByProject(projectId).reduce((sum, term) => sum + parseNumber(term.amount), 0);
     const relatedTotalDue = dueByProject(projectId).reduce((sum, term) => sum + parseNumber(term.amount), 0);
@@ -262,7 +307,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     // --- Static Filters for useServerDataTable ---
     const staticFilters = useMemo(() => {
         const filters: Array<[string, string, any]> = [
-            ["status", "not in", ["Cancelled", "Merged"]],
+            ["status", "not in", ["Cancelled", "Merged","Inactive", "PO Amendment"]],
         ];
         if (projectId) {
             filters.push(["project", "=", projectId]);
@@ -444,28 +489,67 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                     },
                 },
             },
-
             {
-                id: "amount_paid_po",
+                // Use 'accessorKey' to make it sortable by the data table library
+                accessorKey: "amount_paid",
                 header: ({ column }) => (
-                    <DataTableColumnHeader column={column} title="Amt. Paid" />
+                    <DataTableColumnHeader column={column} title="Amount Paid" />
                 ),
                 cell: ({ row }) => (
-                    <div className="font-medium pr-2 text-center">
-                        {formatToRoundedIndianRupee(
-                            getTotalAmountPaidForPO(row.original.name)
-                        )}
+                    <div className="font-medium pr-2 text-center tabular-nums">
+                        {formatToRoundedIndianRupee(row.original.amount_paid)}
                     </div>
                 ),
-                size: 130,
-                enableSorting: false,
+                size: 160,
+                // enableSorting is true by default when using accessorKey
                 meta: {
-                    exportHeaderName: "Amt. Paid",
+                    exportHeaderName: "Amount Paid",
                     exportValue: (row: ProcurementOrder) => {
-                        return formatForReport(getTotalAmountPaidForPO(row.name));
+                        return formatForReport(row.amount_paid); // Use the direct field for export
                     },
                 },
             },
+            {
+                // Use 'accessorKey' to make it sortable by the data table library
+                accessorKey: "po_amount_delivered",
+                header: ({ column }) => (
+                    <DataTableColumnHeader column={column} title="Payable Amount" />
+                ),
+                cell: ({ row }) => (
+                    <div className="font-medium pr-2 text-center tabular-nums">
+                        {formatToRoundedIndianRupee(row.original.po_amount_delivered)}
+                    </div>
+                ),
+                size: 160,
+                // enableSorting is true by default when using accessorKey
+                meta: {
+                    exportHeaderName: "Amount Paid",
+                    exportValue: (row: ProcurementOrder) => {
+                        return formatForReport(row.po_amount_delivered); // Use the direct field for export
+                    },
+                },
+            },
+            // {
+            //     id: "amount_paid_po",
+            //     header: ({ column }) => (
+            //         <DataTableColumnHeader column={column} title="Amt. Paid" />
+            //     ),
+            //     cell: ({ row }) => (
+            //         <div className="font-medium pr-2 text-center">
+            //             {formatToRoundedIndianRupee(
+            //                 getTotalAmountPaidForPO(row.original.name)
+            //             )}
+            //         </div>
+            //     ),
+            //     size: 130,
+            //     enableSorting: false,
+            //     meta: {
+            //         exportHeaderName: "Amt. Paid",
+            //         exportValue: (row: ProcurementOrder) => {
+            //             return formatForReport(getTotalAmountPaidForPO(row.name));
+            //         },
+            //     },
+            // },
         ],
         [
             getVendorName,
@@ -488,6 +572,10 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
         totalCount,
         isLoading: listIsLoading,
         error: listError,
+        aggregates, // NEW
+        isAggregatesLoading, // NEW
+        groupByResult,// NEW
+        columnFilters, // NEW: To display applied filters
         searchTerm,
         setSearchTerm,
         selectedSearchField,
@@ -501,6 +589,8 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
         defaultSort: "modified desc",
         enableRowSelection: false, // No selection needed for summary
         additionalFilters: staticFilters,
+        aggregatesConfig: POS_AGGREGATES_CONFIG, // NEW: Pass the config
+        groupByConfig: POS_GROUP_BY_CONFIG, // NEW: Pass the group by config
     });
 
     // --- Faceted Filter Options ---
@@ -535,15 +625,14 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
             variant: "destructive",
         });
     }
-
+    console.log("Aggreate", aggregates)
     return (
         <div className="space-y-4">
-            <Card>
+            {/* <Card>
                 <CardContent className="flex flex-row items-center justify-between p-4">
                     <CardDescription>
                         <p className="text-lg font-semibold text-gray-700">
                             PO Summary
-                            {/* ({getProjectName(projectId) || "All Projects"}) */}
                         </p>
                         <p className="text-sm text-gray-500">
                             Overview of Purchase Order totals
@@ -606,7 +695,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                         )}
                     </CardDescription>
                 </CardContent>
-            </Card>
+            </Card> */}
 
             {isLoadingOverall && !poDataForPage?.length ? (
                 <TableSkeleton />
@@ -628,6 +717,182 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                     onExport={"default"}
                     exportFileName={`Project_PO_Summary_${projectId || "all"}`}
                     showRowSelection={false} // No selection needed for this summary
+                    summaryCard={
+                        <Card>
+                            <CardHeader className="p-4">
+                                <CardTitle className="text-lg">PO Summary</CardTitle>
+                                <CardDescription>
+                                    <AppliedFiltersDisplay filters={columnFilters} search={searchTerm} />
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="p-4 pt-0">
+                                {isAggregatesLoading ? (
+                                    <div className="flex justify-center items-center h-24">
+                                        <TailSpin height={24} width={24} color="#4f46e5" />
+                                    </div>
+                                ) : aggregates ? (
+                                    <div className="grid grid-cols-1  gap-x-8 gap-y-4">
+                                        {/* Column 2: PO Totals (inc. GST/exc. GST/Paid) - Updated */}
+                                        <div className="grid grid-cols-2 gap-y-2 gap-x-20 text-sm"> {/* Changed to items-start for consistent alignment */}
+                                            <p className="flex justify-between w-full">
+                                                <span className="font-medium inline-flex items-center gap-1 group">Total (inc. GST)
+                                                    <HoverCard>
+                                                        <HoverCardTrigger asChild>
+                                                            <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
+                                                        </HoverCardTrigger>
+                                                        <HoverCardContent className="text-xs w-auto p-1.5">
+                                                            Total project value including GST.
+                                                        </HoverCardContent>
+                                                    </HoverCard>
+                                                </span>{" "}
+                                                <span className="text-blue-600 font-semibold">
+                                                    {formatToRoundedIndianRupee(
+                                                        aggregates.sum_of_total_amount
+                                                    )}
+                                                </span>
+                                            </p>
+                                            <p className="flex justify-between w-full">
+                                                <span className="font-medium inline-flex items-center gap-1 group">PO Payable Amount<HoverCard>
+                                                    <HoverCardTrigger asChild>
+                                                        <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
+                                                    </HoverCardTrigger>
+                                                    <HoverCardContent className="text-xs w-auto p-1.5">
+                                                        Total amount for delivered POs that are now payable.
+                                                    </HoverCardContent>
+                                                </HoverCard>
+                                                </span>{" "}
+                                                <span className="text-yellow-600 font-semibold">
+                                                    {formatToRoundedIndianRupee(
+                                                        aggregates.sum_of_po_amount_delivered
+                                                    )}
+                                                </span>
+                                            </p>
+                                            <p className="flex justify-between w-full">
+                                                <span className="font-medium inline-flex items-center gap-1 group">Total (exc. GST)<HoverCard>
+                                                    <HoverCardTrigger asChild>
+                                                        <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
+                                                    </HoverCardTrigger>
+                                                    <HoverCardContent className="text-xs w-auto p-1.5">
+                                                        Total project value excluding GST.
+                                                    </HoverCardContent>
+                                                </HoverCard>
+                                                </span>{" "}
+                                                <span className="text-blue-600 font-semibold">
+                                                    {formatToRoundedIndianRupee(
+                                                        aggregates.sum_of_amount
+                                                    )}
+                                                </span>
+                                            </p>
+                                            <p className="flex justify-between w-full">
+                                                <span className="font-medium inline-flex items-center gap-1 group">PO Payment Against Delivered<HoverCard>
+                                                    <HoverCardTrigger asChild>
+                                                        <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
+                                                    </HoverCardTrigger>
+                                                    <HoverCardContent className="text-xs w-auto p-1.5">
+                                                        Amount paid against delivered items in this project’s POs.
+
+                                                    </HoverCardContent>
+                                                </HoverCard>
+                                                </span>{" "}
+                                                <span className="text-green-600 font-semibold">
+                                                    {formatToRoundedIndianRupee(
+                                                        Math.min(aggregates.sum_of_amount_paid, aggregates.sum_of_po_amount_delivered)
+                                                    )}
+                                                </span>
+                                            </p>
+                                            <p className="flex justify-between w-full">
+                                                <span className="font-medium inline-flex items-center gap-1 group">Total Amt Paid<HoverCard>
+                                                    <HoverCardTrigger asChild>
+                                                        <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
+                                                    </HoverCardTrigger>
+                                                    <HoverCardContent className="text-xs w-auto p-1.5">
+                                                       Total expenses recorded for the project.
+                                                    </HoverCardContent>
+                                                </HoverCard>
+                                                </span>{" "}
+                                                <span className="text-green-600 font-semibold">
+                                                    {formatToRoundedIndianRupee(
+                                                        aggregates.sum_of_amount_paid
+                                                    )}
+                                                </span>
+                                            </p>
+
+
+                                            <p className="flex justify-between w-full">
+                                                <span className="font-medium inline-flex items-center gap-1 group">Advance Against PO<HoverCard>
+                                                    <HoverCardTrigger asChild>
+                                                        <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
+                                                    </HoverCardTrigger>
+                                                    <HoverCardContent className="text-xs w-auto p-1.5">
+                                                        Advance amount paid before delivery for this project’s POs.
+                                                    </HoverCardContent>
+                                                </HoverCard>
+                                                </span>{" "}
+                                                <span className="text-red-600 font-semibold">
+                                                    {formatToRoundedIndianRupee(
+                                                        Math.max(0, aggregates.sum_of_amount_paid - aggregates.sum_of_po_amount_delivered)
+                                                    )}
+                                                </span>
+                                            </p>
+                                        </div>
+
+                                        {/* Column 1: Overall Totals (Liabilities/Due) - Already Updated */}
+                                        <Card>
+                                            <CardHeader className="p-2">
+                                                {/* <CardTitle className="text-lg">Project Credit</CardTitle> */}
+                                                <CardDescription> Overall PO Credit Summary.</CardDescription>
+                                            </CardHeader>
+                                            <CardContent className="p-2 pt-0">
+                                                <div className="flex gap-y-2 gap-x-20 justify-between items-start text-sm">
+
+                                                    <p className="flex justify-between w-full">
+                                                        <span className="font-medium inline-flex items-center gap-1 group">Total Liabilities<HoverCard>
+                                                            <HoverCardTrigger asChild>
+                                                                <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
+                                                            </HoverCardTrigger>
+                                                            <HoverCardContent className="text-xs w-auto p-1.5">
+                                                               Total value of credit POs scheduled for future payment.
+                                                            </HoverCardContent>
+                                                        </HoverCard>
+                                                        </span>{" "}
+                                                        <span className="text-yellow-600 font-semibold">
+                                                            {formatToRoundedIndianRupee(
+                                                                relatedTotalBalanceCredit
+                                                            )}
+                                                        </span>
+                                                    </p>
+
+                                                    {/* Total Due Not Paid */}
+                                                    <p className="flex justify-between w-full">
+                                                        <span className="font-medium inline-flex items-center gap-1 group">Total Due Not Paid<HoverCard>
+                                                            <HoverCardTrigger asChild>
+                                                                <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
+                                                            </HoverCardTrigger>
+                                                            <HoverCardContent className="text-xs w-auto p-1.5">
+                                                                Total value of credit POs that are due but not yet paid.
+                                                            </HoverCardContent>
+                                                        </HoverCard>
+                                                        </span>{" "}
+                                                        <span className="text-red-600 font-semibold">
+                                                            {formatToRoundedIndianRupee(
+                                                                relatedTotalDue
+                                                            )}
+                                                        </span>
+                                                    </p>
+
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+                                    </div>
+                                ) : (
+                                    <p className="text-sm text-center text-muted-foreground h-24 flex items-center justify-center">
+                                        No summary data available.
+                                    </p>
+                                )}
+                            </CardContent>
+                        </Card>
+                    }
+
                 />
             )}
         </div>

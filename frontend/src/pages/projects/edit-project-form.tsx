@@ -80,6 +80,9 @@ import { ProcurementPackages } from "@/types/NirmaanStack/ProcurementPackages";
 import { ProjectTypes } from "@/types/NirmaanStack/ProjectTypes";
 import { Address } from "@/types/NirmaanStack/Address";
 
+import {MultiSelect} from "./components/multi-select"
+
+
 // 1.a Create Form Schema accordingly
 const projectFormSchema = z.object({
   project_name: z
@@ -179,6 +182,20 @@ interface SelectOption {
 //     work_package: string;
 // }
 
+const allGstOptions = [
+  { location: "Bengaluru", gst: "29ABFCS9095N1Z9" },
+  { location: "Gurugram", gst: "06ABFCS9095N1ZH" },
+  { location: "Noida", gst: "09ABFCS9095N1ZB" }, // Include Noida if it's a valid option
+];
+
+// Prepare options for the MultiSelect component
+// MultiSelect expects { label: string, value: string } for options
+const multiSelectGstOptions = allGstOptions.map(option => ({
+  label: `${option.location} (${option.gst})`,
+  value: option.location, // The unique identifier for the MultiSelect
+}));
+
+
 
 const formatWorkPackagesForForm = (data: ProjectsType | undefined): ProjectFormValues['project_work_packages']['work_packages'] => {
 
@@ -261,7 +278,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
     projectId ? ProjectQueryKeys.project(projectId) : null
   );
 
-  // console.log("projectData", data)
+  console.log("projectData", data)
 
   const {
     data: procuremeent_packages_list,
@@ -537,6 +554,18 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
         await updateDoc("Address", data.project_address, changedAddressValues);
       }
 
+      
+      const gstList = values.project_gst_number?.list; // Use optional chaining for safety
+
+    if (!gstList || gstList.length === 0) {
+        toast({
+            title: "Failed!",
+            description: "At least one Project GST location must be selected for update.",
+            variant: "destructive"
+        });
+        return; // Prevent update if validation fails
+    }
+
       // --- Prepare Project Update Payload ---
       const projectUpdatePayload: Partial<ProjectsType> & { name: string } = {
         project_name: values.project_name,
@@ -809,7 +838,8 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
                 </FormItem>
               )}
             />
-            <FormField
+
+            {/* <FormField
               control={form.control}
               name="project_gst_number"
               render={({ field }) => (
@@ -844,7 +874,52 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
                   </div>
                 </FormItem>
               )}
-            />
+            /> */}
+
+<FormField
+  control={form.control}
+  name="project_gst_number" // Ensure this matches your form's schema for an array of objects
+  render={({ field }) => {
+    // Extract currently selected location names from the form field's value.
+    // field.value is expected to be { list: [{ location: string, gst: string }, ...] }
+    // We need an array of strings (e.g., ["Bengaluru", "Gurugram"]) for the MultiSelect's 'selected' prop.
+    const currentSelectedLocations = field.value?.list?.map((item: { location: string }) => item.location) || [];
+
+    return (
+      <FormItem className="lg:flex lg:items-center gap-4">
+        {/* Preserving the md:basis-3/12 from your "edit Form components" version */}
+        <FormLabel className="md:basis-3/12">Project GST<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
+        {/* Preserving the md:basis-2/4 from your "edit Form components" version */}
+        <div className="md:basis-2/4">
+          <MultiSelect
+            options={multiSelectGstOptions}
+            selected={currentSelectedLocations} // Pass the array of selected location *values* (strings)
+            onSelectedChange={(selectedLocationValues: string[]) => {
+              // When the MultiSelect's selection changes, it provides an array of
+              // selected location *values* (strings).
+              // We need to convert this back to your form's expected format:
+              // { list: [{ location: string, gst: string }, ...] }
+              const updatedGstList = selectedLocationValues.map(locationName => {
+                const foundOption = allGstOptions.find(opt => opt.location === locationName);
+                // Return the full GST object. If for some reason not found,
+                // handle gracefully (e.g., return a default or log error).
+                return foundOption || { location: locationName, gst: "" };
+              });
+              field.onChange({ list: updatedGstList }); // Update the form field with the new list
+            }}
+            placeholder="Select Project GST(s)"
+            className="w-full"
+            disabled={field.disabled} // Inherit disabled state from form field
+          />
+          {/* FormMessage remains here */}
+          <FormMessage />
+        </div>
+      </FormItem>
+    );
+  }}
+/>
+
+
           </div>
           <Separator className="my-6" />
           <p className="text-sky-600 font-semibold pb-2">

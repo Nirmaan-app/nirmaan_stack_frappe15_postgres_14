@@ -48,7 +48,7 @@ const statusVariantMap: { [key: string]: BadgeProps["variant"] } = {
 export function StatusBadge({ status, className }: StatusBadgeProps) {
   // Normalize status for lookup (e.g., "approved" -> "Approved")
   const formattedStatus =
-    status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
+    status?.charAt(0).toUpperCase() + status?.slice(1).toLowerCase();
 
   // Look up the variant from our map
   // If a status is not in the map, it will fall back to "default" (grey)
@@ -122,7 +122,7 @@ export const getCreditsColumns = (
 
     {
       // Badge -> Center Align
-      accessorKey: "`tabPO Payment Terms`.status",
+      accessorKey: "term_status",
       header: ({ column }) => <div>Status</div>,
       // header: ({ column }) => (
       //     <div className="flex justify-end">
@@ -131,12 +131,12 @@ export const getCreditsColumns = (
       // ),
       cell: ({ row }) => {
         // 2. Get the status from the row
-        const status = row.original.status as string;
+        const status = row.original.term_status as string;
 
         // 3. Render the StatusBadge component in a centered div
         return (
           <div className="flex justify-start">
-            <StatusBadge status={row.original.status} />
+            <StatusBadge status={status} />
           </div>
         );
       },
@@ -163,7 +163,7 @@ export const getCreditsColumns = (
       accessorKey: "amount",
       header: ({ column }) => (
         <div className="flex justify-end">
-          <DataTableColumnHeader column={column} title="Amount" />
+          <DataTableColumnHeader column={column} title="Due Amount" />
         </div>
       ),
       cell: ({ row }) => (
@@ -181,7 +181,7 @@ export const getCreditsColumns = (
         </div>
       ),
       cell: ({ row }) => (
-        <div className="text-center">{formatDate(row.original.due_date)}</div>
+        <div className="text-left">{formatDate(row.original.due_date)}</div>
       ),
     },
     // ...(currentStatus=="Scheduled"?[

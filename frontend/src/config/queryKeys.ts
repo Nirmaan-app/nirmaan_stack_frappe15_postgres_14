@@ -54,8 +54,8 @@ interface ProjectExpenseListParams extends ListParams { }
 
 // --- Define Fields Constants (Good Practice) ---
 const PROJECT_REPORT_FIELDS: (keyof Projects)[] = ['name', 'project_name', 'project_value', 'creation', 'modified'];
-const PO_REPORT_FIELDS: (keyof ProcurementOrder)[] = ['name', 'creation', 'project', 'vendor', 'total_amount', 'loading_charges', 'freight_charges', 'invoice_data', 'status', 'modified', 'project_name', 'vendor_name', 'dispatch_date',"latest_delivery_date","latest_payment_date"];
-const SR_REPORT_FIELDS: (keyof ServiceRequests)[] = ['name', 'creation', 'project', 'vendor', 'service_order_list', 'gst', 'invoice_data', 'status', 'modified'];
+const PO_REPORT_FIELDS: (keyof ProcurementOrder)[] = ['name', 'creation', 'project', 'vendor', 'total_amount', 'loading_charges', 'freight_charges', 'invoice_data', 'status', 'modified', 'project_name', 'vendor_name', 'dispatch_date',"latest_delivery_date","latest_payment_date",'amount_paid'];
+const SR_REPORT_FIELDS: (keyof ServiceRequests)[] = ['name', 'creation', 'project', 'vendor', 'service_order_list', 'gst', 'invoice_data', 'status', 'modified','amount_paid'];
 const PAYMENT_REPORT_FIELDS: (keyof ProjectPayments)[] = ['name', 'document_type', 'document_name', 'project', 'amount', 'status']; // Added 'project'
 const INFLOW_REPORT_FIELDS: (keyof ProjectInflows)[] = ['name', 'project', 'amount', 'payment_date']; // Add fields as needed
 const PROJECT_INVOICE_REPORT_FIELDS: (keyof ProjectInvoice)[] = ['name', 'project', 'amount']; // Add fields as needed
@@ -237,7 +237,7 @@ export const getProjectReportListOptions = (): ProjectListParams => ({
 
 export const getPOForProjectInvoiceOptions = (): POListParams => ({
   fields: ['name', 'project', 'loading_charges', 'freight_charges', 'invoice_data',"total_amount","amount","tax_amount"], // Only fields needed for invoice calc
-  filters: [["status", "not in", ["Merged", "Cancelled", "PO Amendment"]]], // Match PO report filters
+  filters: [["status", "not in", ["Merged", "Cancelled", "PO Amendment","Inactive"]]], // Match PO report filters
   limit: 100000,
 });
 
@@ -301,7 +301,7 @@ export const getProjectExpenseListOptions = (): NonProjectExpenseListParams => (
 // Helper function to generate standardized Frappe options for reuse
 export const getCategoryListOptions = (workPackage?: string): CategoryListParams => ({
   fields: ["name", "category_name", "work_package", "tax"], // Specify needed fields
-  filters: workPackage ? [["work_package", "=", workPackage]] : [],
+  filters: workPackage ? [["work_package", "in", [workPackage,"Tool & Equipments"]]] : [],
   orderBy: { field: "category_name", order: "asc" },
   limit: 10000, // Consider pagination if needed
   workPackage: workPackage, // Include the parameter used in filtering for key uniqueness

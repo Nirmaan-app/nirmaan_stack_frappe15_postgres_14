@@ -24,9 +24,20 @@ export const useRelatedPRData = ({ prDoc }: UseRelatedPRDataProps) => {
         // ],
     }, "Nirmaan Users");
 
+      // Corrected categoryList fetch logic
+    const categoryFilters = useMemo(() => {
+        if (workPackage && workPackage !== "") { // If a specific work package is provided
+            return [["work_package", "in", [workPackage, "Tool & Equipments"]]];
+        }
+        // If workPackage is null/undefined/empty, fetch based on your "Custom" PR policy.
+        // For example, fetch all categories:
+        return []; // This will fetch ALL categories if workPackage is null/empty.
+                  // If you only want "Tool & Equipments" for empty workPackage, change this to `[["work_package", "=", "Tool & Equipments"]]`.
+    }, [workPackage]);
+
     const { data: categoryList, isLoading: categoriesLoading, error: categoriesError } = useFrappeGetDocList<Category>("Category", {
         fields: ["name", "category_name", "work_package", "tax"], // Added unit_name if default unit comes from category
-        filters: workPackage ? [["work_package", "=", workPackage]] : [],
+        filters: categoryFilters,
         orderBy: { field: "category_name", order: "asc" },
         limit: 0,
     }, workPackage ? `Category_${workPackage}` : null);

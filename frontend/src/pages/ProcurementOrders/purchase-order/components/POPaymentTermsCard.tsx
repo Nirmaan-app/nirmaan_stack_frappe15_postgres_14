@@ -210,7 +210,7 @@ export const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
       payment_type: po.payment_terms?.[0]?.payment_type,
       due_date: "",
       docstatus: 0,
-      status: "Created",
+      term_status: "Created",
     });
   };
 
@@ -252,7 +252,7 @@ export const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
                 {fields.map((field, index) => {
                   // const isRowDisabled =
                   //   watchedTerms[index]?.status !== "Created"
-                  const currentStatus = watchedTerms[index]?.status;
+                  const currentStatus = watchedTerms[index]?.term_status;
                   const isRowDisabled = !(
                     currentStatus === "Created" || currentStatus === "Scheduled"
                   );
@@ -381,7 +381,7 @@ export const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
                               validate: (value) => {
                                 // Get the status of the current row
                                 const status =
-                                  getValues().payment_terms[index].status;
+                                  getValues().payment_terms[index].term_status;
                                 // If the row IS editable, apply the original rules
                                 if (!value) {
                                   return "Due date is required for credit terms.";
@@ -766,23 +766,23 @@ const PaymentTermRow = ({ term, onReques_tPayment }) => {
         </span>
       </div>
       <div className="w-40 text-right ml-4">
-        {term?.status === "Return" && (
+        {term?.term_status === "Return" && (
           <Badge variant="outline" className="border-grey-500 text-blue-600">
             Return
           </Badge>
         )}
-        {term?.status === "Approved" && (
+        {term?.term_status === "Approved" && (
           <Badge variant="outline" className="border-grey-500 text-grey-600">
             Approved
           </Badge>
         )}
-        {term?.status === "Paid" && (
+        {term?.term_status === "Paid" && (
           <div className="flex items-center justify-end text-green-600">
             <CheckCircle2 className="h-5 w-5 mr-2" />
             <span className="font-medium text-sm">Paid</span>
           </div>
         )}
-        {term?.status === "Requested" && (
+        {term?.term_status === "Requested" && (
           <Badge
             variant="outline"
             className="border-orange-500 text-orange-600"
@@ -790,17 +790,17 @@ const PaymentTermRow = ({ term, onReques_tPayment }) => {
             Requested
           </Badge>
         )}
-        {term?.status === "Rejected" && (
+        {term?.term_status === "Rejected" && (
           <Badge variant="outline" className="border-red-500 text-red-600">
             Rejected
           </Badge>
         )}
-        {term?.status === "canceled" && (
+        {term?.term_status === "canceled" && (
           <Badge variant="outline" className="border-grey-500 text-grey-600">
             canceled
           </Badge>
         )}
-        {term?.status === "Scheduled" && term.payment_type === "Credit" && (
+        {term?.term_status === "Scheduled" && term.payment_type === "Credit" && (
           <Button
             size="sm"
             className="bg-yellow-400 hover:bg-yellow-500 text-red text-xs h-7 px-3"
@@ -809,7 +809,7 @@ const PaymentTermRow = ({ term, onReques_tPayment }) => {
             Request Payments
           </Button>
         )}
-        {term?.status === "Created" && term.payment_type === "Credit" && (
+        {term?.term_status === "Created" && term.payment_type === "Credit" && (
           <Badge
             variant="outline"
             className="border-orange-500 text-orange-600"
@@ -817,7 +817,7 @@ const PaymentTermRow = ({ term, onReques_tPayment }) => {
             {term.due_date}
           </Badge>
         )}
-        {term?.status === "Created" && term.payment_type !== "Credit" && (
+        {term?.term_status === "Created" && term.payment_type !== "Credit" && (
           <Button
             size="sm"
             className="bg-yellow-400 hover:bg-yellow-500 text-red text-xs h-7 px-3"
@@ -902,7 +902,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
   
   
 
-  const isReadOnly = accountsPage || estimatesViewing || summaryPage;
+  const isReadOnly = accountsPage || estimatesViewing || summaryPage|| PO.status ==="Inactive";
 
   // const isPaymentTermsEditable = useMemo(() => {
   //   if (
@@ -1010,7 +1010,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
       // 3. A due_date exists.
       if (
         term.payment_type === "Credit" &&
-        term.status === "Scheduled" &&
+        term.term_status === "Scheduled" &&
         term.due_date
       ) {
         // Parse the due_date string into a Date object.
@@ -1021,13 +1021,13 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
 
         if (!isToday(dueDate) && !isPast(dueDate)) {
           // If it is, update the status of this term.
-          term.status = "Created";
+          term.term_status = "Created";
         }
       }
 
       if (
         term.payment_type === "Credit" &&
-        term.status === "Created" &&
+        term.term_status === "Created" &&
         term.due_date
       ) {
         // Parse the due_date string into a Date object.
@@ -1036,7 +1036,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
         // Using date-fns, check if the due date is today or in the past.
         if (isToday(dueDate) || isPast(dueDate)) {
           // If it is, update the status of this term.
-          term.status = "Scheduled";
+          term.term_status = "Scheduled";
         }
       }
     });
@@ -1079,6 +1079,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
     }
   };
 
+  console.log("processedPaymentTerms",processedPaymentTerms)
   return (
     <>
       <Card className="rounded-sm shadow-md col-span-3 overflow-x-auto">
@@ -1108,18 +1109,18 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
               </span>
             </p>
             <ul className="space-y-1">
-              {processedPaymentTerms.length > 0 ? (
+              {processedPaymentTerms.length > 0 && PO.status!=="Inactive" ? (
                 processedPaymentTerms.map((term) => (
                   <PaymentTermRow
                     key={term.name}
                     term={term}
-                    displayStatus={term?.displayStatus}
+                    // displayStatus={term?.term_status}
                     onReques_tPayment={handleOpenRequestDialog}
                   />
                 ))
               ) : (
                 <p className="text-sm text-gray-400 text-center py-4">
-                  No payment terms defined.
+                   {PO.status==="Inactive"?"This Payment Terms Are in InActive Mode":"No payment terms defined" }.
                 </p>
               )}
             </ul>

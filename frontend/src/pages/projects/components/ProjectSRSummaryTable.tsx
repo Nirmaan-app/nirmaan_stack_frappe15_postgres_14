@@ -33,7 +33,7 @@ import { useOrderPayments } from "@/hooks/useOrderPayments";
 export const SR_SUMMARY_LIST_FIELDS_TO_FETCH: (keyof ServiceRequests | 'name')[] = [
     "name", "creation", "modified", "owner", "project",
     "vendor",
-    "service_category_list", "status", "service_order_list", 'gst'
+    "service_category_list", "status", "service_order_list", 'gst', 'total_amount', 'amount_paid'
 ];
 
 // Searchable fields for the SR Summary table
@@ -59,10 +59,14 @@ export const SR_SUMMARY_STATUS_OPTIONS = [
     { label: "Vendor Selected", value: "Vendor Selected" },
     { label: "Created", value: "Created" },
     { label: "Amendment", value: "Amendment" },
-    { label: "Edit", value: "Edit" },
+    // { label: "Edit", value: "Edit" },
     { label: "Rejected", value: "Rejected" },
 ];
 
+export const SR_SUMMARY_GST_OPTIONS_MAP = [
+    { label: "Yes", value: "true" },
+    { label: "No", value: "false" },
+]
 // --- Constants ---
 const DOCTYPE = 'Service Requests'; // Main Doctype for the list
 
@@ -197,29 +201,55 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({ pr
             enableColumnFilter: true, size: 120,
         },
         {
-            id: "sr_value_row", header: ({ column }) => <DataTableColumnHeader column={column} title="Value (inc. GST)" />,
-            cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(getSRRowTotal(row.original.service_order_list, row.original.gst))}</div>,
-            size: 150, enableSorting: false,
-            meta: {
-                exportHeaderName: "Value (inc. GST)",
-                exportValue: (row: ServiceRequests) => {
-                    return formatForReport(getSRRowTotal(row.service_order_list, row.gst))
-                }
-            }
-
+            accessorKey: "total_amount", header: ({ column }) => <DataTableColumnHeader column={column} title="Total SR Value" />,
+            cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(row.original.total_amount)}</div>, // Example badge
+            enableColumnFilter: true, size: 120,
         },
         {
-            id: "amount_paid_po", header: ({ column }) => <DataTableColumnHeader column={column} title="Amt. Paid" />,
-            cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(getTotalAmountPaidForSR(row.original.name, ["Paid"]))}</div>,
-            size: 130, enableSorting: false,
+            accessorKey: "gst", header: ({ column }) => <DataTableColumnHeader column={column} title="Incl. GST" />,
+            cell: ({ row }) => <Badge variant={row.original.gst === "true" ? "green" : "outline"}>{row.original.gst === "true" ? "Yes" : "No"}</Badge>, // Example badge
+            enableColumnFilter: true, size: 120,
+        },
+        // {
+        //     id: "sr_value_row", header: ({ column }) => <DataTableColumnHeader column={column} title="Value (inc. GST)" />,
+        //     cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(getSRRowTotal(row.original.service_order_list, row.original.gst))}</div>,
+        //     size: 150, enableSorting: false,
+        //     meta: {
+        //         exportHeaderName: "Value (inc. GST)",
+        //         exportValue: (row: ServiceRequests) => {
+        //             return formatForReport(getSRRowTotal(row.service_order_list, row.gst))
+        //         }
+        //     }
+
+        // },
+        {
+            accessorKey: "amount_paid", header: ({ column }) => <DataTableColumnHeader column={column} title="Amt. Paid" />,
+            cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(row.original.amount_paid)}</div>, // Example badge
+            enableColumnFilter: true, size: 120,
+        },
+        {
+            id: "amount_payable", header: ({ column }) => <DataTableColumnHeader column={column} title="Amt payable" />,
+            cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(row.original.total_amount-row.original.amount_paid)}</div>, // Example badge
+            enableColumnFilter: true, size: 120,
             meta: {
-                exportHeaderName: "Amt. Paid",
+                exportHeaderName: "Amt payable",
                 exportValue: (row: ServiceRequests) => {
-                    return formatForReport(getTotalAmountPaidForSR(row.name, ["Paid"]));
+                    return formatToRoundedIndianRupee(row.total_amount-row.amount_paid);
                 }
             }
         },
-    ], [projectId, getProjectName, getVendorName, getSRRowTotal, getTotalAmountPaidForSR]);
+        // {
+        //     id: "amount_paid_po", header: ({ column }) => <DataTableColumnHeader column={column} title="Amt. Paid" />,
+        //     cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(getTotalAmountPaidForSR(row.original.name, ["Paid"]))}</div>,
+        //     size: 130, enableSorting: false,
+        //     meta: {
+        //         exportHeaderName: "Amt. Paid",
+        //         exportValue: (row: ServiceRequests) => {
+        //             return formatForReport(getTotalAmountPaidForSR(row.name, ["Paid"]));
+        //         }
+        //     }
+        // },
+    ], [projectId, getProjectName, getVendorName]); //,getSRRowTotal, getTotalAmountPaidForSR]);
 
 
     // --- useServerDataTable Hook for the paginated SR list ---
@@ -242,7 +272,8 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({ pr
     const facetFilterOptions = useMemo(() => {
         const opts: any = {
             status: { title: "Status", options: SR_SUMMARY_STATUS_OPTIONS },
-            vendor: { title: "Vendor", options: vendorOptions }
+            vendor: { title: "Vendor", options: vendorOptions },
+            gst: { title: "GST", options: SR_SUMMARY_GST_OPTIONS_MAP },
         };
         // if (!projectId) { // Only add project facet if not already filtered by a single project
         //     opts.project = { title: "Project", options: projectOptions };
@@ -286,6 +317,12 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({ pr
                                             <span className="font-medium">Total Amt Paid:</span>{" "}
                                             <span className="text-green-600 font-semibold">
                                                 {formatToRoundedIndianRupee(srAggregates.total_amount_paid_for_srs)}
+                                            </span>
+                                        </p>
+                                         <p className="text-gray-700">
+                                            <span className="font-medium">Total Amt Payable:</span>{" "}
+                                            <span className="text-yellow-600 font-semibold">
+                                                {formatToRoundedIndianRupee(srAggregates.total_sr_value_inc_gst-srAggregates.total_amount_paid_for_srs)}
                                             </span>
                                         </p>
                                     </div>

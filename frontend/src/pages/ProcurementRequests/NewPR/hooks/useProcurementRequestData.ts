@@ -32,6 +32,8 @@ export const useProcurementRequestData = (): UseProcurementRequestDataResult => 
     const projectId = useProcurementRequestStore(state => state.projectId);
     const selectedWP = useProcurementRequestStore(state => state.selectedWP);
 
+    console.log("selectedWP",selectedWP)
+
     // Fetch Project Details
     const { data: project, error: projectError } = useFrappeGetDoc<Projects>(
         "Projects",
@@ -53,7 +55,7 @@ export const useProcurementRequestData = (): UseProcurementRequestDataResult => 
     const { data: category_list, isLoading: catLoading, error: catError } = useFrappeGetDocList<Category>(
         "Category", {
             fields: ["category_name", "work_package", "image_url", "tax", "new_items", "name"],
-            filters: selectedWP ? [["work_package", "=", selectedWP]] : [], // Only filter if WP selected
+            filters: selectedWP ? [["work_package", "in", [selectedWP,"Tool & Equipments"]]] : [], // Only filter if WP selected
             orderBy: { field: "category_name", order: "asc" },
             limit: 0,
         },

@@ -1,7 +1,15 @@
 export const INVOICE_TASK_TABS = {
   PENDING: 'pending',
   HISTORY: 'history',
+    PO_INVOICES: 'po_invoices',
+  SR_INVOICES: 'sr_invoices',
 } as const; // Use "as const" for stricter typing
+
+// // NEW: Constants for the second group of tabs
+// export const INVOICE_TYPE_TABS = {
+//   PO_INVOICES: 'po_invoices',
+//   SR_INVOICES: 'sr_invoices',
+// } as const;
 
 export const INVOICE_TASK_TYPE = "po_invoice_approval";
 

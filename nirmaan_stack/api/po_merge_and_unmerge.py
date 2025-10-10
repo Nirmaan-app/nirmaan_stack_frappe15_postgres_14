@@ -76,10 +76,10 @@ def handle_merge_pos(po_id: str, merged_items: list, order_data: list, payment_t
                 percentage = (amount / grand_total_amount) * 100
             
             term_dict['percentage'] = round(percentage, 2)
-            term_dict['status'] = "Created"
+            term_dict['term_status'] = "Created"
             if term_dict.get("payment_type") == "Credit" and term_dict.get("due_date"):
                 if getdate(term_dict.get("due_date")) <= today:
-                    term_dict['status'] = "Scheduled"
+                    term_dict['term_status'] = "Scheduled"
             new_po_doc.append("payment_terms", term_dict)
         
         

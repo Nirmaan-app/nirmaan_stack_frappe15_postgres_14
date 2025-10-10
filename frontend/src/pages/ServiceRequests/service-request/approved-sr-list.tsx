@@ -44,6 +44,11 @@ interface ApprovedSRListProps {
     urlSyncKeySuffix?: string; // To make URL keys unique if used multiple times on one page
 }
 
+export const SR_GST_OPTIONS_MAP = [
+    { label: "Yes", value: "true" },
+    { label: "No", value: "false" },
+];
+
 // --- Component ---
 export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
     for_vendor = undefined,
@@ -116,7 +121,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
 
     // --- Fields to Fetch ---
     const fieldsToFetch = useMemo(() => DEFAULT_SR_FIELDS_TO_FETCH.concat([
-        "creation", "modified", 'service_order_list', 'service_category_list'
+        "creation", "modified", 'service_order_list', 'service_category_list', 'total_amount', 'amount_paid', 'gst'
     ]), [])
 
     const srSearchableFields = useMemo(() => SR_SEARCHABLE_FIELDS.concat([
@@ -147,7 +152,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
                             </Link>)
                         }
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                             <ItemsHoverCard parentDocId={data} parentDoctype="Service Requests" childTableName="service_order_list" isSR />
+                            <ItemsHoverCard parentDocId={data} parentDoctype="Service Requests" childTableName="service_order_list" isSR />
                         </div>
                     </div>
                 );
@@ -214,37 +219,53 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
             }
         },
         {
-            id: "service_total_amount", header: ({ column }) => <DataTableColumnHeader column={column} title="SR Value" />,
-            cell: ({ row }) => (<p className="font-medium pr-2">{formatToRoundedIndianRupee(getTotalAmount(row.original.name, 'Service Requests')?.totalWithTax)}</p>),
-            size: 150, enableSorting: false,
-            meta: {
-                exportHeaderName: "SR Value",
-                exportValue: (row) => {
-                    return formatForReport(getTotalAmount(row.name, 'Service Requests')?.totalWithTax);
-                }
-            }
+            accessorKey: "total_amount", header: ({ column }) => <DataTableColumnHeader column={column} title="Total SR Value" />,
+            cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(row.original.total_amount)}</div>, // Example badge
+            enableColumnFilter: true, size: 120,
         },
         {
-            id: "amount_paid_sr", header: ({ column }) => <DataTableColumnHeader column={column} title="Amt Paid" />,
-            cell: ({ row }) => {
-                const amountPaid = getAmountPaidForSR(row.original.name);
-                return <div className="font-medium pr-2">{formatToRoundedIndianRupee(amountPaid || 0)}</div>;
-            }, size: 150, enableSorting: false,
-            meta: {
-                exportHeaderName: "Amt Paid",
-                exportValue: (row) => {
-                    const amountPaid = getAmountPaidForSR(row.name);
-                    return formatForReport(amountPaid || 0);
-                }
-            }
+            accessorKey: "gst", header: ({ column }) => <DataTableColumnHeader column={column} title="Incl. GST" />,
+            cell: ({ row }) => <Badge variant={row.original.gst === "true" ? "green" : "outline"}>{row.original.gst === "true" ? "YES" : "NO"}</Badge>, // Example badge
+            enableColumnFilter: true, size: 120,
         },
-    ], [notifications, projectOptions, vendorOptions, userList, handleNewSRSeen, getVendorName, getTotalAmount, getAmountPaidForSR, for_vendor]);
+        // {
+        //     id: "service_total_amount", header: ({ column }) => <DataTableColumnHeader column={column} title="SR Value" />,
+        //     cell: ({ row }) => (<p className="font-medium pr-2">{formatToRoundedIndianRupee(getTotalAmount(row.original.name, 'Service Requests')?.totalWithTax)}</p>),
+        //     size: 150, enableSorting: false,
+        //     meta: {
+        //         exportHeaderName: "SR Value",
+        //         exportValue: (row) => {
+        //             return formatForReport(getTotalAmount(row.name, 'Service Requests')?.totalWithTax);
+        //         }
+        //     }
+        // },
+        {
+            accessorKey: "amount_paid", header: ({ column }) => <DataTableColumnHeader column={column} title="Amt. Paid" />,
+            cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(row.original.amount_paid)}</div>, // Example badge
+            enableColumnFilter: true, size: 120,
+        },
+        // {
+        //     id: "amount_paid_sr", header: ({ column }) => <DataTableColumnHeader column={column} title="Amt Paid" />,
+        //     cell: ({ row }) => {
+        //         const amountPaid = getAmountPaidForSR(row.original.name);
+        //         return <div className="font-medium pr-2">{formatToRoundedIndianRupee(amountPaid || 0)}</div>;
+        //     }, size: 150, enableSorting: false,
+        //     meta: {
+        //         exportHeaderName: "Amt Paid",
+        //         exportValue: (row) => {
+        //             const amountPaid = getAmountPaidForSR(row.name);
+        //             return formatForReport(amountPaid || 0);
+        //         }
+        //     }
+        // },
+    ], [notifications, projectOptions, vendorOptions, userList, handleNewSRSeen, getVendorName, for_vendor]); //, getTotalAmount, getAmountPaidForSR, 
 
 
     // --- Faceted Filter Options ---
     const facetFilterOptions = useMemo(() => ({
         project: { title: "Project", options: projectOptions },
         vendor: { title: "Vendor", options: vendorOptions }, // Filter by vendor ID
+        gst: { title: "GST", options: SR_GST_OPTIONS_MAP },
     }), [projectOptions, vendorOptions]);
 
 

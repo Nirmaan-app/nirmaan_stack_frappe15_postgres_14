@@ -29,7 +29,7 @@ interface ProcurementRequestState {
     ) => void;
     setSelectedWP: (wp: string, wpSpecificMakes: CategoryMakesMap) => void;
     addProcItem: (item: ProcurementRequestItem) => boolean;
-    updateProcItem: (updatedItem: Partial<ProcurementRequestItem> & { name: string }) => void;
+    updateProcItem: (updatedItem: Partial<ProcurementRequestItem> & { uniqueId: string }) => void;
     deleteProcItem: (itemName: string) => void;
     undoDelete: () => void;
     setNewPRComment: (comment: string) => void;
@@ -121,27 +121,51 @@ export const useProcurementRequestStore = create<ProcurementRequestState>()(
             // --- Actions ---
             initialize: (mode, projectId, prId, wpSpecificInitialMakes = {}, initialPrData) => {
                 const currentState = get();
-                if (!currentState.isInitialized || currentState.projectId !== projectId || (currentState.prId != prId) || currentState.mode !== mode) {
-                    console.log("Initializing store:", { mode, projectId, prId });
+
+                // Check if the fundamental context has changed (e.g., navigating to a different PR or project)
+                // Use strict equality for comparison to avoid unexpected type coercion
+                const contextChanged =
+                    currentState.projectId !== projectId ||
+                    currentState.prId !== (prId || null) ||
+                    currentState.mode !== mode;
+
+                // A full re-initialization is needed if context changed OR if the store isn't marked as initialized yet.
+                // This branch ensures a fresh start when the user navigates to a new PR/project/mode.
+                if (contextChanged || !currentState.isInitialized) {
+                    console.log("Store: Full initialization due to context change or first-time setup.");
                     const initialProcList = initialPrData?.procList || [];
-                    // Ignore initialPrData.categories - we will derive them fresh
                     set({
                         mode,
                         projectId,
                         prId: prId || null,
                         selectedWP: initialPrData?.workPackage || '',
                         procList: initialProcList,
-                        initialCategoryMakes: wpSpecificInitialMakes,
-                        sessionAddedMakes: {}, // <<< Reset session makes on init
-                        selectedCategories: [], // Start empty, will be derived
+                        initialCategoryMakes: wpSpecificInitialMakes || {}, // Ensure it's an object
+                        sessionAddedMakes: {},
+                        selectedCategories: [],
                         undoStack: [],
                         newPRComment: '',
                         isInitialized: true,
                     });
-                    // **Crucial:** Recalculate immediately after setting state
+                    get()._recalculateCategories();
+                } else if (initialPrData && initialPrData.procList) {
+                    // This is the crucial branch for your scenario:
+                    // Context (PR ID, Project ID, mode) is the same, but new `initialPrData` has arrived
+                    // (e.g., `existingPRData` finished loading, or was refreshed).
+                    // In this case, we want to update the `procList` and related data from the backend
+                    // without resetting other session-specific states like `sessionAddedMakes` or `newPRComment`.
+                    console.log("DEBUG 3: Store: Updating procList with fresh initialPrData for existing context.");
+                    set(state => ({
+                        procList: initialPrData.procList,
+                        selectedWP: initialPrData.workPackage || state.selectedWP, // Update WP if it came with initial data
+                        initialCategoryMakes: wpSpecificInitialMakes || state.initialCategoryMakes, // Update makes
+                        // sessionAddedMakes is NOT reset here, it maintains its state for the current PR
+                        // newPRComment is NOT reset here
+                        // undoStack is NOT reset here
+                    }));
                     get()._recalculateCategories();
                 } else {
-                    console.log("Store already initialized with same keys, skipping re-initialization.");
+                    console.log("Store: Already initialized with current context, no new data to load.");
                 }
             },
 
@@ -178,7 +202,7 @@ export const useProcurementRequestStore = create<ProcurementRequestState>()(
 
             // Actions that affect procList now just call _recalculateCategories
             addProcItem: (item) => {
-                if (get().procList.some(i => i.name === item.name)) return false;
+                if (get().procList.some(i => i.name === item.name && i.item===item.item)) return false;
                 const stack = get().undoStack.filter(stackItem => stackItem.name !== item.name);
                 set(state => ({
                     procList: [...state.procList, { ...item, uniqueId: item.uniqueId || uuidv4() }],
@@ -189,9 +213,10 @@ export const useProcurementRequestStore = create<ProcurementRequestState>()(
             },
 
             updateProcItem: (updatedItem) => {
+                console.log("updateItem",updatedItem)
                 set(state => ({
                     procList: state.procList.map(item =>
-                        (item.uniqueId && item.uniqueId === updatedItem.uniqueId) || item.name === updatedItem.name
+                        (item.uniqueId && item.uniqueId === updatedItem.uniqueId) && item.name === updatedItem.name
                             ? { ...item, ...updatedItem }
                             : item
                     )

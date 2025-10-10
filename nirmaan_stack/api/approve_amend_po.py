@@ -62,7 +62,7 @@ def approve_amend_po_with_payment_terms(po_name: str):
                         "label": f"Balance Payment {len(po_doc.payment_terms) + 1}",
                         "amount": increase_amount,
                         "percentage": (increase_amount / current_total) * 100 if current_total > 0 else 0,
-                        "status": "Created",
+                        "term_status": "Created",
                         "payment_type": payment_type,
                         "due_date": due_date
                     })
@@ -133,14 +133,14 @@ def approve_amend_po_with_payment_terms(po_name: str):
             # 3. If there is a meaningful discrepancy, adjust the last modifiable term
             if abs(discrepancy) > 0.01:
                 # Find the last term that isn't locked
-                last_adjustable_term = next((t for t in reversed(po_doc.payment_terms) if t.status not in ["Paid", "Requested", "Approved"]), None)
+                last_adjustable_term = next((t for t in reversed(po_doc.payment_terms) if t.term_status not in ["Paid", "Requested", "Approved"]), None)
                 if last_adjustable_term:
                     last_adjustable_term.amount = flt(last_adjustable_term.amount) + discrepancy
             
             # --- CONSOLIDATED PERCENTAGE RECALCULATION (Unchanged) ---
             if current_total > 0:
                 for term in po_doc.payment_terms:
-                    if term.status != "Return":
+                    if term.term_status != "Return":
                         term.percentage = (flt(term.amount) / current_total) * 100
                     else:
                         term.percentage = 0

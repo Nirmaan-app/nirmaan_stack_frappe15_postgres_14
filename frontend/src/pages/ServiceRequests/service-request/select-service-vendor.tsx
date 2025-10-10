@@ -332,7 +332,7 @@ export const SelectServiceVendorPage : React.FC<SelectServiceVendorPageProps> = 
 
   const handleAmountChange = (id: string, value: string) => {
     const numericValue = value.replace(/₹\s*/, "");
-    setAmounts((prev) => ({ ...prev, [id]: parseFloat(numericValue) }));
+    setAmounts((prev) => ({ ...prev, [id]: numericValue }));
   };
 
 
@@ -397,6 +397,7 @@ export const SelectServiceVendorPage : React.FC<SelectServiceVendorPageProps> = 
           subject: "sending sr for appr",
         });
       }
+      console.log("list",order)
       await updateDoc("Service Requests", sr_data?.name, {
         vendor: selectedVendor?.value,
         service_order_list: { list: order },
@@ -646,8 +647,11 @@ export const SelectServiceVendorPage : React.FC<SelectServiceVendorPageProps> = 
                             value={
                               amounts[item.id] ? `₹ ${amounts[item.id]}` : "₹"
                             }
-                            onChange={(e) =>
+                            onChange={(e) =>{
+ console.log(e.target.value)
                               handleAmountChange(item.id, e.target.value)
+                            }
+                             
                             }
                             disabled={!selectedVendor?.value}
                           />

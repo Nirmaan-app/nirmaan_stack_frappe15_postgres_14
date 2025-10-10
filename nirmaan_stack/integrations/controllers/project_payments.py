@@ -26,7 +26,7 @@ def _find_and_update_po_term(payment_doc, new_status, clear_link=False):
         for term in po_doc.get("payment_terms"):
             # The search condition: find the term linking to this payment
             if term.project_payment == payment_doc.name:
-                term.status = new_status
+                term.term_status = new_status
                 if clear_link:
                     term.project_payment = "" # Clear the link on deletion
                 

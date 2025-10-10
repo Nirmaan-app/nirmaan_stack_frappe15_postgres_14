@@ -393,7 +393,7 @@ export const PurchaseOrder = ({
     {
       fields: ["*"],
       filters: [["document_name", "=", poId]],
-      limit: 1000,
+      limit: 0,
     },
     poId ? undefined : null
   );
@@ -402,8 +402,8 @@ export const PurchaseOrder = ({
     useFrappeGetDocList<ProjectPayments>("Project Payments", {
       fields: ["*"],
       filters: [["document_type", "=", "Procurement Orders"]],
-      limit: 1000,
-      order: 'desc'
+      limit: 0,
+      orderBy: { field: "name", order: "desc" },
     });
 
 
@@ -674,6 +674,7 @@ export const PurchaseOrder = ({
     }
   };
 
+  console.log("PO?.payment_terms",PO?.payment_terms)
   const handleAmendPo = async () => {
     setLoadingFuncName("handleAmendPo");
 
@@ -700,12 +701,12 @@ export const PurchaseOrder = ({
 
     // A) Calculate the sum of all payments that cannot be changed.
     const lockedAmount = (PO?.payment_terms || [])
-      .filter((term) => ["Paid", "Requested", "Approved"].includes(term.status))
+      .filter((term) => ["Paid", "Requested", "Approved"].includes(term.term_status))
       .reduce((sum, term) => sum + (term.amount || 0), 0);
 
     // B) Check if a "Return" term already exists from a previous amendment.
     const hasExistingReturn = PO?.payment_terms?.some(
-      (term) => term.status === "Return"
+      (term) => term.term_status === "Return"
     );
 
     // C) Check if the new total is less than what's already been paid/requested.
@@ -733,7 +734,7 @@ export const PurchaseOrder = ({
 
       // Calculate the total amount from terms that can actually be reduced.
       const modifiableAmount = (PO?.payment_terms || [])
-        .filter((term) => ["Created", "Scheduled"].includes(term.status))
+        .filter((term) => ["Created", "Scheduled"].includes(term.term_status))
         .reduce((sum, term) => sum + (term.amount || 0), 0);
 
       // console.log("DEBUG: Reduction Amount:", reductionAmount);
@@ -1528,6 +1529,7 @@ export const PurchaseOrder = ({
                   documentData={invoicePO}
                   docMutate={poMutate}
                   project={project}
+                  disabledAddInvoice={PO?.status=="Inactive"}
                 />
 
                 {/* <POAttachments PO={PO} poMutate={poMutate} /> */}

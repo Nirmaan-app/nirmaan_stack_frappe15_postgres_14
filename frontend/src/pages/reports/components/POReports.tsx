@@ -42,7 +42,7 @@ export default function POReports() {
     // 2. Dynamically determine columns based on selectedReportType
     const tableColumnsToDisplay = useMemo(() => getPOReportColumns(selectedReportType, role), [selectedReportType]);
     const payment_delta = 100;
-    const invoice_delta = 500;
+    const invoice_delta = 100;
 
     // 3. Perform the report-specific dynamic filtering on the client side.
     // This `currentDisplayData` is what will be shown in the table.
@@ -64,8 +64,9 @@ export default function POReports() {
             case 'Pending Invoices':
                 filtered = allPOsForReports.filter(row => {
                     const poDoc = row.originalDoc;
-                    if (poDoc.status === 'Partially Delivered' || poDoc.status === 'Delivered' || poDoc.status === 'Billed') {
-                        return parseNumber(row.invoiceAmount) < parseNumber(row.totalAmount) - invoice_delta;
+                    if (poDoc.status === 'Partially Delivered' || poDoc.status === 'Delivered') {
+
+                        return Math.abs(parseNumber(row.invoiceAmount) - parseNumber(poDoc.amount_paid) )>= invoice_delta;
                     }
                     return false;
                 });
@@ -73,7 +74,7 @@ export default function POReports() {
             case 'PO with Excess Payments':
                 filtered = allPOsForReports.filter(row => {
                     const poDoc = row.originalDoc;
-                    if (poDoc.status === 'Partially Delivered' || poDoc.status === 'Delivered' || poDoc.status === 'Billed') {
+                    if (poDoc.status === 'Partially Delivered' || poDoc.status === 'Delivered') {
                         return parseNumber(row.amountPaid) > parseNumber(row.totalAmount) + payment_delta;
                     }
                     return false;

@@ -52,6 +52,7 @@ import { useServiceRequestLogic } from "../hooks/useServiceRequestLogic";
 import { DocumentAttachments } from "@/pages/ProcurementOrders/invoices-and-dcs/DocumentAttachments";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { DeletePaymentDialog } from "@/pages/ProjectPayments/update-payment/DeletePaymentDialog";
+import SRPdf from "./SRPdf";
 
 // const { Sider, Content } = Layout;
 
@@ -930,8 +931,25 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
             </Card>
 
             {/* SR PDF Sheet */}
+            <SRPdf
+  srPdfSheet={srPdfSheet}
+  toggleSrPdfSheet={toggleSrPdfSheet}
+  handlePrint={handlePrint}
+  componentRef={componentRef}
+  orderData={orderData}
+  service_vendor={service_vendor}
+  project={project}
+  gstEnabled={gstEnabled}
+  getTotal={getTotal}
+  notes={notes}
+  logo={logo}
+  Seal={Seal}
+  formatToIndianRupee={formatToIndianRupee}
+  parseNumber={parseNumber}
+//   AddressView={AddressView}
+/>
 
-            <Sheet open={srPdfSheet} onOpenChange={toggleSrPdfSheet}>
+            {/* <Sheet open={srPdfSheet} onOpenChange={toggleSrPdfSheet}>
                 <SheetContent className="overflow-y-auto md:min-w-[700px]">
                     <Button onClick={handlePrint} className="flex items-center gap-1">
                         <Printer className="h-4 w-4" />
@@ -992,7 +1010,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                         </tr>
                                         <tr className="border-t border-black">
                                             <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">No.</th>
-                                            {/* <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">Services</th> */}
+                                           
                                             <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Service Description</th>
                                             <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
                                             <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Qty</th>
@@ -1005,7 +1023,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                         {orderData && orderData?.service_order_list?.list?.map((item, index) => (
                                             <tr key={item.id} className={`${index === (orderData && orderData?.service_order_list)?.list?.length - 1 && "border-b border-black"} page-break-inside-avoid`}>
                                                 <td className="py-2 text-sm whitespace-nowrap flex items-start">{index + 1}.</td>
-                                                {/* <td className="py-2 text-sm whitespace-nowrap text-wrap">{item?.category}</td> */}
+                                                
                                                 <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[95%]">
                                                     <p className="font-semibold">{item?.category}</p>
                                                     <span className="whitespace-pre-wrap">{item?.description}</span>
@@ -1017,26 +1035,13 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                 <td className="px-2 py-2 text-sm whitespace-nowrap">{formatToIndianRupee(parseNumber(item.rate) * parseNumber(item.quantity))}</td>
                                             </tr>
                                         ))}
-                                        {/* {[...Array(20)].map((_, index) => (
-                           orderData && JSON.parse(orderData?.service_order_list)?.list?.map((item) => (
-                               <tr key={item.id} className={`${index === 19 && "border-b border-black"} page-break-inside-avoid`}>
-                                   <td className="py-2 text-sm whitespace-nowrap w-[5%]">{index + 2}.</td>
-                                   <td className="py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.category}</td>
-                                   <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[65%]">{item?.description}</td>
-                                   <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.uom}</td>
-                                   <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[5%]">{item?.quantity}</td>
-                                   <td className="px-4 py-2 text-sm whitespace-nowrap w-[5%]">{formatToIndianRupee(item.rate)}</td>
-                                   <td className="px-4 py-2 text-sm whitespace-nowrap w-[5%]">18%</td>
-                                   <td className="px-4 py-2 text-sm whitespace-nowrap w-[5%]">{formatToIndianRupee(item.rate * item.quantity)}</td>
-                               </tr>
-                           ))
-                               ))} */}
+                                        
                                         <tr className="">
                                             <td className="py-2 text-sm whitespace-nowrap w-[7%]"></td>
                                             <td className=" py-2 whitespace-nowrap font-semibold flex justify-start w-[80%]"></td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
-                                            {/* <td className="px-4 py-2 text-sm whitespace-nowrap"></td> */}
+                                           
                                             {gstEnabled && <td className="px-4 py-2 text-sm whitespace-nowrap"></td>}
                                             <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">Sub-Total</td>
                                             <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{formatToIndianRupee(getTotal)}</td>
@@ -1045,7 +1050,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                             <td></td>
                                             <td></td>
                                             <td></td>
-                                            {/* <td></td> */}
+                                            
                                             {gstEnabled && <td></td>}
                                             <td></td>
                                             <td className="space-y-4 w-[110px] py-4 flex flex-col items-end text-sm font-semibold page-break-inside-avoid">
@@ -1183,7 +1188,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                     </div>
 
                 </SheetContent>
-            </Sheet>
+            </Sheet> */}
         </div>
     );
 };

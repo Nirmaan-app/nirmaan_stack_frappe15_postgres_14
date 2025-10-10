@@ -449,7 +449,7 @@ def get_project_po_summary_aggregates(project_id: str):
     # Relevant POs for this project (excluding Cancelled/Merged)
     po_filters = [
         ["project", "=", project_id],
-        ["status", "not in", ["Cancelled", "Merged", "PO Amendment"]]
+        ["status", "not in", ["Cancelled", "Merged", "PO Amendment","Inactive"]]
     ]
 
     purchase_orders_data = frappe.get_all(

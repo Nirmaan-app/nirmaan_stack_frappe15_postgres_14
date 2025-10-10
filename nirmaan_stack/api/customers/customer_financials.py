@@ -46,7 +46,7 @@ def get_customer_financial_details(customer_id):
         procurement_orders = frappe.get_all(
             "Procurement Orders",
             fields=["order_list", "loading_charges", "freight_charges"],
-            filters={"status": ("not in", ["Cancelled", "Merged", "PO Amendment"]), "project": ("in", project_names)},
+            filters={"status": ("not in", ["Cancelled", "Merged", "PO Amendment","Inactive"]), "project": ("in", project_names)},
             limit=100000,
             order_by="modified desc"
         )

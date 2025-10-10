@@ -144,6 +144,12 @@ export const PODetails: React.FC<PODetailsProps> = ({
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
 
+  const [inactiveDialog, setInactiveDialog] = useState(false);
+
+const toggleInactiveDialog = useCallback(() => {
+    setInactiveDialog((prevState) => !prevState);
+}, []); // No dependencies needed for simple toggle
+
   const { toggleNewInvoiceDialog } = useDialogStore();
 
   const [deliveryNoteSheet, setDeliveryNoteSheet] = useState(false);
@@ -351,6 +357,33 @@ export const PODetails: React.FC<PODetailsProps> = ({
     // window.open(view, '_blank');
   };
 
+  // ... existing functions (handleDispatchPO, handleRevertPO, handleDeleteCustomPO) ...
+
+const handleInactivePO = async () => {
+    try {
+        await updateDoc("Procurement Orders", po.name, {
+            status: "Inactive", // Set the new status
+        });
+
+        await poMutate(); // Re-fetch PO data to update the UI
+
+        toast({
+            title: "Success!",
+            description: `PO: ${po.name} has been marked as 'Inactive'.`,
+            variant: "success",
+        });
+        toggleInactiveDialog(); // Close the dialog whether successful or not
+        // Redirect to a suitable page, e.g., the main purchase orders list
+        navigate(`/purchase-orders`); // Or specific tab if applicable, e.g., /purchase-orders?tab=Inactive+PO
+    } catch (error: any) { // Type 'any' for error caught from Frappe hook
+        console.error("Error while inactivating PO:", error);
+        toast({
+            title: "Failed!",
+            description: `Failed to mark PO: ${po.name} as Inactive. Error: ${error.message || 'Unknown error'}`,
+            variant: "destructive",
+        });
+    } 
+};
 
 
   return (
@@ -393,7 +426,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                       ? "default"
                       : po?.status === "Dispatched"
                       ? "orange"
-                      : "green"
+                      :po?.status ==="Inactive"?"red":"green"
                   }
                 >
                   {po?.status}
@@ -437,7 +470,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 )} */}
 
                 {/* Add Invoice Button */}
-                {po?.status !== "PO Approved" && (
+                {po?.status !== "PO Approved" && po?.status !== "Inactive" && (
                   <Button
                     variant="outline"
                     className="text-primary border-primary"
@@ -999,9 +1032,30 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   Approved By:
                 </span>
                 <Badge variant={"default"}>{po?.owner}</Badge>
-              </div>
+              </div> 
+                        
             </div>
+            
           </div>
+          <div className=" m-0 p-0">
+            {po &&
+                po.status !== "Inactive" &&
+                po.status !== "Cancelled" &&
+                po.status !== "Merged" &&
+                po.status !== "PO Approved" &&
+                po?.amount_paid <=100 &&
+                (["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role)) && (
+                  <Button
+                    variant="outline"
+                    onClick={toggleInactiveDialog}
+                    className="text-destructive border-destructive hover:bg-destructive hover:text-white mt-2" // Added mt-2 for some spacing
+                  >
+                    <CircleX className="w-4 h-4 mr-1" />
+                    Mark Inactive
+                  </Button>
+                )} 
+          </div>
+             
         </CardHeader>
 
         {/* <CardContent className="max-sm:text-xs">
@@ -1155,6 +1209,40 @@ export const PODetails: React.FC<PODetailsProps> = ({
        
       </Card>
 
+
+   
+  {/* NEW: Inactive Confirmation Dialog */}  
+<Dialog open={inactiveDialog} onOpenChange={toggleInactiveDialog}>
+  <DialogContent>
+    <DialogHeader>
+      <DialogTitle>Are you sure?</DialogTitle>
+      <DialogDescription>
+        Clicking on Confirm will mark this PO as{" "}
+        <span className="text-destructive font-semibold">Inactive</span>.
+         {/* This action can be reversed if needed. */}
+      </DialogDescription>
+    </DialogHeader>
+
+    <div className="flex items-center justify-end gap-2">
+      {update_loading ? ( // Use update_loading from useFrappeUpdateDoc
+        <TailSpin color="red" height={40} width={40} />
+      ) : (
+        <>
+          <DialogClose asChild>
+            <Button variant={"outline"}>
+              <CircleX className="h-4 w-4 mr-1" />
+              Cancel
+            </Button>
+          </DialogClose>
+          <Button onClick={handleInactivePO} variant="destructive">
+            <CheckCheck className="h-4 w-4 mr-1" />
+            Confirm Inactive
+          </Button>
+        </>
+      )}
+    </div>
+  </DialogContent>
+</Dialog>
       {/* --- (Indicator) STEP 3: Add the hidden printable components to the JSX --- */}
       <div className="hidden">
         {/* This is for the overall DN print */}

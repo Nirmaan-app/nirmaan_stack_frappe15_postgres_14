@@ -84,7 +84,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
 
     const { data: purchaseOrders, isLoading: poLoading, error: poError, mutate: poMutate } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
         fields: ["*"],
-        filters: [["status", "not in", ["Cancelled", "Merged"]], ["project", "in", projects?.map(i => i?.name)]],
+        filters: [["status", "not in", ["Cancelled", "Merged","Inactive", "PO Amendment"]], ["project", "in", projects?.map(i => i?.name)]],
         limit: 0,
         orderBy: { field: "modified", order: "desc" },
     },

@@ -273,6 +273,7 @@ export const AddItemForm: React.FC<AddItemFormProps> = (props) => {
                             >
                                 X
                             </AlertDialogCancel>
+                            
                         </AlertDialogTitle>
 
                         <div className="flex flex-col space-y-3 pt-4"> {/* Changed layout slightly */}

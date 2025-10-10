@@ -84,6 +84,7 @@ const ProjectEstimates = React.lazy(() => import("./add-project-estimates"));
 const ProjectPOSummaryTable = React.lazy(() => import("./components/ProjectPOSummaryTable"));
 const ProjectMaterialUsageTab = React.lazy(() => import("./components/ProjectMaterialUsageTab"));
 import { ProjectExpensesTab } from "./components/ProjectExpenseTab"; // NEW
+import { ProjectWorkReportTab } from "./ProjectWorkReportTab";
 
 import { KeyedMutator } from "swr";
 import { useUrlParam } from "@/hooks/useUrlParam";
@@ -232,6 +233,7 @@ export const Component = Project;
 
 export const PROJECT_PAGE_TABS = {
   OVERVIEW: 'overview',
+  WORK_REPORT: 'workreport', // ADD THIS NEW KEY
   PR_SUMMARY: 'prsummary',
   SR_SUMMARY: 'srsummary',
   PO_SUMMARY: 'posummary',
@@ -319,6 +321,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       label: "Overview",
       key: PROJECT_PAGE_TABS.OVERVIEW,
     },
+    { // ADD THIS NEW MENU ITEM
+      label: "Work Report", // This is the displayed text
+      key: PROJECT_PAGE_TABS.WORK_REPORT, // This is the unique key
+    },
     // role === "Nirmaan Admin Profile"
     //   ? {
     //     label: "Project Tracking",
@@ -349,35 +355,37 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     //     key: "projectspends",
     //   }
     //   : null,
-    {
-      label: "Project Spends",
-      key: PROJECT_PAGE_TABS.SPENDS,
+     {
+      label: "Material Usage",
+      key: PROJECT_PAGE_TABS.MATERIAL_USAGE
     },
-    {
-      label: "PR Summary",
-      key: PROJECT_PAGE_TABS.PR_SUMMARY,
+     {
+      label: "Project Makes",
+      key: PROJECT_PAGE_TABS.MAKES
     },
+    
     // {
     //   label: "Financials",
     //   key: PROJECT_PAGE_TABS.FINANCIALS,
     // },
     {
+      label: "Misc. Project Expenses",
+      key: PROJECT_PAGE_TABS.PROJECT_EXPENSES
+    },
+    
+    {
+      label: "PR Summary",
+      key: PROJECT_PAGE_TABS.PR_SUMMARY,
+    },
+    {
+      label: "Project Spends",
+      key: PROJECT_PAGE_TABS.SPENDS,
+    },
+    // --- (Indicator) NEW MENU ITEM ---
+   {
       label: "Project Estimates",
       key: PROJECT_PAGE_TABS.ESTIMATES
     },
-    {
-      label: "Project Makes",
-      key: PROJECT_PAGE_TABS.MAKES
-    },
-    {
-      label: "Material Usage",
-      key: PROJECT_PAGE_TABS.MATERIAL_USAGE
-    },
-    // --- (Indicator) NEW MENU ITEM ---
-    {
-      label: "Misc. Project Expenses",
-      key: PROJECT_PAGE_TABS.PROJECT_EXPENSES
-    }
   ], [role]);
 
   // Define tabs available based on role or other logic
@@ -490,15 +498,16 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const { data: po_data, isLoading: po_loading } = useFrappeGetDocList<ProcurementOrdersType>(
     "Procurement Orders",
     {
-      fields: ["name", "procurement_request", "status", "amount", "tax_amount", "total_amount", "invoice_data"] as const,
+      fields: ["name", "procurement_request", "status", "amount", "tax_amount", "total_amount", "invoice_data","po_amount_delivered"] as const,
       filters: [
         ["project", "=", projectId],
-        ["status", "!=", "Merged"],
+        ["status", "not in", ["Merged","Inactive", "PO Amendment"]],
       ], // removed ["status", "!=", "PO Approved"] for now
       limit: 0,
       orderBy: { field: "creation", order: "desc" },
     }
   );
+
 
   // console.log("ProjectOverView DATA", po_data)
 
@@ -549,6 +558,22 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     }, 0); // <-- 3. CRITICAL FIX: The initial value for the sum is now correctly set to 0.
 
   }, [po_data]);
+
+  const totalPoDeliveredAmount = useMemo(() => {
+    // 1. Guard Clause: This part is correct and should be kept.
+    if (!po_data || po_data.length === 0) {
+      return 0;
+    }
+
+    // 2. Corrected `reduce` implementation
+    return po_data.reduce((accumulator, currentOrder) => {
+      // For each order, add its 'amount' to the running total (accumulator).
+      // The parseNumber helper gracefully handles cases where 'amount' might be null or not a number.
+      return accumulator + parseNumber(currentOrder.po_amount_delivered);
+    }, 0); // <-- 3. CRITICAL FIX: The initial value for the sum is now correctly set to 0.
+
+  }, [po_data]);
+
 
   const [workPackageTotalAmounts, setWorkPackageTotalAmounts] = useState<{ [key: string]: any }>({});
 
@@ -899,6 +924,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       case PROJECT_PAGE_TABS.OVERVIEW:
         // Pass necessary data to ProjectOverviewTab
         return <ProjectOverviewTab projectData={data} estimatesTotal={estimatesTotal} projectCustomer={projectCustomer} totalPOAmountWithGST={totalPOAmountWithGST} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getTotalAmountPaid={getTotalAmountPaid} />;
+      case PROJECT_PAGE_TABS.WORK_REPORT: // ADD THIS NEW CASE
+            return <ProjectWorkReportTab projectData={data} project_mutate={project_mutate} current_role={role}/>;
       case PROJECT_PAGE_TABS.PR_SUMMARY:
         return <ProjectPRSummaryTable projectId={projectId} />;
       case PROJECT_PAGE_TABS.SR_SUMMARY:
@@ -907,7 +934,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         return <ProjectPOSummaryTable projectId={projectId} />;
       case PROJECT_PAGE_TABS.FINANCIALS:
         return <ProjectFinancialsTab projectData={data} projectCustomer={projectCustomer}
-          totalPOAmountWithGST={totalPOAmountWithGST} getTotalAmountPaid={getTotalAmountPaid} getAllSRsTotalWithGST={getAllSRsTotalWithGST} />;
+          totalPOAmountWithGST={totalPOAmountWithGST} getTotalAmountPaid={getTotalAmountPaid} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getAllPODeliveredAmount={totalPoDeliveredAmount}/>;
       case PROJECT_PAGE_TABS.SPENDS:
         return <ProjectSpendsTab projectId={data?.name} po_data={po_data} options={options}
           categorizedData={categorizedData} getTotalAmountPaid={getTotalAmountPaid} workPackageTotalAmounts={workPackageTotalAmounts} totalServiceOrdersAmt={totalServiceOrdersAmt} />; // Example

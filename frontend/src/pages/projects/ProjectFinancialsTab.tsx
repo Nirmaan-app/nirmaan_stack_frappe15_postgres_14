@@ -2,7 +2,9 @@ import LoadingFallback from "@/components/layout/loaders/LoadingFallback"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import memoize from 'lodash/memoize';
+import { Download, Info, Edit2, MoreHorizontal } from "lucide-react";
 import { parseNumber } from "@/utils/parseNumber";
+import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
 
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -37,8 +39,9 @@ interface ProjectFinancialsTabProps {
   }
   totalPOAmountWithGST: number;
   getAllSRsTotalWithGST: number;
+  getAllPODeliveredAmount: number;
 }
-export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ projectData, projectCustomer, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST }) => {
+export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ projectData, projectCustomer, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST, getAllPODeliveredAmount }) => {
 
   const initialTab = useMemo(() => {
     return getUrlStringParam("fTab", "All Payments");
@@ -72,11 +75,12 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
   }, [initialTab]); // Depend on `tab` to avoid stale closures
 
   const { data: CreditData } = useCredits()
-
-  const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.status !== "Paid"));
-  const dueByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.status !== "Paid" && cr.status !== "Created"));
+  // console.log("CreditData financials",CreditData)
+  const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status !== "Paid"));
+  const dueByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status !== "Paid" && cr.term_status !== "Created"));
 
   const relatedTotalBalanceCredit = creditsByProject(projectData?.name).reduce((sum, term) => sum + parseNumber(term.amount), 0);
+
   const relatedTotalDue = dueByProject(projectData?.name).reduce((sum, term) => sum + parseNumber(term.amount), 0);
 
 
@@ -106,27 +110,35 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
       label: "Total Inflow Amount",
       value: totalInflowAmount,
       style: "text-green-600 underline",
-      onClick: () => toggleInflowPaymentsDialog()
+      onClick: () => toggleInflowPaymentsDialog(),
+      info:"Amount received from the client for this project"
+
     },
     {
       label: "Total PO Amount (Incl. GST)",
       value: totalPOAmountWithGST,
-      style: ""
+      style: "",
+      info:"Total value of all purchase orders raised, including GST."
+
     },
     {
       label: "Total SR Amount (Incl. GST)",
       value: getAllSRsTotalWithGST,
-      style: ""
+      style: "",
+      info:"Total value of all service requests raised, including GST."
+
     },
     {
       label: "Total Client Invoiced (Incl. GST)",
       value: totalProjectInvoiceAmount,
-      style: ""
+      style: "",
+      info:"Amount we have invoiced to the client for this project."
     },
     {
       label: "Total Liabilities",
       value: relatedTotalBalanceCredit,
-      style: ""
+      style: "",
+      info:"Total value of credit POs scheduled for future payment."
     },
 
 
@@ -141,28 +153,56 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
     {
       label: "Total Due Not Paid",
       value: relatedTotalDue,
-      style: ""
+      style: "",
+      info:"Total value of credit POs that are due but not yet paid."
     },
     {
       label: "Project Value (Excl. GST)",
       value: `${projectData?.project_value}`,
-      style: ""
+      style: "",
+      info:"Total project value excluding GST."
     },
     {
       label: "Project Value (Incl. GST)",
       value: `${projectData?.project_value_gst}`,
-      style: ""
+      style: "",
+      info:"Total project value including GST."
     },
     {
-      label: "Total Amount Paid",
+      // label: "Total Amount Paid",
+      label: "Total OutFlow Amount",
+
       value: getTotalAmountPaid.totalAmount,
+      info:"Total expenses recorded for the project. (Hover for breakdown)",
       style: "text-red-600",
+      
       // --- (Indicator) NEW: Add breakdown data for hover card ---
       breakdown: {
         poAmount: getTotalAmountPaid.poAmount,
         srAmount: getTotalAmountPaid.srAmount,
         projectExpensesAmount: getTotalAmountPaid.projectExpensesAmount
-      }
+      },
+
+    },
+    {
+      label: "PO Payable Amount",
+      value: getAllPODeliveredAmount,
+      style: "",
+      info:"Total amount for delivered POs that are now payable."
+    },
+    {
+      label: "PO Payment Against Delivery",
+      value: Math.min(getTotalAmountPaid.poAmount, getAllPODeliveredAmount),
+      style: "",
+      info:"Amount paid against delivered items in this project’s POs."
+    },
+    {
+      label: "Advance Against PO",
+      // value: getTotalAmountPaid.poAmount-getAllPODeliveredAmount,
+
+      value: Math.max(0, getTotalAmountPaid.poAmount - getAllPODeliveredAmount),
+      style: "",
+      info:"Advance amount paid before delivery for this project’s POs."
     },
 
 
@@ -210,8 +250,22 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
           {amountsSummaryItems.map((item) => (
             <div key={item.label} className="flex flex-col gap-2">
               <p className="text-gray-700 tracking-tight">
-                {item.label}
+                <HoverCard>
+                  <HoverCardTrigger asChild>
+                    {/* The original Link was commented out. If you activate it, ensure its Info icon also gets proper styling. */}
+                    <span className="inline-flex items-center gap-1"> {/* Use inline-flex to keep the overall element inline */}
+                       {item.label}
+                  <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
+                 
+                </span>
+                    {/* <Link to={`/vendors/${row.original.vendor}`}><Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" /></Link> */}
+                  </HoverCardTrigger>
+                  <HoverCardContent className="text-xs w-auto p-1.5">{item.info ||""}</HoverCardContent>
+                </HoverCard>
+                {/* MODIFIED: Use a flex container for the icon and label */}
+                
               </p>
+
               {/* --- (Indicator) MODIFIED: Conditionally wrap with hover card --- */}
               {item.breakdown ? (
                 <AmountBreakdownHoverCard {...item.breakdown}>
@@ -220,7 +274,7 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
                   </p>
                 </AmountBreakdownHoverCard>
               ) : (
-                <p onClick={item.onClick} className={`text-sm font-bold text-gray-900 ${item.style} ${item.onClick ? 'cursor-pointer' : ''}`}>
+                <p onClick={item.onClick} className={`text-sm font-bold text-gray-900  ${item.style} ${item.onClick ? 'cursor-pointer' : ''}`}>
                   {formatToRoundedIndianRupee(item.value)}
                 </p>
               )}

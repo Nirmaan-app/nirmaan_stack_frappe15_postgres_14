@@ -28,14 +28,15 @@ export const ApprovePRContainer: React.FC = () => {
     }
 
     // --- 1. Fetch Main PR Document ---
-    // const prQueryKey = queryKeys.procurementRequests.doc(prId);
+    const prQueryKey = queryKeys.procurementRequests.doc(prId);
 
-    const { data: prDoc, isLoading: prLoading, error: prError, mutate: prMutate } = useProcurementRequest(prId)
-    // const { data: prDoc, isLoading: prLoading, error: prError, mutate: prMutate } = useFrappeGetDoc<PRDocType>(
-    //     "Procurement Requests",
-    //     prId,
-    //     prQueryKey
-    // );
+    // const { data: prDoc, isLoading: prLoading, error: prError, mutate: prMutate } = useProcurementRequest(prId)
+
+    const { data: prDoc, isLoading: prLoading, error: prError, mutate: prMutate } = useFrappeGetDoc<PRDocType>(
+        "Procurement Requests",
+        prId,
+        prQueryKey
+    );
 
     useFrappeDocumentEventListener("Procurement Requests", prId, (event) => {
           console.log("Procurement Requests document updated (real-time):", event?.name);

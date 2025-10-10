@@ -120,7 +120,8 @@ export const useSRReportsData = (): UseSRReportsDataResult => {
         (serviceRequests || []).forEach(sr => {
             const total = getSRTotal(sr);
             const totalWithTax = sr.gst === "true" ? total * 1.18 : total;
-            srData.push({
+            if(sr.amount_paid){
+srData.push({
                 name: sr.name,
                 creation: sr.creation,
                 project: sr.project,
@@ -132,6 +133,8 @@ export const useSRReportsData = (): UseSRReportsDataResult => {
                 amountPaid: paymentsMap[sr.name] || 0,
                 originalDoc: sr,
             });
+            }
+            
         });
 
         srData.sort((a, b) => new Date(b.creation).getTime() - new Date(a.creation).getTime());
