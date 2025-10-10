@@ -193,7 +193,7 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
                         </div>
                         <div className="flex justify-between items-center">
                           <span className="font-semibold">Project Manager :</span>
-                          <span className="text-right">{projectData?.owner || "--"}</span>
+                          <span className="text-right">{dailyReportDetails?.owner || "--"}</span>
                         </div>
                         <div className="flex justify-between items-center">
                           <span className="font-semibold">Start Date :</span>
