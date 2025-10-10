@@ -2413,8 +2413,12 @@ console.log(user)
     setIsLocalSaving(true);
 
     if (activeTabValue !== "Work force" && activeTabValue !== "Photos") {
-      const hasUnupdatedMilestones = currentTabMilestones.some(
-        (m) => !m.is_updated_for_current_report && m.status !== 'Not Applicable'
+      // const hasUnupdatedMilestones = currentTabMilestones.some(
+      //   (m) => !m.is_updated_for_current_report && m.status !== 'Not Applicable'
+      // );
+
+        const hasUnupdatedMilestones = currentTabMilestones.some(
+        (m) => m.is_updated_for_current_report==false
       );
 
       if (hasUnupdatedMilestones) {
@@ -3086,11 +3090,12 @@ console.log(user)
       <Card className="border-none shadow-none bg-transparent">
         <CardHeader className="flex flex-col items-center pb-4 pt-0">
           <Button
-            className="bg-red-500 hover:bg-red-600 text-white font-semibold py-3 px-8 rounded-full shadow-md transition-all duration-200 ease-in-out transform hover:scale-105"
+            className="w-full bg-red-500 hover:bg-red-600 text-white font-semibold py-3 px-8 rounded-full shadow-md transition-all duration-200 ease-in-out transform hover:scale-105 "
             onClick={() => setIsCaptureDialogOpen(true)}
             disabled={isBlockedByDraftOwnership} // MODIFIED: Disable if blocked
           >
-            ADD PHOTOS
+          <PlusCircledIcon className="h-5 w-5 mr-2" />
+              <span> ADD PHOTOS</span>
           </Button>
         </CardHeader>
         <CardContent className="pt-0">
