@@ -3240,7 +3240,7 @@ console.log(user)
                         {/* NEW LINE: Displaying the updated milestones count */}
                         {totalMilestonesCount > 0 && ( // Only show this line if there are milestones to count
                           <p className={`text-sm ${colorCount?"text-green-500":"text-red-500"} mt-1`}>
-                            Adding {updatedMilestonesCount}/{totalMilestonesCount} milestones updated
+                             {updatedMilestonesCount}/{totalMilestonesCount} milestones updated
                           </p>
                         )}
                       </CardHeader>
