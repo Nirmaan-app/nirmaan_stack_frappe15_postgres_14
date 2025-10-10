@@ -64,9 +64,10 @@ export default function POReports() {
             case 'Pending Invoices':
                 filtered = allPOsForReports.filter(row => {
                     const poDoc = row.originalDoc;
+                  
                     if (poDoc.status === 'Partially Delivered' || poDoc.status === 'Delivered') {
 
-                        return Math.abs(parseNumber(row.invoiceAmount) - parseNumber(poDoc.amount_paid) )>= invoice_delta;
+                        return Math.abs(parseNumber(poDoc.amount_paid) - parseNumber(row.invoiceAmount) )>= invoice_delta;
                     }
                     return false;
                 });
