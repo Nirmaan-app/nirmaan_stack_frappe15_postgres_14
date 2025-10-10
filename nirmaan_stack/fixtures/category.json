@@ -154,23 +154,23 @@
   "work_package": "HVAC System"
  },
  {
-  "category_name": "HVAC Cables",
+  "category_name": "HVAC Electrical Items",
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20hvac/plenum.jpg",
   "modified": "2025-08-02 11:18:10.299876",
-  "name": "HVAC Cables",
+  "name": "HVAC Electrical Items",
   "new_items": "false",
   "tax": "18",
   "work_package": "HVAC System"
  },
  {
-  "category_name": "Grills, Diffusers and Dampers",
+  "category_name": "Air Distribution Products",
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20hvac/grills.jpg",
   "modified": "2025-08-02 11:17:53.131864",
-  "name": "Grills, Diffusers and Dampers",
+  "name": "Air Distribution Products",
   "new_items": "false",
   "tax": "18",
   "work_package": "HVAC System"
@@ -301,9 +301,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20cctv/analog-camera.png",
-  "modified": "2024-11-23 14:28:30.677306",
+  "modified": "2025-10-10 09:41:15.833050",
   "name": "Analog Cameras",
-  "new_items": "true",
+  "new_items": "false",
   "tax": "18",
   "work_package": "CCTV System"
  },
@@ -312,9 +312,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20cctv/switch.jpg",
-  "modified": "2024-11-23 14:28:30.671121",
+  "modified": "2025-10-10 09:41:24.806477",
   "name": "CCTV Network Switches",
-  "new_items": "true",
+  "new_items": "false",
   "tax": "18",
   "work_package": "CCTV System"
  },
@@ -323,9 +323,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20cctv/nvr.jpg",
-  "modified": "2024-11-23 14:28:30.666129",
+  "modified": "2025-10-10 09:41:30.810321",
   "name": "NVR & DVR",
-  "new_items": "true",
+  "new_items": "false",
   "tax": "18",
   "work_package": "CCTV System"
  },
@@ -334,9 +334,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20cctv/cctv-cable.jpg",
-  "modified": "2024-11-23 14:28:30.659959",
+  "modified": "2025-10-10 09:41:22.018823",
   "name": "CCTV Cabling",
-  "new_items": "true",
+  "new_items": "false",
   "tax": "18",
   "work_package": "CCTV System"
  },
@@ -345,9 +345,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20cctv/ip-camera.jpg",
-  "modified": "2024-11-23 14:28:30.647800",
+  "modified": "2025-10-10 09:41:27.959006",
   "name": "IP Cameras",
-  "new_items": "true",
+  "new_items": "false",
   "tax": "18",
   "work_package": "CCTV System"
  },
@@ -433,9 +433,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped access/cnr.jpg",
-  "modified": "2025-01-06 16:04:31.958022",
+  "modified": "2025-10-10 09:40:50.984191",
   "name": "Controllers & Readers",
-  "new_items": "true",
+  "new_items": "false",
   "tax": "18",
   "work_package": "Access Control System"
  },
@@ -510,9 +510,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped access/lock.jpg",
-  "modified": "2025-01-06 16:03:42.824872",
+  "modified": "2025-10-10 09:40:53.945294",
   "name": "Lock & Accessories",
-  "new_items": "true",
+  "new_items": "false",
   "tax": "18",
   "work_package": "Access Control System"
  },
@@ -521,9 +521,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped access/cable.jpg",
-  "modified": "2025-01-06 16:04:08.379946",
+  "modified": "2025-10-10 09:40:47.790081",
   "name": "Access Cables",
-  "new_items": "true",
+  "new_items": "false",
   "tax": "18",
   "work_package": "Access Control System"
  },
@@ -763,9 +763,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20cctv/cctv-service.jpg",
-  "modified": "2024-11-23 14:28:30.653924",
+  "modified": "2025-10-10 09:41:19.353392",
   "name": "CCTV Accessories",
-  "new_items": "true",
+  "new_items": "false",
   "tax": "18",
   "work_package": "CCTV System"
  },
@@ -977,5 +977,27 @@
   "new_items": "false",
   "tax": "18",
   "work_package": "HVAC System"
+ },
+ {
+  "category_name": "Drain Pump",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2025-10-10 09:45:31.631949",
+  "name": "Drain Pump",
+  "new_items": "false",
+  "tax": "18",
+  "work_package": "HVAC System"
+ },
+ {
+  "category_name": "HVAC Junk",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2025-10-10 09:51:04.013203",
+  "name": "HVAC Junk",
+  "new_items": "false",
+  "tax": "18",
+  "work_package": "Services"
  }
 ]
