@@ -9,7 +9,9 @@ import {
 } from "@/components/ui/table";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { DeliveryDataType } from '@/types/NirmaanStack/ProcurementOrders';
-import { formatDate } from "date-fns";
+// import { formatDate } from "date-fns";
+import { formatDate } from "@/utils/FormatDate";
+
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
 import { ChevronDown, ChevronUp } from 'lucide-react';
@@ -65,7 +67,7 @@ const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, data, isExpa
       <div className="block sm:hidden border-t p-4">
         <div className="flex justify-between items-center" onClick={() => onToggle(date)}>
           <div>
-            <div className="font-medium">{formatDate(new Date(date), "dd MMMM, yyyy")}</div>
+            <div className="font-medium">{formatDate(new Date(date), "dd MM, yyyy")}</div>
             <div className="text-sm text-gray-500">{data?.note_no}</div>
             <div className="text-sm text-gray-500">{data.items.length} item(s) updated by {getUserName(data.updated_by)}</div>
           </div>

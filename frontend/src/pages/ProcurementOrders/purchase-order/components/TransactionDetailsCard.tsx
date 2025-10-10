@@ -337,17 +337,18 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                       {formatToRoundedIndianRupee(payment?.amount)}
                     </TableCell>
                     {(payment?.utr && payment?.payment_attachment) ? (
-                      <TableCell className="text-blue-500 underline">
+                      <TableCell className="text-blue-500 overflow-hidden truncate underline max-w-28 ">
                         {<a
                           href={`${SITEURL}${payment?.payment_attachment}`}
                           target="_blank"
                           rel="noreferrer"
                         >
                           {payment?.utr}
+                         
                         </a>}
                       </TableCell>
                     ) : (
-                      <TableCell>
+                      <TableCell className="text-blue-500 overflow-hidden truncate  max-w-28 ">
                         {payment?.utr || "--"}
                       </TableCell>
                     )}
