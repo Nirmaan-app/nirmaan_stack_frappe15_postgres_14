@@ -53,7 +53,6 @@ export default function UpdatePaymentRequestDialog({
 
   const { getAmount: getTotalAmountPaidForPO } = useOrderPayments()
   const { getTotalAmount } = useOrderTotals()
-
   /* global dialog open/close from zustand */
   const { paymentDialog: open, togglePaymentDialog: toggle } =
     useDialogStore();
@@ -87,6 +86,7 @@ export default function UpdatePaymentRequestDialog({
         utr,
         tds    : parseNumber(tds) || 0,
         pay_date : payDate,
+        status: payment?.status,
         file_url   : uploadedFile ? uploadedFile.file_url : undefined
       };
       await trigger(payload);

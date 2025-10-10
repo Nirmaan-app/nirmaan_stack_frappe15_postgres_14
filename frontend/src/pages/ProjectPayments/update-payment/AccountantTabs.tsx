@@ -116,7 +116,8 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         vendor_label  : (vendorOptions.find(o=>o.value===p.vendor)?.label  ?? p.vendor)!,
         document_name : p.document_name,
         document_type : p.document_type,
-        amount        : p.amount
+        amount        : p.amount,
+        status:p.status
       });
       setDialogMode(m);
       togglePaymentDialog();

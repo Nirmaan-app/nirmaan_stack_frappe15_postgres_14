@@ -14,7 +14,7 @@ class ProjectPayments(Document):
 		prefix = f"PAY-{project}-"
 		self.name = f"{prefix}{getseries(prefix, 3)}"
 
-	def validate(self):
+	def before_insert(self):
 		"""
 		Called before save. Good place for validations and calculations
 		that affect the document itself before it's written.
@@ -90,19 +90,19 @@ class ProjectPayments(Document):
             },
             fields=["amount"]  # Specify only the field we need
         )
-		print(f"DEBUGGPS: Fetched {len(paid_payments)} paid payments for {self.document_type} {self.document_name}")
+		# print(f"DEBUGGPS: Fetched {len(paid_payments)} paid payments for {self.document_type} {self.document_name}")
 
         # --- 2. Calculate the total in Python ---
         # paid_payments is a list of dictionaries, e.g., [{'amount': 100}, {'amount': 250}]
         # We use a list comprehension and sum() to calculate the total.
         # flt() ensures each value is a float before summing.
 		total_paid = sum(flt(p.amount) for p in paid_payments)
-		print(f"DEBUGGPS: Total amount paid for {self.document_type} {self.document_name}: {total_paid}")
+		# print(f"DEBUGGPS: Total amount paid for {self.document_type} {self.document_name}: {total_paid}")
 
         # --- 3. Update the parent document ---
 		try:
 			frappe.db.set_value(self.document_type, self.document_name, "amount_paid", total_paid)
-			print(f"DEBUGGPS: Updated amount_paid for {self.document_type} {self.document_name} to {total_paid}")
+			# print(f"DEBUGGPS: Updated amount_paid for {self.document_type} {self.document_name} to {total_paid}")
 			frappe.db.commit()
 		except Exception as e:
 			frappe.log_error(
