@@ -255,13 +255,13 @@ export const getCreditsColumns = (
       id: "actions",
       header: () => <div className="text-center">Actions</div>,
       cell: ({ row }) => {
-        const { status, name, postatus } = row.original;
+        const { term_status, name, postatus } = row.original;
         const encodedPoName = name.replace(/\//g, "&="); // Encode slashes
         const encodedPoStatus = postatus?.replace(" ", "%20");
 
         return (
           <div className="flex justify-center">
-            {status === "Scheduled" ? (
+            {term_status === "Scheduled" ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="h-8 w-8 p-0">

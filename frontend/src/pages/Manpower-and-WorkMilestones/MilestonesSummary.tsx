@@ -6,7 +6,7 @@ import {
   useFrappeGetDocList,
   useFrappeUpdateDoc
 } from "frappe-react-sdk";
-import { MapPin, ChevronDown, ChevronUp,MessagesSquare } from "lucide-react";
+import { MapPin, ChevronDown, ChevronUp, MessagesSquare } from "lucide-react";
 import { useContext, useEffect, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate } from "react-router-dom";
@@ -19,14 +19,16 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableHead, 
+  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "@/components/ui/use-toast";
 import MilestoneReportPDF from "./components/MilestoneReportPDF";
 import OverallMilestonesReport from "./components/OverallMilestonesReport"
-  import { useUserData } from "@/hooks/useUserData";
+import { useUserData } from "@/hooks/useUserData";
+import { ProgressCircle } from "@/components/ui/ProgressCircle";
+import { cn } from '@/lib/utils' // Assuming you have this utility
 
 
 // Helper function to format date for input type="date" (YYYY-MM-DD)
@@ -54,17 +56,83 @@ const getStatusBadgeClasses = (status: string) => {
   }
 };
 
-export const MilestonesSummary = ({workReport=false,projectIdForWorkReport}) => {
+
+// Define the required props for your wrapper
+interface MilestoneProgressProps {
+  milestoneStatus: 'Not Applicable' | 'In Progress' | 'Completed' | string
+  value: number // The progress percentage (0-100)
+  // Optional size and text size for consistency
+  sizeClassName?: string // e.g., "size-[60px]"
+  textSizeClassName?: string // e.g., "text-md"
+}
+
+const getColorForProgress = (value: number): string => {
+  const val = Math.round(value)
+
+  if (val === 0) {
+    return 'text-black-500' // Gray for 0%
+  }
+  if (val < 50) {
+    return 'text-red-600' // Red for 1-49%
+  }
+  if (val < 75) {
+    return 'text-yellow-600' // Yellow for 50-74%
+  }
+  if (val < 100) {
+    return 'text-green-600' // Blue for 75-99%
+  }
+  
+  // 100% will be overridden by isComplete check in ProgressCircle
+  return 'text-green-500'
+}
+
+export const MilestoneProgress = ({
+  milestoneStatus,
+  value,
+  sizeClassName = "size-[60px]",
+  textSizeClassName = "text-md"
+}: MilestoneProgressProps) => {
+
+  // Handle N/A case
+  if (milestoneStatus === "Not Applicable") {
+    return (
+      <div
+        className={cn(
+          "relative inline-flex items-center justify-center",
+          "text-gray-500 font-semibold",
+          sizeClassName,
+          textSizeClassName
+        )}
+      >
+        N/A
+      </div>
+    )
+  }
+
+  // Get color class based on value
+  const colorClass = getColorForProgress(value)
+
+  return (
+    <ProgressCircle
+      value={value}
+      // IMPORTANT: className must include BOTH size AND color
+      className={cn(sizeClassName, colorClass)}
+      textSizeClassName={textSizeClassName}
+    />
+  )
+}
+
+export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }) => {
   const { selectedProject, setSelectedProject } = useContext(UserContext);
   const navigate = useNavigate();
-      const { role, has_project } = useUserData()
-  
+  const { role, has_project } = useUserData()
 
- console.log(selectedProject,projectIdForWorkReport)
- if(workReport){
-  console.log("In work report",projectIdForWorkReport)
-  setSelectedProject(projectIdForWorkReport)
- }
+
+  console.log(selectedProject, projectIdForWorkReport)
+  if (workReport) {
+    console.log("In work report", projectIdForWorkReport)
+    setSelectedProject(projectIdForWorkReport)
+  }
   // State for Report Type toggle ('Daily' or 'Overall')
   const [reportType, setReportType] = useState<'Daily' | 'Overall'>('Daily');
   // State for the date selected by the user for displaying reports
@@ -153,7 +221,7 @@ export const MilestonesSummary = ({workReport=false,projectIdForWorkReport}) => 
   const toggleAllSections = () => {
     const newState = !allExpanded;
     setAllExpanded(newState);
-    
+
     if (dailyReportDetails?.milestones) {
       const sections = dailyReportDetails.milestones.reduce((acc, milestone) => {
         acc[milestone.work_header] = newState;
@@ -190,7 +258,7 @@ export const MilestonesSummary = ({workReport=false,projectIdForWorkReport}) => 
   // Loading and Error States
   if (projectLoading || projectProgressLoading || dailyReportLoading) return <h1>Loading</h1>;
   if (projectError) {
-    const specificErrorMessage = projectError?.message ||"An unexpected issue occurred while fetching data.";
+    const specificErrorMessage = projectError?.message || "An unexpected issue occurred while fetching data.";
 
     return (
       <div className="flex flex-col items-center justify-center min-h-[50vh] p-6 bg-red-50 text-red-800 rounded-lg shadow-md m-4">
@@ -204,10 +272,10 @@ export const MilestonesSummary = ({workReport=false,projectIdForWorkReport}) => 
           Error Details: <span className="font-semibold">{specificErrorMessage}</span>
         </p>
         <Button
-          onClick={() =>{
-sessionStorage.removeItem('selectedProject'); // ADD THIS LINE
-navigate('/prs&milestones/milestone-report')
-          } }
+          onClick={() => {
+            sessionStorage.removeItem('selectedProject'); // ADD THIS LINE
+            navigate('/prs&milestones/milestone-report')
+          }}
           className="bg-red-600 hover:bg-red-700 text-white text-lg py-3 px-8 rounded-full shadow-lg transition-all duration-300 ease-in-out hover:scale-105"
         >
           Go Back to Reports Overview
@@ -222,28 +290,28 @@ navigate('/prs&milestones/milestone-report')
     <>
       <div className="flex-1 space-y-4 min-h-[50vh]">
         {/* Project Selector and "Update Milestone" button at the top */}
-        {!workReport&&(
-               <div className="flex items-center gap-2">
-          
-          <div className="flex-1">
-            <ProjectMilestoneSelect
-            onChange={handleChange}
-            universal={true} // Or false, depending on if you want to remember the selection
+        {!workReport && (
+          <div className="flex items-center gap-2">
+
+            <div className="flex-1">
+              <ProjectMilestoneSelect
+                onChange={handleChange}
+                universal={true} // Or false, depending on if you want to remember the selection
               />
+            </div>
+
+            {selectedProject && (
+              <Button
+                onClick={() => navigate(`${selectedProject}`)}
+                className="text-xs"
+                disabled={dailyReportDetails || reportType !== "Daily" || !selectedProject}
+              >
+                {"Add Today's Report"}
+              </Button>
+            )}
           </div>
-          
-          {selectedProject && (
-            <Button
-              onClick={() => navigate(`${selectedProject}`)}
-              className="text-xs"
-              disabled={dailyReportDetails ||reportType!=="Daily" ||!selectedProject}
-            >
-              {"Add Today's Report"}
-            </Button>
-          )}
-        </div>
-          )}
-     
+        )}
+
 
         {selectedProject && (
           <div className="mx-0 px-0 pt-4">
@@ -261,14 +329,14 @@ navigate('/prs&milestones/milestone-report')
                   >
                     Daily
                   </button>
-                  {role !== 'Nirmaan Project Manager Profile'&&(<button
+                  {role !== 'Nirmaan Project Manager Profile' && (<button
                     className={`flex-1 px-4 py-2 text-sm font-medium ${reportType === 'Overall' ? 'bg-blue-600 text-white' : 'bg-white text-blue-600'}`}
                     onClick={() => setReportType('Overall')}
                   >
                     Overall
                   </button>)}
-                  
-                  
+
+
                 </div>
               </div>
 
@@ -328,15 +396,15 @@ navigate('/prs&milestones/milestone-report')
                           </div>
                         ))}
                         {dailyReportDetails.manpower_remarks && (
-                             
-                              <div className={"mt-2"}>
-                                          <p className="text-xs text-muted-foreground">{"Remarks"}</p>
-                              
-                                          <div className="mt-1 p-3 rounded-md bg-gray-50 border border-gray-200 text-gray-800 text-sm whitespace-pre-wrap break-words">
-                                             {dailyReportDetails.manpower_remarks}
-                                          </div> 
-                                </div>
-                            )}
+
+                          <div className={"mt-2"}>
+                            <p className="text-xs text-muted-foreground">{"Remarks"}</p>
+
+                            <div className="mt-1 p-3 rounded-md bg-gray-50 border border-gray-200 text-gray-800 text-sm whitespace-pre-wrap break-words">
+                              {dailyReportDetails.manpower_remarks}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -374,7 +442,7 @@ navigate('/prs&milestones/milestone-report')
                       ).map(([header, milestones], groupIdx) => (
                         <div key={groupIdx} className="mb-4 last:mb-0 border rounded-md overflow-hidden">
                           {/* Collapsible Header */}
-                          <div 
+                          <div
                             className="flex items-center justify-between p-3 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors"
                             onClick={() => toggleSection(header)}
                           >
@@ -402,47 +470,64 @@ navigate('/prs&milestones/milestone-report')
                                       <TableHead className="w-[40%] font-semibold text-gray-700 text-sm py-2">Work</TableHead>
                                       <TableHead className="w-[20%] text-center font-semibold text-gray-700 text-sm py-2">Status</TableHead>
                                       <TableHead className="w-[20%] text-center font-semibold text-gray-700 text-sm py-2">Progress</TableHead>
-                                      <TableHead className="w-[20%] text-center font-semibold text-gray-700 text-sm py-2">Exp. Date/start Date</TableHead>
-                                     
+                                      <TableHead className="w-[20%] text-center font-semibold text-gray-700 text-sm py-2">Excepted Starting/completion Date</TableHead>
+
                                     </TableRow>
-                                   
+
                                   </TableHeader>
                                   <TableBody>
                                     {milestones.map((milestone, idx) => (
                                       <TableRow key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                                         <TableCell className="py-3 px-4 text-sm">{milestone.work_milestone_name}
-                                         {milestone.remarks && (
-                                      <div className="mt-1">
-    <p className="flex items-center gap-2 p-1 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs">
-        {/* Icon: Added classes to control size and ensure it's vertically centered */}
-        <MessagesSquare className="h-4 w-4 flex-shrink-0" />
-        
-        {/* Remarks text */}
-        <span className="flex-grow">
-            {milestone.remarks}
-        </span>
-    </p>
-</div>
-                                    )}
+                                          {milestone.remarks && (
+                                            <div className="mt-1">
+                                              <p className="flex items-center gap-2 p-1 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs">
+                                                {/* Icon: Added classes to control size and ensure it's vertically centered */}
+                                                <MessagesSquare className="h-4 w-4 flex-shrink-0" />
+
+                                                {/* Remarks text */}
+                                                <span className="flex-grow">
+                                                  {milestone.remarks}
+                                                </span>
+                                              </p>
+                                            </div>
+                                          )}
                                         </TableCell>
                                         <TableCell className="text-center py-3 px-4">
-                                          <Badge 
+                                          <Badge
                                             variant="secondary"
                                             className={`${getStatusBadgeClasses(milestone.status)} text-xs`}
                                           >
                                             {milestone.status}
                                           </Badge>
                                         </TableCell>
+
                                         <TableCell className="text-center py-3 px-4 font-medium">
-                                          <div className="flex flex-col items-center">
-                                            <span className="text-sm font-semibold mb-1">{milestone.progress}%</span>
-                                            <div className="w-full max-w-[120px] h-2 bg-gray-200 rounded-full overflow-hidden">
-                                              <div 
-                                                className="h-full bg-blue-500 rounded-full" 
-                                                style={{ width: `${milestone.progress}%` }}
-                                              ></div>
+                                          {/* {milestone.status !== "Not Applicable" ? (
+                                            <div className="flex flex-col items-center">
+                                              <span className="text-sm font-semibold mb-1">{milestone.progress}%</span>
+                                              <div className="w-full max-w-[120px] h-2 bg-gray-200 rounded-full overflow-hidden">
+                                                <div
+                                                  className="h-full bg-blue-500 rounded-full"
+                                                  style={{ width: `${milestone.progress}%` }}
+                                                ></div>
+                                              </div>
                                             </div>
-                                          </div>
+                                          ) : (
+                                            <span className="text-sm font-semibold mb-1">{"N/A"}</span>
+                                          )} */}
+                                          <MilestoneProgress
+                                            // 1. Pass the status for the N/A check
+                                            milestoneStatus={milestone.status}
+
+                                            // 2. Pass the progress value for the circle and color logic
+                                            value={milestone.progress}
+
+                                            // 3. Set the desired size and text size
+                                            sizeClassName="size-[60px]"
+                                            textSizeClassName="text-md"
+                                          />
+
                                         </TableCell>
                                         <TableCell className="text-center py-3 px-4 text-sm">
                                           {milestone.status === "Not Started" ? (
@@ -450,11 +535,12 @@ navigate('/prs&milestones/milestone-report')
                                               {milestone.expected_starting_date ? formatDate(milestone.expected_starting_date) : 'N/A'}
                                             </span>
                                           ) : (
-                                            milestone.expected_completion_date ? formatDate(milestone.expected_completion_date) : 'N/A'
+                                            <span className="text-green-500 font-medium">{ milestone.expected_completion_date ? formatDate(milestone.expected_completion_date) : 'N/A'}</span>
+                                           
                                           )}
                                         </TableCell>
-                                         {/* New Remarks Table Cell */}
-                                        
+                                        {/* New Remarks Table Cell */}
+
                                       </TableRow>
                                     ))}
                                   </TableBody>
@@ -467,12 +553,12 @@ navigate('/prs&milestones/milestone-report')
                                   <div key={idx} className="border rounded-lg p-3 bg-white shadow-sm">
                                     <div className="mb-2">
                                       <h4 className="font-medium text-sm text-gray-800">{milestone.work_milestone_name}</h4>
-                                      
+
                                     </div>
                                     <div className="grid grid-cols-2 gap-3">
                                       <div>
                                         <p className="text-xs text-gray-500 mb-1">Status</p>
-                                        <Badge 
+                                        <Badge
                                           variant="secondary"
                                           className={`${getStatusBadgeClasses(milestone.status)} text-xs`}
                                         >
@@ -503,13 +589,13 @@ navigate('/prs&milestones/milestone-report')
                                         <span className="text-sm font-semibold">{milestone.progress}%</span>
                                       </div>
                                       <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                                        <div 
-                                          className="h-full bg-blue-500 rounded-full" 
+                                        <div
+                                          className="h-full bg-blue-500 rounded-full"
                                           style={{ width: `${milestone.progress}%` }}
                                         ></div>
                                       </div>
                                     </div>
-                                     {/* Milestone Remarks for Mobile */}
+                                    {/* Milestone Remarks for Mobile */}
                                     {milestone.remarks && (
                                       <div className="mt-3">
                                         <p className="text-xs text-gray-500 mb-1">Remarks</p>
@@ -540,7 +626,7 @@ navigate('/prs&milestones/milestone-report')
                           >
                             {/* Responsive container for image and text details */}
                             {/* Stacks on mobile (flex-col), becomes row on small screens and up (sm:flex-row) */}
-                            <div className="flex flex-col sm:flex-row h-full"> 
+                            <div className="flex flex-col sm:flex-row h-full">
                               {/* Image container */}
                               <div className="w-full sm:w-1/2 flex-shrink-0">
                                 <img
@@ -550,7 +636,7 @@ navigate('/prs&milestones/milestone-report')
                                 />
                               </div>
 
-                              <div className="w-full sm:w-1/2 p-3 flex flex-col justify-between"> 
+                              <div className="w-full sm:w-1/2 p-3 flex flex-col justify-between">
                                 {/* Location */}
                                 <div className="flex items-center text-xs text-gray-700 mb-2">
                                   <MapPin className="h-4 w-4 mr-1 text-red-500 flex-shrink-0" />
@@ -577,9 +663,9 @@ navigate('/prs&milestones/milestone-report')
                   {/* Download PDF Button */}
                   <div className="mt-8 flex justify-end">
                     {dailyReportDetails && projectData && (
-                      <MilestoneReportPDF 
-                        dailyReportDetails={dailyReportDetails} 
-                        projectData={projectData} 
+                      <MilestoneReportPDF
+                        dailyReportDetails={dailyReportDetails}
+                        projectData={projectData}
                       />
                     )}
                   </div>
@@ -596,7 +682,7 @@ navigate('/prs&milestones/milestone-report')
               // Display when Overall is selected (placeholder)
               <Card className="mt-4">
                 <CardContent>
-                  <OverallMilestonesReport selectedProject={selectedProject}  projectData={projectData}  />
+                  <OverallMilestonesReport selectedProject={selectedProject} projectData={projectData} />
                 </CardContent>
               </Card>
             )}
