@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from "react";
+import { useMemo, useCallback ,useEffect} from "react";
 import { DataTable } from "@/components/data-table/new-data-table"; // Use new-data-table
 import { SRReportRowData, useSRReportsData } from "../hooks/useSRReportsData"; // Your existing data hook
 import { srColumns } from "./columns/srColumns"; // Column definitions
@@ -52,7 +52,7 @@ export default function SRReports() {
                     // Assuming 'Approved' SRs are candidates for invoicing.
                     if (srDoc.status === 'Approved') {
                         // Using pre-calculated fields from SRReportRowData
-                        return Math.abs(parseNumber(srDoc.amount_paid)- parseNumber(row.invoiceAmount)) >= delta;
+                        return parseNumber(srDoc.amount_paid)- parseNumber(row.invoiceAmount) >= delta;
                     }
                     return false;
                 });
@@ -94,6 +94,24 @@ export default function SRReports() {
         // No `meta` needed as SRReportRowData has all display fields.
     });
 
+    const fullyFilteredData = table.getFilteredRowModel().rows.map(row => row.original);
+    const filteredRowCount = table.getFilteredRowModel().rows.length;
+
+       useEffect(() => {
+            const { pageSize } = table.getState().pagination;
+            const newPageCount = pageSize > 0 ? Math.ceil(filteredRowCount / pageSize) : 1;
+    
+            // Prevent infinite loops by only setting options if the page count has changed.
+            if (table.getPageCount() !== newPageCount) {
+                table.setOptions(prev => ({
+                    ...prev,
+                    pageCount: newPageCount,
+                }));
+            }
+        }, [table, fullyFilteredData]); // Rerun when the table instance or filtered data count changes
+        // 
+
+
     // Supporting data for faceted filters
     const projectsFetchOptions = getProjectListOptions();
     const { data: projects, isLoading: projectsUiLoading, error: projectsUiError } = useFrappeGetDocList<Projects>(
@@ -101,6 +119,8 @@ export default function SRReports() {
     );
     const { data: vendors, isLoading: vendorsUiLoading, error: vendorsUiError } = useVendorsList({ vendorTypes: ["Service", "Material", "Material & Service"] });
 
+
+   
     const projectFacetOptions = useMemo<SelectOption[]>(() => projects?.map(p => ({ label: p.project_name, value: p.project_name })) || [], [projects]);
     const vendorFacetOptions = useMemo<SelectOption[]>(() => vendors?.map(v => ({ label: v.vendor_name, value: v.vendor_name })) || [], [vendors]);
 
@@ -119,11 +139,11 @@ export default function SRReports() {
     }, [selectedReportType]);
 
     const handleCustomExport = useCallback(() => {
-        if (!currentDisplayData || currentDisplayData.length === 0) {
+        if (!fullyFilteredData || fullyFilteredData.length === 0) {
             toast({ title: "Export", description: "No data available to export for the selected report type.", variant: "default" });
             return;
         }
-        const dataToExport = currentDisplayData.map(row => ({
+        const dataToExport = fullyFilteredData.map(row => ({
             sr_id: row.name,
             creation: formatDate(row.creation),
             project_name: row.projectName || row.project,
@@ -152,7 +172,7 @@ export default function SRReports() {
             console.error("SR Export failed:", e);
             toast({ title: "Export Error", description: "Could not generate CSV file.", variant: "destructive" });
         }
-    }, [currentDisplayData, exportFileName]);
+    }, [fullyFilteredData, exportFileName]);
 
     const isLoadingOverall = isLoadingInitialData || projectsUiLoading || vendorsUiLoading || isTableHookLoading;
     const overallError = initialDataError || projectsUiError || vendorsUiError || tableHookError;
@@ -171,7 +191,9 @@ export default function SRReports() {
                     columns={tableColumnsToDisplay}
                     isLoading={isLoadingOverall}
                     error={overallError as Error | null}
-                    totalCount={totalCount} // From useServerDataTable, reflects currentDisplayData.length
+                    // totalCount={totalCount} // From useServerDataTable, reflects currentDisplayData.length
+                    totalCount={filteredRowCount}
+
                     searchFieldOptions={SR_REPORTS_SEARCHABLE_FIELDS}
                     selectedSearchField={selectedSearchField}
                     onSelectedSearchFieldChange={setSelectedSearchField}

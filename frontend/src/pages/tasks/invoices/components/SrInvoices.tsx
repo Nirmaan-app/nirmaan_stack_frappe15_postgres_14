@@ -621,11 +621,11 @@ export const SrInvoices: React.FC = () => {
         }
     };
 
-    const handleExport = () => {
-        if (invoicesData?.message?.message?.invoice_entries) {
+    const handleExport = (filteredData:SrInvoiceItem[]) => {
+        if (filteredData) {
             exportToCsv(
                 "sr_invoices.csv",
-                invoicesData.message.message.invoice_entries,
+                filteredData,
                 invoiceColumns,
                 projectValues,
                 vendorValues

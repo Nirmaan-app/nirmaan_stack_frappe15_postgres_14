@@ -356,9 +356,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/rented.jpg",
-  "modified": "2024-11-23 14:28:30.626093",
+  "modified": "2025-10-13 19:07:14.094806",
   "name": "Rented Tools & Equipments",
-  "new_items": "true",
+  "new_items": "false",
   "tax": "18",
   "work_package": "Tool & Equipments"
  },
@@ -389,9 +389,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": null,
-  "modified": "2024-09-30 17:25:50.178332",
+  "modified": "2025-10-13 19:07:16.646347",
   "name": "Safety Equipments",
-  "new_items": "true",
+  "new_items": "false",
   "tax": "18",
   "work_package": "Tool & Equipments"
  },
@@ -532,9 +532,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": null,
-  "modified": "2025-03-14 18:15:41.891851",
+  "modified": "2025-10-13 19:07:27.511282",
   "name": "WLD",
-  "new_items": "true",
+  "new_items": "false",
   "tax": "18",
   "work_package": "WLD & RR"
  },
@@ -543,9 +543,9 @@
   "docstatus": 0,
   "doctype": "Category",
   "image_url": null,
-  "modified": "2025-03-14 18:15:51.944734",
+  "modified": "2025-10-13 19:07:23.385490",
   "name": "RR",
-  "new_items": "true",
+  "new_items": "false",
   "tax": "18",
   "work_package": "WLD & RR"
  },
@@ -946,12 +946,12 @@
   "work_package": "Electrical Work"
  },
  {
-  "category_name": "Tool & Equipments",
+  "category_name": "Hardware & Accessories",
   "docstatus": 0,
   "doctype": "Category",
   "image_url": null,
   "modified": "2025-09-23 11:57:00.091462",
-  "name": "Tool & Equipments",
+  "name": "Hardware & Accessories",
   "new_items": "false",
   "tax": "18",
   "work_package": "Tool & Equipments"
@@ -999,5 +999,16 @@
   "new_items": "false",
   "tax": "18",
   "work_package": "Services"
+ },
+ {
+  "category_name": "Tools & Equipments",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2025-10-13 19:01:31.533991",
+  "name": "Tools & Equipments",
+  "new_items": "false",
+  "tax": "18",
+  "work_package": "Tool & Equipments"
  }
 ]

@@ -1,5 +1,5 @@
 import { useFrappeGetDocCount } from "frappe-react-sdk";
-import { LucideIcon, Boxes, HardHat, Package, ShoppingCart, SquareUserRound, UsersRound } from "lucide-react";
+import { LucideIcon, Boxes, HardHat, Package, ShoppingCart, SquareUserRound, UsersRound,Milestone } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TailSpin } from "react-loader-spinner";
@@ -63,6 +63,14 @@ export const DASHBOARD_METRICS_CONFIG: DashboardMetric[] = [
     doctype: "Procurement Packages",
     linkTo: "/product-packages",
     Icon: Boxes,
+    dataCy: "admin-dashboard-proc-packages-card",
+  },
+  {
+    id: "milestone-packages",
+    title: "Milestone Packages",
+    doctype: "Work Headers",
+    linkTo: "/milestone-packages",
+    Icon: Milestone,
     dataCy: "admin-dashboard-proc-packages-card",
   },
   // {

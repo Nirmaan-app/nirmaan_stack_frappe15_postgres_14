@@ -220,7 +220,7 @@ export function DataTable<TData, TValue>({
 
 
           {/* Generic Export Button */}
-          {onExport && (
+          {/* {onExport && (
               <Button
                   onClick={onExport}
                   variant="outline"
@@ -231,7 +231,24 @@ export function DataTable<TData, TValue>({
                   <FileUp className="mr-2 h-4 w-4" />
                   Export
               </Button>
-          )}
+          )} */}
+          {onExport && (
+           <Button
+                onClick={() => {
+                    // CRITICAL STEP: Use table.getFilteredRowModel()
+                    const filteredData = table.getFilteredRowModel().rows.map(row => row.original);
+                    onExport(filteredData as TData[]); // Pass only the filtered data
+                }}
+                variant="outline"
+                size="sm"
+                className="data_table_export_button h-9"
+                disabled={loading || data.length === 0}
+            >
+                <FileUp className="mr-2 h-4 w-4" />
+                Export
+            </Button>
+            )}
+
 
           {/* <DataTableToolbar table={table} project_values={project_values} category_options={category_options} vendorOptions={vendorOptions} projectTypeOptions={projectTypeOptions} statusOptions={statusOptions} roleTypeOptions={roleTypeOptions}/> */}
         </div>

@@ -74,7 +74,14 @@ const getCommonColumns = (attachmentsMap?: Record<string, string>, getTotalAmoun
             // Simply call the function with the task's parent doc info
             const vendorName = getVendorName(row.original.task_docname, row.original.task_doctype);
             return <div>{vendorName}</div>
-        }
+        },
+        meta: {
+                exportHeaderName: "Vendor Name",
+                exportValue: (row: InvoiceApprovalTask) => {
+                    
+                    return getVendorName(row.original.task_docname, row.original.task_doctype);
+                }
+            }
     },
         {
             id: "po_amount", // PO Amount
