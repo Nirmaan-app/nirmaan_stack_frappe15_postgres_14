@@ -635,11 +635,12 @@ export const PoInvoices: React.FC = () => {
         }
     };
 
-    const handleExport = () => {
-        if (invoicesData?.message?.message?.invoice_entries) {
+    const handleExport = (filteredData:InvoiceItem[]) => {
+        if (filteredData) {
             exportToCsv(
                 "po_invoices.csv",
-                invoicesData.message.message.invoice_entries,
+                // invoicesData.message.message.invoice_entries,
+                filteredData,
                 invoiceColumns,
                 projectValues,
                 vendorValues
