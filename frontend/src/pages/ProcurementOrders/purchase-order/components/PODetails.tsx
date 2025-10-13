@@ -385,6 +385,9 @@ const handleInactivePO = async () => {
     } 
 };
 
+const PoPaymentTermsValidationSafe = poPayments?.some(
+  (term) => term.status === "Requested" || term.status === "Approved"
+) || false;
 
   return (
     <div>
@@ -1044,6 +1047,7 @@ const handleInactivePO = async () => {
                 po.status !== "Merged" &&
                 po.status !== "PO Approved" &&
                 po?.amount_paid <=100 &&
+                !PoPaymentTermsValidationSafe &&
                 (["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role)) && (
                   <Button
                     variant="outline"

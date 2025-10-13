@@ -159,7 +159,8 @@ def _process_filters_for_query(filters_list: list, doctype: str) -> list:
                 field, operator, value = f[1], f[2], f[3]
             else: field, operator, value = f[0], f[1], f[2]
         else: continue
-
+        print(f"WARNING (_process_filters_for_query): continue filter item with unexpected format: {f}")
+        
 
         if not isinstance(f, list) or len(f) < 3: continue
         field, operator, value = None, None, None; original_filter_doctype = doctype
@@ -175,17 +176,34 @@ def _process_filters_for_query(filters_list: list, doctype: str) -> list:
 
         filter_processed_correctly = False
         is_date_type, is_datetime_type = False, False
+
         if field in COMMON_DATE_FIELDS: is_date_type, is_datetime_type = True, True
         else:
             try: # Try getting meta
                 field_meta = frappe.get_meta(original_filter_doctype).get_field(field)
+                print(f"field type:{field_meta.fieldtype}:{value}")
                 if field_meta:
                     is_date_type = field_meta.fieldtype == "Date"
                     is_datetime_type = field_meta.fieldtype == "Datetime"
+                    # --- START CUSTOM CHECK (AS REQUESTED) ---
+                    if field_meta.fieldtype == "Data":
+                        try:
+                            # Attempt to parse the value as a date
+                            getdate(value) 
+                            # If successful, treat it as a date for the purpose of this processing block
+                            is_date_type = True
+                            print(f"DEBUG: Setting is_date_type=True for Data field '{field}' as value '{value}' is a valid date.")
+                        except Exception:
+                            # If it fails (e.g., value is "" or "N/A"), keep is_date_type = False
+                            is_date_type = False
+                            is_datetime_type=False
+                            print(f"DEBUG: Keeping is_date_type=False for Data field '{field}' as value '{value}' is NOT a valid date.")
+                            pass
+                    # --- END CUSTOM CHECK ---
+                
             except Exception: pass # Ignore meta errors
 
         sql_date_format = "%Y-%m-%d" # Use standard ISO format for DB
-
         if is_date_type or is_datetime_type:
             if operator == "Timespan" and isinstance(value, str):
                 print(f"Calling Timespan for {field}")
