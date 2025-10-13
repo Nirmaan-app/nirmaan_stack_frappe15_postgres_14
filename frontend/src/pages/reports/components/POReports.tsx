@@ -67,7 +67,7 @@ export default function POReports() {
                   
                     if (poDoc.status === 'Partially Delivered' || poDoc.status === 'Delivered') {
 
-                        return Math.abs(parseNumber(poDoc.amount_paid) - parseNumber(row.invoiceAmount) )>= invoice_delta;
+                        return parseNumber(poDoc.amount_paid) - parseNumber(row.invoiceAmount) >= invoice_delta;
                     }
                     return false;
                 });
@@ -139,6 +139,8 @@ export default function POReports() {
         // No `meta` needed here as POReportRowData contains all display fields,
         // and poColumns directly accesses them.
     });
+    const fullyFilteredData = table.getFilteredRowModel().rows.map(row => row.original);
+    
     const filteredRowCount = table.getFilteredRowModel().rows.length;
     // This effect synchronizes the table's pageCount with the client-side filtered data.
     useEffect(() => {
@@ -176,11 +178,11 @@ export default function POReports() {
     }, [selectedReportType]);
 
     const handleCustomExport = useCallback(() => {
-        if (!currentDisplayData || currentDisplayData.length === 0) {
+        if (!fullyFilteredData || fullyFilteredData.length === 0) {
             toast({ title: "Export", description: "No data available to export for the selected report type.", variant: "default" });
             return;
         }
-        const dataToExport = currentDisplayData.map(row => ({
+        const dataToExport = fullyFilteredData.map(row => ({
             po_id: row.name,
             creation: formatDate(row.creation),
             project_name: row.projectName || row.project,
@@ -217,7 +219,7 @@ export default function POReports() {
             console.error("Export failed:", e);
             toast({ title: "Export Error", description: "Could not generate CSV file.", variant: "destructive" });
         }
-    }, [currentDisplayData, exportFileName, selectedReportType]);
+    }, [fullyFilteredData, exportFileName, selectedReportType]);
 
     const isLoadingOverall = isLoadingInitialData || projectsUiLoading || vendorsUiLoading || isTableHookLoading;
     const overallError = initialDataError || projectsUiError || vendorsUiError || tableHookError;
