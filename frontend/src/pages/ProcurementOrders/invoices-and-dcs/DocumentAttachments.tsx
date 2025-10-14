@@ -361,7 +361,9 @@ export const DocumentAttachments = <T extends DocumentType>({
 
       let targetUrl = "";
       if (action === "preview") {
-        targetUrl = `/printview?${queryString}`;
+        // targetUrl = `/printview?${queryString}`;
+        targetUrl = `/api/method/frappe.utils.print_format.download_pdf?${queryString}`;
+
       } else {
         // download
         // Using your custom download API if you have one, or the standard download_pdf

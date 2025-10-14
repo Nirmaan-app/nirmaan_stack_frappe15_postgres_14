@@ -470,7 +470,7 @@ export const SrInvoices: React.FC = () => {
                         <HoverCard>
                             <HoverCardTrigger>
                                 <Info
-                                    onClick={() => navigate(`/service-requests/${sr.replaceAll('/', "&=")}`)} // Updated navigation path for SR
+                                    onClick={() => navigate(`/service-requests/${sr.replaceAll('/', "&=")}?tab=approved-sr`)} // Updated navigation path for SR
                                     className="w-4 h-4 text-blue-600 cursor-pointer inline-block ml-1"
                                 />
                             </HoverCardTrigger>
