@@ -514,7 +514,6 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                 accessorKey: "po_amount_delivered",
                 header: ({ column }) => (
                     <DataTableColumnHeader column={column} title="Payable Amount" />
-                ),
                 cell: ({ row }) => (
                     <div className="font-medium pr-2 text-center tabular-nums">
                         {formatToRoundedIndianRupee(row.original.po_amount_delivered)}
@@ -523,7 +522,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                 size: 160,
                 // enableSorting is true by default when using accessorKey
                 meta: {
-                    exportHeaderName: "Amount Paid",
+                    exportHeaderName: "PO Amount Payable",
                     exportValue: (row: ProcurementOrder) => {
                         return formatForReport(row.po_amount_delivered); // Use the direct field for export
                     },
@@ -625,7 +624,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
             variant: "destructive",
         });
     }
-    console.log("Aggreate", aggregates)
+    // console.log("Aggreate", aggregates)
     return (
         <div className="space-y-4">
             {/* <Card>
@@ -741,7 +740,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                                                             <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
                                                         </HoverCardTrigger>
                                                         <HoverCardContent className="text-xs w-auto p-1.5">
-                                                            Total project value including GST.
+                                                            Total PO value including GST.
                                                         </HoverCardContent>
                                                     </HoverCard>
                                                 </span>{" "}
@@ -773,7 +772,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                                                         <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
                                                     </HoverCardTrigger>
                                                     <HoverCardContent className="text-xs w-auto p-1.5">
-                                                        Total project value excluding GST.
+                                                        Total PO value excluding GST.
                                                     </HoverCardContent>
                                                 </HoverCard>
                                                 </span>{" "}
@@ -806,7 +805,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                                                         <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
                                                     </HoverCardTrigger>
                                                     <HoverCardContent className="text-xs w-auto p-1.5">
-                                                       Total expenses recorded for the project.
+                                                       Total expenses recorded for the POs.
                                                     </HoverCardContent>
                                                 </HoverCard>
                                                 </span>{" "}
