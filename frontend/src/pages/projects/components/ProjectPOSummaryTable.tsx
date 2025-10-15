@@ -514,6 +514,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                 accessorKey: "po_amount_delivered",
                 header: ({ column }) => (
                     <DataTableColumnHeader column={column} title="Payable Amount" />
+                ),
                 cell: ({ row }) => (
                     <div className="font-medium pr-2 text-center tabular-nums">
                         {formatToRoundedIndianRupee(row.original.po_amount_delivered)}
