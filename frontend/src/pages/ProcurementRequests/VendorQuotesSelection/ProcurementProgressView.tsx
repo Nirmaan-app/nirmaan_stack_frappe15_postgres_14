@@ -50,6 +50,7 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
     handleQuoteChange,
     handleMakeChange,
     handleTaxChange, // MODIFIED: Destructure the new handler
+    handleUnitChange, // <--- ADDED: Destructure the new Unit Change Handler
     handleFinalVendorSelectionForItem,
     handleProceedToReview,
     handleRevertSelections,
@@ -151,6 +152,7 @@ export const ProcurementProgressView: React.FC<ProcurementProgressViewProps> = (
                     onQuoteChange={handleQuoteChange}
                     onMakeChange={handleMakeChange}
                     onTaxChange={handleTaxChange} // MODIFIED: Pass the handler down
+                    onUnitChange={handleUnitChange} // <--- ADDED: Pass the handler down to the Table
                     onVendorSelectForItem={handleFinalVendorSelectionForItem}
                     onDeleteVendorFromRFQ={handleDeleteVendorFromRFQ}
                     //isReadOnly={isEffectivelyReadOnly && mode === 'edit'} // New prop for table
