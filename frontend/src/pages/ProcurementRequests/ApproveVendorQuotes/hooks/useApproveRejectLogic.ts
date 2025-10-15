@@ -107,14 +107,34 @@ export const useApproveRejectLogic = ({ prId, initialPrData, vendorList = [], us
     );
 
 
-    // ... (all other useMemos and useCallbacks before handleApproveConfirm are unchanged) ...
-    const targetRatesDataMap = useMemo(() => {
-        const map = new Map<string, TargetRateDetailFromAPI>();
-        targetRatesApiResponse?.message?.forEach(tr => {
-            if (tr.item_id) map.set(tr.item_id, tr);
-        });
-        return map;
-    }, [targetRatesApiResponse]);
+ // / Define the delimiter (a non-ambiguous character)
+ const KEY_DELIMITER = "::"; 
+ 
+ // Helper function (optional, but good practice)
+ const getTargetRateKey = (itemId: string, unit: string): string => {
+     return `${itemId}${KEY_DELIMITER}${unit}`;
+ };
+ 
+ const targetRatesDataMap = useMemo(() => {
+     const map = new Map<string, TargetRateDetailFromAPI>();
+     
+     // Ensure the API response is valid and is an array (message)
+     if (targetRatesApiResponse?.message && Array.isArray(targetRatesApiResponse.message)) {
+         targetRatesApiResponse.message.forEach(tr => {
+             // Check for valid item_id and unit before creating the key
+             if (tr.item_id && tr.unit) {
+                 // 1. Create the unique, composite key
+                 const key = getTargetRateKey(tr.item_id, tr.unit);
+                 
+                 // 2. Set the data using the composite key
+                 map.set(key, tr);
+             }
+         });
+     }
+ 
+     return map;
+ }, [targetRatesApiResponse]);
+
     const vendorMap = useMemo(() => new Map(vendorList.map(v => [v.name, v.vendor_name])), [vendorList]);
     const getVendorName = useCallback((id?: string) => id ? vendorMap.get(id) || `Unknown (${id.substring(0, 6)})` : "N/A", [vendorMap]);
     const getUserName = useCallback((id?: string) => id ? usersList.find(u => u?.name === id)?.full_name || `Unknown (${id.substring(0, 6)})` : "N/A", [usersList]);
@@ -139,12 +159,13 @@ export const useApproveRejectLogic = ({ prId, initialPrData, vendorList = [], us
         const selectedRate = parseNumber(prItem.quote);
         const currentAmount = quantity * selectedRate;
         const actualItemId = prItem.item_id;
-
         // Rule 1: Check if the individual item's category is 'Additional Charges'.
         const isAdditionalChargeItem = prItem.category === 'Additional Charges';
         
-        // Fetch benchmark data for the item
-        const targetRateDetail = targetRatesDataMap.get(actualItemId);
+         // --- FIX APPLIED HERE: Create the composite key for the lookup ---
+        const lookupKey = getTargetRateKey(prItem.item_id, prItem.unit);
+
+        const targetRateDetail = targetRatesDataMap.get(lookupKey); // item.
         const lowestRateInRfqContext = getLowestRateFromOriginalRfq(actualItemId);
 
         // console.log("DEBUGRFQ: lowestRateInRfqContext", lowestRateInRfqContext);

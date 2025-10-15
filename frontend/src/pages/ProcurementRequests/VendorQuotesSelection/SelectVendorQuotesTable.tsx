@@ -16,7 +16,7 @@ import { CircleCheck, CircleMinus, MessageCircleMore } from "lucide-react";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { TargetRateDetailFromAPI, mapApiQuotesToApprovedQuotations } from '../ApproveVendorQuotes/types'; // Keep
 import { ProgressDocument, getItemListFromDocument, getCategoryListFromDocument, ProgressItem } from './types'; // Local feature types
-
+import { getTargetRateKey } from './hooks/useTargetRatesForItems';
 
 interface SelectVendorQuotesTableProps {
     currentDocument: ProgressDocument;
@@ -172,14 +172,14 @@ export function SelectVendorQuotesTable({
                             </TableHeader>
                             <TableBody>
                                 {itemsInCategory.map((item) => {
-                                    const targetRateDetail = targetRatesData?.get(item.item_id);
+                                     const lookupKey = getTargetRateKey(item.item_id, item.unit);
+                                    const targetRateDetail = targetRatesData?.get(lookupKey);
                                     let targetRateValue = -1;
                                     if (targetRateDetail?.rate && targetRateDetail.rate !== "-1") {
                                         const parsedRate = parseNumber(targetRateDetail.rate);
                                         if (!isNaN(parsedRate)) targetRateValue = parsedRate * 0.98;
                                     }
                                     const mappedContributingQuotes = mapApiQuotesToApprovedQuotations(targetRateDetail?.selected_quotations_items || []);
-// console.log("targetRateValue in selected table ",targetRateValue)
                                     return (
                                         <TableRow key={item.item_id}>
                                             <TableCell className="py-2.5 text-start align-middle">
@@ -207,9 +207,9 @@ export function SelectVendorQuotesTable({
                                                     </SelectTrigger>
                                                     <SelectContent>
                                                         <SelectItem key={5} value={"5"}>5 %</SelectItem>
-                                                        <SelectItem key={12} value={"12"}>12 %</SelectItem>
+                                                        {/* <SelectItem key={12} value={"12"}>12 %</SelectItem> */}
                                                         <SelectItem key={18} value={"18"}>18 %</SelectItem>
-                                                        <SelectItem key={28} value={"28"}>28 %</SelectItem>
+                                                        {/* <SelectItem key={28} value={"28"}>28 %</SelectItem> */}
                                                     </SelectContent>
                                                 </Select>
                                             </TableCell>
