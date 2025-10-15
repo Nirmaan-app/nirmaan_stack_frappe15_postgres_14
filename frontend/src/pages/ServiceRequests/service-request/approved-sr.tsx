@@ -67,6 +67,8 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     const params = useParams();
     const { role, user_id } = useUserData()
 
+    const isPMUser=role==="Nirmaan Project Manager Profile"
+
     const id = accountsPage ? params.id : params.srId;
 
     if (!id) return <div>No Service Request ID Provided</div>
@@ -426,6 +428,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                 variant="outline"
                                 className="text-primary border-primary text-xs px-2"
                                 onClick={toggleNewInvoiceDialog}
+                                disabled={!isPMUser}
                             >
                                 Add Invoice
                             </Button>
@@ -490,6 +493,8 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                         variant="outline"
                                         className="text-primary border-primary text-xs px-2"
                                         onClick={toggleRequestPaymentDialog}
+                                        disabled={!isPMUser}
+
                                     >
                                         Request Payment
                                     </Button>
@@ -608,7 +613,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                         </AlertDialogCancel>
                                                         <Button
                                                             onClick={AddPayment}
-                                                            disabled={!newPayment.amount || !newPayment.utr || !newPayment.payment_date || !!warning}
+                                                            disabled={!newPayment.amount || !newPayment.utr || !newPayment.payment_date || !!warning || !isPMUser}
                                                             className="flex-1">Add Payment
                                                         </Button>
                                                     </>
@@ -883,6 +888,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 documentData={orderData}
                 docMutate={service_request_mutate}
                 project={project}
+                isPMUserChallans={isPMUser||false}
             />
             {/* <SRAttachments SR={orderData} /> */}
 
