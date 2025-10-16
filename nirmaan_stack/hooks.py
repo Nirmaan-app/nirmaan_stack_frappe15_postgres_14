@@ -350,6 +350,7 @@ fixtures = [
     "Portal Menu Item",
     "Print Format",
     "Expense Type",
+    "Nirmaan Item Units",
     # "Pincodes"
 ]
 
