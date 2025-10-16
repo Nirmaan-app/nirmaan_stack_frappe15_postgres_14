@@ -29,7 +29,7 @@ import { Items as ItemsType } from "@/types/NirmaanStack/Items";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { useVendorsList } from "../ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
-import { UnitOptions } from "@/components/helpers/SelectUnit";
+import { useNirmaanUnitOptions } from '@/components/helpers/SelectUnit';
 import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
 
 // Constants
@@ -71,6 +71,8 @@ export default function AdminApprovedQuotationsTable({
   const [isPopoverOpen, setPopoverOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+
+  const { UnitOptions, isunitOptionsLoading } = useNirmaanUnitOptions();
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [sorting, setSorting] = useState<SortingState>([
     { id: "creation", desc: true },

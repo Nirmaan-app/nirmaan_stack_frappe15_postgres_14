@@ -702,7 +702,7 @@ import { Items as ItemsType } from "@/types/NirmaanStack/Items";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { useVendorsList } from "../ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
-import { UnitOptions } from "@/components/helpers/SelectUnit";
+import { useNirmaanUnitOptions } from '@/components/helpers/SelectUnit';
 import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
 
 // Constants
@@ -879,6 +879,7 @@ export default function ApprovedQuotationsTable({
   const [isPopoverOpen, setPopoverOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+   const { UnitOptions, isunitOptionsLoading } = useNirmaanUnitOptions();
   
 
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
@@ -1062,12 +1063,16 @@ export default function ApprovedQuotationsTable({
         ),
         filterFn: facetedFilterFn,
         cell: ({ row }) => (
-          <Link
+          row.original.item_id ? (<Link
             className="text-blue-600 hover:underline font-medium"
-            to={`/products/${row.original.item_id}`}
+            to={`/products/${row.original.item_id}?unit=${row.original.unit}`}
           >
             {row.getValue("item_name")}
-          </Link>
+          </Link>):(<div className="font-medium truncate">
+            {row.original.item_name}
+          </div>)
+        
+          
         ),
       },
       {
