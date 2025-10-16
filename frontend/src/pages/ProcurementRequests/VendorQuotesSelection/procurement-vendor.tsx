@@ -63,16 +63,37 @@ export const ProcurementOrder: React.FC = () => {
     // Add SWR options if needed
   );
 
-  const targetRatesDataMap = useMemo(() => {
-    const map = new Map<string, TargetRateDetailFromAPI>();
-    targetRatesApiResponse?.message?.forEach(tr => {
-      if (tr.item_id) {
-        map.set(tr.item_id, tr);
-      }
-    });
-    return map;
-  }, [targetRatesApiResponse]);
+console.log("targetRatesApiResponse",targetRatesApiResponse)
 
+// / Define the delimiter (a non-ambiguous character)
+const KEY_DELIMITER = "::"; 
+
+// Helper function (optional, but good practice)
+const getTargetRateKey = (itemId: string, unit: string): string => {
+    return `${itemId}${KEY_DELIMITER}${unit}`;
+};
+
+const targetRatesDataMap = useMemo(() => {
+    const map = new Map<string, TargetRateDetailFromAPI>();
+    
+    // Ensure the API response is valid and is an array (message)
+    if (targetRatesApiResponse?.message && Array.isArray(targetRatesApiResponse.message)) {
+        targetRatesApiResponse.message.forEach(tr => {
+            // Check for valid item_id and unit before creating the key
+            if (tr.item_id && tr.unit) {
+                // 1. Create the unique, composite key
+                const key = getTargetRateKey(tr.item_id, tr.unit);
+                
+                // 2. Set the data using the composite key
+                map.set(key, tr);
+            }
+        });
+    }
+
+    return map;
+}, [targetRatesApiResponse]);
+
+console.log("targetRatesDataMap", targetRatesDataMap);
 
   const { deleteDialog, toggleDeleteDialog } = useContext(UserContext);
 
@@ -205,7 +226,10 @@ export const ProcurementOrder: React.FC = () => {
                     if (item.category === category) {
                       // const minQuote = getItemEstimate(item.name)?.averageRate
                       // --- Get Target Rate Info ---
-                      const targetRateDetail = targetRatesDataMap.get(item.item_id); // item.name is the item_id
+                       // --- FIX APPLIED HERE: Create the composite key for the lookup ---
+                      const lookupKey = getTargetRateKey(item.item_id, item.unit);
+
+                      const targetRateDetail = targetRatesDataMap.get(lookupKey); // item.name is the item_id
                       let targetRateValue: number = -1;
                       let contributingQuotes: ApiSelectedQuotation[] = [];
                       if (targetRateDetail && targetRateDetail.rate) {

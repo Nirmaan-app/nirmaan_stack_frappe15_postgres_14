@@ -264,7 +264,7 @@
   },
   {
    "fieldname": "po_amount_delivered",
-   "fieldtype": "Data",
+   "fieldtype": "Currency",
    "label": "PO Amount Delivered"
   },
   {
@@ -276,7 +276,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-08-19 19:50:01.843267",
+ "modified": "2025-10-15 12:22:25.847013",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Procurement Orders",

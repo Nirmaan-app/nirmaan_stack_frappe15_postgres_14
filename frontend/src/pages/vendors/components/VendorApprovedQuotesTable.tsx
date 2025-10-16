@@ -10,7 +10,7 @@ import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
 import { ApprovedQuotations } from '@/types/NirmaanStack/ApprovedQuotations';
 import { Items } from '@/types/NirmaanStack/Items';
 import { useFrappeGetDocList } from 'frappe-react-sdk';
-import { UnitOptions } from '@/components/helpers/SelectUnit';
+import { useNirmaanUnitOptions } from '@/components/helpers/SelectUnit';
 
 interface VendorApprovedQuotesTableProps {
     vendorId: string;
@@ -27,6 +27,8 @@ export const VendorApprovedQuotesTable: React.FC<VendorApprovedQuotesTableProps>
         { fields: ["name", "item_name"], limit: 0 },
         'items_for_aq_page'
     );
+
+    const { UnitOptions, isunitOptionsLoading } = useNirmaanUnitOptions();
 
     const itemMap = useMemo(() => { // If you need to map item_id to a richer item object
             const map = new Map<string, Items>();

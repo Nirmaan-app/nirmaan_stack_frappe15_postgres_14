@@ -117,11 +117,33 @@ export const useApproveSBSLogic = ({
         { revalidateOnFocus: false }
     );
 
-    const targetRatesDataMap = useMemo(() => {
-        const map = new Map<string, TargetRateDetailFromAPI>();
-        targetRatesApiResponse?.message?.forEach(tr => { if (tr.item_id) map.set(tr.item_id, tr); });
-        return map;
-    }, [targetRatesApiResponse]);
+ // / Define the delimiter (a non-ambiguous character)
+ const KEY_DELIMITER = "::"; 
+ 
+ // Helper function (optional, but good practice)
+ const getTargetRateKey = (itemId: string, unit: string): string => {
+     return `${itemId}${KEY_DELIMITER}${unit}`;
+ };
+ 
+ const targetRatesDataMap = useMemo(() => {
+     const map = new Map<string, TargetRateDetailFromAPI>();
+     
+     // Ensure the API response is valid and is an array (message)
+     if (targetRatesApiResponse?.message && Array.isArray(targetRatesApiResponse.message)) {
+         targetRatesApiResponse.message.forEach(tr => {
+             // Check for valid item_id and unit before creating the key
+             if (tr.item_id && tr.unit) {
+                 // 1. Create the unique, composite key
+                 const key = getTargetRateKey(tr.item_id, tr.unit);
+                 
+                 // 2. Set the data using the composite key
+                 map.set(key, tr);
+             }
+         });
+     }
+ 
+     return map;
+ }, [targetRatesApiResponse]);
 
     useEffect(() => {
         if (targetRatesError) {
@@ -161,8 +183,9 @@ export const useApproveSBSLogic = ({
             const currentAmount = quantity * selectedRate;
 
             const actualItemId = sbItem.item_id; // This is the key for target rates and RFQ lookup
-            const targetRateDetail = targetRatesDataMap.get(actualItemId);
+            const lookupKey = getTargetRateKey(sbItem.item_id, sbItem.unit);
 
+            const targetRateDetail = targetRatesDataMap.get(lookupKey); // item.
             let targetRateValue: number | undefined = undefined;
             if (targetRateDetail?.rate) {
                 const parsedTargetRate = parseNumber(targetRateDetail.rate);

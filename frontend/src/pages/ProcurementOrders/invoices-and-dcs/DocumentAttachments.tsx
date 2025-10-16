@@ -76,6 +76,7 @@ export const DocumentAttachments = <T extends DocumentType>({
   documentData,
   docMutate,
   project,
+  isPMUserChallans,
   disabledAddInvoice,
 }: DocumentAttachmentsProps<T>) => {
 //   console.log("DocumentAttachments", project, documentData);
@@ -361,7 +362,9 @@ export const DocumentAttachments = <T extends DocumentType>({
 
       let targetUrl = "";
       if (action === "preview") {
-        targetUrl = `/printview?${queryString}`;
+        // targetUrl = `/printview?${queryString}`;
+        targetUrl = `/api/method/frappe.utils.print_format.download_pdf?${queryString}`;
+
       } else {
         // download
         // Using your custom download API if you have one, or the standard download_pdf
@@ -452,7 +455,9 @@ export const DocumentAttachments = <T extends DocumentType>({
       </Card>
       {/* Delivery Challan Card (Conditional) */}
       
-        <Card className="rounded-md shadow-sm border border-gray-200 overflow-hidden">
+      {
+        !isPMUserChallans && (
+ <Card className="rounded-md shadow-sm border border-gray-200 overflow-hidden">
           <CardHeader className="border-b border-gray-200">
             <CardTitle>
               <p className="text-lg font-semibold text-red-600">
@@ -466,6 +471,9 @@ export const DocumentAttachments = <T extends DocumentType>({
             </div>
           </CardContent>
         </Card>
+        )
+      }
+       
       
       <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
         <DialogContent className="sm:max-w-md">

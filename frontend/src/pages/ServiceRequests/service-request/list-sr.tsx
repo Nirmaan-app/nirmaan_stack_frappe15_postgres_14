@@ -135,7 +135,7 @@ export default function ListSR() {
                       <TableRow key={item.name}>
                         <TableCell className="text-sm text-center">
                           <Link
-                            to={`${item.name}`}
+                            to={`${item.name}/order-view`}
                             className="text-blue-500 underline-offset-1"
                           >
                            

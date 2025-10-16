@@ -53,6 +53,7 @@ import { DocumentAttachments } from "@/pages/ProcurementOrders/invoices-and-dcs/
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { DeletePaymentDialog } from "@/pages/ProjectPayments/update-payment/DeletePaymentDialog";
 import SRPdf from "./SRPdf";
+import { PaymentVoucherActions } from "@/components/paymentsVoucher/PaymentVoucherActions";
 
 // const { Sider, Content } = Layout;
 
@@ -65,6 +66,8 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
 
     const params = useParams();
     const { role, user_id } = useUserData()
+
+    const isPMUser=role==="Nirmaan Project Manager Profile"
 
     const id = accountsPage ? params.id : params.srId;
 
@@ -425,6 +428,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                 variant="outline"
                                 className="text-primary border-primary text-xs px-2"
                                 onClick={toggleNewInvoiceDialog}
+                                disabled={!isPMUser}
                             >
                                 Add Invoice
                             </Button>
@@ -489,6 +493,8 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                         variant="outline"
                                         className="text-primary border-primary text-xs px-2"
                                         onClick={toggleRequestPaymentDialog}
+                                        disabled={!isPMUser}
+
                                     >
                                         Request Payment
                                     </Button>
@@ -607,7 +613,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                         </AlertDialogCancel>
                                                         <Button
                                                             onClick={AddPayment}
-                                                            disabled={!newPayment.amount || !newPayment.utr || !newPayment.payment_date || !!warning}
+                                                            disabled={!newPayment.amount || !newPayment.utr || !newPayment.payment_date || !!warning || !isPMUser}
                                                             className="flex-1">Add Payment
                                                         </Button>
                                                     </>
@@ -631,6 +637,9 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                     <TableHead className="text-black font-bold">UTR No.</TableHead>
                                     <TableHead className="text-black font-bold">Date</TableHead>
                                     <TableHead className="text-black font-bold w-[5%]">Status</TableHead>
+                                    {/* 1. ADD VOUCHER HEADER */}
+                                    <TableHead className="text-black font-bold text-center">Voucher</TableHead>
+                                    {/* --------------------- */}
                                     <TableHead></TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -654,18 +663,32 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                         {payment?.utr || "--"}
                                                     </TableCell>
                                                 )}
+
+                                              
                                                 <TableCell className="font-semibold">{formatDate(payment?.payment_date || payment?.creation)}</TableCell>
                                                 <TableCell className="font-semibold">{payment?.status}</TableCell>
+                                                  {/* 2. RENDER THE PaymentVoucherActions COMPONENT */}
+                                                <TableCell className="text-center w-[10%]">
+                                                    {payment?.status === "Paid" && orderData?.name && (
+                                                        <PaymentVoucherActions
+                                                            payment={payment}
+                                                            srName={orderData.name} // Pass SR ID for file naming (if orderData is ServiceRequests)
+                                                            onVoucherUpdate={projectPaymentsMutate} // Pass the SWR mutate function to refresh payments after upload/delete
+                                                        />
+                                                    )}
+                                                </TableCell>
+                                                {/* ----------------------------------------------- */}
+
                                                 <TableCell className="text-red-500 text-end w-[5%]">
                                                     {!["Paid", "Approved"].includes(payment?.status) && !summaryPage &&
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        className="h-6 w-6 p-0 text-destructive hover:bg-destructive/5 hover:text-destructive/90"
-                                                        onClick={() => setDeleteFlagged(payment)} 
-                                                    >
-                                                        <Trash2 className="h-4 w-4" />
-                                                    </Button>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="h-6 w-6 p-0 text-destructive hover:bg-destructive/5 hover:text-destructive/90"
+                                                            onClick={() => setDeleteFlagged(payment)}
+                                                        >
+                                                            <Trash2 className="h-4 w-4" />
+                                                        </Button>
                                                     }
 
                                                     <DeletePaymentDialog isOpen={!!deleteFlagged} onOpenChange={() => setDeleteFlagged(null)} paymentToDelete={deleteFlagged} onDeleteSuccess={() => projectPaymentsMutate()} />
@@ -731,8 +754,8 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                         >
                                                             <SelectTrigger
                                                                 className={`${!selectedGST?.gst
-                                                                        ? "text-primary border-primary ring-1 ring-inset ring-primary"
-                                                                        : ""
+                                                                    ? "text-primary border-primary ring-1 ring-inset ring-primary"
+                                                                    : ""
                                                                     }`}
                                                             >
                                                                 <SelectValue placeholder="Select Project GST" />
@@ -865,6 +888,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 documentData={orderData}
                 docMutate={service_request_mutate}
                 project={project}
+                isPMUserChallans={isPMUser||false}
             />
             {/* <SRAttachments SR={orderData} /> */}
 
@@ -932,22 +956,22 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
 
             {/* SR PDF Sheet */}
             <SRPdf
-  srPdfSheet={srPdfSheet}
-  toggleSrPdfSheet={toggleSrPdfSheet}
-  handlePrint={handlePrint}
-  componentRef={componentRef}
-  orderData={orderData}
-  service_vendor={service_vendor}
-  project={project}
-  gstEnabled={gstEnabled}
-  getTotal={getTotal}
-  notes={notes}
-  logo={logo}
-  Seal={Seal}
-  formatToIndianRupee={formatToIndianRupee}
-  parseNumber={parseNumber}
-//   AddressView={AddressView}
-/>
+                srPdfSheet={srPdfSheet}
+                toggleSrPdfSheet={toggleSrPdfSheet}
+                handlePrint={handlePrint}
+                componentRef={componentRef}
+                orderData={orderData}
+                service_vendor={service_vendor}
+                project={project}
+                gstEnabled={gstEnabled}
+                getTotal={getTotal}
+                notes={notes}
+                logo={logo}
+                Seal={Seal}
+                formatToIndianRupee={formatToIndianRupee}
+                parseNumber={parseNumber}
+            //   AddressView={AddressView}
+            />
 
             {/* <Sheet open={srPdfSheet} onOpenChange={toggleSrPdfSheet}>
                 <SheetContent className="overflow-y-auto md:min-w-[700px]">

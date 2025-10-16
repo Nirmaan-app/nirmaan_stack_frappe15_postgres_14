@@ -261,6 +261,29 @@ export const useProcurementProgressLogic = ({
     });
 }, []);
 
+// --- NEW HANDLER: Unit Change (Safe Implementation) ---
+const handleUnitChange = useCallback((itemId: string, newUnit: string) => {
+    setCurrentDocumentState(prevDoc => {
+        if (!prevDoc) return prevDoc;
+
+        // 1. Update the 'unit' property of the specified item
+        const updatedItems = (prevDoc.order_list || []).map(item => {
+            if (item.item_id === itemId) {
+                // Ensure to update the item's unit property
+                return { ...item, unit: newUnit };
+            }
+            return item;
+        });
+
+        // 2. Return a new document object with the updated order_list.
+        return {
+            ...prevDoc,
+            order_list: updatedItems,
+        };
+    });
+}, []); // Dependency array is clean
+
+
 
 const updateCurrentDocumentStateItemList = useCallback((updater: (prevItems: ProgressItem[]) => ProgressItem[]) => {
         setCurrentDocumentState(prevDoc => {
@@ -321,6 +344,7 @@ const updateCurrentDocumentStateItemList = useCallback((updater: (prevItems: Pro
         handleQuoteChange,         // from RFQManager
         handleMakeChange,          // from RFQManager
         handleTaxChange, //from RFQManager EXPORT THE NEW HANDLER
+        handleUnitChange,   // <--- Unit Change
         handleFinalVendorSelectionForItem: handleVendorQuoteSelectionForItem, // from RFQManager
 // --- ADD THESE NEW HANDLERS TO BE EXPORTED ---
     onAddCharges,
