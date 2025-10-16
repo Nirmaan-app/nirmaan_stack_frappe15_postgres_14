@@ -156,6 +156,7 @@ export const VirtualizedMaterialTable: React.FC<VirtualizedMaterialTableProps> =
                 <span>Category</span>
               </div>
             </TableHead>
+            <TableHead className="text-center min-w-[80px]">Billing category</TableHead>
             <TableHead className="text-center min-w-[80px]">Unit</TableHead>
             <TableHead className="text-right min-w-[120px]">Est. Qty</TableHead>
 
