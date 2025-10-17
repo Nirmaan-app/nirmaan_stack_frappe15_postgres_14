@@ -77,9 +77,9 @@ export const useProcurementProgressLogic = ({
         setRfqFormData,
         finalSelectedQuotes, // Renamed from selectedVendorQuotes
         setFinalSelectedQuotes, // Renamed
-     onAddCharges,
-    onUpdateCharge,
-    onDeleteCharge,
+        onAddCharges,
+        onUpdateCharge,
+        onDeleteCharge,
         handleAddVendorsToRFQ, // If AddVendorsDialog directly uses this
         handleDeleteVendorFromRFQ,
         handleQuoteChange,
