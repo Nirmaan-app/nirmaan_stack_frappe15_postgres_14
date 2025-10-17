@@ -16,7 +16,8 @@ import { CircleCheck, CircleMinus, MessageCircleMore } from "lucide-react";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { TargetRateDetailFromAPI, mapApiQuotesToApprovedQuotations } from '../ApproveVendorQuotes/types'; // Keep
 import { ProgressDocument, getItemListFromDocument, getCategoryListFromDocument, ProgressItem } from './types'; // Local feature types
-
+import { getTargetRateKey } from './hooks/useTargetRatesForItems';
+import { SelectUnit } from '@/components/helpers/SelectUnit';
 
 interface SelectVendorQuotesTableProps {
     currentDocument: ProgressDocument;
@@ -27,6 +28,8 @@ interface SelectVendorQuotesTableProps {
     isReadOnly?: boolean; // New prop to disable inputs/actions
  // MODIFIED: Add a specific handler for tax changes
     onTaxChange: (itemId: string, tax: string) => void;
+
+    onUnitChange: (itemId: string, newUnit: string) => void; // <--- CHANGE 1: ADDED PROP TO INTERFACE
 
     onQuoteChange: (itemId: string, vendorId: string, quote: string) => void;
     onMakeChange: (itemId: string, vendorId: string, make: string) => void;
@@ -45,6 +48,7 @@ export function SelectVendorQuotesTable({
     targetRatesData,
     isReadOnly = false, // Default to false
     onTaxChange, // MODIFIED: Destructure the new prop
+    onUnitChange,
     onQuoteChange,
     onVendorSelectForItem,
     onDeleteVendorFromRFQ,
@@ -68,6 +72,19 @@ export function SelectVendorQuotesTable({
             }
         }
     }, [onQuoteChange, onVendorSelectForItem, selectedVendorQuotes]);
+
+      // --- CHANGE 3: NEW INTERNAL HANDLER FOR UNIT CHANGE (CRITICAL LOGIC) ---
+    const handleUnitChangeInternal = useCallback((itemId: string, newUnit: string) => {
+        // 1. Call the parent prop to update the 'unit' in the currentDocumentState
+        // This triggers a Target Rate refresh via the logic hook's dependency.
+        onUnitChange(itemId, newUnit);
+        
+        // 2. CRITICAL: Clear the final selected quote for this item.
+        // The old quote's rate is based on the OLD unit, making the selection invalid/misleading.
+        onVendorSelectForItem(itemId, null); 
+    }, [onUnitChange, onVendorSelectForItem]);
+    // --- END NEW INTERNAL HANDLER ---
+
 
     const handleInternalDeleteVendor = useCallback((vendorId: string) => {
         onDeleteVendorFromRFQ(vendorId);
@@ -172,14 +189,14 @@ export function SelectVendorQuotesTable({
                             </TableHeader>
                             <TableBody>
                                 {itemsInCategory.map((item) => {
-                                    const targetRateDetail = targetRatesData?.get(item.item_id);
+                                     const lookupKey = getTargetRateKey(item.item_id, item.unit);
+                                    const targetRateDetail = targetRatesData?.get(lookupKey);
                                     let targetRateValue = -1;
                                     if (targetRateDetail?.rate && targetRateDetail.rate !== "-1") {
                                         const parsedRate = parseNumber(targetRateDetail.rate);
                                         if (!isNaN(parsedRate)) targetRateValue = parsedRate * 0.98;
                                     }
                                     const mappedContributingQuotes = mapApiQuotesToApprovedQuotations(targetRateDetail?.selected_quotations_items || []);
-// console.log("targetRateValue in selected table ",targetRateValue)
                                     return (
                                         <TableRow key={item.item_id}>
                                             <TableCell className="py-2.5 text-start align-middle">
@@ -192,7 +209,17 @@ export function SelectVendorQuotesTable({
                                                 )}
                                             </TableCell>
                                             <TableCell className="align-middle text-center text-sm">{item.quantity}</TableCell>
-                                            <TableCell className="align-middle text-center text-sm">{item.unit}</TableCell>
+                                            {/* <TableCell className="align-middle text-center text-sm">{item.unit}</TableCell> */}
+                                             <TableCell className="align-middle text-center text-sm w-20">
+                                                {mode === 'edit' && !isReadOnly ? (
+                                                     <SelectUnit 
+                                                        value={item.unit || ""} 
+                                                        onChange={(value) => handleUnitChangeInternal(item.item_id, value)} 
+                                                    />
+                                                ) : (
+                                                    <div className='w-20 mx-auto'>{item.unit}</div> // Static display in view/read-only mode
+                                                )}
+                                            </TableCell>
                                             <TableCell className="align-middle text-center text-sm w-24">
                                                 <Select
                                                     value={String(item.tax)||""}
@@ -207,9 +234,9 @@ export function SelectVendorQuotesTable({
                                                     </SelectTrigger>
                                                     <SelectContent>
                                                         <SelectItem key={5} value={"5"}>5 %</SelectItem>
-                                                        <SelectItem key={12} value={"12"}>12 %</SelectItem>
+                                                        {/* <SelectItem key={12} value={"12"}>12 %</SelectItem> */}
                                                         <SelectItem key={18} value={"18"}>18 %</SelectItem>
-                                                        <SelectItem key={28} value={"28"}>28 %</SelectItem>
+                                                        {/* <SelectItem key={28} value={"28"}>28 %</SelectItem> */}
                                                     </SelectContent>
                                                 </Select>
                                             </TableCell>

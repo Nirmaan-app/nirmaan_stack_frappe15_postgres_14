@@ -1,0 +1,130 @@
+[
+ {
+  "docstatus": 0,
+  "doctype": "Nirmaan Item Units",
+  "modified": "2025-10-16 14:02:28.670542",
+  "name": "MTR",
+  "unit_abb": "MTR",
+  "unit_name": "Metres"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Nirmaan Item Units",
+  "modified": "2025-10-16 19:26:44.580001",
+  "name": "BOX",
+  "unit_abb": "BOX",
+  "unit_name": "Box"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Nirmaan Item Units",
+  "modified": "2025-10-16 19:26:38.361198",
+  "name": "ROLL",
+  "unit_abb": "ROLL",
+  "unit_name": "Roll"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Nirmaan Item Units",
+  "modified": "2025-10-16 19:26:29.885144",
+  "name": "LTH",
+  "unit_abb": "LTH",
+  "unit_name": "Length"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Nirmaan Item Units",
+  "modified": "2025-10-16 19:26:23.232732",
+  "name": "NOS",
+  "unit_abb": "NOS",
+  "unit_name": "Numbers"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Nirmaan Item Units",
+  "modified": "2025-10-16 19:26:16.375229",
+  "name": "KGS",
+  "unit_abb": "KGS",
+  "unit_name": "Kilograms"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Nirmaan Item Units",
+  "modified": "2025-10-16 19:26:06.862925",
+  "name": "PAIRS",
+  "unit_abb": "PAIRS",
+  "unit_name": "Pairs"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Nirmaan Item Units",
+  "modified": "2025-10-16 19:26:00.883222",
+  "name": "PACKS",
+  "unit_abb": "PACKS",
+  "unit_name": "Packs"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Nirmaan Item Units",
+  "modified": "2025-10-16 19:25:54.868683",
+  "name": "DRUM",
+  "unit_abb": "DRUM",
+  "unit_name": "Drum"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Nirmaan Item Units",
+  "modified": "2025-10-16 19:25:47.463564",
+  "name": "SQMTR",
+  "unit_abb": "SQMTR",
+  "unit_name": "Square Metres"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Nirmaan Item Units",
+  "modified": "2025-10-16 19:25:39.118363",
+  "name": "LTR",
+  "unit_abb": "LTR",
+  "unit_name": "Litres"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Nirmaan Item Units",
+  "modified": "2025-10-16 19:25:31.319398",
+  "name": "BUNDLE",
+  "unit_abb": "BUNDLE",
+  "unit_name": "Bundle"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Nirmaan Item Units",
+  "modified": "2025-10-16 19:25:21.105921",
+  "name": "FEET",
+  "unit_abb": "FEET",
+  "unit_name": "Feet"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Nirmaan Item Units",
+  "modified": "2025-10-16 19:25:12.817580",
+  "name": "LOT",
+  "unit_abb": "LOT",
+  "unit_name": "Lot"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Nirmaan Item Units",
+  "modified": "2025-10-16 19:24:57.871904",
+  "name": "SQFT",
+  "unit_abb": "SQFT",
+  "unit_name": "Square Feet"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Nirmaan Item Units",
+  "modified": "2025-10-16 19:25:06.779537",
+  "name": "RFT",
+  "unit_abb": "RFT",
+  "unit_name": "RFT"
+ }
+]

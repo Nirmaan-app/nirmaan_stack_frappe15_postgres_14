@@ -66,7 +66,10 @@ export const MaterialTableRow: React.FC<MaterialTableRowProps> = ({ item, hidden
       <TableCell className="py-2 px-3 text-muted-foreground">
         {item.categoryName}
       </TableCell>
-
+         {/* Column: Unit */}
+      <TableCell className="text-center py-2 px-3">
+        {item.billingCategory || "N/A"}
+      </TableCell>
       {/* Column: Unit */}
       <TableCell className="text-center py-2 px-3">
         {item.unit || "N/A"}

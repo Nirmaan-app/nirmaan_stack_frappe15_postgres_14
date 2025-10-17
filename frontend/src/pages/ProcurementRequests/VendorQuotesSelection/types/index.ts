@@ -151,6 +151,7 @@ export interface ProcurementProgressLogicReturn {
     handleModeChange: (newMode: 'edit' | 'view') => Promise<void>;
     handleConfirmAddVendorsToRFQ: () => void;
     handleTaxChange:(itemId: string, vendorId: string, taxValue: string) => void;
+    handleUnitChange: (itemId: string, newUnit: string) => void; //<----Unit Selection options
     handleDeleteVendorFromRFQ: (vendorId: string) => void;
     handleQuoteChange: (itemId: string, vendorId: string, quote: string) => void;
     handleMakeChange: (itemId: string, vendorId: string, makeValue: string) => void;

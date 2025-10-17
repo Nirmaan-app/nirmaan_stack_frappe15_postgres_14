@@ -22,12 +22,12 @@
   "work_package": "PA System"
  },
  {
-  "category_name": "HVAC Hardware & Accessories",
+  "category_name": "HVAC Accessories",
   "docstatus": 0,
   "doctype": "Category",
   "image_url": "https://storage.googleapis.com/nirmaan-public-bucket1/cropped%20hvac/hvac-hw.jpg",
   "modified": "2025-08-02 11:18:00.434500",
-  "name": "HVAC Hardware & Accessories",
+  "name": "HVAC Accessories",
   "new_items": "false",
   "tax": "18",
   "work_package": "HVAC System"
@@ -957,12 +957,12 @@
   "work_package": "Tool & Equipments"
  },
  {
-  "category_name": "Sensor & Control Panel",
+  "category_name": "BMS",
   "docstatus": 0,
   "doctype": "Category",
   "image_url": null,
   "modified": "2025-09-23 12:24:16.145622",
-  "name": "Sensor & Control Panel",
+  "name": "BMS",
   "new_items": "false",
   "tax": "18",
   "work_package": "HVAC System"

@@ -523,7 +523,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                 size: 160,
                 // enableSorting is true by default when using accessorKey
                 meta: {
-                    exportHeaderName: "Amount Paid",
+                    exportHeaderName: "PO Amount Payable",
                     exportValue: (row: ProcurementOrder) => {
                         return formatForReport(row.po_amount_delivered); // Use the direct field for export
                     },
@@ -625,7 +625,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
             variant: "destructive",
         });
     }
-    console.log("Aggreate", aggregates)
+    // console.log("Aggreate", aggregates)
     return (
         <div className="space-y-4">
             {/* <Card>
@@ -735,13 +735,13 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                                         {/* Column 2: PO Totals (inc. GST/exc. GST/Paid) - Updated */}
                                         <div className="grid grid-cols-2 gap-y-2 gap-x-20 text-sm"> {/* Changed to items-start for consistent alignment */}
                                             <p className="flex justify-between w-full">
-                                                <span className="font-medium inline-flex items-center gap-1 group">Total (inc. GST)
+                                                <span className="font-medium inline-flex items-center gap-1 group">Total PO Amount (Inc. GST)
                                                     <HoverCard>
                                                         <HoverCardTrigger asChild>
                                                             <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
                                                         </HoverCardTrigger>
                                                         <HoverCardContent className="text-xs w-auto p-1.5">
-                                                            Total project value including GST.
+                                                            Total project POs Amount including GST.
                                                         </HoverCardContent>
                                                     </HoverCard>
                                                 </span>{" "}
@@ -768,12 +768,12 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                                                 </span>
                                             </p>
                                             <p className="flex justify-between w-full">
-                                                <span className="font-medium inline-flex items-center gap-1 group">Total (exc. GST)<HoverCard>
+                                                <span className="font-medium inline-flex items-center gap-1 group">Total PO Amount (exc. GST)<HoverCard>
                                                     <HoverCardTrigger asChild>
                                                         <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
                                                     </HoverCardTrigger>
                                                     <HoverCardContent className="text-xs w-auto p-1.5">
-                                                        Total project value excluding GST.
+                                                        Total project POs Amount excluding GST.
                                                     </HoverCardContent>
                                                 </HoverCard>
                                                 </span>{" "}
@@ -806,7 +806,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                                                         <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
                                                     </HoverCardTrigger>
                                                     <HoverCardContent className="text-xs w-auto p-1.5">
-                                                       Total expenses recorded for the project.
+                                                       Total expenses recorded for this project POs.
                                                     </HoverCardContent>
                                                 </HoverCard>
                                                 </span>{" "}

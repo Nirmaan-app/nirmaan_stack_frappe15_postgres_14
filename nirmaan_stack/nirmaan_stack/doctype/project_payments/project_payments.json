@@ -17,7 +17,8 @@
   "amount",
   "tds",
   "payment_date",
-  "status"
+  "status",
+  "voucher_attachment"
  ],
  "fields": [
   {
@@ -83,12 +84,17 @@
    "fieldname": "status",
    "fieldtype": "Data",
    "label": "Status"
+  },
+  {
+   "fieldname": "voucher_attachment",
+   "fieldtype": "Attach",
+   "label": "Voucher Attachment"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-04-02 14:48:45.793506",
+ "modified": "2025-10-14 12:40:29.486736",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Payments",
@@ -176,6 +182,7 @@
    "write": 1
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],

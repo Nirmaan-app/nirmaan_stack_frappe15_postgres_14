@@ -111,6 +111,8 @@ def on_update(doc, method):
                     aq.quantity=order.quantity
                     aq.quote=order.quote
                     aq.tax=order.tax
+                    aq.category=order.category if order.category else ""
+                    aq.procurement_package=order.procurement_package if order.procurement_package else ""
                     
                  
                     aq.make = order.make

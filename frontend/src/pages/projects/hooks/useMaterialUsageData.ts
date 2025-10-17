@@ -43,6 +43,33 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
     limit: 0,
   }, `project_estimates_${projectId}`);
 
+    const {
+    data: itemsData,
+    isLoading: itemsLoading,
+    error: itemsError,
+  } = useFrappeGetDocList<ItemBillingCategory>('Items', {
+    // Only need the ID and the Billing Category
+    fields: ['name', 'billing_category'], 
+    // Filter to only include items that have estimates or PO items (Optimization is complex, fetching all is safest)
+    // For simplicity and speed, fetching all items is usually fine if the item count is reasonable.
+    limit: 0,
+  }, `all_items_billing_category`);
+  //
+
+  // --- NEW MAP: Create Billing Category Lookup Map ---
+  const billingCategoryMap = useMemo(() => {
+    const map = new Map<string, string>();
+    itemsData?.forEach(item => {
+        if (item.name && item.billing_category) {
+            map.set(item.name, item.billing_category);
+        }
+    });
+    return map;
+  }, [itemsData]);
+  // --- END NEW MAP ---
+
+
+
   const { getTotalAmount } = useOrderTotals();
 
   const getAmountPaidForPO = useMemo(() => {
@@ -127,6 +154,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
 
       if (!currentItemUsage) {
         const estimate = estimatesMap.get(poItem.item_id);
+          const itemBillingCategory = billingCategoryMap.get(poItem.item_id) || "";
         currentItemUsage = {
           uniqueKey: itemKey + `_item_${index}`,
           categoryName: poItem.category,
@@ -140,6 +168,8 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
           poNumbers: individualPOsForItem,
           deliveryStatus: deliveryStatusInfo.deliveryStatusText,
           overallPOPaymentStatus: poPaymentStatusInfo,
+
+           billingCategory: itemBillingCategory||"", 
         };
       } else {
         currentItemUsage.orderedQuantity = currentOrdered;
@@ -163,7 +193,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
     });
 
     return flatList;
-  }, [po_item_data, projectEstimates, getIndividualPOStatus]);
+  }, [po_item_data, projectEstimates, getIndividualPOStatus,billingCategoryMap]);
 
   // --- Generate Filter Options ---
   const categoryOptions = useMemo(() => {

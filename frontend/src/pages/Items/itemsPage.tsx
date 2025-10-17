@@ -21,7 +21,8 @@ import {
     CATEGORY_DOCTYPE, CATEGORY_LIST_FIELDS_TO_FETCH
 } from "./items.constants"; // Adjust path
 import { useDialogStore } from "@/zustand/useDialogStore";
-import { UnitOptions } from "@/components/helpers/SelectUnit";
+import { useNirmaanUnitOptions } from '@/components/helpers/SelectUnit';
+
 
 
 
@@ -38,6 +39,7 @@ export default function ItemsPage() {
     const userData = useUserData();
 
     const { newItemDialog, toggleNewItemDialog } = useDialogStore();
+     const { UnitOptions, isunitOptionsLoading } = useNirmaanUnitOptions();
 
     const { data: categoryList, isLoading: categoryUiLoading, error: categoryUiError } = useFrappeGetDocList<CategoryType>(
         CATEGORY_DOCTYPE,
