@@ -428,7 +428,6 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                 variant="outline"
                                 className="text-primary border-primary text-xs px-2"
                                 onClick={toggleNewInvoiceDialog}
-                                disabled={!isPMUser}
                             >
                                 Add Invoice
                             </Button>
@@ -493,7 +492,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                         variant="outline"
                                         className="text-primary border-primary text-xs px-2"
                                         onClick={toggleRequestPaymentDialog}
-                                        disabled={!isPMUser}
+                                        disabled={isPMUser}
 
                                     >
                                         Request Payment
@@ -613,7 +612,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                         </AlertDialogCancel>
                                                         <Button
                                                             onClick={AddPayment}
-                                                            disabled={!newPayment.amount || !newPayment.utr || !newPayment.payment_date || !!warning || !isPMUser}
+                                                            disabled={!newPayment.amount || !newPayment.utr || !newPayment.payment_date || !!warning || isPMUser}
                                                             className="flex-1">Add Payment
                                                         </Button>
                                                     </>
@@ -669,13 +668,13 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                 <TableCell className="font-semibold">{payment?.status}</TableCell>
                                                   {/* 2. RENDER THE PaymentVoucherActions COMPONENT */}
                                                 <TableCell className="text-center w-[10%]">
-                                                    {payment?.status === "Paid" && orderData?.name && (
+                                                    {payment?.status === "Paid" && orderData?.name ? (
                                                         <PaymentVoucherActions
                                                             payment={payment}
                                                             srName={orderData.name} // Pass SR ID for file naming (if orderData is ServiceRequests)
                                                             onVoucherUpdate={projectPaymentsMutate} // Pass the SWR mutate function to refresh payments after upload/delete
                                                         />
-                                                    )}
+                                                    ):("--")}
                                                 </TableCell>
                                                 {/* ----------------------------------------------- */}
 

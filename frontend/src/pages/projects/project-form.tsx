@@ -236,6 +236,7 @@ export const ProjectForm = () => {
     const { data: work_package_list, isLoading: wp_list_loading, error: wp_list_error } = useFrappeGetDocList("Work Packages",
         {
             fields: ['work_package_name'],
+             filters: [["work_package_name", "not in", ["Tool & Equipments", "Services","Additional Charges"]]],
             limit: 1000
         });
     const { data: work_header_list, isLoading: wh_list_loading, error: wh_list_error } = useFrappeGetDocList("Work Headers",
@@ -243,7 +244,6 @@ export const ProjectForm = () => {
             fields: ['work_header_name'],
             limit: 1000
         });
-        console.log("work_header_list",work_header_list)
 
     const defaultValues: ProjectFormValues = {
         project_name: "",
@@ -1529,7 +1529,7 @@ const WorkPackageSelection: React.FC<WorkPackageSelection> = ({ form, wp_list })
     const [openValue, setOpenValue] = useState(null);
     const { data: categoriesList, isLoading: categoriesListLoading } = useFrappeGetDocList<Category>("Category", {
         fields: ["category_name", "work_package", "name"],
-        filters: [["work_package", "not in", ["Tools & Equipments", "Services"]]],
+        filters: [["work_package", "not in", ["Tool & Equipments", "Services"]]],
         limit: 0,
     });
 
