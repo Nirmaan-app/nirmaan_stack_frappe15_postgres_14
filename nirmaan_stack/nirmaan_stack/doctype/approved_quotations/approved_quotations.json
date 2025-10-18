@@ -41,7 +41,7 @@
   },
   {
    "fieldname": "procurement_order",
-   "fieldtype": "Link",
+   "fieldtype": "Data",
    "label": "Procurement Order",
    "options": "Procurement Orders"
   },
@@ -87,7 +87,7 @@
   },
   {
    "fieldname": "category",
-   "fieldtype": "Link",
+   "fieldtype": "Data",
    "label": "Category",
    "options": "Category"
   },
@@ -106,7 +106,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-06-20 20:20:30.666846",
+ "modified": "2025-10-18 16:01:19.893266",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Approved Quotations",
