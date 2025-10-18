@@ -278,12 +278,13 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
     projectId ? ProjectQueryKeys.project(projectId) : null
   );
 
-  console.log("projectData", data)
+  // console.log("projectData", data)
 
   const {
     data: procuremeent_packages_list,
   } = useFrappeGetDocList<ProcurementPackages>("Procurement Packages", {
     fields: ["work_package_name"],
+    filters: [["work_package_name", "not in", ["Tool & Equipments", "Services","Additional Charges"]]],
     limit: 0,
   });
 
@@ -648,7 +649,6 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
     procuremeent_packages_list?.map((item) => ({
       work_package_name: item.work_package_name, // Adjust based on your data structure
     })) || [];
-
   // console.log("projectData", data)
   // console.log("projectvalues", form.getValues())
 
@@ -1191,7 +1191,7 @@ const WorkPackageSelection = ({ form, wp_list }) => {
 
   const { data: categoriesList, isLoading: categoriesListLoading } = useFrappeGetDocList("Category", {
     fields: ["category_name", "work_package", "name"],
-    filters: [["work_package", "not in", ["Tools & Equipments", "Services"]]],
+    filters: [["work_package", "not in", ["Tool & Equipments", "Services"]]],
     limit: 10000,
   });
 
@@ -1202,6 +1202,7 @@ const WorkPackageSelection = ({ form, wp_list }) => {
 
   const workPackages = form.watch("project_work_packages.work_packages");
 
+  console.log("categoriesList",categoriesList)
   const handleSelectAll = (checked) => {
     if (checked) {
       const allWorkPackages = categoriesList.reduce((acc, category) => {

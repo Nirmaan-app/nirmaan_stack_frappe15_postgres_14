@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback,useState,useEffect } from 'react';
 import {
     RFQData
 } from "@/types/NirmaanStack/ProcurementRequests";
@@ -12,7 +12,7 @@ import QuantityQuoteInput from "@/components/helpers/QtyandQuoteInput";
 import { VendorHoverCard } from "@/components/helpers/vendor-hover-card";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
-import { CircleCheck, CircleMinus, MessageCircleMore } from "lucide-react";
+import { CircleCheck, CircleMinus, MessageCircleMore,AlertTriangle } from "lucide-react";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { TargetRateDetailFromAPI, mapApiQuotesToApprovedQuotations } from '../ApproveVendorQuotes/types'; // Keep
 import { ProgressDocument, getItemListFromDocument, getCategoryListFromDocument, ProgressItem } from './types'; // Local feature types
@@ -60,6 +60,8 @@ export function SelectVendorQuotesTable({
     const itemsToDisplay = getItemListFromDocument(currentDocument);
     const categoriesToDisplay = getCategoryListFromDocument(currentDocument);
     // console.log("currentDocument", currentDocument) 
+
+    const [initialTargetRatesMap, setInitialTargetRatesMap] = useState<Map<string, number,any>>(() => new Map());
 
     const handleInternalQuoteChange = useCallback((itemId: string, vendorId: string, quoteValue: string | number | undefined) => {
         const newQuoteString = String(quoteValue ?? "");
@@ -112,6 +114,42 @@ export function SelectVendorQuotesTable({
     // }
  
     const numVendors = formData.selectedVendors.length;
+
+
+
+    useEffect(() => {
+        if (!targetRatesData || targetRatesData.size === 0) return;
+
+        const newMap = new Map(initialTargetRatesMap);
+        let mapUpdated = false;
+
+        itemsToDisplay.forEach(item => {
+            // Only save if it hasn't been saved before
+            if (!newMap.has(item.item_id)) {
+                // The item.unit is the initial unit on the first render/data load
+                const lookupKey = getTargetRateKey(item.item_id, item.unit);
+                const targetRateDetail = targetRatesData.get(lookupKey);
+                console.log("targetRateDetail",targetRateDetail)
+                if (targetRateDetail?.rate && targetRateDetail.rate !== "-1") {
+                    const parsedRate = parseNumber(targetRateDetail.rate);
+                    if (!isNaN(parsedRate)) {
+                        newMap.set(item.item_id, { 
+                            rate: parsedRate * 0.98, // 98% of the fetched rate
+                            unit: item.unit, // Save the initial unit                           
+                        }); 
+                        mapUpdated = true;
+                    }
+                }
+            }
+        });
+
+        if (mapUpdated) {
+            setInitialTargetRatesMap(newMap);
+        }
+    }, [targetRatesData, itemsToDisplay]); 
+    
+
+    // ... handleInternalDeleteVendor ...
 
     return (
         <div className="overflow-x-auto space-y-4 rounded-md border shadow-sm p-2 md:p-4">
@@ -196,7 +234,18 @@ export function SelectVendorQuotesTable({
                                         const parsedRate = parseNumber(targetRateDetail.rate);
                                         if (!isNaN(parsedRate)) targetRateValue = parsedRate * 0.98;
                                     }
+                                     console.log("targetRateDetail",targetRateDetail?.selected_quotations_items)
+
+
+                                   // 4. NEW: Extract saved initial rate and unit
+                                     const initialRateInfo = initialTargetRatesMap.get(item.item_id);
+                                     const initialTargetRateValue = initialRateInfo?.rate;
+                                     const initialTargetRateUnit = initialRateInfo?.unit;
+                                     // Check if current unit is different from initial unit
                                     const mappedContributingQuotes = mapApiQuotesToApprovedQuotations(targetRateDetail?.selected_quotations_items || []);
+
+                                     const isUnitChanged = item.unit !== initialTargetRateUnit;
+
                                     return (
                                         <TableRow key={item.item_id}>
                                             <TableCell className="py-2.5 text-start align-middle">
@@ -295,8 +344,47 @@ export function SelectVendorQuotesTable({
                                          
                                             <TableCell className="align-middle text-right">
                                                 <HistoricalQuotesHoverCard quotes={mappedContributingQuotes}>
-                                                    {(targetRateValue === -1 || !targetRateValue) ? "N/A" : formatToRoundedIndianRupee(targetRateValue)}
-                                                </HistoricalQuotesHoverCard>
+                    {/* 1. If targetRateValue is valid, show it directly */}
+                    {(targetRateValue !== -1 && targetRateValue) ? 
+                        (
+                            <div className='font-semibold text-sm'>
+                                {formatToRoundedIndianRupee(targetRateValue)}
+                            </div>
+                        ) :
+                        /* 2. Target Rate is invalid. Check for Initial Rate. */
+                        (initialTargetRateValue) ? 
+                        (
+                            /* Show Initial Target Rate with Warning Icon and Unit (small, as requested) */
+                            <div className='flex flex-col items-end'>
+                               
+                                <div className='flex items-center gap-1 text-xs' title={`Initial Target Rate: ${formatToRoundedIndianRupee(initialTargetRateValue)} per ${initialTargetRateUnit}`}>
+                                    <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+                                    <span className="font-medium text-amber-600">{formatToRoundedIndianRupee(initialTargetRateValue)}</span>
+                                    <span className="text-muted-foreground">({initialTargetRateUnit})</span>
+                                </div>
+                            </div>
+                        ) : 
+                        /* 3. No Target Rate and no Initial Rate. Show "N/A" only. */
+                        (
+                            <div className='font-semibold text-sm'>
+                                {"N/A"}
+                            </div>
+                        )
+                    }
+                </HistoricalQuotesHoverCard>
+                                               {/* {(initialTargetRateValue && targetRateValue !== initialTargetRateValue) ? (
+                                                        <div className='flex gap-1 text-xs' title={`Initial Target Rate was for ${initialTargetRateUnit}`}>
+                                                            <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+                                                            <span className="font-medium text-amber-600">{formatToRoundedIndianRupee(initialTargetRateValue)}</span>
+                                                            <span className="text-muted-foreground">({initialTargetRateUnit})</span>
+                                                        </div>
+                                                    ) : (initialTargetRateValue && targetRateValue === initialTargetRateValue && isUnitChanged) ? (
+                                                         // If the unit changed but the rate is the same, show a milder warning (optional, based on your preference)
+                                                          <div className='flex gap-1 text-xs text-amber-600' title={`Unit changed from ${initialTargetRateUnit}, but Target Rate is the same`}>
+                                                              <AlertTriangle className="h-3.5 w-3.5" />
+                                                              <span className="text-muted-foreground">({initialTargetRateUnit})</span>
+                                                          </div>
+                                                    ) : null} */}
                                             </TableCell>
                                         </TableRow>
                                     );
