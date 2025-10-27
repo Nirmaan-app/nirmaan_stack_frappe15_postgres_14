@@ -644,6 +644,8 @@ import { Download } from 'lucide-react';
 import { ChevronDown, ChevronUp, AlertCircle, Info ,MapPin,MessagesSquare} from 'lucide-react';
 import logo from "@/assets/logo-svg.svg";
 import { MilestoneProgress } from '../MilestonesSummary';
+import {useFrappeGetDoc} from 'frappe-react-sdk';
+
 
 // Define types
 interface MilestoneSnapshot {
@@ -717,9 +719,10 @@ const estimateWorkProgressGroupHeight = (milestones: MilestoneSnapshot[]) => {
 interface PDFReportHeaderProps {
   projectData: any;
   reportDate: string;
+  projectlastUpdateBy:string
 }
 
-const PDFReportHeader: React.FC<PDFReportHeaderProps> = ({ projectData, reportDate }) => (
+const PDFReportHeader: React.FC<PDFReportHeaderProps> = ({ projectData, reportDate ,projectlastUpdateBy}) => (
   <thead className="border-b border-black">
     <tr>
       {/* colSpan is 8 for the overall table structure */}
@@ -752,8 +755,8 @@ const PDFReportHeader: React.FC<PDFReportHeaderProps> = ({ projectData, reportDa
             <span className="text-right">{projectData?.project_name || "--"}</span>
           </div>
           <div className="flex justify-between items-center">
-            <span className="font-semibold">Project Manager :</span>
-            <span className="text-right">{projectData?.owner || "--"}</span>
+            <span className="font-semibold">Last Updated By :</span>
+            <span className="text-right">{projectlastUpdateBy || "--"}</span>
           </div>
           <div className="flex justify-between items-center">
             <span className="font-semibold">Start Date :</span>
@@ -790,6 +793,8 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
       return acc;
     }, {} as Record<string, MilestoneSnapshot[]>);
   }, [latestReport]);
+
+  const {data:ownerData}= useFrappeGetDoc<{full_name:string}>('Nirmaan Users',latestReport?.owner || '')
 
   // Memoized grouped manpower from all reports
   const groupedManpower = useMemo(() => {
@@ -937,7 +942,7 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
           {/* First Page Content Block */}
           <div className="page">
             <table className="min-w-full divide-gray-200">
-              <PDFReportHeader projectData={projectData} reportDate={latestReport?.report_date || ''} />
+              <PDFReportHeader projectData={projectData} reportDate={latestReport?.report_date || ''} projectlastUpdateBy={ownerData?.full_name} />
               <tbody>
                 <tr>
                   <td colSpan={8}>
