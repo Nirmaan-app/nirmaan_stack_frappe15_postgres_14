@@ -284,20 +284,20 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
 
     return (
         <>
-            {current_role === "Nirmaan Admin Profile" && (
+            {["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(current_role) && (
                 <div className="p-4 border rounded-md shadow-sm bg-white">
                     <div className="flex items-center justify-between mb-6 pb-4 border-b">
                         <div>
-                            <h3 className="text-lg font-semibold">Work Headers</h3>
+                            <h3 className="text-lg font-semibold"> Track Project Progress</h3>
                             <p className="text-sm text-gray-600">
                                 {isMilestoneTrackingEnabled 
-                                    ? "Tracking is enabled for this project" 
-                                    : "Tracking is disabled for this project"}
+                                    ? "Progress Tracking is enabled for this project" 
+                                    : "Progress Tracking is disabled for this project"}
                             </p>
                         </div>
                         <div className="flex items-center space-x-2">
                             <span className="text-sm font-medium text-gray-700">
-                                {isMilestoneTrackingEnabled ? "Enabled" : "Disabled"}
+                                {isMilestoneTrackingEnabled ? "Yes" : "No"}
                             </span>
                             <button
                                 type="button"
