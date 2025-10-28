@@ -5,6 +5,7 @@ import { MapPin, MessagesSquare } from 'lucide-react';
 import logo from "@/assets/logo-svg.svg";
 import { ProgressCircle } from '@/components/ui/ProgressCircle';
 import { MilestoneProgress } from '../MilestonesSummary';
+import {useFrappeGetDoc} from 'frappe-react-sdk';
 
 interface MilestoneReportPDFProps {
   dailyReportDetails: any;
@@ -90,7 +91,9 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
     content: () => componentRef.current,
     documentTitle: `Milestone Report - ${formatDate(new Date())}`,
   });
-
+ 
+  const {data:ownerData}= useFrappeGetDoc<{full_name:string}>('Nirmaan Users',dailyReportDetails?.owner || '')
+  
   // Calculate metrics
   const totalWorkHeaders = dailyReportDetails?.milestones?.length || 0;
   const completedWorksOnReport = dailyReportDetails?.milestones?.filter(m => m.status === "Completed").length || 0;
@@ -195,7 +198,7 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
                         </div>
                         <div className="flex justify-between items-center">
                           <span className="font-semibold">Project Manager :</span>
-                          <span className="text-right">{dailyReportDetails?.owner || "--"}</span>
+                          <span className="text-right">{ownerData?.full_name||dailyReportDetails?.owner || "--"}</span>
                         </div>
                         <div className="flex justify-between items-center">
                           <span className="font-semibold">Start Date :</span>

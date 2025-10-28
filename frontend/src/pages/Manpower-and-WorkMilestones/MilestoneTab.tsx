@@ -2962,7 +2962,7 @@ console.log(user)
           transition-colors duration-200 ease-in-out
         `}
       >
-        {tab.project_work_header_name}
+        {tab.project_work_header_name =="Work force"?"Manpower":tab.project_work_header_name}
       </TabsTrigger>
     );
   })}
