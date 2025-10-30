@@ -414,12 +414,12 @@ export const getPOReportColumns = (
       : [...basePOColumns];
   // console.log("reportType", reportType);
 
-  if (reportType === "Dispatched for 3 days") {
+  if (reportType === "Dispatched for 1 days") {
     // Filter out the 'latest_delivery_date' column if it exists
     columnsToDisplay = columnsToDisplay.filter(
       (col) => (col as any).id !== "latest_delivery_date"
     );
-    
+
     // Insert the 'dispatchedDateColumn' at the second position (index 1)
     columnsToDisplay.splice(1, 0, dispatchedDateColumn);
   }
