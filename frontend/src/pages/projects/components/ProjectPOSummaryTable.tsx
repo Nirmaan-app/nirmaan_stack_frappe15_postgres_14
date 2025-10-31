@@ -26,7 +26,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { TailSpin } from "react-loader-spinner";
 
 // --- Hooks & Utils ---
-import { useServerDataTable, AggregationConfig, GroupByConfig } from "@/hooks/useServerDataTable";
+import { useServerDataTable, AggregationConfig, GroupByConfig, SimpleAggregationConfig, CustomAggregationConfig } from "@/hooks/useServerDataTable";
 import { formatDate } from "@/utils/FormatDate";
 import {
     formatForReport,
@@ -130,16 +130,39 @@ interface POAggregatesResponse extends POAggregates {
 }
 
 
-//Aggregations
-const POS_AGGREGATES_CONFIG: AggregationConfig[] = [
-    { field: 'amount', function: 'sum' },
-    {
-        field: 'total_amount', function: 'sum'
-    },
-    { field: 'amount_paid', function: 'sum' },
-    { field: 'po_amount_delivered', function: 'sum' },
+// =================== AGGREGATION CONFIG (MODIFIED) ===================
+const POS_AGGREGATES_CONFIG: (SimpleAggregationConfig | CustomAggregationConfig)[] = [
+    // --- Simple Aggregates (existing format for direct sums) ---
+    { field: 'amount', function: 'sum' }, // Results in `sum_of_amount`
+    { field: 'total_amount', function: 'sum' }, // Results in `sum_of_total_amount`
+    { field: 'amount_paid', function: 'sum' }, // Results in `sum_of_amount_paid`
+    { field: 'po_amount_delivered', function: 'sum' }, // Results in `sum_of_po_amount_delivered`
 
+    // --- Custom Aggregates (new expressive format) ---
+    {
+        alias: 'payment_against_delivered', // Custom result key
+        aggregate: 'SUM',
+        expression: {
+            function: 'MIN',
+            args: ['amount_paid', 'po_amount_delivered']
+        }
+    },
+    {
+        alias: 'advance_against_po', // Custom result key
+        aggregate: 'SUM',
+        expression: {
+            function: 'MAX',
+            args: [
+                0, // Literal number argument
+                {
+                    function: 'SUBTRACT',
+                    args: ['amount_paid', 'po_amount_delivered']
+                }
+            ]
+        }
+    }
 ];
+// =================== END OF MODIFIED CONFIG ===================
 // NEW: Configuration for the "Top 5" group by request
 const POS_GROUP_BY_CONFIG: GroupByConfig = {
     groupByField: 'type',
@@ -251,7 +274,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     const { data: CreditData } = useCredits()
 
     const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status !== "Paid"));
-    const dueByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status !== "Paid" && cr.status !== "Created"));
+    const dueByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status !== "Paid" && cr.term_status !== "Created"));
 
     const relatedTotalBalanceCredit = creditsByProject(projectId).reduce((sum, term) => sum + parseNumber(term.amount), 0);
     const relatedTotalDue = dueByProject(projectId).reduce((sum, term) => sum + parseNumber(term.amount), 0);
@@ -307,7 +330,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     // --- Static Filters for useServerDataTable ---
     const staticFilters = useMemo(() => {
         const filters: Array<[string, string, any]> = [
-            ["status", "not in", ["Cancelled", "Merged","Inactive", "PO Amendment"]],
+            ["status", "not in", ["Cancelled", "Merged", "Inactive", "PO Amendment"]],
         ];
         if (projectId) {
             filters.push(["project", "=", projectId]);
@@ -326,25 +349,28 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                 cell: ({ row }) => {
                     const po = row.original;
                     return (
-                        <div className="font-medium flex items-center gap-1 group">
-                            <Link
-                                className="text-blue-600 hover:underline whitespace-nowrap"
-                                to={`po/${po.name.replaceAll("/", "&=")}`}
-                            >
-                                {po.name}
-                            </Link>
-                            <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                                <ItemsHoverCard
-                                    parentDocId={po}
-                                    parentDoctype={DOCTYPE}
-                                    childTableName="items"
-                                />
+                        <div className="flex flex-col">
+                            <div className="font-medium flex items-center gap-1 group">
+                                <Link
+                                    className="text-blue-600 hover:underline whitespace-nowrap"
+                                    to={`po/${po.name.replaceAll("/", "&=")}`}
+                                >
+                                    {po.name}
+                                </Link>
+                                <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <ItemsHoverCard
+                                        parentDocId={po}
+                                        parentDoctype={DOCTYPE}
+                                        childTableName="items"
+                                    />
+                                </div>
                             </div>
                             {po.custom === "true" && (
                                 <Badge variant="outline" className="text-xs">
                                     Custom
                                 </Badge>
                             )}
+
                         </div>
                     );
                 },
@@ -513,7 +539,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                 // Use 'accessorKey' to make it sortable by the data table library
                 accessorKey: "po_amount_delivered",
                 header: ({ column }) => (
-                    <DataTableColumnHeader column={column} title="Payable Amount" />
+                    <DataTableColumnHeader column={column} title="Payable Amt against Delivered Items" />
                 ),
                 cell: ({ row }) => (
                     <div className="font-medium pr-2 text-center tabular-nums">
@@ -752,7 +778,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                                                 </span>
                                             </p>
                                             <p className="flex justify-between w-full">
-                                                <span className="font-medium inline-flex items-center gap-1 group">PO Payable Amount<HoverCard>
+                                                <span className="font-medium inline-flex items-center gap-1 group">Payable Amount Against Delivered Items in PO<HoverCard>
                                                     <HoverCardTrigger asChild>
                                                         <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
                                                     </HoverCardTrigger>
@@ -784,7 +810,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                                                 </span>
                                             </p>
                                             <p className="flex justify-between w-full">
-                                                <span className="font-medium inline-flex items-center gap-1 group">PO Payment Against Delivered<HoverCard>
+                                                <span className="font-medium inline-flex items-center gap-1 group">Amount Paid Against Delivered Items in PO<HoverCard>
                                                     <HoverCardTrigger asChild>
                                                         <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
                                                     </HoverCardTrigger>
@@ -796,7 +822,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                                                 </span>{" "}
                                                 <span className="text-green-600 font-semibold">
                                                     {formatToRoundedIndianRupee(
-                                                        Math.min(aggregates.sum_of_amount_paid, aggregates.sum_of_po_amount_delivered)
+                                                        aggregates.payment_against_delivered
                                                     )}
                                                 </span>
                                             </p>
@@ -806,7 +832,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                                                         <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
                                                     </HoverCardTrigger>
                                                     <HoverCardContent className="text-xs w-auto p-1.5">
-                                                       Total expenses recorded for this project POs.
+                                                        Total expenses recorded for this project POs.
                                                     </HoverCardContent>
                                                 </HoverCard>
                                                 </span>{" "}
@@ -830,7 +856,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                                                 </span>{" "}
                                                 <span className="text-red-600 font-semibold">
                                                     {formatToRoundedIndianRupee(
-                                                        Math.max(0, aggregates.sum_of_amount_paid - aggregates.sum_of_po_amount_delivered)
+                                                        aggregates.advance_against_po
                                                     )}
                                                 </span>
                                             </p>
@@ -851,7 +877,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                                                                 <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
                                                             </HoverCardTrigger>
                                                             <HoverCardContent className="text-xs w-auto p-1.5">
-                                                               Total value of credit POs scheduled for future payment.
+                                                                Total value of credit POs scheduled for future payment.
                                                             </HoverCardContent>
                                                         </HoverCard>
                                                         </span>{" "}

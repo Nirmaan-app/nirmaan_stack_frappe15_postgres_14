@@ -1743,6 +1743,7 @@ export const MilestoneTab = () => {
     error: frappeMilestonesError,
   } = useFrappeGetDocList<WorkMilestoneFromFrappe>("Work Milestones", {
     fields: ["*"],
+    limit:0,
     enabled: !!projectId,
   });
 

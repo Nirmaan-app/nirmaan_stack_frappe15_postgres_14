@@ -17,7 +17,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { getTotalInflowAmount,getPOSTotals, getPOTotal, getSRTotal, getTotalAmountPaid, getTotalExpensePaid } from "@/utils/getAmounts";
+import { getTotalInflowAmount, getPOSTotals, getPOTotal, getSRTotal, getTotalAmountPaid, getTotalExpensePaid } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 
 // --- Types ---
@@ -133,7 +133,7 @@ export const Projects: React.FC<ProjectsProps> = ({
   // console.log("CreditData", CreditData);
 
   const { data: poData, isLoading: poDataLoading, error: poDataError } = useFrappeGetDocList<ProcurementOrder>(
-    "Procurement Orders", { fields: ["name", "project", "status", "amount", "tax_amount", "total_amount", "invoice_data"], filters: [["status", "not in", ["Merged","Inactive", "PO Amendment"]],], limit: 100000 }, "POs_For_ProjectsList"
+    "Procurement Orders", { fields: ["name", "project", "status", "amount", "tax_amount", "total_amount", "invoice_data"], filters: [["status", "not in", ["Merged", "Inactive", "PO Amendment"]],], limit: 100000 }, "POs_For_ProjectsList"
   );
 
 
@@ -165,7 +165,7 @@ export const Projects: React.FC<ProjectsProps> = ({
     const paymentsByProject = memoize((projId: string) => projectPayments.filter(pp => pp.project === projId));
     const expensesByProject = memoize((projId: string) => projectExpenses.filter(pe => pe.projects === projId));
     const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status !== "Paid"));
-    const dueByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status !== "Paid" && cr.status !== "Created"));
+    const dueByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status !== "Paid" && cr.term_status !== "Created"));
 
     return memoize((projectId: string) => {
       // console.log("projectId",projectId);
@@ -295,175 +295,175 @@ export const Projects: React.FC<ProjectsProps> = ({
 
     // Remove the existing "project_financials" column and replace with these six columns:
 
-{
-      accessorKey: "project_value", header:"Value (excl.GST)",
+    {
+      accessorKey: "project_value", header: "Value (excl.GST)",
       cell: ({ row }) => (<span className="tabular-nums">{formatToRoundedIndianRupee(row.original.project_value / 100000)} L</span>),
-       size: 100,
+      size: 100,
       meta: {
         exportHeaderName: "Value ",
       }
     },
-{
-  id: "po_amount", 
-  header: ({ column }) => <DataTableColumnHeader column={column} title="PO Amount" />,
-  cell: ({ row }) => {
-    const financials = getProjectFinancials(row.original.name);
-    return (
-      <span className="tabular-nums">
-        {formatToRoundedIndianRupee(financials.calculatedTotalInvoiced / 100000)} L
-      </span>
-    );
-  },
-  size: 100,
-  meta: {
-    exportHeaderName: "PO Amount (Lakhs)",
-    exportValue: (row) => {
-      const financials = getProjectFinancials(row.name);
-      return formatToRoundedIndianRupee(financials.calculatedTotalInvoiced / 100000) + " L";
+    {
+      id: "po_amount",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="PO Amount" />,
+      cell: ({ row }) => {
+        const financials = getProjectFinancials(row.original.name);
+        return (
+          <span className="tabular-nums">
+            {formatToRoundedIndianRupee(financials.calculatedTotalInvoiced / 100000)} L
+          </span>
+        );
+      },
+      size: 100,
+      meta: {
+        exportHeaderName: "PO Amount (Lakhs)",
+        exportValue: (row) => {
+          const financials = getProjectFinancials(row.name);
+          return formatToRoundedIndianRupee(financials.calculatedTotalInvoiced / 100000) + " L";
+        }
+      }
+    },
+    {
+      id: "inflow",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Inflow" />,
+      cell: ({ row }) => {
+        const financials = getProjectFinancials(row.original.name);
+        return (
+          <span className="text-green-600 tabular-nums">
+            {formatToRoundedIndianRupee(financials.calculatedTotalInflow / 100000)} L
+          </span>
+        );
+      },
+      size: 100,
+      meta: {
+        exportHeaderName: "Inflow (Lakhs)",
+        exportValue: (row) => {
+          const financials = getProjectFinancials(row.name);
+          return formatToRoundedIndianRupee(financials.calculatedTotalInflow / 100000) + " L";
+        }
+      }
+    },
+    {
+      id: "outflow",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Outflow" />,
+      cell: ({ row }) => {
+        const financials = getProjectFinancials(row.original.name);
+        return (
+          <span className="text-red-600 tabular-nums">
+            {formatToRoundedIndianRupee(financials.calculatedTotalOutflow / 100000)} L
+          </span>
+        );
+      },
+      size: 100,
+      meta: {
+        exportHeaderName: "Outflow (Lakhs)",
+        exportValue: (row) => {
+          const financials = getProjectFinancials(row.name);
+          return formatToRoundedIndianRupee(financials.calculatedTotalOutflow / 100000) + " L";
+        }
+      }
+    },
+    {
+      id: "liabilities",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Liabilities" />,
+      cell: ({ row }) => {
+        const financials = getProjectFinancials(row.original.name);
+        return (
+          <span className="tabular-nums">
+            {formatToRoundedIndianRupee(parseNumber(financials.relatedTotalBalanceCredit) / 100000)} L
+          </span>
+        );
+      },
+      size: 100,
+      meta: {
+        exportHeaderName: "Liabilities (Lakhs)",
+        exportValue: (row) => {
+          const financials = getProjectFinancials(row.name);
+          return formatToRoundedIndianRupee(parseNumber(financials.relatedTotalBalanceCredit) / 100000) + " L";
+        }
+      }
+    },
+    {
+      id: "due_not_paid",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Due Not Paid" />,
+      cell: ({ row }) => {
+        const financials = getProjectFinancials(row.original.name);
+        return (
+          <span className="tabular-nums">
+            {formatToRoundedIndianRupee(parseNumber(financials.relatedTotalDue) / 100000)} L
+          </span>
+        );
+      },
+      size: 100,
+      meta: {
+        exportHeaderName: "Due Not Paid (Lakhs)",
+        exportValue: (row) => {
+          const financials = getProjectFinancials(row.name);
+          return formatToRoundedIndianRupee(parseNumber(financials.relatedTotalDue) / 100000) + " L";
+        }
+      }
     }
-  }
-},
-{
-  id: "inflow", 
-  header: ({ column }) => <DataTableColumnHeader column={column} title="Inflow" />,
-  cell: ({ row }) => {
-    const financials = getProjectFinancials(row.original.name);
-    return (
-      <span className="text-green-600 tabular-nums">
-        {formatToRoundedIndianRupee(financials.calculatedTotalInflow / 100000)} L
-      </span>
-    );
-  },
-  size: 100,
-  meta: {
-    exportHeaderName: "Inflow (Lakhs)",
-    exportValue: (row) => {
-      const financials = getProjectFinancials(row.name);
-      return formatToRoundedIndianRupee(financials.calculatedTotalInflow / 100000) + " L";
-    }
-  }
-},
-{
-  id: "outflow", 
-  header: ({ column }) => <DataTableColumnHeader column={column} title="Outflow" />,
-  cell: ({ row }) => {
-    const financials = getProjectFinancials(row.original.name);
-    return (
-      <span className="text-red-600 tabular-nums">
-        {formatToRoundedIndianRupee(financials.calculatedTotalOutflow / 100000)} L
-      </span>
-    );
-  },
-  size: 100,
-  meta: {
-    exportHeaderName: "Outflow (Lakhs)",
-    exportValue: (row) => {
-      const financials = getProjectFinancials(row.name);
-      return formatToRoundedIndianRupee(financials.calculatedTotalOutflow / 100000) + " L";
-    }
-  }
-},
-{
-  id: "liabilities", 
-  header: ({ column }) => <DataTableColumnHeader column={column} title="Liabilities" />,
-  cell: ({ row }) => {
-    const financials = getProjectFinancials(row.original.name);
-    return (
-      <span className="tabular-nums">
-        {formatToRoundedIndianRupee(parseNumber(financials.relatedTotalBalanceCredit) / 100000)} L
-      </span>
-    );
-  },
-  size: 100,
-  meta: {
-    exportHeaderName: "Liabilities (Lakhs)",
-    exportValue: (row) => {
-      const financials = getProjectFinancials(row.name);
-      return formatToRoundedIndianRupee(parseNumber(financials.relatedTotalBalanceCredit) / 100000) + " L";
-    }
-  }
-},
-{
-  id: "due_not_paid", 
-  header: ({ column }) => <DataTableColumnHeader column={column} title="Due Not Paid" />,
-  cell: ({ row }) => {
-    const financials = getProjectFinancials(row.original.name);
-    return (
-      <span className="tabular-nums">
-        {formatToRoundedIndianRupee(parseNumber(financials.relatedTotalDue) / 100000)} L
-      </span>
-    );
-  },
-  size: 100,
-  meta: {
-    exportHeaderName: "Due Not Paid (Lakhs)",
-    exportValue: (row) => {
-      const financials = getProjectFinancials(row.name);
-      return formatToRoundedIndianRupee(parseNumber(financials.relatedTotalDue) / 100000) + " L";
-    }
-  }
-}
-  //    {
-  //    id: "Value", // Unique ID
-  //    header: "Value of Project",
-  //    cell: ({ row }) => {
-  //      const financials = getProjectFinancials(row.original.name);
-  //      return (
-  //        <div className="font-medium flex flex-col gap-1 text-xs min-w-[120px]">
-  //         <div className="flex justify-between"><span>Value (excl. GST):</span> <span className="tabular-nums">{formatToRoundedIndianRupee(parseNumber(row.original.project_value) / 100000)} L</span></div>
-  //            <div className="flex justify-between"><span>PO Amt:</span> <span className="tabular-nums">{formatToRoundedIndianRupee(financials.calculatedTotalInvoiced / 100000)} L</span></div>
-          
-  //        </div>
-  //      );
-  //    },
-  //    size: 150, // Adjust size as needed
-  //    meta: {
-  //      excludeFromExport: true
-  //    }
-  //  },
-  //   {
-  //    id: "project_flow_amounts_col", // Unique ID
-  //    header: "Flow Amounts (Lakhs)",
-  //    cell: ({ row }) => {
-  //      const financials = getProjectFinancials(row.original.name);
-  //      return (
-  //        <div className="font-medium flex flex-col gap-1 text-xs min-w-[120px]">
-           
-  //          <div className="flex justify-between">
-  //            <span>Inflow:</span> <span className="text-green-600 tabular-nums">{formatToRoundedIndianRupee(financials.calculatedTotalInflow / 100000)} L</span>
-  //          </div>
-  //          <div className="flex justify-between">
-  //            <span>Outflow:</span> <span className="text-red-600 tabular-nums">{formatToRoundedIndianRupee(financials.calculatedTotalOutflow / 100000)} L</span>
-  //          </div>
-  //        </div>
-  //      );
-  //    },
-  //    size: 150, // Adjust size as needed
-  //    meta: {
-  //      excludeFromExport: true
-  //    }
-  //  },
-  //  {
-  //    id: "project_liabilities_due_col", // Unique ID
-  //    header: "Liabilities & Due (Lakhs)",
-  //    cell: ({ row }) => {
-  //      const financials = getProjectFinancials(row.original.name);
-  //      return (
-  //        <div className="font-medium flex flex-col gap-1 text-xs min-w-[120px]">
-  //          <div className="flex justify-between">
-  //            <span>Total Liabilities:</span> <span className="tabular-nums">{formatToRoundedIndianRupee(parseNumber(financials.relatedTotalBalanceCredit) / 100000)} L</span>
-  //          </div>
-  //          <div className="flex justify-between">
-  //            <span>Total Due Not Paid:</span> <span className="tabular-nums">{formatToRoundedIndianRupee(parseNumber(financials.relatedTotalDue) / 100000)} L</span>
-  //          </div>
-  //        </div>
-  //      );
-  //    },
-  //    size: 170, // Adjust size as needed
-  //    meta: {
-  //      excludeFromExport: true
-  //    }
-  //  },
+    //    {
+    //    id: "Value", // Unique ID
+    //    header: "Value of Project",
+    //    cell: ({ row }) => {
+    //      const financials = getProjectFinancials(row.original.name);
+    //      return (
+    //        <div className="font-medium flex flex-col gap-1 text-xs min-w-[120px]">
+    //         <div className="flex justify-between"><span>Value (excl. GST):</span> <span className="tabular-nums">{formatToRoundedIndianRupee(parseNumber(row.original.project_value) / 100000)} L</span></div>
+    //            <div className="flex justify-between"><span>PO Amt:</span> <span className="tabular-nums">{formatToRoundedIndianRupee(financials.calculatedTotalInvoiced / 100000)} L</span></div>
+
+    //        </div>
+    //      );
+    //    },
+    //    size: 150, // Adjust size as needed
+    //    meta: {
+    //      excludeFromExport: true
+    //    }
+    //  },
+    //   {
+    //    id: "project_flow_amounts_col", // Unique ID
+    //    header: "Flow Amounts (Lakhs)",
+    //    cell: ({ row }) => {
+    //      const financials = getProjectFinancials(row.original.name);
+    //      return (
+    //        <div className="font-medium flex flex-col gap-1 text-xs min-w-[120px]">
+
+    //          <div className="flex justify-between">
+    //            <span>Inflow:</span> <span className="text-green-600 tabular-nums">{formatToRoundedIndianRupee(financials.calculatedTotalInflow / 100000)} L</span>
+    //          </div>
+    //          <div className="flex justify-between">
+    //            <span>Outflow:</span> <span className="text-red-600 tabular-nums">{formatToRoundedIndianRupee(financials.calculatedTotalOutflow / 100000)} L</span>
+    //          </div>
+    //        </div>
+    //      );
+    //    },
+    //    size: 150, // Adjust size as needed
+    //    meta: {
+    //      excludeFromExport: true
+    //    }
+    //  },
+    //  {
+    //    id: "project_liabilities_due_col", // Unique ID
+    //    header: "Liabilities & Due (Lakhs)",
+    //    cell: ({ row }) => {
+    //      const financials = getProjectFinancials(row.original.name);
+    //      return (
+    //        <div className="font-medium flex flex-col gap-1 text-xs min-w-[120px]">
+    //          <div className="flex justify-between">
+    //            <span>Total Liabilities:</span> <span className="tabular-nums">{formatToRoundedIndianRupee(parseNumber(financials.relatedTotalBalanceCredit) / 100000)} L</span>
+    //          </div>
+    //          <div className="flex justify-between">
+    //            <span>Total Due Not Paid:</span> <span className="tabular-nums">{formatToRoundedIndianRupee(parseNumber(financials.relatedTotalDue) / 100000)} L</span>
+    //          </div>
+    //        </div>
+    //      );
+    //    },
+    //    size: 170, // Adjust size as needed
+    //    meta: {
+    //      excludeFromExport: true
+    //    }
+    //  },
     // {
     //   id: "project_financials", header: "Financials (Lakhs)",
     //   cell: ({ row }) => {

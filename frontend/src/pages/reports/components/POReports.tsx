@@ -51,7 +51,7 @@ export default function POReports() {
             // console.log("POReports: No initial data (allPOsForReports is null/undefined)");
             return [];
         }
-        if (!selectedReportType || !['Pending Invoices', 'PO with Excess Payments', 'Dispatched for 3 days'].includes(selectedReportType)) {
+        if (!selectedReportType || !['Pending Invoices', 'PO with Excess Payments', 'Dispatched for 1 days'].includes(selectedReportType)) {
             // console.log(`POReports: Invalid or non-PO report type selected: ${selectedReportType}`);
             return [];
         }
@@ -64,7 +64,7 @@ export default function POReports() {
             case 'Pending Invoices':
                 filtered = allPOsForReports.filter(row => {
                     const poDoc = row.originalDoc;
-                  
+
                     if (poDoc.status === 'Partially Delivered' || poDoc.status === 'Delivered') {
 
                         return parseNumber(poDoc.amount_paid) - parseNumber(row.invoiceAmount) >= invoice_delta;
@@ -81,7 +81,7 @@ export default function POReports() {
                     return false;
                 });
                 break;
-            case 'Dispatched for 3 days':
+            case 'Dispatched for 1 days':
                 filtered = allPOsForReports.filter(row => {
                     const poDoc = row.originalDoc;
 
@@ -100,7 +100,8 @@ export default function POReports() {
 
                         // 2. The corrected logic using ">="
                         const dayDifference = differenceInDays(today, dispatchDate);
-                        return dayDifference >= 3;
+                        // CHANGE: DISPATCHED FOR 1+ DAYS
+                        return dayDifference >= 1;
 
                     } catch (e) {
                         // This will catch any unexpected errors during date parsing
@@ -134,13 +135,13 @@ export default function POReports() {
         clientData: currentDisplayData,
         clientTotalCount: currentDisplayData.length,
         urlSyncKey: `po_reports_table_client_${selectedReportType?.toString().replace(/\s+/g, '_') || 'all'}`,
-        defaultSort: selectedReportType === 'Dispatched for 3 days' ? 'originalDoc.dispatch_date asc' : 'creation desc',
+        defaultSort: selectedReportType === 'Dispatched for 1 days' ? 'originalDoc.dispatch_date asc' : 'creation desc',
         enableRowSelection: false,
         // No `meta` needed here as POReportRowData contains all display fields,
         // and poColumns directly accesses them.
     });
     const fullyFilteredData = table.getFilteredRowModel().rows.map(row => row.original);
-    
+
     const filteredRowCount = table.getFilteredRowModel().rows.length;
     // This effect synchronizes the table's pageCount with the client-side filtered data.
     useEffect(() => {
@@ -208,7 +209,7 @@ export default function POReports() {
             { header: "Latest Delivery Date", accessorKey: "latest_delivery_date" },
             { header: "Latest Payment Date", accessorKey: "latest_payment_date" },
         ];
-        if (selectedReportType === 'Dispatched for 3 days') {
+        if (selectedReportType === 'Dispatched for 1 days') {
             exportColumnsConfig.push({ header: "Dispatched Date", accessorKey: "dispatch_date" });
         }
 

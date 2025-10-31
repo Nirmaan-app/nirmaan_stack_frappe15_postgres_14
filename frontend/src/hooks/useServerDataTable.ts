@@ -79,11 +79,39 @@ const getAllParamsForSyncKey = (baseSyncKey: string): string[] => {
 
 // --- Types ---
 
-// NEW: Interface for aggregation configuration
-export interface AggregationConfig {
+// =================== AGGREGATION TYPES (MODIFIED) ===================
+/**
+ * Represents a row-level expression for custom aggregations. This is a recursive type.
+ * @example { function: 'MIN', args: ['amount_paid', 'po_amount_delivered'] }
+ * @example { function: 'SUBTRACT', args: ['amount_paid', 'po_amount_delivered'] }
+ */
+export interface RowExpression {
+    function: 'MIN' | 'MAX' | 'ADD' | 'SUBTRACT' | 'MULTIPLY' | 'DIVIDE';
+    /** Arguments can be field names (string), literal numbers, or another nested expression. */
+    args: (string | number | RowExpression)[];
+}
+
+/**
+ * Represents a custom aggregation that first computes a row-level expression
+ * and then applies a final aggregation function to the results.
+ */
+export interface CustomAggregationConfig {
+    /** A unique key for the result, e.g., 'payable_amount' or 'advance_against_po'. This will be the key in the returned aggregates object. */
+    alias: string;
+    /** The final aggregation function to apply to the expression results. */
+    aggregate: 'SUM' | 'AVG' | 'COUNT';
+    /** The row-level expression to compute for each document. */
+    expression: RowExpression;
+}
+
+/**
+ * Represents a simple, direct aggregation on a single field.
+ */
+export interface SimpleAggregationConfig {
     field: string;
     function: 'sum' | 'avg' | 'count' | 'min' | 'max';
 }
+// =================== END OF MODIFIED TYPES ===================
 
 // NEW: Interfaces for Group By functionality
 export interface GroupByConfig {
@@ -134,7 +162,8 @@ export interface ServerDataTableConfig<TData> {
     /** Optional Frappe orderBy string (e.g., "creation desc") */
     defaultSort?: string;
 
-    aggregatesConfig?: AggregationConfig[]; // NEW: Configuration for summary card
+    /** Configuration for summary card aggregations. Can be a mix of simple and custom aggregation types. */
+    aggregatesConfig?: (SimpleAggregationConfig | CustomAggregationConfig)[];
     groupByConfig?: GroupByConfig; // NEW
 
     /** Key for storing/retrieving state in URL. If not provided, URL sync is disabled */

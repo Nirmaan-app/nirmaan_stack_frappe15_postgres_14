@@ -1,18 +1,18 @@
 import { create } from 'zustand';
 import { REPORTS_TABS } from '../constants'; // Adjust path
 
-export type ProjectReportType = 'Cash Sheet' | 'Inflow Report' | 'Outflow Report(Project)'|'Outflow Report(Non-Project)';
+export type ProjectReportType = 'Cash Sheet' | 'Inflow Report' | 'Outflow Report(Project)' | 'Outflow Report(Non-Project)';
 
 export type VendorReportType = 'Vendor Ledger';
 // Define the specific report options for POs
-export type POReportOption = 'Pending Invoices' | 'PO with Excess Payments' | 'Dispatched for 3 days';
+export type POReportOption = 'Pending Invoices' | 'PO with Excess Payments' | 'Dispatched for 1 days';
 
 // Define the specific report options for SRs (as per your request)
 // The 'value' for "Excess Payments" will be 'PO with Excess Payments'
 export type SROption = 'Pending Invoices' | 'PO with Excess Payments';
 
 // Combined type for any selectable report
-export type ReportType = ProjectReportType |VendorReportType| POReportOption | SROption | null;
+export type ReportType = ProjectReportType | VendorReportType | POReportOption | SROption | null;
 
 interface ReportState {
     // Keep track of the *type* of report selected for export/filtering
@@ -45,10 +45,10 @@ const getDefaultReportTypeForTabAndRole = (tab: string, userRole?: string): Repo
             return 'Vendor Ledger';
         }
         return null;
-    }else if (tab === REPORTS_TABS.PO) {
+    } else if (tab === REPORTS_TABS.PO) {
         // Project Manager has a specific default for PO tab
         if (userRole === "Nirmaan Project Manager Profile") {
-            return 'Dispatched for 3 days';
+            return 'Dispatched for 1 days';
         }
         // Other roles (Admin, Accountant) who can see PO tab
         if (["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(userRole || "")) {

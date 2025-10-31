@@ -4,7 +4,7 @@ import { Radio } from "antd";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { REPORTS_TABS } from './constants';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { POReportOption, SROption, ProjectReportType, ReportType, useReportStore ,VendorReportType} from './store/useReportStore';
+import { POReportOption, SROption, ProjectReportType, ReportType, useReportStore, VendorReportType } from './store/useReportStore';
 import { getUrlStringParam } from '@/hooks/useServerDataTable';
 import { urlStateManager } from '@/utils/urlStateManager';
 
@@ -28,7 +28,7 @@ const VendorReportOptions: { label: string; value: VendorReportType }[] = [{
 const poReportOptions: { label: string; value: POReportOption }[] = [
     { label: 'Pending Invoices', value: 'Pending Invoices' },
     { label: 'PO with Excess Payments', value: 'PO with Excess Payments' },
-    { label: 'Dispatched for 3+ days', value: 'Dispatched for 3 days' },
+    { label: 'Dispatched for 1+ days', value: 'Dispatched for 1 days' },
 ];
 
 const srReportOptions: { label: string; value: SROption }[] = [
@@ -51,12 +51,12 @@ export default function ReportsContainer() {
             return REPORTS_TABS.PO;
         }
         // Admin/Accountant default to Projects if no valid URL tab or if URL tab is Projects
-       if (urlTab === REPORTS_TABS.PROJECTS || urlTab === REPORTS_TABS.VENDORS || urlTab === REPORTS_TABS.PO || urlTab === REPORTS_TABS.SR) return urlTab;
+        if (urlTab === REPORTS_TABS.PROJECTS || urlTab === REPORTS_TABS.VENDORS || urlTab === REPORTS_TABS.PO || urlTab === REPORTS_TABS.SR) return urlTab;
         return REPORTS_TABS.PROJECTS; // Default for Admin/Accountant
     }, [role]);
 
 
-       
+
 
 
     const [activeTab, setActiveTab] = useState<string>(initialTab);
@@ -132,7 +132,7 @@ export default function ReportsContainer() {
                 value: REPORTS_TABS.PROJECTS,
             });
         }
-          if (["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(role)) {
+        if (["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(role)) {
             availableTabs.push({
                 label: <div className="flex items-center"><span>Vendors</span></div>,
                 value: REPORTS_TABS.VENDORS,
@@ -174,13 +174,13 @@ export default function ReportsContainer() {
             return ["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(role)
                 ? projectReportOptions
                 : [];
-        } else if(activeTab === REPORTS_TABS.VENDORS){
+        } else if (activeTab === REPORTS_TABS.VENDORS) {
             return ["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(role)
                 ? VendorReportOptions
                 : [];
-        }else if (activeTab === REPORTS_TABS.PO) {
+        } else if (activeTab === REPORTS_TABS.PO) {
             return role === "Nirmaan Project Manager Profile"
-                ? poReportOptions.filter(option => option.value === 'Dispatched for 3 days')
+                ? poReportOptions.filter(option => option.value === 'Dispatched for 1 days')
                 : (["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role) ? poReportOptions : []);
         } else if (activeTab === REPORTS_TABS.SR) {
             return ["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)

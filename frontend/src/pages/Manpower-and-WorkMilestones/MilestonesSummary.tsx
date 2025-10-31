@@ -161,6 +161,7 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
     "Project Progress Reports",
     {
       fields: ["name", "report_date", "project"],
+      limit: 0,
       filters: [
         ["project", "=", selectedProject],
         ["report_status", "=", "Completed"]

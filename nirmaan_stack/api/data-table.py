@@ -316,6 +316,46 @@ def _parse_target_search_field(search_fields_input: str | None, doctype_for_log:
         print(f"WARNING (_parse_target_search_field): Invalid JSON for `current_search_fields`: {search_fields_input}")
         return None
 
+# NEW BUILD QUERY FOR AGGREGATES FROM CLAUDE SONNET 4.5
+def _build_safe_sql_expression(expression_obj: dict, meta) -> str:
+    if not isinstance(expression_obj, dict) or "function" not in expression_obj or "args" not in expression_obj:
+        frappe.throw(_("Invalid custom aggregate expression format."))
+    func = expression_obj["function"].upper()
+    args = expression_obj["args"]
+    allowed_functions = {
+        "MIN": "LEAST({0}, {1})", 
+        "MAX": "GREATEST({0}, {1})",
+        "ADD": "({0} + {1})", 
+        "SUBTRACT": "({0} - {1})",
+        "MULTIPLY": "({0} * {1})", 
+        "DIVIDE": "NULLIF({0}, 0) / NULLIF({1}, 0)",  # Prevent division by zero
+    }
+    if func not in allowed_functions:
+        frappe.throw(_(f"Disallowed function in custom aggregate: {func}"))
+    
+    processed_args = []
+    for arg in args:
+        if isinstance(arg, (int, float)):
+            processed_args.append(str(arg))
+        elif isinstance(arg, str):
+            df = meta.get_field(arg)
+            if not df:
+                 frappe.throw(_(f"Invalid field in custom aggregate expression: {arg}"))
+            if df.fieldtype in ['Currency', 'Int', 'Float', 'Percent', 'Data']:
+                # **FIX: Add COALESCE to handle NULL values, defaulting to 0**
+                processed_args.append(f"COALESCE(CAST(`{arg}` AS DECIMAL(21, 9)), 0)")
+            else:
+                frappe.throw(_(f"Field '{arg}' is not a numeric type and cannot be used in custom aggregate expressions."))
+        elif isinstance(arg, dict):
+            processed_args.append(_build_safe_sql_expression(arg, meta))
+        else:
+            frappe.throw(_(f"Unsupported argument type in custom aggregate: {type(arg)}"))
+    
+    sql_template = allowed_functions[func]
+    try:
+        return sql_template.format(*processed_args)
+    except IndexError:
+        frappe.throw(_(f"Incorrect number of arguments for function {func}. Expected {sql_template.count('{')}."))
 
 
 # def _build_standard_filters(
@@ -762,56 +802,57 @@ def get_list_with_count_enhanced(
                     data = [] # Ensure data is empty if no records
                 print(f"--- Finished Standard Targeted Search / Fetch (Ultimate Fallback) ---")
 
-        # ==================== MODIFIED AGGREGATION LOGIC ====================
+        # ==================== CORRECTED AGGREGATION LOGIC ====================
         aggregates_result = None
         if aggregates_config and isinstance(aggregates_config, str):
             try:
                 config = json.loads(aggregates_config)
-                
-                # MODIFIED: Use the unified `final_matching_parent_names` list
+                doctype = doctype
+
                 if isinstance(config, list) and config and final_matching_parent_names:
-                    # print(f"DEBUG: Processing aggregates_config: {config} for doctype '{doctype}', final_matching_parent_names: {final_matching_parent_names}")
                     select_expressions = []
-                    valid_functions = {"SUM", "AVG", "COUNT", "MIN", "MAX"}
+                    valid_simple_functions = {"SUM", "AVG", "COUNT", "MIN", "MAX"}
+                    valid_custom_aggregates = {"SUM", "AVG", "COUNT"}
                     meta = frappe.get_meta(doctype)
-                    valid_fields = {f.fieldname for f in meta.fields if f.fieldtype in ['Data','Currency', 'Int', 'Float', 'Percent']} | {"name"}
-
+                    
                     for agg_item in config:
-                        field = agg_item.get("field")
-                        func = agg_item.get("function", "").upper()
-                        
-                        if field in valid_fields and func in valid_functions:
-                            alias = f"`{func.lower()}_of_{field}`"
-                            # MODIFIED: Apply cast for SUM and AVG functions to handle text-based number columns in PostgreSQL
-                            if func in ["SUM", "AVG"]:
-                                # FIX: Use CAST for PostgreSQL compatibility. DECIMAL(21, 9) is a safe default for currency.
-                                # This is harmless for columns that are already numeric.
-                                expression = f"{func}(CAST(`{field}` AS DECIMAL(21, 9))) AS {alias}"
-                            elif func == "COUNT":
-                                # COUNT doesn't need a cast on the field itself
-                                expression = f"COUNT(`{field}`) AS {alias}"
-                            else:
-                                # MIN/MAX might also need a cast if the column is text
-                                expression = f"{func}(CAST(`{field}` AS DECIMAL(21, 9))) AS {alias}"
-
+                        if "expression" in agg_item and "alias" in agg_item:
+                            alias = agg_item.get("alias")
+                            final_agg_func = agg_item.get("aggregate", "SUM").upper()
+                            if not alias or not alias.isidentifier():
+                                print(f"WARNING: Skipping custom aggregate due to invalid alias: {alias}")
+                                continue
+                            if final_agg_func not in valid_custom_aggregates:
+                                print(f"WARNING: Skipping custom aggregate due to invalid aggregate function: {final_agg_func}")
+                                continue
+                            row_level_expression = _build_safe_sql_expression(agg_item["expression"], meta)
+                            expression = f"{final_agg_func}({row_level_expression}) AS `{alias}`"
                             select_expressions.append(expression)
+                        elif "field" in agg_item and "function" in agg_item:
+                            field = agg_item.get("field")
+                            func = agg_item.get("function", "").upper()
+                            if meta.has_field(field) and func in valid_simple_functions:
+                                alias = f"`{func.lower()}_of_{field}`"
+                                # ##### FIX #####
+                                # Removed the redundant `tab{doctype}` prefix for consistency and correctness.
+                                if func in ["SUM", "AVG", "MIN", "MAX"]:
+                                    expression = f"{func}(CAST(`{field}` AS DECIMAL(21, 9))) AS {alias}"
+                                elif func == "COUNT":
+                                    expression = f"COUNT(`{field}`) AS {alias}"
+                                else:
+                                    expression = f"{func}(`{field}`) AS {alias}" # Fallback for other potential simple functions
+                                select_expressions.append(expression)
                     
                     if select_expressions:
-                        query = f"""
-                            SELECT {', '.join(select_expressions)}
-                            FROM `tab{doctype}`
-                            WHERE name IN %(names)s
-                        """
-                        # MODIFIED: Pass the unified list to the query
+                        query = f"SELECT {', '.join(select_expressions)} FROM `tab{doctype}` WHERE name IN %(names)s"
                         result = frappe.db.sql(query, {"names": tuple(final_matching_parent_names)}, as_dict=True)
                         if result:
                             aggregates_result = result[0]
-                        print(f"DEBUG: Aggregation successful. Result: {aggregates_result}")
-
             except Exception as e:
                 print(f"WARNING: Could not process aggregates_config. Error: {e}")
+                traceback.print_exc()
                 aggregates_result = None
-        # ================== END OF MODIFIED AGGREGATION LOGIC ==================
+        # ================== END OF CORRECTED AGGREGATION LOGIC ==================
 
         # ==================== NEW GROUP BY AGGREGATION LOGIC ====================
         group_by_result = None
