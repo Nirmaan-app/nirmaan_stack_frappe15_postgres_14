@@ -349,25 +349,28 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                 cell: ({ row }) => {
                     const po = row.original;
                     return (
-                        <div className="font-medium flex items-center gap-1 group">
-                            <Link
-                                className="text-blue-600 hover:underline whitespace-nowrap"
-                                to={`po/${po.name.replaceAll("/", "&=")}`}
-                            >
-                                {po.name}
-                            </Link>
-                            <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                                <ItemsHoverCard
-                                    parentDocId={po}
-                                    parentDoctype={DOCTYPE}
-                                    childTableName="items"
-                                />
+                        <div className="flex flex-col">
+                            <div className="font-medium flex items-center gap-1 group">
+                                <Link
+                                    className="text-blue-600 hover:underline whitespace-nowrap"
+                                    to={`po/${po.name.replaceAll("/", "&=")}`}
+                                >
+                                    {po.name}
+                                </Link>
+                                <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <ItemsHoverCard
+                                        parentDocId={po}
+                                        parentDoctype={DOCTYPE}
+                                        childTableName="items"
+                                    />
+                                </div>
                             </div>
                             {po.custom === "true" && (
                                 <Badge variant="outline" className="text-xs">
                                     Custom
                                 </Badge>
                             )}
+
                         </div>
                     );
                 },
@@ -536,7 +539,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                 // Use 'accessorKey' to make it sortable by the data table library
                 accessorKey: "po_amount_delivered",
                 header: ({ column }) => (
-                    <DataTableColumnHeader column={column} title="Payable Amount" />
+                    <DataTableColumnHeader column={column} title="Payable Amt against Delivered Items" />
                 ),
                 cell: ({ row }) => (
                     <div className="font-medium pr-2 text-center tabular-nums">
@@ -775,7 +778,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                                                 </span>
                                             </p>
                                             <p className="flex justify-between w-full">
-                                                <span className="font-medium inline-flex items-center gap-1 group">PO Payable Amount<HoverCard>
+                                                <span className="font-medium inline-flex items-center gap-1 group">Payable Amount Against Delivered Items in PO<HoverCard>
                                                     <HoverCardTrigger asChild>
                                                         <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
                                                     </HoverCardTrigger>
@@ -807,7 +810,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                                                 </span>
                                             </p>
                                             <p className="flex justify-between w-full">
-                                                <span className="font-medium inline-flex items-center gap-1 group">PO Payment Against Delivered<HoverCard>
+                                                <span className="font-medium inline-flex items-center gap-1 group">Amount Paid Against Delivered Items in PO<HoverCard>
                                                     <HoverCardTrigger asChild>
                                                         <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
                                                     </HoverCardTrigger>
