@@ -314,6 +314,7 @@ def new_handle_approve(sb_id: str, selected_items: list, project_id: str, select
                  po_doc.custom = "true"
             if vendor_name in payment_terms_by_vendor:
                 milestones = payment_terms_by_vendor[vendor_name]
+                po_doc.payment_type = milestones[0].get('type') if milestones else None
                 if isinstance(milestones, list):
                     today = getdate(nowdate())
                     for milestone in milestones:
