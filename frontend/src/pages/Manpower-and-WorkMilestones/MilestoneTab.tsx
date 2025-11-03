@@ -1866,42 +1866,93 @@ const latestCompletedReportDateIsToday =
     ];
   };
 
-  const getInheritedMilestones = (workHeader: string): LocalMilestoneData[] => {
-    // 1. Prioritize milestones from the `lastCompletedReport` if available.
-    if (lastCompletedReport && lastCompletedReport.milestones && lastCompletedReport.milestones.length > 0) {
-      const previousCompletedMilestones = lastCompletedReport.milestones.filter(m => {
-        return m.work_header === workHeader;
-      }) || [];
+  // const getInheritedMilestones = (workHeader: string): LocalMilestoneData[] => {
+  //   // 1. Prioritize milestones from the `lastCompletedReport` if available.
+  //   if (lastCompletedReport && lastCompletedReport.milestones && lastCompletedReport.milestones.length > 0) {
+  //     const previousCompletedMilestones = lastCompletedReport.milestones.filter(m => {
+  //       return m.work_header === workHeader;
+  //     }) || [];
 
-      if (previousCompletedMilestones.length > 0) {
-        return previousCompletedMilestones.map(milestone => ({
-          ...milestone,
-          remarks: "",
-          is_updated_for_current_report: false,
-        }));
-      }
-    }
+  //     if (previousCompletedMilestones.length > 0) {
+  //       return previousCompletedMilestones.map(milestone => ({
+  //         ...milestone,
+  //         remarks: "",
+  //         is_updated_for_current_report: false,
+  //       }));
+  //     }
+  //   }
     
-    // 2. Fallback to default Frappe Work Milestones
-    const defaultMilestones: LocalMilestoneData[] = [];
+  //   // 2. Fallback to default Frappe Work Milestones
+  //   const defaultMilestones: LocalMilestoneData[] = [];
+  //   const frappeMilestonesForHeader = allFrappeMilestones?.filter(m => m.work_header === workHeader) || [];
+    
+  //   if (frappeMilestonesForHeader.length > 0) {
+  //     frappeMilestonesForHeader.forEach(frappeM => {
+  //       defaultMilestones.push({
+  //         name: frappeM.name,
+  //         work_milestone_name: frappeM.work_milestone_name,
+  //         work_header: frappeM.work_header,
+  //         status: frappeM.status || 'Not Applicable',
+  //         progress: frappeM.progress || 0,
+  //         expected_starting_date: frappeM.expected_starting_date,
+  //         expected_completion_date: frappeM.expected_completion_date,
+  //         remarks: "",
+  //         is_updated_for_current_report: false,
+  //       });
+  //     });
+  //   }
+  //   return defaultMilestones;
+  // };
+
+  const getInheritedMilestones = (workHeader: string): LocalMilestoneData[] => {
+    
     const frappeMilestonesForHeader = allFrappeMilestones?.filter(m => m.work_header === workHeader) || [];
-    
-    if (frappeMilestonesForHeader.length > 0) {
-      frappeMilestonesForHeader.forEach(frappeM => {
-        defaultMilestones.push({
-          name: frappeM.name,
-          work_milestone_name: frappeM.work_milestone_name,
-          work_header: frappeM.work_header,
-          status: frappeM.status || 'Not Applicable',
-          progress: frappeM.progress || 0,
-          expected_starting_date: frappeM.expected_starting_date,
-          expected_completion_date: frappeM.expected_completion_date,
-          remarks: "",
-          is_updated_for_current_report: false,
-        });
+    const lastCompletedReportMilestones = lastCompletedReport?.milestones || [];
+
+    // 1. Build the initial list based on the latest Base Milestones for this header.
+    const initialMilestones: LocalMilestoneData[] = frappeMilestonesForHeader.map(frappeM => ({
+      name: frappeM.name,
+      work_milestone_name: frappeM.work_milestone_name,
+      work_header: frappeM.work_header,
+      // Use the default status/progress from the Frappe DocType definition as a fallback
+      status: frappeM.status || 'Not Applicable',
+      progress: frappeM.progress || 0,
+      expected_starting_date: frappeM.expected_starting_date,
+      expected_completion_date: frappeM.expected_completion_date,
+      remarks: "", // Start with empty remarks for the new report
+      is_updated_for_current_report: false,
+    }));
+
+    // 2. Overlay the status/progress from the Last Completed Report onto the base list.
+    if (lastCompletedReportMilestones.length > 0) {
+      const mergedMilestones = initialMilestones.map(initialM => {
+        
+        // Find a matching milestone in the last completed report by Name/Header
+        const matchingCompletedM = lastCompletedReportMilestones.find(
+          (completedM) =>
+            completedM.work_header === initialM.work_header &&
+            completedM.work_milestone_name === initialM.work_milestone_name
+        );
+
+        if (matchingCompletedM) {
+          // Found a match: overlay the status and progress
+          return {
+            ...initialM, // Keep base fields like name, work_header, work_milestone_name
+            status: matchingCompletedM.status,
+            progress: matchingCompletedM.progress,
+            expected_starting_date: matchingCompletedM.expected_starting_date,
+            expected_completion_date: matchingCompletedM.expected_completion_date,
+            // remarks and is_updated_for_current_report remain the default/initial values
+          };
+        }
+        return initialM; // No match found in completed report, keep the Base Milestone's default state
       });
+      
+      return mergedMilestones;
     }
-    return defaultMilestones;
+
+    // 3. If no last completed report, return the list based purely on Base Milestones.
+    return initialMilestones;
   };
 
   const initializeTabStructureInLocalStorage = () => {
@@ -2216,7 +2267,7 @@ const latestCompletedReportDateIsToday =
       return;
     }
 
-    const localMilestonesFlatArray = localDailyReport?.milestones || getInheritedMilestones(activeTabValue);
+    const localMilestonesFlatArray = getInheritedMilestones(activeTabValue) || localDailyReport?.milestones ;
 
     const milestonesForCurrentTab: LocalMilestoneData[] = [];
     localMilestonesFlatArray.forEach(milestone => {

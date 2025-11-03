@@ -12,6 +12,18 @@ export interface WorkPackage {
 	category_list: CategoryList
 }
 
+// Define the interface for a single row in the 'customer_po_details' child table
+export interface CustomerPODetail {
+		name: string; // Frappe docname of the child record
+		idx: number; // Frappe index
+		customer_po_number: string;
+		customer_po_value_inctax: number;
+		customer_po_value_exctax: number;
+		customer_po_link: string;
+		customer_po_attachment: string; // File URL/Name
+		customer_po_payment_terms: string;
+}
+
 // Child DocType: Project Work Package Category Make
 export interface ProjectWPCategoryMake {
 	name: string; // Frappe child row name
@@ -99,4 +111,5 @@ export interface Projects {
 	  // --- NEW FIELDS ---
     enable_project_milestone_tracking: boolean;
     project_work_header_entries?: ProjectWorkHeaderEntry[]; // Child table for work headers
+		customer_po_details?: CustomerPODetail[]; // Child table for Customer PO Details
 }
