@@ -12,6 +12,7 @@
   "category",
   "merged",
   "custom",
+  "payment_type",
   "procurement_order_details_section",
   "attachment",
   "project_name",
@@ -271,13 +272,18 @@
    "fieldname": "amount_paid",
    "fieldtype": "Currency",
    "label": "Amount Paid"
+  },
+  {
+   "fieldname": "payment_type",
+   "fieldtype": "Data",
+   "label": "Payment Type"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-10-15 12:22:25.847013",
- "modified_by": "Administrator",
+ "modified": "2025-10-31 18:24:44.130920",
+ "modified_by": "nitesh@nirmaan.app",
  "module": "Nirmaan Stack",
  "name": "Procurement Orders",
  "owner": "Administrator",

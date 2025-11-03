@@ -107,6 +107,7 @@ def generate_pos_from_selection(project_id: str, pr_name: str, selected_items: l
                 milestones = payment_terms_data_source[vendor_id]
              
                 print(f"DEBUGPP3: milestones: {milestones}")
+                po_doc.payment_type = milestones[0].get('type') if milestones else None
                 # Your old code checked for `.get('terms', [])`. We now have the list directly.
                 if milestones:
                     today = getdate(nowdate())
@@ -160,6 +161,7 @@ def generate_pos_from_selection(project_id: str, pr_name: str, selected_items: l
             po_doc.amount = po_header_amount
             po_doc.tax_amount = po_header_tax_amount
             po_doc.total_amount = po_header_amount + po_header_tax_amount
+
 
             po_doc.insert(ignore_permissions=True)
             latest_po_name= po_doc.name

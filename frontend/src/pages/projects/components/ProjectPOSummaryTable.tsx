@@ -66,6 +66,9 @@ export const PO_SUMMARY_LIST_FIELDS_TO_FETCH: (
         "procurement_request",
         "status",
         "po_amount_delivered",
+        // --- NEW FIELD ---
+        "payment_type",
+        // -----------------
         "custom", // Add custom if used for badge
         // Add invoice_data if needed for a column in this specific summary table
     ];
@@ -539,7 +542,11 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                 // Use 'accessorKey' to make it sortable by the data table library
                 accessorKey: "po_amount_delivered",
                 header: ({ column }) => (
-                    <DataTableColumnHeader column={column} title="Payable Amt against Delivered Items" />
+                    <DataTableColumnHeader column={column}  title={
+        <>
+            Payable Amt against<br />Delivered Items
+        </>
+    }  />
                 ),
                 cell: ({ row }) => (
                     <div className="font-medium pr-2 text-center tabular-nums">
@@ -553,6 +560,33 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                     exportValue: (row: ProcurementOrder) => {
                         return formatForReport(row.po_amount_delivered); // Use the direct field for export
                     },
+                },
+            },
+            {
+                accessorKey: "payment_type",
+                header: ({ column }) => (
+                    <DataTableColumnHeader column={column} title="Payment Type" />
+                ),
+                cell: ({ row }) => {
+                    const type = row.original.payment_type;
+                    let variant: "default" | "green" | "yellow" = "default";
+                    if (type === "Credit") variant = "yellow";
+                    if (type === "Delivery against Payment") variant = "green";
+                    
+                    return (
+                         <div className="font-medium pr-2 text-center tabular-nums">
+<Badge variant={variant} className="whitespace-nowrap text-center">
+                            {type === "Delivery against Payment"?"DAP":type || "N/A"}
+                        </Badge>
+                         </div>
+                        
+                    );
+                },
+                enableColumnFilter: true, // Enable filtering for this column
+                size: 150,
+                meta: {
+                    exportHeaderName: "Payment Type",
+                    exportValue: (row: ProcurementOrder) => row.payment_type || "N/A",
                 },
             },
             // {
@@ -620,11 +654,21 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     });
 
     // --- Faceted Filter Options ---
+    const PO_PAYMENT_TYPE_OPTIONS = [
+    { label: "Credit", value: "Credit" },
+    { label: "DAP", value: "Delivery against Payment" },
+    // Add any other types if they exist, e.g., 'Advance'
+];
+
     const facetFilterOptions = useMemo(
         () => ({
             vendor: { title: "Vendor", options: vendorOptions },
             status: { title: "Status", options: PO_SUMMARY_STATUS_OPTIONS },
             owner: { title: "Approved By", options: userOptions }, // NEW server-side filter
+            payment_type: { 
+                title: "Payment Type", 
+                options: PO_PAYMENT_TYPE_OPTIONS 
+            },
             // Add work_package facet if you create options for it
         }),
         [vendorOptions]
