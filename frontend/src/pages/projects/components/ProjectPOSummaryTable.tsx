@@ -66,6 +66,9 @@ export const PO_SUMMARY_LIST_FIELDS_TO_FETCH: (
         "procurement_request",
         "status",
         "po_amount_delivered",
+        // --- NEW FIELD ---
+        "payment_type",
+        // -----------------
         "custom", // Add custom if used for badge
         // Add invoice_data if needed for a column in this specific summary table
     ];
@@ -273,11 +276,17 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
 
     const { data: CreditData } = useCredits()
 
-    const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status !== "Paid"));
-    const dueByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status !== "Paid" && cr.term_status !== "Created"));
+    const TotalCredit = memoize((projId: string) => CreditData.filter(cr => cr.project == projId));
 
-    const relatedTotalBalanceCredit = creditsByProject(projectId).reduce((sum, term) => sum + parseNumber(term.amount), 0);
-    const relatedTotalDue = dueByProject(projectId).reduce((sum, term) => sum + parseNumber(term.amount), 0);
+
+    const DueAmount = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status !== "Created"));
+
+    const PaidAmount = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status == "Paid"));
+
+    const TotalPurchaseOverCredit = TotalCredit(projectId).reduce((sum, term) => sum + parseNumber(term.amount), 0);
+
+    const CreditDueAmount = DueAmount(projectId).reduce((sum, term) => sum + parseNumber(term.amount), 0);
+    const CreditPaidAmount = PaidAmount(projectId).reduce((sum, term) => sum + parseNumber(term.amount), 0);
 
     const vendorOptions = useMemo(
         () =>
@@ -539,7 +548,11 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                 // Use 'accessorKey' to make it sortable by the data table library
                 accessorKey: "po_amount_delivered",
                 header: ({ column }) => (
-                    <DataTableColumnHeader column={column} title="Payable Amt against Delivered Items" />
+                    <DataTableColumnHeader column={column}  title={
+        <>
+            Payable Amt against<br />Delivered Items
+        </>
+    }  />
                 ),
                 cell: ({ row }) => (
                     <div className="font-medium pr-2 text-center tabular-nums">
@@ -553,6 +566,33 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                     exportValue: (row: ProcurementOrder) => {
                         return formatForReport(row.po_amount_delivered); // Use the direct field for export
                     },
+                },
+            },
+            {
+                accessorKey: "payment_type",
+                header: ({ column }) => (
+                    <DataTableColumnHeader column={column} title="Payment Type" />
+                ),
+                cell: ({ row }) => {
+                    const type = row.original.payment_type;
+                    let variant: "default" | "green" | "yellow" = "default";
+                    if (type === "Credit") variant = "yellow";
+                    if (type === "Delivery against Payment") variant = "green";
+                    
+                    return (
+                         <div className="font-medium pr-2 text-center tabular-nums">
+<Badge variant={variant} className="whitespace-nowrap text-center">
+                            {type === "Delivery against Payment"?"DAP":type || "N/A"}
+                        </Badge>
+                         </div>
+                        
+                    );
+                },
+                enableColumnFilter: true, // Enable filtering for this column
+                size: 150,
+                meta: {
+                    exportHeaderName: "Payment Type",
+                    exportValue: (row: ProcurementOrder) => row.payment_type || "N/A",
                 },
             },
             // {
@@ -620,11 +660,21 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     });
 
     // --- Faceted Filter Options ---
+    const PO_PAYMENT_TYPE_OPTIONS = [
+    { label: "Credit", value: "Credit" },
+    { label: "Delivery against Payment", value: "Delivery against Payment" },
+    // Add any other types if they exist, e.g., 'Advance'
+];
+
     const facetFilterOptions = useMemo(
         () => ({
             vendor: { title: "Vendor", options: vendorOptions },
             status: { title: "Status", options: PO_SUMMARY_STATUS_OPTIONS },
             owner: { title: "Approved By", options: userOptions }, // NEW server-side filter
+            payment_type: { 
+                title: "Payment Type", 
+                options: PO_PAYMENT_TYPE_OPTIONS 
+            },
             // Add work_package facet if you create options for it
         }),
         [vendorOptions]
@@ -869,10 +919,27 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                                                 <CardDescription> Overall PO Credit Summary.</CardDescription>
                                             </CardHeader>
                                             <CardContent className="p-2 pt-0">
-                                                <div className="flex gap-y-2 gap-x-20 justify-between items-start text-sm">
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-y-2 gap-x-20 text-sm">
 
                                                     <p className="flex justify-between w-full">
-                                                        <span className="font-medium inline-flex items-center gap-1 group">Total Liabilities<HoverCard>
+                                                        <span className="font-medium inline-flex items-center gap-1 group">Total Purchase Over Credit<HoverCard>
+                                                            <HoverCardTrigger asChild>
+                                                                <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
+                                                            </HoverCardTrigger>
+                                                            <HoverCardContent className="text-xs w-auto p-1.5">
+                                                                Total value of credit POs Purchase for this Project.
+                                                            </HoverCardContent>
+                                                        </HoverCard>
+                                                        </span>{" "}
+                                                        <span className="text-blue-600 font-semibold">
+                                                            {formatToRoundedIndianRupee(
+                                                                TotalPurchaseOverCredit
+                                                            )}
+                                                        </span>
+                                                    </p>
+
+                                                     <p className="flex justify-between w-full">
+                                                        <span className="font-medium inline-flex items-center gap-1 group"> Due Amount<HoverCard>
                                                             <HoverCardTrigger asChild>
                                                                 <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
                                                             </HoverCardTrigger>
@@ -881,27 +948,27 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                                                             </HoverCardContent>
                                                         </HoverCard>
                                                         </span>{" "}
-                                                        <span className="text-yellow-600 font-semibold">
+                                                        <span className="text-red-600 font-semibold">
                                                             {formatToRoundedIndianRupee(
-                                                                relatedTotalBalanceCredit
+                                                                CreditDueAmount
                                                             )}
                                                         </span>
                                                     </p>
 
                                                     {/* Total Due Not Paid */}
                                                     <p className="flex justify-between w-full">
-                                                        <span className="font-medium inline-flex items-center gap-1 group">Total Due Not Paid<HoverCard>
+                                                        <span className="font-medium inline-flex items-center gap-1 group">Due Amount Paid<HoverCard>
                                                             <HoverCardTrigger asChild>
                                                                 <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
                                                             </HoverCardTrigger>
                                                             <HoverCardContent className="text-xs w-auto p-1.5">
-                                                                Total value of credit POs that are due but not yet paid.
+                                                                Total value of credit POs that are paid.
                                                             </HoverCardContent>
                                                         </HoverCard>
                                                         </span>{" "}
-                                                        <span className="text-red-600 font-semibold">
+                                                        <span className="text-green-600 font-semibold">
                                                             {formatToRoundedIndianRupee(
-                                                                relatedTotalDue
+                                                                CreditPaidAmount
                                                             )}
                                                         </span>
                                                     </p>

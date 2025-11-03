@@ -498,7 +498,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const { data: po_data, isLoading: po_loading } = useFrappeGetDocList<ProcurementOrdersType>(
     "Procurement Orders",
     {
-      fields: ["name", "procurement_request", "status", "amount", "tax_amount", "total_amount", "invoice_data","po_amount_delivered"] as const,
+      fields: ["name", "procurement_request", "status", "amount", "tax_amount", "total_amount", "invoice_data","po_amount_delivered","amount_paid"] as const,
       filters: [
         ["project", "=", projectId],
         ["status", "not in", ["Merged","Inactive", "PO Amendment"]],
@@ -573,6 +573,43 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     }, 0); // <-- 3. CRITICAL FIX: The initial value for the sum is now correctly set to 0.
 
   }, [po_data]);
+
+// 1. Calculate Project-wide PO Payment Against Delivery (PO-by-PO sum)
+const poPaymentAgainstDelivery = useMemo(() => {
+    if (!po_data || po_data.length === 0) return 0;
+
+    return po_data.reduce((projectTotal, currentOrder) => {
+        // Total Paid for this specific PO
+        const paidForPO = parseNumber(currentOrder.amount_paid); // *** Use the field directly from PO ***
+        // Total Delivered Amount for this specific PO
+        const deliveredForPO = parseNumber(currentOrder.po_amount_delivered); 
+
+        // Add the PO's "Payment Against Delivery" to the project total
+        // This is the lesser of what was paid vs. what was delivered/payabl
+        return projectTotal + Math.min(paidForPO, deliveredForPO);
+    }, 0);
+}, [po_data]); // Dependency on po_data
+
+// 2. Calculate Project-wide Advance Against PO (PO-by-PO sum)
+const advanceAgainstPO = useMemo(() => {
+    if (!po_data || po_data.length === 0) return 0;
+
+    return po_data.reduce((projectTotal, currentOrder) => {
+        // Total Paid for this specific PO
+        const paidForPO = parseNumber(currentOrder.amount_paid); // *** Use the field directly from PO ***
+        // Total Delivered Amount for this specific PO
+        const deliveredForPO = parseNumber(currentOrder.po_amount_delivered); 
+
+        // Add the PO's "Advance Against PO" to the project total
+        // This is the amount paid that exceeds the delivered/payable amount
+        return projectTotal + Math.max(0, paidForPO - deliveredForPO);
+    }, 0);
+}, [po_data]); // Dependency on po_data
+
+
+
+
+
 
 
   const [workPackageTotalAmounts, setWorkPackageTotalAmounts] = useState<{ [key: string]: any }>({});
@@ -934,7 +971,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         return <ProjectPOSummaryTable projectId={projectId} />;
       case PROJECT_PAGE_TABS.FINANCIALS:
         return <ProjectFinancialsTab projectData={data} projectCustomer={projectCustomer}
-          totalPOAmountWithGST={totalPOAmountWithGST} getTotalAmountPaid={getTotalAmountPaid} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getAllPODeliveredAmount={totalPoDeliveredAmount}/>;
+          totalPOAmountWithGST={totalPOAmountWithGST} getTotalAmountPaid={getTotalAmountPaid} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getAllPODeliveredAmount={totalPoDeliveredAmount} 
+          // --- NEW PROPS PASSED HERE ---
+        poPaymentAgainstDelivery={poPaymentAgainstDelivery} 
+        advanceAgainstPO={advanceAgainstPO}/>;
       case PROJECT_PAGE_TABS.SPENDS:
         return <ProjectSpendsTab projectId={data?.name} po_data={po_data} options={options}
           categorizedData={categorizedData} getTotalAmountPaid={getTotalAmountPaid} workPackageTotalAmounts={workPackageTotalAmounts} totalServiceOrdersAmt={totalServiceOrdersAmt} />; // Example

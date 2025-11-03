@@ -40,8 +40,11 @@ interface ProjectFinancialsTabProps {
   totalPOAmountWithGST: number;
   getAllSRsTotalWithGST: number;
   getAllPODeliveredAmount: number;
+  poPaymentAgainstDelivery:number;
+  advanceAgainstPO:number
+
 }
-export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ projectData, projectCustomer, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST, getAllPODeliveredAmount }) => {
+export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ projectData, projectCustomer, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST, getAllPODeliveredAmount,poPaymentAgainstDelivery,advanceAgainstPO }) => {
 
   const initialTab = useMemo(() => {
     return getUrlStringParam("fTab", "All Payments");
@@ -192,7 +195,7 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
     },
     {
       label: "PO Payment Against Delivery",
-      value: Math.min(getTotalAmountPaid.poAmount, getAllPODeliveredAmount),
+      value: poPaymentAgainstDelivery,
       style: "",
       info:"Amount paid against delivered items in this project’s POs."
     },
@@ -200,7 +203,7 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
       label: "Advance Against PO",
       // value: getTotalAmountPaid.poAmount-getAllPODeliveredAmount,
 
-      value: Math.max(0, getTotalAmountPaid.poAmount - getAllPODeliveredAmount),
+      value: advanceAgainstPO,
       style: "",
       info:"Advance amount paid before delivery for this project’s POs."
     },
