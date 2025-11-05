@@ -385,6 +385,7 @@ export interface CustomerPODetail {
     customer_po_link: string;
     customer_po_attachment: string; // File URL/Name
     customer_po_payment_terms: string;
+    customer_po_creation_date: string; // Date string (YYYY-MM-DD)
 }
 
 interface AddCustomerPODialogProps {
@@ -411,6 +412,8 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
         customer_po_value_exctax: 0,
         customer_po_link: '',
         customer_po_payment_terms: '',
+        customer_po_creation_date: new Date().toISOString().split('T')[0], // Default to today's date
+
         file: null,
         customer_po_attachment: '', 
     });
@@ -459,6 +462,7 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
             customer_po_value_exctax: 0,
             customer_po_link: '',
             customer_po_payment_terms: '',
+            customer_po_creation_date: new Date().toISOString().split('T')[0], // Reset to today's 
             file: null,
             customer_po_attachment: '',
         });
@@ -481,6 +485,7 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
         return (
             formData.customer_po_number.trim() !== '' &&
             formData.customer_po_value_inctax > 0 &&
+            formData.customer_po_creation_date.trim() !== '' &&
             isLinkAttachmentValid
         );
     }, [formData, isLinkAttachmentValid]);
@@ -490,7 +495,7 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
         e.preventDefault();
         
         if (!isFormValid) {
-            let message = "Please fill all required fields: PO Number, Value (Incl. Tax).";
+            let message = "Please fill all required fields: PO Number, PO Date, Value (Incl. Tax).";
             if (linkOrAttachmentChoice === 'link' && formData.customer_po_link.trim() === '') {
                 message += " Also, the PO Link is required.";
             } else if (linkOrAttachmentChoice === 'attachment' && formData.file === null) {
@@ -533,6 +538,7 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
             customer_po_value_inctax: formData.customer_po_value_inctax,
             customer_po_value_exctax: formData.customer_po_value_exctax,
             customer_po_payment_terms: formData.customer_po_payment_terms,
+            customer_po_creation_date: formData.customer_po_creation_date, // NEW FIELD
             
             // Conditionally set link or attachment
             customer_po_link: linkOrAttachmentChoice === 'link' ? formData.customer_po_link : '',
@@ -597,6 +603,16 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
                             />
                         </div>
                     </div>
+                    <div className="space-y-2">
+                            <Label htmlFor="customer_po_creation_date">PO Date*</Label>
+                            <Input
+                                id="customer_po_creation_date"
+                                type="datetime"
+                                value={formData.customer_po_creation_date}
+                                onChange={handleInputChange}
+                                required
+                            />
+                        </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                             <Label htmlFor="customer_po_value_inctax">PO Value (Incl. Tax)*</Label>
@@ -609,6 +625,7 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
                                 required
                             />
                         </div>
+                         
                         <div className="space-y-2">
                             <Label htmlFor="customer_po_value_exctax">PO Value (Excl. Tax)</Label>
                             <Input
