@@ -1551,6 +1551,8 @@
 //   );
 // };
 
+
+
 // MilestoneTab.tsx
 import { useContext, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
@@ -1585,6 +1587,7 @@ import {
   DialogClose,
   DialogPrimitive
 } from "@/components/ui/dialog";
+import PhotoPermissionChecker from "./components/PhotoPermissionChecker"
 
 // --- START: Refined Interfaces based on your Frappe DocType ---
 
@@ -1984,7 +1987,16 @@ const latestCompletedReportDateIsToday =
         } else if (tab.project_work_header_name === "Photos") {
           initialData = { photos: existingDraftReport?.[0]?.photos || [] };
         } else {
-          const inheritedMilestones = existingDraftReport?.[0]?.milestones?.filter(m => m.work_header === tab.project_work_header_name) || getInheritedMilestones(tab.project_work_header_name);
+          // MODIFIED LOGIC HERE: Use existing draft milestones, OR the inherited list
+          // if no existing draft milestones are present for this header.
+          const existingDraftMilestonesForTab = existingDraftReport?.[0]?.milestones?.filter(
+            m => m.work_header === tab.project_work_header_name
+          ) || [];
+            
+          const inheritedMilestones = existingDraftMilestonesForTab.length > 0 
+            ? existingDraftMilestonesForTab 
+            : getInheritedMilestones(tab.project_work_header_name);
+
           initialData = {
             project: projectId,
             report_date: dateString,
@@ -2261,24 +2273,55 @@ const latestCompletedReportDateIsToday =
     }
   }, [localDailyReport, summaryWorkDate, activeTabValue]);
 
+  // useEffect(() => {
+  //   if (activeTabValue === "Work force" || activeTabValue === "Photos" || !allFrappeMilestones) {
+  //     setCurrentTabMilestones([]);
+  //     return;
+  //   }
+
+  //   // const localMilestonesFlatArray = getInheritedMilestones(activeTabValue) || localDailyReport?.milestones ;
+
+  //   const localMilestonesFlatArray =localDailyReport?.milestones || getInheritedMilestones(activeTabValue);
+
+  //   const milestonesForCurrentTab: LocalMilestoneData[] = [];
+  //   localMilestonesFlatArray.forEach(milestone => {
+  //     if (milestone.work_header === activeTabValue) {
+  //       milestonesForCurrentTab.push(milestone);
+  //     }
+  //   });
+
+  //   setCurrentTabMilestones(milestonesForCurrentTab);
+  // }, [activeTabValue, localDailyReport, allFrappeMilestones, lastCompletedReport]);
+
   useEffect(() => {
     if (activeTabValue === "Work force" || activeTabValue === "Photos" || !allFrappeMilestones) {
       setCurrentTabMilestones([]);
       return;
     }
 
-    const localMilestonesFlatArray = getInheritedMilestones(activeTabValue) || localDailyReport?.milestones ;
+    const currentTabWorkHeader = activeTabValue;
 
-    const milestonesForCurrentTab: LocalMilestoneData[] = [];
-    localMilestonesFlatArray.forEach(milestone => {
-      if (milestone.work_header === activeTabValue) {
-        milestonesForCurrentTab.push(milestone);
-      }
-    });
+    // 1. Prioritize milestones from the localDailyReport state (loaded from session storage)
+    let milestonesForCurrentTab: LocalMilestoneData[] = 
+        localDailyReport?.milestones?.filter(m => m.work_header === currentTabWorkHeader) || [];
+    
+    // 2. If localDailyReport did not contain milestones for this tab, 
+    //    fall back to the inherited/base milestones.
+    if (milestonesForCurrentTab.length === 0) {
+        // We call loadDailyReport/initializeTabStructureInLocalStorage 
+        // in the main effect, which already ensures the data is in sessionStorage.
+        // We re-call getInheritedMilestones here as a final safeguard/to ensure the base structure
+        // is used if initialization somehow failed to populate the milestones array correctly.
+        milestonesForCurrentTab = getInheritedMilestones(currentTabWorkHeader);
+        
+        // Safety check: if localDailyReport exists but its milestone array was empty,
+        // we should merge the inherited data into the local report state for the next update.
+        // This is mainly handled by initializeTabStructureInLocalStorage, but this ensures 
+        // the correct list is displayed.
+    }
 
     setCurrentTabMilestones(milestonesForCurrentTab);
   }, [activeTabValue, localDailyReport, allFrappeMilestones, lastCompletedReport]);
-
 
   const handleDialogManpowerCountChange = (index: number, value: string) => {
     const updatedRoles = [...dialogManpowerRoles];
@@ -3141,14 +3184,19 @@ console.log(user)
       <TabsContent value="Photos" className="mt-4 p-1">
       <Card className="border-none shadow-none bg-transparent">
         <CardHeader className="flex flex-col items-center pb-4 pt-0">
-          <Button
+          {/* <Button
             className="w-full bg-red-500 hover:bg-red-600 text-white font-semibold py-3 px-8 rounded-full shadow-md transition-all duration-200 ease-in-out transform hover:scale-105 "
             onClick={() => setIsCaptureDialogOpen(true)}
             disabled={isBlockedByDraftOwnership} // MODIFIED: Disable if blocked
           >
           <PlusCircledIcon className="h-5 w-5 mr-2" />
               <span> ADD PHOTOS</span>
-          </Button>
+          </Button> */}
+           <PhotoPermissionChecker
+            isBlockedByDraftOwnership={isBlockedByDraftOwnership}
+            onAddPhotosClick={() => setIsCaptureDialogOpen(true)}
+            GEO_API={apiData?.api_key}
+          />
         </CardHeader>
         <CardContent className="pt-0">
           {localPhotos.length > 0 ? (
