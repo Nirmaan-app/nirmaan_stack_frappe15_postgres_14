@@ -255,6 +255,7 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
         // aggregatesConfig: CUSTOMER_PO_AGGREGATES_CONFIG, 
     });
 
+    // console.log("poDataForPage",poDataForPage)
 
     // Handler to refetch data after a new PO is added
     const handlePoAdded = async () => {
@@ -264,6 +265,20 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
         // 3. Refetch the parent component's data (if needed)
     }
 
+
+     const isDataInvalid = useMemo(() => {
+        // Check if the data is fetched (not loading) and is an array with at least one element,
+        // AND the first element has a null/empty po number.
+        if (!listIsLoading && poDataForPage?.length > 0) {
+            const firstPo = poDataForPage[0];
+            // Check for explicit null, undefined, or empty string
+            if (!firstPo.customer_po_number) {
+                // console.log("Data integrity issue: First PO record has no PO number.", firstPo);
+                return true;
+            }
+        }
+        return false;
+    }, [poDataForPage, listIsLoading]);
 
     return (
         <Card>
@@ -311,9 +326,16 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
                 {/* END Aggregates Display */}
             </CardHeader>
             <CardContent>
-                {listIsLoading && !poDataForPage?.length ? (
+               {listIsLoading && !poDataForPage?.length ? (
                     <div className="flex items-center justify-center p-8"><TailSpin color={"red"} height={20} width={20} /></div>
+                ) : (isDataInvalid ? (
+                    // Display message when data is available but the first record is invalid
+                    <div className="flex items-center justify-center p-8 text-gray-500 font-semibold">
+                        <Info className="w-5 h-5 mr-2 text-yellow-600"/>
+                        Data is not available or contains invalid records. Please check the source data.
+                    </div>
                 ) : (
+                    // Render the table if data is fetched and valid (or empty, which the DataTable handles)
                     <DataTable<CustomerPOTableRow>
                         table={table}
                         columns={table.options.columns}
@@ -332,7 +354,7 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
                         exportFileName={`Customer_PO_Details_${projectId || "all"}`}
                         showRowSelection={false}
                     />
-                )}
+                ))}
             </CardContent>
         </Card>
     );
