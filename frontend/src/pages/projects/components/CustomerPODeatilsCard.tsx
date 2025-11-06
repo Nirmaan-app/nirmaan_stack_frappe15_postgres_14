@@ -12,6 +12,10 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { AddCustomerPODialog, CustomerPODetail } from "./AddCustomerPODialog"; 
 import { useFrappeGetDocList ,useFrappeGetDoc} from "frappe-react-sdk"; // Needed to fetch current POs for the dialog
 import { parseNumber } from "@/utils/parseNumber"; // Utility to convert string/unknown to number
+import { formatDate } from "@/utils/FormatDate";
+// NEW IMPORTS: Tooltip components (assuming standard ShadCN/Radix paths)
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+
 
 // --- NEW CONSTANTS (Simulating a constant file) ---
 const CUSTOMER_PO_CHILD_TABLE_DOCTYPE = 'Projects'; // ASSUMPTION
@@ -23,12 +27,14 @@ export const CUSTOMER_PO_LIST_FIELDS_TO_FETCH = [
     '`tabCustomer PO Child Table`.customer_po_link', 
     '`tabCustomer PO Child Table`.customer_po_attachment', 
     '`tabCustomer PO Child Table`.customer_po_payment_terms',
+    '`tabCustomer PO Child Table`.customer_po_creation_date',
+
 ];
 export const CUSTOMER_PO_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "customer_po_number", label: "PO Number", default: true },
     // { value: "project_name", label: "Project Name" },
 ];
-export const CUSTOMER_PO_DATE_COLUMNS: string[] = [];
+export const CUSTOMER_PO_DATE_COLUMNS: string[] = ["creation", "customer_po_creation_date"];
 // const CUSTOMER_PO_AGGREGATES_CONFIG: (SimpleAggregationConfig | CustomAggregationConfig)[] = [
 //     { field: 'customer_po_value_inctax', function: 'sum', alias: 'total_incl_tax' }, 
 //     { field: 'customer_po_value_exctax', function: 'sum', alias: 'total_excl_tax' }, 
@@ -51,6 +57,19 @@ interface CustomerPODetailsCardProps {
 const getCustomerPOColumns = (projectId?: string): ColumnDef<CustomerPOTableRow>[] => {
     
     const columns: ColumnDef<CustomerPOTableRow>[] = [
+             {
+               // Date -> Center Align
+               accessorKey: "customer_po_creation_date",
+               header: ({ column }) => (
+                 <div className="flex justify-center">
+                   <DataTableColumnHeader column={column} title="Creation" />
+                 </div>
+               ),
+               cell: ({ row }) => (
+                 <div className="text-left">{formatDate(row.original.customer_po_creation_date)}</div>
+               ),
+               enableColumnFilter: true,
+             },
         {
             accessorKey: "customer_po_number",
             header: ({ column }) => (
@@ -113,27 +132,37 @@ const getCustomerPOColumns = (projectId?: string): ColumnDef<CustomerPOTableRow>
         //     size: 200,
         // } as ColumnDef<CustomerPOTableRow>] : []),
         
-        {
+       {
             accessorKey: "customer_po_payment_terms",
             header: ({ column }) => (
                 <DataTableColumnHeader column={column} title="Payment Terms" />
             ),
             cell: ({ row }) => (
-                <div className="text-sm text-gray-600 truncate" title={row.original.customer_po_payment_terms}>
-                    {row.original.customer_po_payment_terms || 'N/A'}
-                </div>
+                // CHANGED: Use ShadCN/Radix Tooltip for styled hover text
+                <TooltipProvider delayDuration={100}>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            {/* The inner div is what is visible and truncated */}
+                            <div className="text-sm text-blue-600 truncate link underline underline-blue underline-offset-2 cursor-help">
+                                {row.original.customer_po_payment_terms || 'N/A'}
+                            </div>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs whitespace-normal break-words">
+                            <p>{row.original.customer_po_payment_terms || 'No payment terms specified.'}</p>
+                        </TooltipContent>
+                    </Tooltip>
+                </TooltipProvider>
             ),
             enableColumnFilter: false,
             enableSorting: false, 
 
-
-            size:100, // More space if Project is hidden
+            size: 150, 
         },
         {
-            id: "source",
-            header: () => <div className="text-center">Source</div>,
+            id: "Link/ Attachment",
+            header: () => <div className="text-center">Link / Attachment</div>,
             cell: ({ row }) => (
-                <div className="flex justify-start gap-2">
+                <div className="flex justify-center gap-2">
                     {row.original.customer_po_link && (
                         <a href={row.original.customer_po_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800" title="PO Link">
                             <LinkIcon className="w-4 h-4"/>
@@ -175,7 +204,7 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
     );
     
 
-    console.log("CustomerPODetailsCard: projectDataForDialog =", projectDataForDialog);
+    // console.log("CustomerPODetailsCard: projectDataForDialog =", projectDataForDialog);
     const poListForDialog = projectDataForDialog?.customer_po_details || [];
     const projectNameForDialog = projectDataForDialog?.name;
     // Memoized calculation of aggregates from the fetched PO list
@@ -220,8 +249,7 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
         columns: useMemo(() => getCustomerPOColumns(projectId), [projectId]),
         fetchFields: CUSTOMER_PO_LIST_FIELDS_TO_FETCH as string[],
         searchableFields: CUSTOMER_PO_SEARCHABLE_FIELDS,
-        dateFilterColumns: CUSTOMER_PO_DATE_COLUMNS,
-        defaultSort: 'creation desc',
+        defaultSort: '`tabCustomer PO Child Table`.customer_po_creation_date',
         urlSyncKey: projectId ? `po_child_list_${projectId}` : "po_child_list_all",
         additionalFilters: additionalFilters, // Apply project filter here
         // aggregatesConfig: CUSTOMER_PO_AGGREGATES_CONFIG, 

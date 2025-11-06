@@ -1,4 +1,4 @@
-import React, { useRef, useMemo } from 'react';
+import React, { useRef, useMemo ,useState} from 'react';
 import { useReactToPrint } from 'react-to-print';
 import { formatDate } from '@/utils/FormatDate';
 import { MapPin, MessagesSquare } from 'lucide-react';
@@ -86,11 +86,24 @@ const estimateMilestoneGroupHeight = (milestonesInGroup) => {
 
 const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReportPDFProps) => {
   const componentRef = useRef<HTMLDivElement>(null);
+ 
+   // --- NEW STATE for PDF file name ---
+  const defaultFileName = `${projectData?.project_name || 'Project'}_${formatDate(dailyReportDetails?.report_date)}_MilestoneReport`;
+  const [pdfFileName, setPdfFileName] = useState(defaultFileName);
+  // --- END NEW STATE ---
 
   const handlePrint = useReactToPrint({
     content: () => componentRef.current,
-    documentTitle: `Milestone Report - ${formatDate(new Date())}`,
+    // --- UPDATED: Use the state variable for document title ---
+    documentTitle: pdfFileName.trim() || `Milestone_Report_${formatDate(new Date())}`,
+    // --- END UPDATED ---
   });
+ 
+
+  // const handlePrint = useReactToPrint({
+  //   content: () => componentRef.current,
+  //   documentTitle: `Milestone Report - ${formatDate(new Date())}`,
+  // });
  
   const {data:ownerData}= useFrappeGetDoc<{full_name:string}>('Nirmaan Users',dailyReportDetails?.owner || '')
   
@@ -450,31 +463,42 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
                     <tr>
                       <td colSpan={4}>
                         <h3 className="text-lg font-bold mb-3 text-gray-800">WORK IMAGES</h3>
-                        <div className="grid grid-cols-2 gap-4"> {/* Two cards per row */}
-                          {dailyReportDetails.attachments.map((attachment, idx) => (
-                            <div key={idx} className="border rounded-lg overflow-hidden shadow-sm avoid-page-break-inside"> {/* Each card */}
-                              {/* Image at the top of the card */}
-                              <img
-                                src={attachment.image_link}
-                                alt={`Work Image ${idx + 1}`}
-                                className="w-full h-[200px] object-cover rounded-t" // Fills card width, fixed height, top corners rounded
-                              />
-                              {/* Remarks and Location underneath the image */}
-                              <div className="p-2 bg-gray-50">
-                                <div className="flex items-center text-xs text-gray-600 mb-1">
-                                  <MapPin className="h-3 w-3 mr-1 text-red-500 flex-shrink-0" />
-                                  <span className="font-medium text-gray-700 break-words">
-                                    {attachment.location || `Lat: ${attachment.latitude?.toFixed(2)}, Lon: ${attachment.longitude?.toFixed(2)}`}
-                                  </span>
-                                </div>
-                                {/* HIGHLIGHTED REMARKS HERE */}
-                                <p className="p-2 mt-2 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs">
-                                  {attachment.remarks || "No remarks provided."}
-                                </p>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
+                         <div className="grid grid-cols-2 gap-4">
+                              {dailyReportDetails.attachments.map((attachment, idx) => (
+                                                 <div
+                                                   key={idx}
+                                                   className="rounded-lg overflow-hidden shadow-md bg-white border border-gray-200" // Card wrapper
+                                                 >
+                                                   {/* Responsive container for image and text details */}
+                                                   {/* Stacks on mobile (flex-col), becomes row on small screens and up (sm:flex-row) */}
+                                                   <div className="flex flex-col sm:flex-row h-full">
+                                                     {/* Image container */}
+                                                     <div className="w-full sm:w-1/2 flex-shrink-0">
+                                                       <img
+                                                         src={attachment.image_link}
+                                                         alt={`Work Image ${idx + 1}`}
+                                                         className="w-full h-[180px] sm:h-full object-cover rounded-t-lg sm:rounded-l-lg sm:rounded-tr-none" // Adjust rounding based on layout
+                                                       />
+                                                     </div>
+                       
+                                                     <div className="w-full sm:w-1/2 p-3 flex flex-col justify-between">
+                                                       {/* Location */}
+                                                       <div className="flex items-center text-xs text-gray-700 mb-2">
+                                                         <MapPin className="h-4 w-4 mr-1 text-red-500 flex-shrink-0" />
+                                                         <span className="font-medium break-words">
+                                                           {attachment.location || `Lat: ${attachment.latitude?.toFixed(2)}, Lon: ${attachment.longitude?.toFixed(2)}`}
+                                                         </span>
+                                                       </div>
+                                                       {/* Remarks - highlighted yellow card style, pushed to bottom if space */}
+                                                       <p className="p-2 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs mt-auto">
+                                                         <MessagesSquare className="h-4 w-4 inline-block mr-1 flex-shrink-0" />
+                                                         {attachment.remarks || "No remarks provided."}
+                                                       </p>
+                                                     </div>
+                                                   </div>
+                                                 </div>
+                                               ))}
+                                             </div>
                       </td>
                     </tr>
                   </tbody>
@@ -545,3 +569,132 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
 };
 
 export default MilestoneReportPDF;
+
+
+
+
+// import { useCallback, useMemo, useState } from "react";
+// import { Download } from "lucide-react";
+// import { Button } from "@/components/ui/button";
+// import { toast } from "@/components/ui/use-toast";
+// import { TailSpin } from "react-loader-spinner";
+// import { format } from "date-fns";
+
+// // --- FRACTION FOR SERVER-SIDE PDF CALL ---
+
+// // 1. **MILESTONE_DOCTYPE**: MUST match the DocType name where the Print Format is saved.
+// const MILESTONE_DOCTYPE = "Project Progress Reports"; 
+
+// // 2. **MILESTONE_PRINT_FORMAT_NAME**: MUST match the exact name of the new Jinja Print Format you created.
+// const MILESTONE_PRINT_FORMAT_NAME = "Milestone Report"; 
+
+// // --- Interface for the Document Data ---
+// interface MilestoneReportData {
+//     name: string; // The primary key (name) of the Frappe document
+//     creation: string; // The creation date for filename fallback
+//     milestone_date?: string; // The key date of the milestone (if used in filename)
+// }
+
+// interface MilestoneReportPDFProps {
+//     milestone: MilestoneReportData; // The Milestone Doc data
+//     contextName: string; // The name of the parent Project or Service Request (for filename)
+// }
+
+// // --- Milestone Report PDF Component ---
+// const MilestoneReportPDF = ({ milestone, contextName }: MilestoneReportPDFProps) => {
+//     const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+
+//     // 1. Custom Filename Logic
+//     const getFilename = useCallback(() => {
+//         if (!milestone.name) return "milestone_report.pdf";
+//         const creationDate = new Date(milestone.creation);
+        
+//         const datePart = milestone.milestone_date 
+//             ? format(new Date(milestone.milestone_date), 'yyyyMMdd') 
+//             : format(creationDate, 'yyyyMMdd');
+        
+//         return `${contextName}_${milestone.name}_${datePart}_Report.pdf`;
+//     }, [milestone, contextName]);
+
+//     // 2. Frappe PDF Download URL
+//     const downloadUrl = useMemo(() => {
+//         if (!milestone.name) return "";
+        
+//         const params = new URLSearchParams({
+//             doctype: MILESTONE_DOCTYPE,
+//             name: milestone.name,
+//             format: MILESTONE_PRINT_FORMAT_NAME, 
+//             no_letterhead: "1", // Use '1' for Jinja template with custom header/footer
+//             _lang: "en",
+//         });
+        
+//         return `/api/method/frappe.utils.print_format.download_pdf?${params.toString()}`;
+//     }, [milestone.name]);
+    
+//     // 3. Handler for Download (Fetches the PDF from the Frappe server)
+//     const handleDownloadPdf = useCallback(() => {
+//         if (!downloadUrl) return;
+
+//         setIsGeneratingPdf(true);
+        
+//         fetch(downloadUrl)
+//         .then(response => {
+//             if (!response.ok) {
+//                 throw new Error(`PDF generation failed. Status: ${response.status}. Check network tab.`);
+//             }
+//             return response.blob();
+//         })
+//         .then(blob => {
+//             // Initiate the client-side download
+//             const filename = getFilename();
+//             const url = window.URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+//             const link = document.createElement('a');
+//             link.href = url;
+//             link.setAttribute('download', filename);
+//             document.body.appendChild(link);
+//             link.click();
+//             link.remove();
+//             window.URL.revokeObjectURL(url);
+//             toast({ title: "Success", description: `Report downloaded as ${filename}.`, variant: "success" });
+//         })
+//         .catch(error => {
+//             console.error("Download Error:", error);
+//             toast({ 
+//                 title: "Failed", 
+//                 description: `Failed to download the report. Error: ${error.message || 'Server error.'}`, 
+//                 variant: "destructive" 
+//             });
+//         })
+//         .finally(() => {
+//             setIsGeneratingPdf(false);
+//         });
+
+//     }, [downloadUrl, getFilename]);
+
+//     // --- Component Render ---
+//     return (
+//         <Button 
+//             onClick={handleDownloadPdf} 
+//             disabled={isGeneratingPdf}
+//             variant="outline" 
+//             size={"sm"} 
+//             className="h-7 w-auto text-xs flex items-center gap-1 border border-primary px-2"
+//             title="Download Milestone Report PDF"
+//         >
+//             {isGeneratingPdf ? (
+//                 <>
+//                     <TailSpin width={14} height={14} color="currentColor" />
+//                     Generating...
+//                 </>
+//             ) : (
+//                 <>
+//                     <Download className="w-4 h-4" />
+//                     PDF
+//                 </>
+//             )}
+//         </Button>
+//     );
+// };
+
+
+// export default MilestoneReportPDF;

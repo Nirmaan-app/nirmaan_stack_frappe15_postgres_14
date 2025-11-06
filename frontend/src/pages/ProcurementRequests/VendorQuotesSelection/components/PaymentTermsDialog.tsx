@@ -74,7 +74,7 @@ export const PaymentTermsDialog: React.FC<PaymentTermsDialogProps> = ({
             ...term,
             amount: roundToTwo(term.amount),
           })) || [];
-        if (initialData.type === "Delivery against payment") {
+        if (initialData.type === "Delivery against Payment") {
           const savedTermsMap = new Map(sanitizedTerms.map((t) => [t.name, t]));
           const completeMilestones = DELIVERY_TERM_NAMES.map((name) => {
             const existingTerm = savedTermsMap.get(name);
@@ -157,11 +157,11 @@ export const PaymentTermsDialog: React.FC<PaymentTermsDialogProps> = ({
             enabled: true,
           },
         ]);
-      } else if (type === "Delivery against payment") {
+      } else if (type === "Delivery against Payment") {
         setMilestones(
           DELIVERY_TERM_NAMES.map((name) => ({
             id: `term_${Date.now()}_${name.replace(/\s+/g, "")}`,
-            type: "Delivery against payment",
+            type: "Delivery against Payment",
             name,
             amount: 0,
             percentage: 0,
@@ -242,8 +242,8 @@ export const PaymentTermsDialog: React.FC<PaymentTermsDialogProps> = ({
       currentMilestone.percentage =
         poAmount > 0 ? (currentMilestone.amount / poAmount) * 100 : 0;
 
-      // --- Logic for 'Delivery against payment' type (integrating my strict capping) ---
-    } else if (type === "Delivery against payment" && field === "percentage") {
+      // --- Logic for 'Delivery against Payment' type (integrating my strict capping) ---
+    } else if (type === "Delivery against Payment" && field === "percentage") {
       let newPercentage = parseNumber(value) || 0;
       let maxPercent = 100;
       if (index === 1) {
@@ -267,8 +267,8 @@ export const PaymentTermsDialog: React.FC<PaymentTermsDialogProps> = ({
 
     newMilestones[index] = currentMilestone;
 
-    // --- Auto-completion for 'Delivery against payment' ---
-    // if (type === 'Delivery against payment' && (index === 0 || index === 1)) {
+    // --- Auto-completion for 'Delivery against Payment' ---
+    // if (type === 'Delivery against Payment' && (index === 0 || index === 1)) {
     //     const advancePercent = newMilestones[0].enabled ? newMilestones[0].percentage : 0;
     //     const readinessPercent = newMilestones[1].enabled ? newMilestones[1].percentage : 0;
     //     const remainder = Math.max(0, 100 - advancePercent - readinessPercent);
@@ -315,8 +315,8 @@ export const PaymentTermsDialog: React.FC<PaymentTermsDialogProps> = ({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="Credit">Credit</SelectItem>
-            <SelectItem value="Delivery against payment">
-              Delivery against payment
+            <SelectItem value="Delivery against Payment">
+              Delivery against Payment
             </SelectItem>
           </SelectContent>
         </Select>
@@ -358,7 +358,7 @@ export const PaymentTermsDialog: React.FC<PaymentTermsDialogProps> = ({
         </div>
         <div className="border rounded-md">
           {type === "Credit" && renderCreditTable()}
-          {type === "Delivery against payment" && renderDeliveryTable()}
+          {type === "Delivery against Payment" && renderDeliveryTable()}
         </div>
         {type === "Credit" && (
           <Button
@@ -514,7 +514,7 @@ export const PaymentTermsDialog: React.FC<PaymentTermsDialogProps> = ({
           let maxPercent = 100;
 
           // --- THIS IS THE NEW LOGIC FOR CAPPING THE PERCENTAGE ---
-          if (type === "Delivery against payment") {
+          if (type === "Delivery against Payment") {
             const otherEnabledPercentages = milestones
               .filter((p, i) => i !== index && p.enabled)
               .reduce((sum, p) => sum + p.percentage, 0);
