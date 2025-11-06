@@ -12,3 +12,5 @@ nirmaan_stack/www/frontend.html
 build
 .env
 .roo*
+CLAUDE.md
+.claude*
