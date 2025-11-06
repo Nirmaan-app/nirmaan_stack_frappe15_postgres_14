@@ -3481,7 +3481,7 @@ console.log(user)
       </div>
 
       <Dialog open={isUpdateManpowerDialogOpen} onOpenChange={setIsUpdateManpowerDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-[425px] sm:max-h-[90vh] sm:overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-xl text-center font-bold text-red-600">Update Manpower</DialogTitle>
             <DialogDescription className="text-sm text-center">
