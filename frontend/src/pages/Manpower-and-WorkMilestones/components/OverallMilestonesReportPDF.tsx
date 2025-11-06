@@ -634,7 +634,7 @@
 // export default OverallMilestonesReportPDF;
 
 
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo, useRef,useState } from 'react';
 import { useReactToPrint } from 'react-to-print';
 import { formatDate } from '@/utils/FormatDate';
 import { Badge } from '@/components/ui/badge';
@@ -780,9 +780,16 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
 }) => {
   const componentRef = useRef<HTMLDivElement>(null);
 
+ // --- NEW STATE for PDF file name ---
+  const defaultFileName = `${projectData?.project_name || 'Project'}_${formatDate(latestReport?.report_date)}_OverallMilestone_Report`;
+  const [pdfFileName, setPdfFileName] = useState(defaultFileName);
+  // --- END NEW STATE ---
+
   const handlePrint = useReactToPrint({
     content: () => componentRef.current,
-    documentTitle: `Overall Report - ${formatDate(new Date())}`,
+    // --- UPDATED: Use the state variable for document title ---
+    documentTitle: pdfFileName.trim() || `Milestone_Report_${formatDate(new Date())}`,
+    // --- END UPDATED ---
   });
 
   // Memoized grouped milestones from the latest report
@@ -1168,7 +1175,19 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
                                         )}
                                       </TableCell>
                                       <TableCell className="text-center py-3 px-2 text-sm">
-                                        {report7DaysAgo ? sevenDaysAgoData.progress : <span className="text-gray-400 text-xs">--</span>}
+                                         <MilestoneProgress
+                                                                                                            // 1. Pass the status for the N/A check
+                                                                                                            milestoneStatus={sevenDaysAgoData.status}
+                                                                
+                                                                                                            // 2. Pass the progress value for the circle and color logic
+                                                                                                            value={sevenDaysAgoData.progress}
+                                                                
+                                                                                                            // 3. Set the desired size and text size
+                                                                                                            sizeClassName="size-[60px]"
+                                                                                                            textSizeClassName="text-md"
+                                                                                                          />
+                                                                
+                                                             
                                       </TableCell>
 
                                       <TableCell className="text-center py-3 px-2">
@@ -1181,7 +1200,18 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
                                         )}
                                       </TableCell>
                                       <TableCell className="text-center py-3 px-2 text-sm">
-                                        {report14DaysAgo ? fourteenDaysAgoData.progress : <span className="text-gray-400 text-xs">--</span>}
+                                       <MilestoneProgress
+                                                                                                            // 1. Pass the status for the N/A check
+                                                                                                            milestoneStatus={fourteenDaysAgoData.status}
+                                                                
+                                                                                                            // 2. Pass the progress value for the circle and color logic
+                                                                                                            value={fourteenDaysAgoData.progress}
+                                                                
+                                                                                                            // 3. Set the desired size and text size
+                                                                                                            sizeClassName="size-[60px]"
+                                                                                                            textSizeClassName="text-md"
+                                                                                                          />
+                                                                
                                       </TableCell>
                                     </TableRow>
                                   );
@@ -1212,33 +1242,40 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
                                 <td colSpan={8}> 
                                   <h3 className="text-lg font-bold mb-3 text-gray-800">WORK IMAGES</h3>
                                   <div className="grid grid-cols-2 gap-4"> {/* Two cards per row */}
-                                    {latestReport?.attachments.map((attachment, idx) => (
-                                      <div key={idx} className="border rounded-lg overflow-hidden shadow-sm avoid-page-break-inside"> {/* Each card */}
-                                        {/* Image at the top of the card */}
-                                        <img
-                                          src={attachment.image_link}
-                                          alt={`Work Image ${idx + 1}`}
-                                          className="w-full h-[200px] object-cover rounded-t" // Fills card width, fixed height, top corners rounded
-                                        />
-                                        {/* Remarks and Location underneath the image */}
-                                        <div className="p-2 bg-gray-50">
-                                          <div className="flex items-center text-xs text-gray-600 mb-1">
-                                            <MapPin className="h-3 w-3 mr-1 text-red-500 flex-shrink-0" />
-                                            <span className="font-medium text-gray-700 break-words">
-                                              {/* Safely display location, checking for `null` */}
-                                              {attachment.location || 
-                                               (attachment.latitude !== undefined && attachment.longitude !== undefined 
-                                                ? `Lat: ${attachment.latitude?.toFixed(2)}, Lon: ${attachment.longitude?.toFixed(2)}` 
-                                                : 'Location Not Provided')}
-                                            </span>
-                                          </div>
-                                          {/* HIGHLIGHTED REMARKS HERE */}
-                                          <p className="p-2 mt-2 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs">
-                                            {attachment.remarks || "No remarks provided."}
-                                          </p>
-                                        </div>
-                                      </div>
-                                    ))}
+                                 {latestReport.attachments.map((attachment, idx) => (
+                                                          <div
+                                                            key={idx}
+                                                            className="rounded-lg overflow-hidden shadow-md bg-white border border-gray-200" // Card wrapper
+                                                          >
+                                                            {/* Responsive container for image and text details */}
+                                                                                                           {/* Stacks on mobile (flex-col), becomes row on small screens and up (sm:flex-row) */}
+                                                                                                           <div className="flex flex-col sm:flex-row h-full">
+                                                                                                             {/* Image container */}
+                                                                                                             <div className="w-full sm:w-1/2 flex-shrink-0">
+                                                                                                               <img
+                                                                                                                 src={attachment.image_link}
+                                                                                                                 alt={`Work Image ${idx + 1}`}
+                                                                                                                 className="w-full h-[180px] sm:h-full object-cover rounded-t-lg sm:rounded-l-lg sm:rounded-tr-none" // Adjust rounding based on layout
+                                                                                                               />
+                                                                                                             </div>
+                                                                               
+                                                                                                             <div className="w-full sm:w-1/2 p-3 flex flex-col justify-between">
+                                                                                                               {/* Location */}
+                                                                                                               <div className="flex items-center text-xs text-gray-700 mb-2">
+                                                                                                                 <MapPin className="h-4 w-4 mr-1 text-red-500 flex-shrink-0" />
+                                                                                                                 <span className="font-medium break-words">
+                                                                                                                   {attachment.location || `Lat: ${attachment.latitude?.toFixed(2)}, Lon: ${attachment.longitude?.toFixed(2)}`}
+                                                                                                                 </span>
+                                                                                                               </div>
+                                                                                                               {/* Remarks - highlighted yellow card style, pushed to bottom if space */}
+                                                                                                               <p className="p-2 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs mt-auto">
+                                                                                                                 <MessagesSquare className="h-4 w-4 inline-block mr-1 flex-shrink-0" />
+                                                                                                                 {attachment.remarks || "No remarks provided."}
+                                                                                                               </p>
+                                                                                                             </div>
+                                                                                                           </div>
+                                                                                                         </div>
+                                                                                                       ))}
                                   </div>
                                 </td>
                               </tr>
