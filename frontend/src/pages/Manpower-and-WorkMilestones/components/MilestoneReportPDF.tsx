@@ -515,10 +515,17 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
         @media print {
           @page {
             size: A4;
-            margin: 0.5cm;
+            margin:0;
+            padding:0.5cm;
           }
           
           .page {
+            /* Apply the desired margin as padding on the content container */
+            padding: 0.5cm; 
+            
+            /* Ensure the padding doesn't cause overflow on a div with fixed height */
+            box-sizing: border-box; 
+            
             page-break-after: always;
           }
           
