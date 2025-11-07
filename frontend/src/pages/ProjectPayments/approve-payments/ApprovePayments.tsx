@@ -283,6 +283,7 @@ export const ApprovePayments: React.FC = () => {
             await updateDoc(DOCTYPE, selectedPayment.name, {
                 status: newStatus,
                 amount: amount, // Already a number
+                approval_date: formatDate(new Date(), 'YYYY-MM-DD'),    
                 ...(payment_details && { payment_details: JSON.stringify(payment_details) }) // Add UTR, Date etc.
             });
             refetch();
