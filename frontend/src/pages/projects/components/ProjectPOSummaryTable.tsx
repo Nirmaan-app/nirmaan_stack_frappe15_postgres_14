@@ -938,7 +938,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                                                         </span>
                                                     </p>
 
-                                                     <p className="flex justify-between w-full">
+                                                     {/* <p className="flex justify-between w-full">
                                                         <span className="font-medium inline-flex items-center gap-1 group"> Due Amount<HoverCard>
                                                             <HoverCardTrigger asChild>
                                                                 <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
@@ -953,11 +953,11 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                                                                 CreditDueAmount
                                                             )}
                                                         </span>
-                                                    </p>
+                                                    </p> */}
 
                                                     {/* Total Due Not Paid */}
                                                     <p className="flex justify-between w-full">
-                                                        <span className="font-medium inline-flex items-center gap-1 group">Due Amount Paid<HoverCard>
+                                                        <span className="font-medium inline-flex items-center gap-1 group"> Amount Paid<HoverCard>
                                                             <HoverCardTrigger asChild>
                                                                 <Info className="w-4 h-4 text-blue-600 cursor-pointer opacity-70 group-hover:opacity-100" />
                                                             </HoverCardTrigger>
