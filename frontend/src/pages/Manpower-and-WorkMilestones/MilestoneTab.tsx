@@ -3244,9 +3244,10 @@ console.log(user)
               {localPhotos.map((photo) => (
                 <div 
                   key={photo.local_id} 
-                  className="flex items-center gap-4 p-3 bg-white rounded-xl shadow-sm border border-gray-100"
+                  className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-3 bg-white rounded-md shadow-sm border  border-gray-400"
                 >
-                  <div className="relative flex-shrink-0 w-[180px] h-[140px] border-2 border-pink-500 rounded-xl overflow-hidden">
+                  <div className="relative flex-shrink-0 w-full h-[180px] sm:w-[180px] sm:h-[140px] border-2 border-pink-500 rounded-xl overflow-hidden"
+                  >
                     <img
                       src={photo.image_link}
                       alt={`Photo ${photo.local_id}`}
