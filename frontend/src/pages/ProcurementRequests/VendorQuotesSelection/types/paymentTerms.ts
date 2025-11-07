@@ -2,7 +2,7 @@
 
 // This interface is required for the 'Term' type
 export interface PaymentTermMilestone {
-  type: 'Credit' | 'Delivery against payment';
+  type: 'Credit' | 'Delivery against Payment';
   id: string; // For unique key in React
   name: string;
   amount: number;
@@ -13,7 +13,7 @@ export interface PaymentTermMilestone {
 
 export interface VendorPaymentTerm {
   // --- CHANGE: Added 'Term' back to the type options ---
-  type:'Credit' | 'Delivery against payment';
+  type:'Credit' | 'Delivery against Payment';
   total_po_amount: number;
   // --- CHANGE: 'terms' is optional, as it only applies when type is 'Term' ---
   terms?: PaymentTermMilestone[];

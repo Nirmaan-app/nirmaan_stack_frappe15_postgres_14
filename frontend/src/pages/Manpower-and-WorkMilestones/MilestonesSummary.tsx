@@ -68,7 +68,9 @@ interface MilestoneProgressProps {
 
 const getColorForProgress = (value: number): string => {
   const val = Math.round(value)
-
+  if( isNaN(val) ) {
+    return 'text-gray-500' // Default gray for invalid numbers
+  }
   if (val === 0) {
     return 'text-black-500' // Gray for 0%
   }
@@ -94,7 +96,7 @@ export const MilestoneProgress = ({
 }: MilestoneProgressProps) => {
 
   // Handle N/A case
-  if (milestoneStatus === "Not Applicable") {
+  if (milestoneStatus === "Not Applicable"|| value=="N/A") {
     return (
       <div
         className={cn(
@@ -669,6 +671,20 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
                         projectData={projectData}
                       />
                     )}
+                    {/* {dailyReportDetails && projectData && (
+        <MilestoneReportPDF
+            // MAP 1: dailyReportDetails (your main doc) maps to 'milestone'
+            milestone={{
+                name: dailyReportDetails.name, 
+                creation: dailyReportDetails.creation, 
+                milestone_date: dailyReportDetails.report_date // Use report_date as the key date
+            }} 
+            
+            // MAP 2: projectData maps to 'contextName'
+            contextName={projectData.name || projectData.project_name} // Use the unique ID first, then the name
+        />
+    )}
+        */}
                   </div>
                 </div>
               ) : (

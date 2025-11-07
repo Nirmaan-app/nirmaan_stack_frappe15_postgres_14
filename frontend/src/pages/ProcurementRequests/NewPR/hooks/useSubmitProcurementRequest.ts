@@ -5,6 +5,12 @@ import { useFrappeCreateDoc, useFrappeUpdateDoc, useSWRConfig } from 'frappe-rea
 import { useProcurementRequestStore } from '../store/useProcurementRequestStore';
 import { useToast } from '@/components/ui/use-toast';
 import { useUserData } from '@/hooks/useUserData';
+import {
+    addWorkflowBreadcrumb,
+    captureWorkflowError,
+    isNetworkError,
+    startWorkflowTransaction,
+} from '@/utils/sentry';
 import { BackendPRItemDetail, CategorySelection, ProcurementRequestItem } from '../types';
 
 interface UseSubmitProcurementRequestResult {
@@ -123,87 +129,144 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
     // --- Submission Functions ---
 
     const submitNewPR = useCallback(async (finalCommentFromDialog: string) => {
-        // Add checks for projectId and selectedWP existence at the time of call
         if (!projectId || !selectedWP || procList.length === 0) {
             toast({ title: "Missing Information", description: "Project, Work Package, and items are required.", variant: "destructive" });
             return;
         }
 
+        const endSpan = startWorkflowTransaction('new-pr', 'create', {
+            project_id: projectId,
+            item_count: procList.length,
+            mode,
+        });
+        addWorkflowBreadcrumb('new-pr', 'PR submission started', { project_id: projectId });
+
         try {
             const backendOrderList = transformToBackendOrderList(procList);
-            // Ensure procList and selectedCategories are structured correctly for the API
             const payload = {
                 project: projectId,
                 work_package: selectedWP,
-                category_list: JSON.stringify({ list: getRefinedCategoriesList(procList) }), // Stringify if API expects JSON string
-                // procurement_list: JSON.stringify({ list: procList }),      // Stringify if API expects JSON string
-                order_list: backendOrderList
-                // Add other necessary fields
+                category_list: JSON.stringify({ list: getRefinedCategoriesList(procList) }),
+                order_list: backendOrderList,
             };
-            // console.log("Creating PR with payload:", payload); // Debug log
+
             const res = await createDoc("Procurement Requests", payload);
             await addCommentIfNeeded("Procurement Requests", res.name, "creating pr", finalCommentFromDialog);
             await handleSuccess(res.name, "created");
 
+            addWorkflowBreadcrumb('new-pr', 'PR submission successful', { pr_id: res.name });
         } catch (error: any) {
-            console.error("Submit PR Error:", error);
-            toast({ title: "Submission Failed", description: error.message || "Could not create Procurement Request.", variant: "destructive" });
+            addWorkflowBreadcrumb('new-pr', 'PR submission failed', { error: error.message });
+            captureWorkflowError('new-pr', error, {
+                project_id: projectId,
+                item_count: procList.length,
+                mode,
+            });
+
+            const description = isNetworkError(error)
+                ? "Network error. Please check your connection."
+                : error.message || "Could not create Procurement Request.";
+            toast({ title: "Submission Failed", description, variant: "destructive" });
+        } finally {
+            endSpan();
         }
-        // Dependencies for submitNewPR
-    }, [projectId, selectedWP, procList, selectedCategories, getRefinedCategoriesList, createDoc, addCommentIfNeeded, handleSuccess, toast]);
+    }, [
+        projectId,
+        selectedWP,
+        procList,
+        getRefinedCategoriesList,
+        createDoc,
+        addCommentIfNeeded,
+        handleSuccess,
+        toast,
+        mode,
+    ]);
 
 
     const resolveOrUpdatePR = useCallback(async (finalCommentFromDialog: string) => {
-        // Add check for prId existence at the time of call
         if (!prId || procList.length === 0) {
             toast({ title: "Missing Information", description: "Cannot update without PR ID or items.", variant: "destructive" });
             return;
         }
 
-        const backendOrderList = transformToBackendOrderList(procList);
-
-        const updateData: any = {
-            // Ensure lists are structured correctly for the API
-            category_list: JSON.stringify({ list: getRefinedCategoriesList(procList) }), // Stringify if API expects JSON string
-            // procurement_list: JSON.stringify({ list: procList }),      // Stringify if API expects JSON string
-            order_list: backendOrderList, // NEW: Pass the transformed array
-            workflow_state: "Pending"
-            // Add other necessary fields
-        };
+        const operation = mode === 'edit' ? 'update' : 'resolve';
+        const endSpan = startWorkflowTransaction('new-pr', operation, {
+            project_id: projectId,
+            pr_id: prId,
+            item_count: procList.length,
+            mode,
+        });
+        addWorkflowBreadcrumb('new-pr', `PR ${operation} started`, { pr_id: prId });
 
         try {
-            // console.log("Updating PR", prId, "with payload:", updateData); // Debug log
-            // const res = await updateDoc("Procurement Requests", prId, updateData); // updateDoc doesn't usually return the full doc
+            const backendOrderList = transformToBackendOrderList(procList);
+            const updateData: any = {
+                category_list: JSON.stringify({ list: getRefinedCategoriesList(procList) }),
+                order_list: backendOrderList,
+                workflow_state: "Pending",
+            };
+
             await updateDoc("Procurement Requests", prId, updateData);
             await addCommentIfNeeded("Procurement Requests", prId, mode === 'edit' ? "editing pr" : "resolving pr", finalCommentFromDialog);
             await handleSuccess(prId, mode === 'edit' ? "updated" : "resolved");
 
+            addWorkflowBreadcrumb('new-pr', `PR ${operation} successful`, { pr_id: prId });
         } catch (error: any) {
-            console.error("Resolve/Update PR Error:", error);
-            toast({ title: `${mode === 'edit' ? 'Update' : 'Resolve'} Failed`, description: error.message || "Could not update Procurement Request.", variant: "destructive" });
+            addWorkflowBreadcrumb('new-pr', `PR ${operation} failed`, { pr_id: prId, error: error.message });
+            captureWorkflowError('new-pr', error, {
+                project_id: projectId,
+                pr_id: prId,
+                item_count: procList.length,
+                mode,
+            });
+
+            const description = isNetworkError(error)
+                ? "Network error. Please check your connection."
+                : error.message || "Could not update Procurement Request.";
+            toast({ title: `${mode === 'edit' ? 'Update' : 'Resolve'} Failed`, description, variant: "destructive" });
+        } finally {
+            endSpan();
         }
-        // Dependencies for resolveOrUpdatePR
-    }, [prId, procList, selectedCategories, getRefinedCategoriesList, mode, updateDoc, addCommentIfNeeded, handleSuccess, toast]);
+    }, [
+        prId,
+        procList,
+        getRefinedCategoriesList,
+        mode,
+        updateDoc,
+        addCommentIfNeeded,
+        handleSuccess,
+        toast,
+        projectId,
+    ]);
 
 
     const cancelDraftPR = useCallback(async () => {
         if (mode !== 'edit' || !prId) return;
 
+        const endSpan = startWorkflowTransaction('new-pr', 'cancel-draft', { pr_id: prId, mode });
+        addWorkflowBreadcrumb('new-pr', 'PR draft cancellation started', { pr_id: prId });
+
         try {
             await updateDoc("Procurement Requests", prId, {
                 workflow_state: "Pending",
             });
-            toast({ title: "Draft Cancelled", description: `PR ${prId} draft changes discarded.`, variant: "default" }); // Using default variant
+            toast({ title: "Draft Cancelled", description: `PR ${prId} draft changes discarded.`, variant: "default" });
             resetStore();
-            // Ensure mutation happens *before* navigation if possible, or handle potential race conditions
             await globalMutate(`Procurement Requests ${prId}`);
             navigate(`/prs&milestones/procurement-requests/${prId}`);
 
+            addWorkflowBreadcrumb('new-pr', 'PR draft cancellation successful', { pr_id: prId });
         } catch (error: any) {
-            console.error("Cancel Draft Error:", error);
-            toast({ title: "Cancellation Failed", description: error.message || "Could not cancel draft.", variant: "destructive" });
+            addWorkflowBreadcrumb('new-pr', 'PR draft cancellation failed', { pr_id: prId, error: error.message });
+            captureWorkflowError('new-pr', error, { pr_id: prId, mode });
+
+            const description = isNetworkError(error)
+                ? "Network error. Please check your connection."
+                : error.message || "Could not cancel draft.";
+            toast({ title: "Cancellation Failed", description, variant: "destructive" });
+        } finally {
+            endSpan();
         }
-        // Dependencies for cancelDraftPR
     }, [mode, prId, updateDoc, navigate, resetStore, globalMutate, toast]);
 
 

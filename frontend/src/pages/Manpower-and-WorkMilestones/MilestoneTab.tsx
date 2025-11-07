@@ -1551,6 +1551,8 @@
 //   );
 // };
 
+
+
 // MilestoneTab.tsx
 import { useContext, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
@@ -1585,6 +1587,14 @@ import {
   DialogClose,
   DialogPrimitive
 } from "@/components/ui/dialog";
+import PhotoPermissionChecker from "./components/PhotoPermissionChecker"
+import {
+  addWorkflowBreadcrumb,
+  captureWorkflowError,
+  isNetworkError,
+  startWorkflowTransaction,
+} from '@/utils/sentry';
+import { ProgressReportErrorBoundary } from '@/components/error-boundaries/ProgressReportErrorBoundary';
 
 // --- START: Refined Interfaces based on your Frappe DocType ---
 
@@ -1711,7 +1721,7 @@ interface FullPreviousProjectProgressReport extends ProjectProgressReportData {
 // --- END: Refined Interfaces ---
 
 
-export const MilestoneTab = () => {
+const MilestoneTabInner = () => {
   const { projectId } = useParams<{ projectId: string }>();
   const { selectedProject, setSelectedProject, currentUser:user } = useContext(UserContext); // MODIFIED: Destructured `user`
   const navigate = useNavigate();
@@ -1984,7 +1994,16 @@ const latestCompletedReportDateIsToday =
         } else if (tab.project_work_header_name === "Photos") {
           initialData = { photos: existingDraftReport?.[0]?.photos || [] };
         } else {
-          const inheritedMilestones = existingDraftReport?.[0]?.milestones?.filter(m => m.work_header === tab.project_work_header_name) || getInheritedMilestones(tab.project_work_header_name);
+          // MODIFIED LOGIC HERE: Use existing draft milestones, OR the inherited list
+          // if no existing draft milestones are present for this header.
+          const existingDraftMilestonesForTab = existingDraftReport?.[0]?.milestones?.filter(
+            m => m.work_header === tab.project_work_header_name
+          ) || [];
+            
+          const inheritedMilestones = existingDraftMilestonesForTab.length > 0 
+            ? existingDraftMilestonesForTab 
+            : getInheritedMilestones(tab.project_work_header_name);
+
           initialData = {
             project: projectId,
             report_date: dateString,
@@ -2261,24 +2280,55 @@ const latestCompletedReportDateIsToday =
     }
   }, [localDailyReport, summaryWorkDate, activeTabValue]);
 
+  // useEffect(() => {
+  //   if (activeTabValue === "Work force" || activeTabValue === "Photos" || !allFrappeMilestones) {
+  //     setCurrentTabMilestones([]);
+  //     return;
+  //   }
+
+  //   // const localMilestonesFlatArray = getInheritedMilestones(activeTabValue) || localDailyReport?.milestones ;
+
+  //   const localMilestonesFlatArray =localDailyReport?.milestones || getInheritedMilestones(activeTabValue);
+
+  //   const milestonesForCurrentTab: LocalMilestoneData[] = [];
+  //   localMilestonesFlatArray.forEach(milestone => {
+  //     if (milestone.work_header === activeTabValue) {
+  //       milestonesForCurrentTab.push(milestone);
+  //     }
+  //   });
+
+  //   setCurrentTabMilestones(milestonesForCurrentTab);
+  // }, [activeTabValue, localDailyReport, allFrappeMilestones, lastCompletedReport]);
+
   useEffect(() => {
     if (activeTabValue === "Work force" || activeTabValue === "Photos" || !allFrappeMilestones) {
       setCurrentTabMilestones([]);
       return;
     }
 
-    const localMilestonesFlatArray = getInheritedMilestones(activeTabValue) || localDailyReport?.milestones ;
+    const currentTabWorkHeader = activeTabValue;
 
-    const milestonesForCurrentTab: LocalMilestoneData[] = [];
-    localMilestonesFlatArray.forEach(milestone => {
-      if (milestone.work_header === activeTabValue) {
-        milestonesForCurrentTab.push(milestone);
-      }
-    });
+    // 1. Prioritize milestones from the localDailyReport state (loaded from session storage)
+    let milestonesForCurrentTab: LocalMilestoneData[] = 
+        localDailyReport?.milestones?.filter(m => m.work_header === currentTabWorkHeader) || [];
+    
+    // 2. If localDailyReport did not contain milestones for this tab, 
+    //    fall back to the inherited/base milestones.
+    if (milestonesForCurrentTab.length === 0) {
+        // We call loadDailyReport/initializeTabStructureInLocalStorage 
+        // in the main effect, which already ensures the data is in sessionStorage.
+        // We re-call getInheritedMilestones here as a final safeguard/to ensure the base structure
+        // is used if initialization somehow failed to populate the milestones array correctly.
+        milestonesForCurrentTab = getInheritedMilestones(currentTabWorkHeader);
+        
+        // Safety check: if localDailyReport exists but its milestone array was empty,
+        // we should merge the inherited data into the local report state for the next update.
+        // This is mainly handled by initializeTabStructureInLocalStorage, but this ensures 
+        // the correct list is displayed.
+    }
 
     setCurrentTabMilestones(milestonesForCurrentTab);
   }, [activeTabValue, localDailyReport, allFrappeMilestones, lastCompletedReport]);
-
 
   const handleDialogManpowerCountChange = (index: number, value: string) => {
     const updatedRoles = [...dialogManpowerRoles];
@@ -2465,11 +2515,7 @@ console.log(user)
     setIsLocalSaving(true);
 
     if (activeTabValue !== "Work force" && activeTabValue !== "Photos") {
-      // const hasUnupdatedMilestones = currentTabMilestones.some(
-      //   (m) => !m.is_updated_for_current_report && m.status !== 'Not Applicable'
-      // );
-
-        const hasUnupdatedMilestones = currentTabMilestones.some(
+      const hasUnupdatedMilestones = currentTabMilestones.some(
         (m) => m.is_updated_for_current_report==false
       );
 
@@ -2529,7 +2575,7 @@ console.log(user)
       submissionStatus = 'Draft';
       successMessage = "Report Data Synced! 🎉";
       failureMessage = "Data Sync Failed ❌";
-      
+
       if (currentFrappeReportName) {
         operationType = 'update';
         docNameForFrappeOperation = currentFrappeReportName;
@@ -2540,6 +2586,22 @@ console.log(user)
 
     const finalPayload = collectAllTabData(submissionStatus);
     console.log("Submitting to Frappe with status:", submissionStatus, "Operation:", operationType, "Payload:", finalPayload);
+
+    // Start Sentry tracking
+    const sentryOperation = isLastTab ? 'final-submission' : 'save-draft';
+    const sentryContext = {
+      project_id: projectId,
+      report_id: currentFrappeReportName || undefined,
+      report_date: finalPayload.report_date,
+      report_status: submissionStatus,
+      active_tab: activeTabValue,
+      photo_count: localPhotos.length,
+      milestone_count: currentTabMilestones.length,
+    };
+
+    const endSpan = startWorkflowTransaction('project-progress-report', sentryOperation, sentryContext);
+    const breadcrumbMessage = isLastTab ? 'Final report submission started' : 'Report sync started';
+    addWorkflowBreadcrumb('project-progress-report', breadcrumbMessage, sentryContext);
 
     try {
       let response: any;
@@ -2561,6 +2623,12 @@ console.log(user)
         variant: "default",
       });
 
+      // Success breadcrumb
+      const successBreadcrumb = isLastTab ? 'Final report submission successful' : 'Report sync successful';
+      addWorkflowBreadcrumb('project-progress-report', successBreadcrumb, {
+        report_id: response.name || docNameForFrappeOperation
+      });
+
       if (isLastTab) {
         clearAllTabData();
         setCurrentFrappeReportName(null);
@@ -2574,12 +2642,27 @@ console.log(user)
 
     } catch (error: any) {
       console.error("Error during Frappe operation:", error);
+
+      // Failure breadcrumb
+      const failureBreadcrumb = isLastTab ? 'Final report submission failed' : 'Report sync failed';
+      addWorkflowBreadcrumb('project-progress-report', failureBreadcrumb, {
+        error: error.message
+      });
+
+      // Capture error with Sentry
+      captureWorkflowError('project-progress-report', error, sentryContext);
+
+      const description = isNetworkError(error)
+        ? "Network error. Please check your connection."
+        : error.message || "An unknown error occurred during report processing.";
+
       toast({
         title: failureMessage,
-        description: error.message || "An unknown error occurred during report processing.",
+        description,
         variant: "destructive",
       });
     } finally {
+      endSpan();
       setIsLocalSaving(false);
       refetchExistingDraftReport();
     }
@@ -3141,14 +3224,19 @@ console.log(user)
       <TabsContent value="Photos" className="mt-4 p-1">
       <Card className="border-none shadow-none bg-transparent">
         <CardHeader className="flex flex-col items-center pb-4 pt-0">
-          <Button
+          {/* <Button
             className="w-full bg-red-500 hover:bg-red-600 text-white font-semibold py-3 px-8 rounded-full shadow-md transition-all duration-200 ease-in-out transform hover:scale-105 "
             onClick={() => setIsCaptureDialogOpen(true)}
             disabled={isBlockedByDraftOwnership} // MODIFIED: Disable if blocked
           >
           <PlusCircledIcon className="h-5 w-5 mr-2" />
               <span> ADD PHOTOS</span>
-          </Button>
+          </Button> */}
+           <PhotoPermissionChecker
+            isBlockedByDraftOwnership={isBlockedByDraftOwnership}
+            onAddPhotosClick={() => setIsCaptureDialogOpen(true)}
+            GEO_API={apiData?.api_key}
+          />
         </CardHeader>
         <CardContent className="pt-0">
           {localPhotos.length > 0 ? (
@@ -3433,7 +3521,7 @@ console.log(user)
       </div>
 
       <Dialog open={isUpdateManpowerDialogOpen} onOpenChange={setIsUpdateManpowerDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-[425px] sm:max-h-[90vh] sm:overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-xl text-center font-bold text-red-600">Update Manpower</DialogTitle>
             <DialogDescription className="text-sm text-center">
@@ -3787,5 +3875,16 @@ console.log(user)
 </Dialog>
 
     </div>
+  );
+};
+
+// Wrap the component with Error Boundary
+export const MilestoneTab = () => {
+  const { projectId } = useParams<{ projectId: string }>();
+
+  return (
+    <ProgressReportErrorBoundary projectId={projectId}>
+      <MilestoneTabInner />
+    </ProgressReportErrorBoundary>
   );
 };

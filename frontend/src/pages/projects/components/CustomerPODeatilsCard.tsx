@@ -12,6 +12,10 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { AddCustomerPODialog, CustomerPODetail } from "./AddCustomerPODialog"; 
 import { useFrappeGetDocList ,useFrappeGetDoc} from "frappe-react-sdk"; // Needed to fetch current POs for the dialog
 import { parseNumber } from "@/utils/parseNumber"; // Utility to convert string/unknown to number
+import { formatDate } from "@/utils/FormatDate";
+// NEW IMPORTS: Tooltip components (assuming standard ShadCN/Radix paths)
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+
 
 // --- NEW CONSTANTS (Simulating a constant file) ---
 const CUSTOMER_PO_CHILD_TABLE_DOCTYPE = 'Projects'; // ASSUMPTION
@@ -23,12 +27,14 @@ export const CUSTOMER_PO_LIST_FIELDS_TO_FETCH = [
     '`tabCustomer PO Child Table`.customer_po_link', 
     '`tabCustomer PO Child Table`.customer_po_attachment', 
     '`tabCustomer PO Child Table`.customer_po_payment_terms',
+    '`tabCustomer PO Child Table`.customer_po_creation_date',
+
 ];
 export const CUSTOMER_PO_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "customer_po_number", label: "PO Number", default: true },
     // { value: "project_name", label: "Project Name" },
 ];
-export const CUSTOMER_PO_DATE_COLUMNS: string[] = [];
+export const CUSTOMER_PO_DATE_COLUMNS: string[] = ["creation", "customer_po_creation_date"];
 // const CUSTOMER_PO_AGGREGATES_CONFIG: (SimpleAggregationConfig | CustomAggregationConfig)[] = [
 //     { field: 'customer_po_value_inctax', function: 'sum', alias: 'total_incl_tax' }, 
 //     { field: 'customer_po_value_exctax', function: 'sum', alias: 'total_excl_tax' }, 
@@ -51,6 +57,19 @@ interface CustomerPODetailsCardProps {
 const getCustomerPOColumns = (projectId?: string): ColumnDef<CustomerPOTableRow>[] => {
     
     const columns: ColumnDef<CustomerPOTableRow>[] = [
+             {
+               // Date -> Center Align
+               accessorKey: "customer_po_creation_date",
+               header: ({ column }) => (
+                 <div className="flex justify-center">
+                   <DataTableColumnHeader column={column} title="Creation" />
+                 </div>
+               ),
+               cell: ({ row }) => (
+                 <div className="text-left">{formatDate(row.original.customer_po_creation_date)}</div>
+               ),
+               enableColumnFilter: true,
+             },
         {
             accessorKey: "customer_po_number",
             header: ({ column }) => (
@@ -113,27 +132,37 @@ const getCustomerPOColumns = (projectId?: string): ColumnDef<CustomerPOTableRow>
         //     size: 200,
         // } as ColumnDef<CustomerPOTableRow>] : []),
         
-        {
+       {
             accessorKey: "customer_po_payment_terms",
             header: ({ column }) => (
                 <DataTableColumnHeader column={column} title="Payment Terms" />
             ),
             cell: ({ row }) => (
-                <div className="text-sm text-gray-600 truncate" title={row.original.customer_po_payment_terms}>
-                    {row.original.customer_po_payment_terms || 'N/A'}
-                </div>
+                // CHANGED: Use ShadCN/Radix Tooltip for styled hover text
+                <TooltipProvider delayDuration={100}>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            {/* The inner div is what is visible and truncated */}
+                            <div className="text-sm text-blue-600 truncate link underline underline-blue underline-offset-2 cursor-help">
+                                {row.original.customer_po_payment_terms || 'N/A'}
+                            </div>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs whitespace-normal break-words">
+                            <p>{row.original.customer_po_payment_terms || 'No payment terms specified.'}</p>
+                        </TooltipContent>
+                    </Tooltip>
+                </TooltipProvider>
             ),
             enableColumnFilter: false,
             enableSorting: false, 
 
-
-            size:100, // More space if Project is hidden
+            size: 150, 
         },
         {
-            id: "source",
-            header: () => <div className="text-center">Source</div>,
+            id: "Link/ Attachment",
+            header: () => <div className="text-center">Link / Attachment</div>,
             cell: ({ row }) => (
-                <div className="flex justify-start gap-2">
+                <div className="flex justify-center gap-2">
                     {row.original.customer_po_link && (
                         <a href={row.original.customer_po_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800" title="PO Link">
                             <LinkIcon className="w-4 h-4"/>
@@ -175,7 +204,7 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
     );
     
 
-    console.log("CustomerPODetailsCard: projectDataForDialog =", projectDataForDialog);
+    // console.log("CustomerPODetailsCard: projectDataForDialog =", projectDataForDialog);
     const poListForDialog = projectDataForDialog?.customer_po_details || [];
     const projectNameForDialog = projectDataForDialog?.name;
     // Memoized calculation of aggregates from the fetched PO list
@@ -220,13 +249,13 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
         columns: useMemo(() => getCustomerPOColumns(projectId), [projectId]),
         fetchFields: CUSTOMER_PO_LIST_FIELDS_TO_FETCH as string[],
         searchableFields: CUSTOMER_PO_SEARCHABLE_FIELDS,
-        dateFilterColumns: CUSTOMER_PO_DATE_COLUMNS,
-        defaultSort: 'creation desc',
+        defaultSort: '`tabCustomer PO Child Table`.customer_po_creation_date',
         urlSyncKey: projectId ? `po_child_list_${projectId}` : "po_child_list_all",
         additionalFilters: additionalFilters, // Apply project filter here
         // aggregatesConfig: CUSTOMER_PO_AGGREGATES_CONFIG, 
     });
 
+    // console.log("poDataForPage",poDataForPage)
 
     // Handler to refetch data after a new PO is added
     const handlePoAdded = async () => {
@@ -236,6 +265,20 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
         // 3. Refetch the parent component's data (if needed)
     }
 
+
+     const isDataInvalid = useMemo(() => {
+        // Check if the data is fetched (not loading) and is an array with at least one element,
+        // AND the first element has a null/empty po number.
+        if (!listIsLoading && poDataForPage?.length > 0) {
+            const firstPo = poDataForPage[0];
+            // Check for explicit null, undefined, or empty string
+            if (!firstPo.customer_po_number) {
+                // console.log("Data integrity issue: First PO record has no PO number.", firstPo);
+                return true;
+            }
+        }
+        return false;
+    }, [poDataForPage, listIsLoading]);
 
     return (
         <Card>
@@ -283,9 +326,16 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
                 {/* END Aggregates Display */}
             </CardHeader>
             <CardContent>
-                {listIsLoading && !poDataForPage?.length ? (
+               {listIsLoading && !poDataForPage?.length ? (
                     <div className="flex items-center justify-center p-8"><TailSpin color={"red"} height={20} width={20} /></div>
+                ) : (isDataInvalid ? (
+                    // Display message when data is available but the first record is invalid
+                    <div className="flex items-center justify-center p-8 text-gray-500 font-semibold">
+                        <Info className="w-5 h-5 mr-2 text-yellow-600"/>
+                        Data is not available or contains invalid records. Please check the source data.
+                    </div>
                 ) : (
+                    // Render the table if data is fetched and valid (or empty, which the DataTable handles)
                     <DataTable<CustomerPOTableRow>
                         table={table}
                         columns={table.options.columns}
@@ -304,7 +354,7 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
                         exportFileName={`Customer_PO_Details_${projectId || "all"}`}
                         showRowSelection={false}
                     />
-                )}
+                ))}
             </CardContent>
         </Card>
     );

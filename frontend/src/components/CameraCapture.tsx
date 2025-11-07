@@ -165,7 +165,10 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
     startCamera(facingMode);
     return () => {
       if (stream) {
-        stream.getTracks().forEach(track => track.stop());
+        // stream.getTracks().forEach(track => track.stop());
+        setTimeout(() => {
+  stream.getTracks().forEach(t => t.stop());
+}, 200);
       }
       if (videoRef.current) {
         videoRef.current.srcObject = null;
@@ -188,7 +191,10 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
       const canvas = canvasRef.current;
 
       if (stream) {
-        stream.getTracks().forEach(track => track.stop());
+        // stream.getTracks().forEach(track => track.stop());
+        setTimeout(() => {
+  stream.getTracks().forEach(t => t.stop());
+}, 200);
       }
       setStream(null);
 
@@ -257,6 +263,9 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
     if (stream) {
         console.log("CameraCapture: Explicitly stopping camera stream tracks.");
         stream.getTracks().forEach(track => track.stop());
+        setTimeout(() => {
+  stream.getTracks().forEach(t => t.stop());
+}, 200);
     }
     if (videoRef.current) {
         console.log("CameraCapture: Clearing video srcObject.");

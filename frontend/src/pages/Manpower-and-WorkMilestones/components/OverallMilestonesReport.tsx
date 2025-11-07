@@ -412,7 +412,19 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
                           )}
                         </TableCell>
                         <TableCell className="text-center py-3 px-2 text-sm">
-                          {report7DaysAgo ? sevenDaysAgoData.progress : <span className="text-gray-400 text-xs">N/A</span>}
+                         
+                           <MilestoneProgress
+                                                                      // 1. Pass the status for the N/A check
+                                                                      milestoneStatus={sevenDaysAgoData.status}
+                          
+                                                                      // 2. Pass the progress value for the circle and color logic
+                                                                      value={sevenDaysAgoData.progress}
+                          
+                                                                      // 3. Set the desired size and text size
+                                                                      sizeClassName="size-[60px]"
+                                                                      textSizeClassName="text-md"
+                                                                    />
+                          
                         </TableCell>
 
                         <TableCell className="text-center py-3 px-2">
@@ -425,7 +437,19 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
                           )}
                         </TableCell>
                         <TableCell className="text-center py-3 px-2 text-sm">
-                          {report14DaysAgo ? fourteenDaysAgoData.progress : <span className="text-gray-400 text-xs">N/A</span>}
+                          
+                           <MilestoneProgress
+                                                                      // 1. Pass the status for the N/A check
+                                                                      milestoneStatus={fourteenDaysAgoData.status}
+                          
+                                                                      // 2. Pass the progress value for the circle and color logic
+                                                                      value={fourteenDaysAgoData.progress}
+                          
+                                                                      // 3. Set the desired size and text size
+                                                                      sizeClassName="size-[60px]"
+                                                                      textSizeClassName="text-md"
+                                                                    />
+                          
                         </TableCell>
                       </TableRow>
                     );
@@ -447,34 +471,34 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
                             className="rounded-lg overflow-hidden shadow-md bg-white border border-gray-200" // Card wrapper
                           >
                             {/* Responsive container for image and text details */}
-                            {/* Stacks on mobile (flex-col), becomes row on small screens and up (sm:flex-row) */}
-                            <div className="flex flex-col sm:flex-row h-full"> 
-                              {/* Image container */}
-                              <div className="w-full sm:w-1/2 flex-shrink-0">
-                                <img
-                                  src={attachment.image_link}
-                                  alt={`Work Image ${idx + 1}`}
-                                  className="w-full h-[180px] sm:h-full object-cover rounded-t-lg sm:rounded-l-lg sm:rounded-tr-none" // Adjust rounding based on layout
-                                />
-                              </div>
-
-                              <div className="w-full sm:w-1/2 p-3 flex flex-col justify-between"> 
-                                {/* Location */}
-                                <div className="flex items-center text-xs text-gray-700 mb-2">
-                                  <MapPin className="h-4 w-4 mr-1 text-red-500 flex-shrink-0" />
-                                  <span className="font-medium break-words">
-                                    {attachment.location || `Lat: ${attachment.latitude?.toFixed(2)}, Lon: ${attachment.longitude?.toFixed(2)}`}
-                                  </span>
-                                </div>
-                                {/* Remarks - highlighted yellow card style, pushed to bottom if space */}
-                                <p className="p-2 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs mt-auto">
-                                  <MessagesSquare className="h-4 w-4 inline-block mr-1 flex-shrink-0" />
-                                  {attachment.remarks || "No remarks provided."}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
+                                                                           {/* Stacks on mobile (flex-col), becomes row on small screens and up (sm:flex-row) */}
+                                                                           <div className="flex flex-col sm:flex-row h-full">
+                                                                             {/* Image container */}
+                                                                             <div className="w-full sm:w-1/2 flex-shrink-0">
+                                                                               <img
+                                                                                 src={attachment.image_link}
+                                                                                 alt={`Work Image ${idx + 1}`}
+                                                                                 className="w-full h-[180px] sm:h-full object-cover rounded-t-lg sm:rounded-l-lg sm:rounded-tr-none" // Adjust rounding based on layout
+                                                                               />
+                                                                             </div>
+                                               
+                                                                             <div className="w-full sm:w-1/2 p-3 flex flex-col justify-between">
+                                                                               {/* Location */}
+                                                                               <div className="flex items-center text-xs text-gray-700 mb-2">
+                                                                                 <MapPin className="h-4 w-4 mr-1 text-red-500 flex-shrink-0" />
+                                                                                 <span className="font-medium break-words">
+                                                                                   {attachment.location || `Lat: ${attachment.latitude?.toFixed(2)}, Lon: ${attachment.longitude?.toFixed(2)}`}
+                                                                                 </span>
+                                                                               </div>
+                                                                               {/* Remarks - highlighted yellow card style, pushed to bottom if space */}
+                                                                               <p className="p-2 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs mt-auto">
+                                                                                 <MessagesSquare className="h-4 w-4 inline-block mr-1 flex-shrink-0" />
+                                                                                 {attachment.remarks || "No remarks provided."}
+                                                                               </p>
+                                                                             </div>
+                                                                           </div>
+                                                                         </div>
+                                                                       ))}
                       </div>
                     ) : (
                       <div className="w-full h-32 bg-gray-100 flex items-center justify-center text-gray-500 rounded-lg border-2 border-dashed border-gray-300">

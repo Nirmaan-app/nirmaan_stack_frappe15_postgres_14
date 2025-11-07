@@ -14,6 +14,7 @@ import { EditItemDialog } from './components/EditItemDialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { MessageCircleWarning } from 'lucide-react';
+import { NewPRErrorBoundary } from '@/components/error-boundaries/NewPRErrorBoundary';
 
 // Store, Hooks, Types
 import { useProcurementRequestStore } from './store/useProcurementRequestStore';
@@ -59,7 +60,7 @@ export const extractMakesFromChildTableForWP = (project: Projects | undefined, s
 
 };
 
-export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boolean }> = ({ resolve = false, edit = false }) => {
+const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boolean }> = ({ resolve = false, edit = false }) => {
     const { projectId, prId } = useParams<{ projectId: string; prId?: string }>();
     const mode = edit ? 'edit' : resolve ? 'resolve' : 'create';
     // const navigate = useNavigate();
@@ -422,5 +423,16 @@ export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boo
 
             />
         </div>
+    );
+};
+
+// Wrap the component with Error Boundary
+export const NewProcurementRequestPage: React.FC<{ resolve?: boolean; edit?: boolean }> = (props) => {
+    const { projectId, prId } = useParams<{ projectId: string; prId?: string }>();
+
+    return (
+        <NewPRErrorBoundary projectId={projectId} prId={prId}>
+            <NewProcurementRequestPageInner {...props} />
+        </NewPRErrorBoundary>
     );
 };

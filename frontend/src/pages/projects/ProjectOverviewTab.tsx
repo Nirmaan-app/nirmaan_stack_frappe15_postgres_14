@@ -65,7 +65,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
   const [selectedUser, setSelectedUser] = useState<string | undefined>();
   const [userOptions, setUserOptions] = useState<{ label: JSX.Element; value: string }[]>([]);
  
-console.log("projectData.customer_po_details", projectData.customer_po_details);
+// console.log("projectData.customer_po_details", projectData.customer_po_details);
 
   const [assignUserDialog, setAssignUserDialog] = useState(false);
   const toggleAssignUserDialog = useCallback(() => {
