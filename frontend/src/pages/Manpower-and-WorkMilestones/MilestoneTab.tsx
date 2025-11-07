@@ -1588,6 +1588,13 @@ import {
   DialogPrimitive
 } from "@/components/ui/dialog";
 import PhotoPermissionChecker from "./components/PhotoPermissionChecker"
+import {
+  addWorkflowBreadcrumb,
+  captureWorkflowError,
+  isNetworkError,
+  startWorkflowTransaction,
+} from '@/utils/sentry';
+import { ProgressReportErrorBoundary } from '@/components/error-boundaries/ProgressReportErrorBoundary';
 
 // --- START: Refined Interfaces based on your Frappe DocType ---
 
@@ -1714,7 +1721,7 @@ interface FullPreviousProjectProgressReport extends ProjectProgressReportData {
 // --- END: Refined Interfaces ---
 
 
-export const MilestoneTab = () => {
+const MilestoneTabInner = () => {
   const { projectId } = useParams<{ projectId: string }>();
   const { selectedProject, setSelectedProject, currentUser:user } = useContext(UserContext); // MODIFIED: Destructured `user`
   const navigate = useNavigate();
@@ -2508,11 +2515,7 @@ console.log(user)
     setIsLocalSaving(true);
 
     if (activeTabValue !== "Work force" && activeTabValue !== "Photos") {
-      // const hasUnupdatedMilestones = currentTabMilestones.some(
-      //   (m) => !m.is_updated_for_current_report && m.status !== 'Not Applicable'
-      // );
-
-        const hasUnupdatedMilestones = currentTabMilestones.some(
+      const hasUnupdatedMilestones = currentTabMilestones.some(
         (m) => m.is_updated_for_current_report==false
       );
 
@@ -2572,7 +2575,7 @@ console.log(user)
       submissionStatus = 'Draft';
       successMessage = "Report Data Synced! 🎉";
       failureMessage = "Data Sync Failed ❌";
-      
+
       if (currentFrappeReportName) {
         operationType = 'update';
         docNameForFrappeOperation = currentFrappeReportName;
@@ -2583,6 +2586,22 @@ console.log(user)
 
     const finalPayload = collectAllTabData(submissionStatus);
     console.log("Submitting to Frappe with status:", submissionStatus, "Operation:", operationType, "Payload:", finalPayload);
+
+    // Start Sentry tracking
+    const sentryOperation = isLastTab ? 'final-submission' : 'save-draft';
+    const sentryContext = {
+      project_id: projectId,
+      report_id: currentFrappeReportName || undefined,
+      report_date: finalPayload.report_date,
+      report_status: submissionStatus,
+      active_tab: activeTabValue,
+      photo_count: localPhotos.length,
+      milestone_count: currentTabMilestones.length,
+    };
+
+    const endSpan = startWorkflowTransaction('project-progress-report', sentryOperation, sentryContext);
+    const breadcrumbMessage = isLastTab ? 'Final report submission started' : 'Report sync started';
+    addWorkflowBreadcrumb('project-progress-report', breadcrumbMessage, sentryContext);
 
     try {
       let response: any;
@@ -2604,6 +2623,12 @@ console.log(user)
         variant: "default",
       });
 
+      // Success breadcrumb
+      const successBreadcrumb = isLastTab ? 'Final report submission successful' : 'Report sync successful';
+      addWorkflowBreadcrumb('project-progress-report', successBreadcrumb, {
+        report_id: response.name || docNameForFrappeOperation
+      });
+
       if (isLastTab) {
         clearAllTabData();
         setCurrentFrappeReportName(null);
@@ -2617,12 +2642,27 @@ console.log(user)
 
     } catch (error: any) {
       console.error("Error during Frappe operation:", error);
+
+      // Failure breadcrumb
+      const failureBreadcrumb = isLastTab ? 'Final report submission failed' : 'Report sync failed';
+      addWorkflowBreadcrumb('project-progress-report', failureBreadcrumb, {
+        error: error.message
+      });
+
+      // Capture error with Sentry
+      captureWorkflowError('project-progress-report', error, sentryContext);
+
+      const description = isNetworkError(error)
+        ? "Network error. Please check your connection."
+        : error.message || "An unknown error occurred during report processing.";
+
       toast({
         title: failureMessage,
-        description: error.message || "An unknown error occurred during report processing.",
+        description,
         variant: "destructive",
       });
     } finally {
+      endSpan();
       setIsLocalSaving(false);
       refetchExistingDraftReport();
     }
@@ -3835,5 +3875,16 @@ console.log(user)
 </Dialog>
 
     </div>
+  );
+};
+
+// Wrap the component with Error Boundary
+export const MilestoneTab = () => {
+  const { projectId } = useParams<{ projectId: string }>();
+
+  return (
+    <ProgressReportErrorBoundary projectId={projectId}>
+      <MilestoneTabInner />
+    </ProgressReportErrorBoundary>
   );
 };
