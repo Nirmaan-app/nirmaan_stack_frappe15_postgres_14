@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__gemini-cli__Help",
+      "mcp__gemini-cli__ask-gemini"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

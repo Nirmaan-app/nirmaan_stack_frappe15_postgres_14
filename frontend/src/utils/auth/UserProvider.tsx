@@ -1,5 +1,7 @@
 import { AuthResponse, useFrappeAuth, useSWRConfig } from "frappe-react-sdk";
 import { createContext, FC, PropsWithChildren, useEffect, useState } from "react";
+import * as Sentry from "@sentry/react";
+import { useUserData } from "@/hooks/useUserData";
 // import { useNavigate } from 'react-router-dom'
 
 interface UserContextProps {
@@ -45,10 +47,33 @@ export const UserProvider: FC<PropsWithChildren> = ({ children }) => {
     setDeleteDialog((prevState) => !prevState);
   };
 
+  // Fetch user data for Sentry context
+  const { user_id, full_name, user_image, role, has_project } = useUserData();
+
   useEffect(() => {
     const savedProject = sessionStorage.getItem("selectedProject");
     setSelectedProject(savedProject ? JSON.parse(savedProject) : null);
   }, []);
+
+  // Set Sentry user context when user is authenticated
+  useEffect(() => {
+    if (currentUser && currentUser !== "Guest" && user_id) {
+      Sentry.setUser({
+        id: user_id,
+        username: currentUser,
+        full_name: full_name,
+        role: role,
+        has_project: has_project,
+        selected_project: selectedProject || undefined,
+      });
+
+      console.log("Sentry user context set:", { user_id, currentUser, role });
+    } else if (!currentUser || currentUser === "Guest") {
+      // Clear Sentry user context if not authenticated
+      Sentry.setUser(null);
+      console.log("Sentry user context cleared");
+    }
+  }, [currentUser, user_id, full_name, role, has_project, selectedProject]);
 
   // console.log("selectedProject", selectedProject)
 
@@ -66,6 +91,10 @@ export const UserProvider: FC<PropsWithChildren> = ({ children }) => {
   // }, [authStatus, navigate, mutate])
 
   const handleLogout = async () => {
+    // Clear Sentry user context immediately on logout
+    Sentry.setUser(null);
+    console.log("Sentry user context cleared on logout");
+
     localStorage.removeItem("app-cache");
     return logout().then(() => {
       //Clear cache on logout
