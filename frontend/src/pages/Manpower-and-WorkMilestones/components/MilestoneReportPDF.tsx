@@ -124,11 +124,20 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
   };
 
   // Group milestones by work header
-  const milestoneGroups = dailyReportDetails?.milestones?.reduce((acc, milestone) => {
-    (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
-    return acc;
-  }, {});
-
+  // const milestoneGroups = dailyReportDetails?.milestones?.reduce((acc, milestone) => {
+  //   (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
+  //   return acc;
+  // }, {});
+  // Group milestones by work header
+  
+  const milestoneGroups = dailyReportDetails?.milestones
+    // --- ADDED: Filter out "Not Applicable" milestones ---
+    ?.filter(milestone => milestone.status !== "Not Applicable")
+    // ----------------------------------------------------
+    ?.reduce((acc, milestone) => {
+      (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
+      return acc;
+    }, {});
   // Address mapping (kept for context, but not directly used in the repeating page header)
   const gstAddressMap = {
     "29ABFCS9095N1Z9": "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka",
@@ -226,7 +235,7 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
                   </tr>
 
                   {/* Summary Metrics */}
-                  <tr>
+                  {/* <tr>
                     <td colSpan={4}>
                       <div className="mb-6 p-4 bg-red-50 rounded-lg border border-red-100 mt-4">
                         <h3 className="text-lg font-bold mb-3 text-red-800">REPORT SUMMARY</h3>
@@ -246,15 +255,15 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
                         </div>
                       </div>
                     </td>
-                  </tr>
+                  </tr> */}
 
                   {/* Manpower Section */}
                   {dailyReportDetails.manpower && dailyReportDetails.manpower.length > 0 && (
                     <tr>
                       <td colSpan={4}>
-                        <div className="mb-6">
+                        <div className="my-6 ">
                           <h3 className="text-lg font-bold mb-3 text-gray-800">MANPOWER DETAILS</h3>
-                          <div className="grid grid-cols-2 gap-3">
+                          <div className="grid grid-cols-1 gap-3">
                             {dailyReportDetails.manpower
                               // 1. Filter the array to only include items where 'count' is greater than 0
                               .filter(mp_detail => mp_detail.count > 0)
@@ -403,6 +412,8 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
                                     </td>
                                   </tr>
                                 ))}
+
+
                               </tbody>
                             </table>
                           </div>
