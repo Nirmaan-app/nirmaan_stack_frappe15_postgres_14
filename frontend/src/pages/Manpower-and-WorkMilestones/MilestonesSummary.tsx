@@ -7,7 +7,7 @@ import {
   useFrappeUpdateDoc
 } from "frappe-react-sdk";
 import { MapPin, ChevronDown, ChevronUp, MessagesSquare } from "lucide-react";
-import { useContext, useEffect, useState } from "react";
+import { useContext, useEffect, useState,useMemo } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate } from "react-router-dom";
 // import ProjectSelect from "@/components/custom-select/project-select";
@@ -29,6 +29,7 @@ import OverallMilestonesReport from "./components/OverallMilestonesReport"
 import { useUserData } from "@/hooks/useUserData";
 import { ProgressCircle } from "@/components/ui/ProgressCircle";
 import { cn } from '@/lib/utils' // Assuming you have this utility
+import {DELIMITER,parseWorkPlan,serializeWorkPlan} from "./MilestoneTab"
 
 
 // Helper function to format date for input type="date" (YYYY-MM-DD)
@@ -412,10 +413,86 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
                     </div>
                   )}
 
+
+{/* --- UPDATED SECTION: Upcoming Work Plan Summary (Grouped by Header) --- */}
+{dailyReportDetails.milestones && dailyReportDetails.milestones.length > 0 && (() => {
+  // Group milestones by header and filter
+  const groupedMilestones = dailyReportDetails.milestones.reduce((acc, milestone) => {
+    // Only include milestones with non-empty work_plan
+    if (milestone.work_plan && parseWorkPlan(milestone.work_plan).length > 0) {
+      (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
+    }
+    return acc;
+  }, {});
+
+  // Filter out headers that have no milestones with work_plan
+  const filteredGroups = Object.entries(groupedMilestones).filter(
+    ([header, milestones]) => milestones.length > 0
+  );
+
+  // Only render if there are any valid groups
+  if (filteredGroups.length === 0) return null;
+
+  return (
+    <div className="mb-6">
+      <h3 className="text-lg md:text-xl font-bold mb-6 border-b">Work Plan</h3>
+      
+      {filteredGroups.map(([header, milestones], groupIdx) => (
+        <div key={groupIdx} className="mb-4 last:mb-0 rounded-md overflow-hidden">
+          {/* Header */}
+          <div className="p-3 bg-gray-50">
+            <h3 className="text-base md:text-lg font-bold">
+              {header} - {milestones.length.toString().padStart(2, '0')}
+            </h3>
+          </div>
+
+          {/* Content - Always visible, no collapse */}
+          <div className="p-3">
+            {/* Mobile & Desktop Card View */}
+            <div className="space-y-3">
+              {milestones.map((milestone, idx) => (
+                <div key={idx} className="border rounded-lg p-3 bg-white shadow-sm">
+                  <div className="mb-2">
+                    <h4 className="font-medium text-sm text-gray-800">
+                      {milestone.work_milestone_name}
+                    </h4>
+                  </div>
+                  
+                  {/* Work Plan - Always present here since we filtered */}
+                  <div className="mt-3">
+                    {/* <p className="text-xs text-gray-500 mb-1 font-semibold text-blue-700">
+                      Upcoming Work Plan
+                    </p> */}
+                    <div className="p-2 bg-blue-50 border border-blue-200 rounded-md">
+                      <ul className="list-disc list-inside text-xs text-blue-800 space-y-0.5 ml-2">
+                        {parseWorkPlan(milestone.work_plan).map((point, i) => (
+                          <li key={i} className="break-words whitespace-pre-wrap">
+                            {point}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+})()}
+{/* --- END UPDATED SECTION --- */}
+
+
+
+
+
                   {/* Work Progress Sections (Ducting, FA PA & ACS etc.) */}
                   {dailyReportDetails.milestones && dailyReportDetails.milestones.length > 0 && (
                     <div className="mb-6">
                       {/* Expand/Collapse All Button */}
+                      <h3 className="text-lg md:text-xl font-bold mb-6 border-b">Work Milestones</h3>
                       <div className="flex justify-end mb-3">
                         <Button
                           variant="outline"
