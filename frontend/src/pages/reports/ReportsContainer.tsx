@@ -33,7 +33,7 @@ const poReportOptions: { label: string; value: POReportOption }[] = [
 
 const srReportOptions: { label: string; value: SROption }[] = [
     { label: 'Pending Invoices', value: 'Pending Invoices' },
-    { label: 'Excess Payments (SR)', value: 'PO with Excess Payments' },
+    { label: 'Excess Payments (WO)', value: 'PO with Excess Payments' },
 ];
 
 export default function ReportsContainer() {
@@ -148,7 +148,7 @@ export default function ReportsContainer() {
         }
         if (["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)) {
             availableTabs.push({
-                label: <div className="flex items-center"><span>SR</span></div>,
+                label: <div className="flex items-center"><span>WO</span></div>,
                 value: REPORTS_TABS.SR,
             });
         }

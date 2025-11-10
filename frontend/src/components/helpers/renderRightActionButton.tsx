@@ -41,7 +41,7 @@ const newButtonRoutes: Record<string, { label: string; route: string }> = {
     route: "prs&milestones/procurement-requests",
   },
   "/service-requests": {
-    label: "New SR",
+    label: "New WO",
     route: "service-requests-list",
   },
 };
@@ -105,7 +105,7 @@ export const RenderRightActionButton = ({
         onClick={() => navigate(`/service-requests-list/${selectedProject}/new-sr`)}
       >
         <CirclePlus className="w-5 h-5 pr-1" />
-        Add <span className="hidden md:flex pl-1">New SR</span>
+        Add <span className="hidden md:flex pl-1">New WO</span>
       </Button>
     );
   } else if (locationPath === "/products") {

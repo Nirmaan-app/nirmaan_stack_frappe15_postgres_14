@@ -38,7 +38,7 @@ export const SR_SUMMARY_LIST_FIELDS_TO_FETCH: (keyof ServiceRequests | 'name')[]
 
 // Searchable fields for the SR Summary table
 export const SR_SUMMARY_SEARCHABLE_FIELDS: SearchFieldOption[] = [
-    { value: "name", label: "SR #", placeholder: "Search by SR #...", default: true },
+    { value: "name", label: "WO #", placeholder: "Search by WO #...", default: true },
     // { value: "project_name", label: "Project", placeholder: "Search by Project..." }, // Already filtered by project
     // { value: "vendor_name", label: "Vendor", placeholder: "Search by Vendor..." }, // If vendor is relevant here
     { value: "status", label: "Status", placeholder: "Search by Status..." },
@@ -152,7 +152,7 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({ pr
     // --- Column Definitions ---
     const columns = useMemo<ColumnDef<ServiceRequests>[]>(() => [
         {
-            accessorKey: "name", header: ({ column }) => <DataTableColumnHeader column={column} title="SR #" />,
+            accessorKey: "name", header: ({ column }) => <DataTableColumnHeader column={column} title="WO #" />,
             cell: ({ row }) => {
                 const sr = row.original;
                 return (
@@ -167,7 +167,7 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({ pr
                 );
             }, size: 150,
             meta: {
-                exportHeaderName: "SR ID",
+                exportHeaderName: "WO ID",
             }
         },
         {
@@ -296,7 +296,7 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({ pr
             <Card>
                 <CardContent className="flex flex-row items-center justify-between p-4">
                     <CardDescription>
-                        <p className="text-lg font-semibold text-gray-700">SR Summary
+                        <p className="text-lg font-semibold text-gray-700">WO Summary
                             {/* ({getProjectName(projectId) || "All Projects"}) */}
 
                         </p>

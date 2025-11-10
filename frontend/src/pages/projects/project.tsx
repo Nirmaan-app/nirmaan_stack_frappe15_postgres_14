@@ -340,7 +340,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       key: PROJECT_PAGE_TABS.FINANCIALS,
     },
     {
-      label: "SR Summary",
+      label: "WO Summary",
       key: PROJECT_PAGE_TABS.SR_SUMMARY,
     },
     {

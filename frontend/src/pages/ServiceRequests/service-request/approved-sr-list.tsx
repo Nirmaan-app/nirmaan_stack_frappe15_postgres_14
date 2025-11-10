@@ -135,7 +135,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
     // --- Column Definitions ---
     const columns = useMemo<ColumnDef<ServiceRequests>[]>(() => [
         {
-            accessorKey: "name", header: ({ column }) => <DataTableColumnHeader column={column} title="#SR" />,
+            accessorKey: "name", header: ({ column }) => <DataTableColumnHeader column={column} title="#WO" />,
             cell: ({ row }) => {
                 const data = row.original;
                 const srId = data.name;
@@ -158,7 +158,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
                 );
             }, size: 150,
             meta: {
-                exportHeaderName: "#SR",
+                exportHeaderName: "#WO",
                 exportValue: (row) => {
                     return row.name;
                 }

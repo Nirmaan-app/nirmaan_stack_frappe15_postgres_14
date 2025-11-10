@@ -89,7 +89,7 @@ export const ApproveSelectAmendSR: React.FC = () => {
     // --- Column Definitions ---
     const columns = useMemo<ColumnDef<ServiceRequests>[]>(() => [
         {
-            accessorKey: "name", header: ({ column }) => <DataTableColumnHeader column={column} title="#SR" />,
+            accessorKey: "name", header: ({ column }) => <DataTableColumnHeader column={column} title="#WO" />,
             cell: ({ row }) => {
                 const data = row.original;
                 const srId = data.name;
