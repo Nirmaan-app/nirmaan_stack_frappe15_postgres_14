@@ -180,11 +180,29 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
     }
   };
 
-  // Group milestones that have a work_plan for the Work Plan section
-  const workPlanGroupedMilestones = useMemo(() => {
+  // // Group milestones that have a work_plan for the Work Plan section
+  // const workPlanGroupedMilestones = useMemo(() => {
+  //   if (!dailyReportDetails?.milestones) return {};
+  //   return dailyReportDetails.milestones.reduce((acc: any, milestone: any) => {
+  //     if (milestone.work_plan && parseWorkPlan(milestone.work_plan).length > 0) {
+  //       (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone)
+  //     }
+  //     return acc
+  //   }, {})
+  // }, [dailyReportDetails]);
+
+   const workPlanGroupedMilestones = useMemo(() => {
     if (!dailyReportDetails?.milestones) return {};
+
     return dailyReportDetails.milestones.reduce((acc: any, milestone: any) => {
-      if (milestone.work_plan && parseWorkPlan(milestone.work_plan).length > 0) {
+      // 1. Check if the status is WIP or Not Started
+      const isRelevantStatus = milestone.status === "WIP" || milestone.status === "Not Started";
+      
+      // 2. Check if the milestone explicitly has work plan content
+      const hasWorkPlanContent = milestone.work_plan && parseWorkPlan(milestone.work_plan).length > 0;
+
+      // Include the milestone if it has content OR if it has a relevant status
+      if (hasWorkPlanContent || isRelevantStatus) {
         (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone)
       }
       return acc
@@ -376,7 +394,15 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
                                     <div className="p-2 bg-blue-50 border border-blue-200 rounded-md">
                                       <ul className="list-disc list-inside text-xs text-blue-800 space-y-1 ml-2">
                                         {parseWorkPlan(milestone.work_plan).map((point: string, i: number) => (
-                                          <li key={i} className="break-words whitespace-pre-wrap">{point}</li>
+                                           <>
+                              {point.trim() === "" ? (<div className="p-2 bg-red-50 border border-red-200 rounded-md text-center">
+                          <span className="text-sm font-semibold text-red-700">No Activity Plan</span>
+                        </div>) : (
+                           <li key={i} className="break-words whitespace-pre-wrap">
+                                {point}
+                              </li>
+                        )}
+                              </>
                                         ))}
                                       </ul>
                                     </div>

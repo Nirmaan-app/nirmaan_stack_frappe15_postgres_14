@@ -417,21 +417,26 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
 {/* --- UPDATED SECTION: Upcoming Work Plan Summary (Grouped by Header) --- */}
 {dailyReportDetails.milestones && dailyReportDetails.milestones.length > 0 && (() => {
   // Group milestones by header and filter
-  const groupedMilestones = dailyReportDetails.milestones.reduce((acc, milestone) => {
-    // Only include milestones with non-empty work_plan
-    if (milestone.work_plan && parseWorkPlan(milestone.work_plan).length > 0) {
+ const groupedMilestones = dailyReportDetails.milestones.reduce((acc: any, milestone: any) => {
+    // Determine if the milestone is relevant for the Work Plan section
+    const isWIPOrNotStarted = milestone.status === "WIP" || milestone.status === "Not Started";
+    const hasWorkPlanContent = milestone.work_plan && parseWorkPlan(milestone.work_plan).length > 0;
+
+    // Include the milestone if it has content OR if it has a relevant status
+    if (hasWorkPlanContent || isWIPOrNotStarted) {
       (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
     }
     return acc;
   }, {});
 
-  // Filter out headers that have no milestones with work_plan
+  // Filter out headers that have no milestones (this should generally not happen with the new logic, but is good for safety)
   const filteredGroups = Object.entries(groupedMilestones).filter(
-    ([header, milestones]) => milestones.length > 0
+    ([header, milestones]) => (milestones as any[]).length > 0
   );
 
-  // Only render if there are any valid groups
+  // Only render the entire Work Plan section if there are any valid groups
   if (filteredGroups.length === 0) return null;
+
 
   return (
     <div className="mb-6">
@@ -448,34 +453,55 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
 
           {/* Content - Always visible, no collapse */}
           <div className="p-3">
-            {/* Mobile & Desktop Card View */}
+            
+                 {/* Mobile & Desktop Card View */}
             <div className="space-y-3">
-              {milestones.map((milestone, idx) => (
-                <div key={idx} className="border rounded-lg p-3 bg-white shadow-sm">
-                  <div className="mb-2">
-                    <h4 className="font-medium text-sm text-gray-800">
-                      {milestone.work_milestone_name}
-                    </h4>
-                  </div>
-                  
-                  {/* Work Plan - Always present here since we filtered */}
-                  <div className="mt-3">
-                    {/* <p className="text-xs text-gray-500 mb-1 font-semibold text-blue-700">
-                      Upcoming Work Plan
-                    </p> */}
-                    <div className="p-2 bg-blue-50 border border-blue-200 rounded-md">
-                      <ul className="list-disc list-inside text-xs text-blue-800 space-y-0.5 ml-2">
-                        {parseWorkPlan(milestone.work_plan).map((point, i) => (
-                          <li key={i} className="break-words whitespace-pre-wrap">
-                            {point}
-                          </li>
-                        ))}
-                      </ul>
+              {(milestones as any[]).map((milestone: any, idx: number) => {
+                const milestoneWorkPlan = parseWorkPlan(milestone.work_plan);
+                console.log("milestoneWorkPlan",milestoneWorkPlan)
+                const hasWorkPlan = milestoneWorkPlan.length > 0;
+
+                return (
+                  <div key={idx} className="border rounded-lg p-3 bg-white shadow-sm">
+                    <div className="mb-2">
+                      <h4 className="font-medium text-sm text-gray-800">
+                        {milestone.work_milestone_name}
+                      </h4>
+                    </div>
+                    
+                    {/* Work Plan or "Nothing" message */}
+                    <div className="mt-3">
+                      {hasWorkPlan ? (
+                        // Case 1: Work plan exists, render the list
+                        <div className="p-2 bg-blue-50 border border-blue-200 rounded-md">
+                          <ul className="list-disc list-inside text-xs text-blue-800 space-y-0.5 ml-2">
+                            {milestoneWorkPlan.map((point: string, i: number) => (
+                              <>
+                              {point.trim() === "" ? (<div className="p-2 bg-red-50 border border-red-200 rounded-md text-center">
+                          <span className="text-sm font-semibold text-red-700">No Activity Plan</span>
+                        </div>) : (
+                           <li key={i} className="break-words whitespace-pre-wrap">
+                                {point}
+                              </li>
+                        )}
+                              </>
+
+                             
+                            ))}
+                          </ul>
+                        </div>
+                      ) : (
+                        // Case 2: No work plan, render "Nothing" in red
+                        <div className="p-2 bg-red-50 border border-red-200 rounded-md text-center">
+                          <span className="text-sm font-semibold text-red-700">No Activity Plan</span>
+                        </div>
+                      )}
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
+           
           </div>
         </div>
       ))}

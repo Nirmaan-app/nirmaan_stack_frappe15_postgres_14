@@ -1741,6 +1741,27 @@ export const serializeWorkPlan = (workPlanPoints: string[]): string => {
   return workPlanPoints.filter(p => p.trim() !== '').join(DELIMITER);
 };
 
+// Helper component for the radio circle indicator
+const RadioIndicator: React.FC<{ isActive: boolean, isDisabled: boolean }> = ({ isActive, isDisabled }) => (
+    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center mr-2 transition-colors duration-150 flex-shrink-0
+        ${isDisabled 
+            ? 'border-gray-400 bg-gray-200' 
+            : isActive 
+                ? 'border-white bg-white' // Active: White fill for the inner circle
+                : 'border-gray-500 bg-transparent' // Inactive: Transparent fill
+        }`}
+    >
+        {/* Inner dot for the active state */}
+        {isActive && !isDisabled && (
+            <div className="w-2 h-2 rounded-full bg-blue-600" /> // Use blue for active dot color
+        )}
+        {/* If you wanted a checkmark for the active state instead of a dot, you'd use: 
+        {isActive && !isDisabled && <Check className="w-3 h-3 text-blue-600" />} */}
+    </div>
+);
+
+
+
 
 const MilestoneTabInner = () => {
   const { projectId } = useParams<{ projectId: string }>();
@@ -3889,9 +3910,9 @@ console.log(user)
 <>
   {/* --- NEW SECTION: Work Plan Ratio Toggle --- */}
     <div className="flex flex-col">
-        <label className="block text-base font-semibold text-gray-900 mb-2">Work Plan Requirement</label>
+        <label className="block text-base font-semibold text-gray-900 mb-2">Activities Planned for Today </label>
         <div className="grid grid-cols-2 gap-3">
-            <Button 
+            {/* <Button 
                 className={`py-3 text-sm font-semibold ${workPlanRatio === 'Plan Not Required' ? 'bg-gray-700 text-white hover:bg-gray-500' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
                 onClick={() => {
                     setWorkPlanRatio('Plan Not Required');
@@ -3907,15 +3928,49 @@ console.log(user)
                 onClick={() => setWorkPlanRatio('Plan Required')}
                 disabled={isBlockedByDraftOwnership}
             >
-                Work Plan
-            </Button>
+                Record Activities 
+            </Button> */}
+            <Button 
+            className={`py-3 text-sm font-semibold flex items-center justify-center 
+                ${workPlanRatio === 'Plan Not Required' 
+                    ? 'bg-gray-700 text-white hover:bg-gray-500' 
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+            onClick={() => {
+                setWorkPlanRatio('Plan Not Required');
+                // Optionally clear points when plan is not required
+                setWorkPlanPoints([""]); 
+            }}
+            disabled={isBlockedByDraftOwnership}
+        >
+            <RadioIndicator 
+                isActive={workPlanRatio === 'Plan Not Required'} 
+                isDisabled={isBlockedByDraftOwnership} 
+            />
+            Nothing
+        </Button>
+        
+        {/* Button 2: Plan Required (Record Activities) */}
+        <Button 
+            className={`py-3 text-sm font-semibold flex items-center justify-center 
+                ${workPlanRatio === 'Plan Required' 
+                    ? 'bg-blue-600 text-white hover:bg-blue-500' 
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+            onClick={() => setWorkPlanRatio('Plan Required')}
+            disabled={isBlockedByDraftOwnership}
+        >
+            <RadioIndicator 
+                isActive={workPlanRatio === 'Plan Required'} 
+                isDisabled={isBlockedByDraftOwnership} 
+            />
+            Record Activities 
+        </Button>
         </div>
     </div>
     {/* --- END NEW SECTION --- */}
      {workPlanRatio === 'Plan Required' && (
         <div className="space-y-3 p-2 border border-blue-200 rounded-lg bg-blue-50">
-            <label className="block text-base font-semibold text-gray-900 mb-1 flex items-center">
-                Work Plan Notes <span className='text-xs font-normal text-gray-600 ml-2'> <Button
+            <label className="block text-base font-semibold text-gray-900 mb-1 flex items-center justify-between">
+                <span>Activity Details</span><span className='text-xs font-normal text-gray-600 ml-2'> <Button
                 variant="outline"
                 className="w-full flex items-center gap-2 text-blue-600 border-blue-600"
                 onClick={() => setWorkPlanPoints(prev => [...prev, ""])}
