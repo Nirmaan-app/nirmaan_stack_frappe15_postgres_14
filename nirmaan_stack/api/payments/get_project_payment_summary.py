@@ -68,7 +68,7 @@ def get_payment_dashboard_stats():
             if status == 'Requested':
                 stats['total_requested_payment_count'] += 1
                 stats['total_requested_payment_amount'] += amount
-            if status not in ['Rejected', 'Paid']:
+            if status == 'Approved':
                 stats['total_pending_payment_count'] += 1
                 stats['total_pending_payment_amount'] += amount
 
