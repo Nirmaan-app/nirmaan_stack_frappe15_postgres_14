@@ -41,6 +41,8 @@ import UpdatePaymentRequestDialog, { ProjectPaymentUpdateFields } from "./Update
 import { useOrderPayments } from "@/hooks/useOrderPayments";
 import { useOrderTotals } from "@/hooks/useOrderTotals";
 
+import PaymentSummaryCards from "../PaymentSummaryCards"
+
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
 
@@ -386,6 +388,9 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                     onSelectedSearchFieldChange={setSelectedSearchField}
                     searchTerm={searchTerm}
                     onSearchTermChange={setSearchTerm}
+                    summaryCard={
+                        <PaymentSummaryCards totalCount={totalCount} />
+                    }
                     // globalFilterValue={globalFilter}
                     // onGlobalFilterChange={setGlobalFilter}
                     // searchPlaceholder={`Search ${tab}...`}

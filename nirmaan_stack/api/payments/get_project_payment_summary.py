@@ -29,6 +29,10 @@ def get_payment_dashboard_stats():
         # Pending
         'total_pending_payment_count': 0,
         'total_pending_payment_amount': 0.0,
+        # Requested
+        'total_requested_payment_count': 0,
+        'total_requested_payment_amount': 0.0,
+
         # Approved
         'total_approval_done_today': 0,
         'total_approval_done_today_amount': 0.0,
@@ -61,6 +65,9 @@ def get_payment_dashboard_stats():
             
             # --- 2a. PENDING Check ---
             # FIX: The correct check for Pending is NOT IN ['Rejected', 'Approved', 'Paid']
+            if status == 'Requested':
+                stats['total_requested_payment_count'] += 1
+                stats['total_requested_payment_amount'] += amount
             if status not in ['Rejected', 'Paid']:
                 stats['total_pending_payment_count'] += 1
                 stats['total_pending_payment_amount'] += amount

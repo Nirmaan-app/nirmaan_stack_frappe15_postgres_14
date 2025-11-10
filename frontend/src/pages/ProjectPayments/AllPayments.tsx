@@ -41,6 +41,8 @@ import { Button } from "@/components/ui/button";
 
 import { StatusBadge } from "../credits/components/CreditsTableColumns.tsx";
 
+import PaymentSummaryCards from "./PaymentSummaryCards"
+
 interface SelectOption { label: string; value: string; }
 
 interface AllPaymentsProps {
@@ -452,6 +454,9 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                     dateFilterColumns={dateColumns}
                     showExportButton={true}
                     onExport={'default'}
+                    summaryCard={
+                        <PaymentSummaryCards totalCount={totalCount} />
+                    }
                 // toolbarActions={
                 //     (!projectId && !customerId) && (
                 //         <Button onClick={toggleNewInflowDialog} size="sm">
