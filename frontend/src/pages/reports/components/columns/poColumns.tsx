@@ -351,6 +351,22 @@ export const basePOColumnsForPM: ColumnDef<POReportRowData>[] = [
       isNumeric: true,
     },
   },
+  {
+    id: "PendingInvoice", // This is pre-calculated in POReportRowData
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Pending Invoice Amt" />
+    ),
+    cell: ({ row }) => (
+      <div className="tabular-nums">
+        {formatToRoundedIndianRupee(row.original.amountPaid - row.original.invoiceAmount)}
+      </div>
+    ),
+    meta: {
+      exportValue: (row: POReportRowData) => formatForReport(row.amountPaid - row.invoiceAmount),
+      exportHeaderName: "Pending Invoice Amt",
+      isNumeric: true,
+    },
+  },
 ];
 
 // // Column specific to "Dispatched for 3 days" report
