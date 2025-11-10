@@ -10,7 +10,7 @@ import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters"; // Assumin
 export const srColumns: ColumnDef<SRReportRowData>[] = [
     {
         accessorKey: "name",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="#SR" />,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="#WO" />,
         cell: ({ row }) => {
             const name = row.original.name;
             return (

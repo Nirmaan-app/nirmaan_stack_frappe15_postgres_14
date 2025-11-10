@@ -6,11 +6,14 @@ import { urlStateManager } from "@/utils/urlStateManager";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { Radio } from "antd";
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useFrappeGetCall } from "frappe-react-sdk";
+
 
 const ApprovePayments = React.lazy(() => import("./approve-payments/ApprovePayments"));
 const AccountantTabs = React.lazy(() => import("./update-payment/AccountantTabs"));
 const ProjectPaymentsList = React.lazy(() => import("./project-payments-list"));
 const AllPayments = React.lazy(() => import("./AllPayments"));
+const PaymentSummaryCards = React.lazy(() => import("./PaymentSummaryCards"));
 
 export const RenderProjectPaymentsComponent: React.FC = () => {
 
@@ -137,8 +140,12 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
         },
     ], [counts, role])
 
+
+
     return (
         <div className="flex-1 space-y-4">
+                {/* <PaymentSummaryCards/> */}
+
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                 {adminTabs && (
                     <Radio.Group

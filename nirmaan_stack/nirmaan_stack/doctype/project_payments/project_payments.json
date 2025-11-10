@@ -17,6 +17,7 @@
   "amount",
   "tds",
   "payment_date",
+  "approval_date",
   "status",
   "voucher_attachment"
  ],
@@ -89,12 +90,17 @@
    "fieldname": "voucher_attachment",
    "fieldtype": "Attach",
    "label": "Voucher Attachment"
+  },
+  {
+   "fieldname": "approval_date",
+   "fieldtype": "Date",
+   "label": "Approval Date"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-10-14 12:40:29.486736",
+ "modified": "2025-11-07 13:18:10.252416",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Payments",

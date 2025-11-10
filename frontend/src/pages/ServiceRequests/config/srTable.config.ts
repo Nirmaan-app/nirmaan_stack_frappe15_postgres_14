@@ -8,7 +8,7 @@ export const DEFAULT_SR_FIELDS_TO_FETCH: (keyof ServiceRequests | 'name')[] =  [
 
 // Searchable fields configuration for SR tables
 export const SR_SEARCHABLE_FIELDS: SearchFieldOption[] = [
-    { value: "name", label: "SR ID", placeholder: "Search by SR ID...", default: true },
+    { value: "name", label: "WO ID", placeholder: "Search by WO ID...", default: true },
     { value: "project", label: "Project ID", placeholder: "Search by Project ID..." },
     // { value: "project_name", label: "Project Name", placeholder: "Search by Project Name..." },
     { value: "vendor", label: "Vendor ID", placeholder: "Search by Vendor ID..." },

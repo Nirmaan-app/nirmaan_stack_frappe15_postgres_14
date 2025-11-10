@@ -137,7 +137,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
             setDeleteDialog(false);
         },
         onError: (error, srName) => {
-            console.error(`Error deleting SR ${srName} from table view:`, error);
+            console.error(`Error deleting WO ${srName} from table view:`, error);
         },
         navigateOnSuccessPath: "/service-requests?tab=approved-sr"
     });
@@ -396,7 +396,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 <CardHeader>
                     <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
                         <div>
-                            <h2>SR Details</h2>
+                            <h2>WO Details</h2>
                             <Badge>{orderData?.status}</Badge>
                         </div>
                         <div className="flex items-center gap-2">
@@ -435,7 +435,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                             <Sheet open={amendDialog} onOpenChange={toggleAmendDialog}>
                                 <SheetContent className="overflow-auto">
                                     <SheetHeader>
-                                        <SheetTitle className="text-center mb-6">Amend SR!</SheetTitle>
+                                        <SheetTitle className="text-center mb-6">Amend WO!</SheetTitle>
                                     </SheetHeader>
                                     <SelectServiceVendorPage sr_data={service_request} sr_data_mutate={service_request_mutate} amend={true} />
                                 </SheetContent>
@@ -710,7 +710,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                     <CardHeader>
                         <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
                             <div className="flex items-center gap-1">
-                                SR Options
+                                WO Options
                                 {!orderData?.project_gst && (
                                     <TriangleAlert className="text-primary max-sm:w-4 max-sm:h-4" />
                                 )}
