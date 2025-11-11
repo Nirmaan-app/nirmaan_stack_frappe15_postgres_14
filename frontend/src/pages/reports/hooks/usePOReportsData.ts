@@ -184,7 +184,8 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
 
         // Process Purchase Orders
         (purchaseOrders || []).forEach(po => {
-            if(po.amount_paid){
+            // if(po.amount_paid)
+            if(po){
 
                  const { totalAmt } = getPOTotal(po); // Assuming totalAmt includes tax
             combinedData.push({
@@ -198,6 +199,7 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
                 totalAmount: parseNumber(po.total_amount),
                 invoiceAmount: getTotalInvoiceAmount(po.invoice_data),
                 amountPaid: paymentsMap[po.name] || 0, // Look up pre-calculated paid amount
+                dispatch_date: po.dispatch_date,
                 originalDoc: po,
             });
             }
@@ -224,7 +226,9 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
         // });
 
         // Sort the combined list by creation date descending
-        combinedData.sort((a, b) => new Date(b.creation).getTime() - new Date(a.creation).getTime());
+        // combinedData.sort((a, b) => new Date(b.creation).getTime() - new Date(a.creation).getTime());
+        combinedData.sort((a, b) => new Date(b.dispatch_date).getTime() - new Date(a.dispatch_date).getTime());
+
 
         return combinedData;
 
