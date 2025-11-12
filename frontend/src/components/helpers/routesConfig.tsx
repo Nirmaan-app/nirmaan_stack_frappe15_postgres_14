@@ -67,6 +67,7 @@ import AdminApprovedQuotationsTable from "@/pages/ApprovedQuotationsFlow/AdminAp
 import { MilestonesSummary } from "@/pages/Manpower-and-WorkMilestones/MilestonesSummary";
 import { MilestoneTab } from "@/pages/Manpower-and-WorkMilestones/MilestoneTab";
 import { WorkHeaderMilestones } from "@/components/workHeaderMilestones";
+import MilestoneDailySummary from "@/pages/Manpower-and-WorkMilestones/MilestoneDailySummary";
 // --- End component imports ---
 
 export const appRoutes: RouteObject[] = [
@@ -165,6 +166,7 @@ export const appRoutes: RouteObject[] = [
                 children: [
                   { index: true, element: <MilestonesSummary /> },
                   { path: ":projectId", element: <MilestoneTab /> },
+                  { path: "daily-summary", element: <MilestoneDailySummary /> },
                 ],
               },
 

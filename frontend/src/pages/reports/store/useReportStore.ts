@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { REPORTS_TABS } from '../constants'; // Adjust path
 
-export type ProjectReportType = 'Cash Sheet' | 'Inflow Report' | 'Outflow Report(Project)' | 'Outflow Report(Non-Project)';
+export type ProjectReportType = 'Cash Sheet' | 'Inflow Report' | 'Outflow Report(Project)' | 'Outflow Report(Non-Project)' | 'Project Progress Report';
 
 export type VendorReportType = 'Vendor Ledger';
 // Define the specific report options for POs
