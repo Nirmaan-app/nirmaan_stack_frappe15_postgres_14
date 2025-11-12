@@ -32,10 +32,25 @@ interface FormState {
     amount: string;
     tds: string;
     utr: string;
+    // --- (Indicator) MOD: Add paymentDate to FormState ---
+    paymentDate: string;
 }
 
 type AttachmentUpdateAction = "keep" | "replace" | "remove";
 const ATTACHMENT_ACCEPTED_TYPES: AcceptedFileType[] = ["image/*", "application/pdf"];
+
+// Helper function to safely format date string for <input type="date">
+// Frappe dates are YYYY-MM-DD, which is the required format.
+const formatFrappeDateToInput = (dateString?: string | null): string => {
+    if (!dateString) return "";
+    try {
+        // Assuming dateString is in "YYYY-MM-DD" format from Frappe
+        // The date input requires "YYYY-MM-DD"
+        return dateString;
+    } catch {
+        return "";
+    }
+};
 
 export const EditFulfilledPaymentDialog: React.FC<EditFulfilledPaymentDialogProps> = ({ payment, onSuccess }) => {
     const { editFulfilledPaymentDialog, setEditFulfilledPaymentDialog } = useDialogStore();
@@ -43,7 +58,9 @@ export const EditFulfilledPaymentDialog: React.FC<EditFulfilledPaymentDialogProp
     const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
 
-    const [formState, setFormState] = useState<FormState>({ amount: "", tds: "", utr: "" });
+    console.log("payment",payment)
+
+    const [formState, setFormState] = useState<FormState>({ amount: "", tds: "", utr: "", paymentDate: ""});
     const [newAttachmentFile, setNewAttachmentFile] = useState<File | null>(null);
     const [existingAttachmentUrl, setExistingAttachmentUrl] = useState<string | undefined>(undefined);
     const [attachmentAction, setAttachmentAction] = useState<AttachmentUpdateAction>("keep");
@@ -54,6 +71,8 @@ export const EditFulfilledPaymentDialog: React.FC<EditFulfilledPaymentDialogProp
                 amount: payment.amount?.toString() || "",
                 tds: payment.tds?.toString() || "",
                 utr: payment.utr || "",
+                // --- (Indicator) MOD: Set initial value for paymentDate ---
+                paymentDate: formatFrappeDateToInput(payment.payment_date)
             });
             setExistingAttachmentUrl(payment.payment_attachment);
             setAttachmentAction(payment.payment_attachment ? "keep" : "remove");
@@ -75,6 +94,7 @@ export const EditFulfilledPaymentDialog: React.FC<EditFulfilledPaymentDialogProp
             amount: parseNumber(formState.amount),
             tds: parseNumber(formState.tds),
             utr: formState.utr,
+            payment_date: formState.paymentDate,
         };
 
         try {
@@ -127,6 +147,17 @@ export const EditFulfilledPaymentDialog: React.FC<EditFulfilledPaymentDialogProp
                     <AlertDialogDescription>Payment ID: {payment.name}</AlertDialogDescription>
                 </AlertDialogHeader>
                 <div className="py-4 space-y-4">
+                    {/* --- (Indicator) NEW: Editable payment_date field --- */}
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="payment_date_edit" className="text-right">Payment Date</Label>
+                        <Input 
+                            id="payment_date_edit" 
+                            type="date" 
+                            value={formState.paymentDate} 
+                            onChange={(e) => setFormState(p => ({ ...p, paymentDate: e.target.value }))} 
+                            className="col-span-3" 
+                        />
+                    </div>
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="amount_edit" className="text-right">Total Amount</Label>
                         <Input id="amount_edit" type="number" value={formState.amount} onChange={(e) => setFormState(p => ({ ...p, amount: e.target.value }))} className="col-span-3" />
