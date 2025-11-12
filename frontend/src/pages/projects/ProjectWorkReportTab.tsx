@@ -17,22 +17,37 @@ interface ProjectWorkReportTabProps {
     current_role: string;
 }
 
+// Augment WorkHeaders type to include the new field
+interface WorkHeaderDoc extends WorkHeaders {
+    work_package_link: string; // Frappe doc field for grouping
+}
+
+// Local state structure for combined and grouped rendering
+interface LocalProjectWorkHeaderEntry {
+    work_header_doc_name: string;      // The Frappe DocType name ('name' field from Work Headers)
+    work_header_display_name: string; // The user-friendly name ('work_header_name' field from Work Headers)
+    work_package_link: string;        // The package name (for grouping)
+    enabled: boolean;
+    name?: string;                     // Child Doc name if an existing entry in project_work_header_entries
+}
+
 export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
     projectData,
     project_mutate,
     current_role
 }) => {
-    const [localWorkHeaders, setLocalWorkHeaders] = useState<ProjectWorkHeaderEntry[]>([]);
+    // CHANGE 1: Update local state type
+    const [localWorkHeaders, setLocalWorkHeaders] = useState<LocalProjectWorkHeaderEntry[]>([]);
     const [isEditing, setIsEditing] = useState(false);
     const [isMilestoneTrackingEnabled, setIsMilestoneTrackingEnabled] = useState<boolean>(projectData.enable_project_milestone_tracking);
     const [isToggleLoading, setIsToggleLoading] = useState<boolean>(false);
     const { updateDoc, loading: updateDocLoading } = useFrappeUpdateDoc();
 
-    // Fetch all available Work Headers
-    const { data: allWorkHeaders, isLoading: allWorkHeadersLoading, error: allWorkHeadersError } = useFrappeGetDocList<WorkHeaders>(
+    // CHANGE 2: Fetch all available Work Headers including 'work_package_link'
+    const { data: allWorkHeaders, isLoading: allWorkHeadersLoading, error: allWorkHeadersError } = useFrappeGetDocList<WorkHeaderDoc>(
         "Work Headers",
         {
-            fields: ['name', 'work_header_name'],
+            fields: ['name', 'work_header_name', 'work_package_link'], // ADDED 'work_package_link'
             limit: 0
         }
     );
@@ -62,46 +77,59 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
         return null;
     }, []);
 
-    // Initialize local work headers
-    useEffect(() => {
-        if (allWorkHeaders && projectData) {
-            const projectEnabledWorkHeadersMap = new Map<string, ProjectWorkHeaderEntry>();
-            if (projectData.project_work_header_entries) {
-                projectData.project_work_header_entries.forEach(entry => {
-                    const linkedName = getLinkedWorkHeaderName(entry);
-                    if (linkedName) {
-                        projectEnabledWorkHeadersMap.set(linkedName, { ...entry, enabled: toBoolean(entry.enabled) });
-                    }
-                });
-            }
-
-            const combinedHeaders: ProjectWorkHeaderEntry[] = allWorkHeaders.map(masterHeader => {
-                const masterHeaderName = masterHeader.name;
-                const masterHeaderDisplayName = masterHeader.work_header_name;
-
-                if (projectEnabledWorkHeadersMap.has(masterHeaderName)) {
-                    const existingEntry = projectEnabledWorkHeadersMap.get(masterHeaderName)!;
-                    return {
-                        ...existingEntry,
-                        project_work_header_name: masterHeaderDisplayName,
-                        enabled: existingEntry.enabled,
-                        name: existingEntry.name || undefined,
-                    };
-                } else {
-                    return {
-                        project_work_header_name: masterHeaderDisplayName,
-                        enabled: false,
-                    };
+    // Helper function to generate the combined list (used in useEffect and handleCancel)
+    const generateCombinedHeaders = useCallback((
+        projectData: Projects, 
+        allWorkHeaders: WorkHeaderDoc[], 
+        toBoolean: (val: any) => boolean, 
+        getLinkedWorkHeaderName: (entry: ProjectWorkHeaderEntry) => string | null
+    ): LocalProjectWorkHeaderEntry[] => {
+        const projectEnabledWorkHeadersMap = new Map<string, ProjectWorkHeaderEntry>();
+        if (projectData.project_work_header_entries) {
+            projectData.project_work_header_entries.forEach(entry => {
+                const linkedName = getLinkedWorkHeaderName(entry); // This linkedName is the actual Work Header Doc name
+                if (linkedName) {
+                    projectEnabledWorkHeadersMap.set(linkedName, { ...entry, enabled: toBoolean(entry.enabled) });
                 }
             });
+        }
 
-            setLocalWorkHeaders(combinedHeaders);
+        const combinedHeaders: LocalProjectWorkHeaderEntry[] = allWorkHeaders.map(masterHeader => {
+            const masterHeaderDocName = masterHeader.name;
+            const masterHeaderDisplayName = masterHeader.work_header_name;
+            // Use 'General Work Package' as a fallback if the link field is empty
+            const masterHeaderWorkPackageLink = masterHeader.work_package_link || "General Work Package"; 
+
+            const existingEntry = projectEnabledWorkHeadersMap.get(masterHeaderDocName);
+
+            return {
+                work_header_doc_name: masterHeaderDocName,
+                work_header_display_name: masterHeaderDisplayName,
+                work_package_link: masterHeaderWorkPackageLink,
+                enabled: existingEntry ? existingEntry.enabled : false,
+                name: existingEntry ? existingEntry.name : undefined,
+            };
+        });
+        
+        // Sort by work package link first, then by display name
+        combinedHeaders.sort((a, b) => 
+            a.work_package_link.localeCompare(b.work_package_link) || 
+            a.work_header_display_name.localeCompare(b.work_header_display_name)
+        );
+
+        return combinedHeaders;
+    }, []);
+
+    // Initialize local work headers (UPDATED)
+    useEffect(() => {
+        if (allWorkHeaders && projectData) {
+            setLocalWorkHeaders(generateCombinedHeaders(projectData, allWorkHeaders, toBoolean, getLinkedWorkHeaderName));
         } else if (!projectData) {
             setLocalWorkHeaders([]);
         }
-    }, [projectData, allWorkHeaders, toBoolean, getLinkedWorkHeaderName]);
+    }, [projectData, allWorkHeaders, toBoolean, getLinkedWorkHeaderName, generateCombinedHeaders]);
 
-    // Handle toggle switch change
+    // Handle toggle switch change (remains the same)
     const handleMilestoneTrackingToggle = async (checked: boolean) => {
         setIsToggleLoading(true);
         try {
@@ -131,35 +159,31 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
         }
     };
 
-    const handleCheckboxChange = useCallback((index: number, checked: boolean | "indeterminate") => {
+    // CHANGE 3: Handle checkbox change by Doc Name instead of Index
+    const handleCheckboxChange = useCallback((docName: string, checked: boolean | "indeterminate") => {
         setLocalWorkHeaders(prevHeaders => {
+            const index = prevHeaders.findIndex(h => h.work_header_doc_name === docName);
+            if (index === -1) return prevHeaders;
+
             const newHeaders = [...prevHeaders];
-            if (newHeaders[index]) {
-                newHeaders[index] = { ...newHeaders[index], enabled: checked as boolean };
-            }
+            newHeaders[index] = { ...newHeaders[index], enabled: checked as boolean };
             return newHeaders;
         });
     }, []);
 
+    // CHANGE 4: Handle Save using `work_header_doc_name`
     const handleSave = async () => {
         try {
             const headersToSave = localWorkHeaders
                 .filter(entry => entry.enabled)
                 .map(entry => {
-                    const masterHeader = allWorkHeaders?.find(wh => wh.work_header_name === entry.project_work_header_name);
-
-                    if (!masterHeader) {
-                        console.warn(`Could not find master Work Header for display name: ${entry.project_work_header_name}. Skipping this entry.`);
-                        return null;
-                    }
-
+                    // Frappe expects the linked Doc Name in the project_work_header_name field
                     return {
                         name: entry.name,
-                        project_work_header_name: masterHeader.name,
+                        project_work_header_name: entry.work_header_doc_name, // Use the Frappe Doc Name
                         enabled: true,
                     };
-                })
-                .filter(Boolean);
+                });
 
             await updateDoc("Projects", projectData.name, {
                 project_work_header_entries: headersToSave,
@@ -181,52 +205,21 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
         }
     };
 
+    // Handle Cancel (UPDATED to use new generation logic)
     const handleCancel = useCallback(() => {
         if (allWorkHeaders && projectData) {
-            const projectEnabledWorkHeadersMap = new Map<string, ProjectWorkHeaderEntry>();
-            if (projectData.project_work_header_entries) {
-                projectData.project_work_header_entries.forEach(entry => {
-                    const linkedName = getLinkedWorkHeaderName(entry);
-                    if (linkedName) {
-                        projectEnabledWorkHeadersMap.set(linkedName, { ...entry, enabled: toBoolean(entry.enabled) });
-                    }
-                });
-            }
-
-            const combinedHeaders: ProjectWorkHeaderEntry[] = allWorkHeaders.map(masterHeader => {
-                const masterHeaderName = masterHeader.name;
-                const masterHeaderDisplayName = masterHeader.work_header_name;
-
-                if (projectEnabledWorkHeadersMap.has(masterHeaderName)) {
-                    const existingEntry = projectEnabledWorkHeadersMap.get(masterHeaderName)!;
-                    return {
-                        ...existingEntry,
-                        project_work_header_name: masterHeaderDisplayName,
-                        enabled: existingEntry.enabled,
-                        name: existingEntry.name || undefined,
-                    };
-                } else {
-                    return {
-                        project_work_header_name: masterHeaderDisplayName,
-                        enabled: false,
-                    };
-                }
-            });
-            setLocalWorkHeaders(combinedHeaders);
+            setLocalWorkHeaders(generateCombinedHeaders(projectData, allWorkHeaders, toBoolean, getLinkedWorkHeaderName));
         } else {
             setLocalWorkHeaders([]);
         }
         setIsEditing(false);
-    }, [projectData, allWorkHeaders, toBoolean, getLinkedWorkHeaderName]);
+    }, [projectData, allWorkHeaders, toBoolean, getLinkedWorkHeaderName, generateCombinedHeaders]);
 
+    // isSaveDisabled (UPDATED to use new state structure)
     const isSaveDisabled = useMemo(() => {
         const currentEnabledHeaderDocIds = new Set(
             localWorkHeaders.filter(entry => entry.enabled)
-                .map(entry => {
-                    const masterHeader = allWorkHeaders?.find(wh => wh.work_header_name === entry.project_work_header_name);
-                    return masterHeader ? masterHeader.name : null;
-                })
-                .filter(Boolean) as string[]
+                .map(entry => entry.work_header_doc_name)
         );
 
         const originalEnabledHeaderDocIds = new Set(
@@ -246,7 +239,22 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
             }
         }
         return true;
-    }, [localWorkHeaders, projectData?.project_work_header_entries, allWorkHeaders, toBoolean, getLinkedWorkHeaderName]);
+    }, [localWorkHeaders, projectData?.project_work_header_entries, toBoolean, getLinkedWorkHeaderName]);
+
+    // Grouping for rendering
+    const groupedWorkHeaders = useMemo(() => {
+        const groups = new Map<string, LocalProjectWorkHeaderEntry[]>();
+        localWorkHeaders.forEach(header => {
+            const packageLink = header.work_package_link;
+            if (!groups.has(packageLink)) {
+                groups.set(packageLink, []);
+            }
+            groups.get(packageLink)!.push(header);
+        });
+        return Array.from(groups.entries());
+    }, [localWorkHeaders]);
+
+    // --- Render Logic ---
 
     if (allWorkHeadersLoading) {
         return (
@@ -263,8 +271,6 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
             </div>
         );
     }
-
-   
 
     if (!allWorkHeaders || allWorkHeaders.length === 0) {
         return (
@@ -369,29 +375,37 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
                                 )}
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2">
-                                {localWorkHeaders.map((entry, index) => (
-                                    <div
-                                        key={entry.name || `new-${entry.project_work_header_name}-${index}`}
-                                        className="flex items-center space-x-2"
-                                    >
-                                        {isEditing ? (
-                                            <Checkbox
-                                                id={`wh-${entry.name || `new-${entry.project_work_header_name}-${index}`}`}
-                                                checked={entry.enabled}
-                                                onCheckedChange={(checked) => handleCheckboxChange(index, checked)}
-                                            />
-                                        ) : (
-                                            <span className={`h-4 w-4 rounded-sm border ${entry.enabled ? 'bg-primary border-primary' : 'bg-gray-200 border-gray-300'} flex items-center justify-center`}>
-                                                {entry.enabled && <CheckIcon className="h-3 w-3 text-white" />}
-                                            </span>
-                                        )}
-                                        <Label
-                                            htmlFor={isEditing && `wh-${entry.name || `new-${entry.project_work_header_name}-${index}`}`}
-                                            className={isEditing ? "cursor-pointer" : ""}
-                                        >
-                                            {entry.project_work_header_name}
-                                        </Label>
+                            {/* CHANGE 5: Render grouped work headers */}
+                            <div className="space-y-4">
+                                {groupedWorkHeaders.map(([workPackage, headers]) => (
+                                    <div key={workPackage} className="border p-4 rounded-md bg-gray-50">
+                                        <h4 className="text-md font-semibold mb-3 text-gray-800 border-b pb-2">{workPackage}</h4>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
+                                            {headers.map((entry) => (
+                                                <div
+                                                    key={entry.work_header_doc_name}
+                                                    className="flex items-center space-x-3"
+                                                >
+                                                    {isEditing ? (
+                                                        <Checkbox
+                                                            id={`wh-${entry.work_header_doc_name}`}
+                                                            checked={entry.enabled}
+                                                            onCheckedChange={(checked) => handleCheckboxChange(entry.work_header_doc_name, checked)}
+                                                        />
+                                                    ) : (
+                                                        <span className={`h-4 w-4 rounded-sm border ${entry.enabled ? 'bg-primary border-primary' : 'bg-gray-200 border-gray-300'} flex items-center justify-center flex-shrink-0`}>
+                                                            {entry.enabled && <CheckIcon className="h-3 w-3 text-white" />}
+                                                        </span>
+                                                    )}
+                                                    <Label
+                                                        htmlFor={isEditing ? `wh-${entry.work_header_doc_name}` : undefined}
+                                                        className={isEditing ? "cursor-pointer text-gray-700" : "text-gray-700"}
+                                                    >
+                                                        {entry.work_header_display_name}
+                                                    </Label>
+                                                </div>
+                                            ))}
+                                        </div>
                                     </div>
                                 ))}
                             </div>
@@ -409,19 +423,21 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
     );
 };
 
+
+
+
 // // src/pages/projects/components/ProjectWorkReportTab.tsx
 // import React, { useState, useEffect, useCallback, useMemo } from "react";
 // import { Projects, ProjectWorkHeaderEntry } from "@/types/NirmaanStack/Projects";
-// import { FrappeDoc, KeyedMutator, useFrappeUpdateDoc } from "frappe-react-sdk";
+// import { WorkHeaders } from "@/types/NirmaanStack/WorkHeaders";
+// import { FrappeDoc, KeyedMutator, useFrappeUpdateDoc, useFrappeGetDocList } from "frappe-react-sdk";
 // import { Button } from "@/components/ui/button";
 // import { Checkbox } from "@/components/ui/checkbox";
 // import { Label } from "@/components/ui/label";
 // import { toast } from "@/components/ui/use-toast";
 // import { TailSpin } from "react-loader-spinner";
 // import { MilestonesSummary } from "../Manpower-and-WorkMilestones/MilestonesSummary";
-
-// // Import icons: Pencil (for edit) and Check (for save)
-// import { PencilIcon, CircleCheckBig, CheckIcon, XIcon } from "lucide-react"; // XIcon for cancel
+// import { PencilIcon, CircleCheckBig, CheckIcon, XIcon } from "lucide-react";
 
 // interface ProjectWorkReportTabProps {
 //     projectData: Projects;
@@ -436,7 +452,23 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
 // }) => {
 //     const [localWorkHeaders, setLocalWorkHeaders] = useState<ProjectWorkHeaderEntry[]>([]);
 //     const [isEditing, setIsEditing] = useState(false);
+//     const [isMilestoneTrackingEnabled, setIsMilestoneTrackingEnabled] = useState<boolean>(projectData.enable_project_milestone_tracking);
+//     const [isToggleLoading, setIsToggleLoading] = useState<boolean>(false);
 //     const { updateDoc, loading: updateDocLoading } = useFrappeUpdateDoc();
+
+//     // Fetch all available Work Headers
+//     const { data: allWorkHeaders, isLoading: allWorkHeadersLoading, error: allWorkHeadersError } = useFrappeGetDocList<WorkHeaders>(
+//         "Work Headers",
+//         {
+//             fields: ['name', 'work_header_name'],
+//             limit: 0
+//         }
+//     );
+
+//     // Sync toggle state with project data
+//     useEffect(() => {
+//         setIsMilestoneTrackingEnabled(projectData.enable_project_milestone_tracking);
+//     }, [projectData.enable_project_milestone_tracking]);
 
 //     const toBoolean = useCallback((val: boolean | string | "True" | "False" | undefined | null): boolean => {
 //         if (typeof val === 'boolean') {
@@ -448,234 +480,84 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
 //         return false;
 //     }, []);
 
-//     useEffect(() => {
-//         if (projectData?.project_work_header_entries) {
-//             setLocalWorkHeaders(
-//                 projectData.project_work_header_entries.map(entry => ({
-//                     ...entry,
-//                     enabled: toBoolean(entry.enabled)
-//                 }))
-//             );
-//         } else {
-//             setLocalWorkHeaders([]);
+//     const getLinkedWorkHeaderName = useCallback((entry: ProjectWorkHeaderEntry): string | null => {
+//         if (typeof entry.project_work_header_name === 'string') {
+//             return entry.project_work_header_name;
 //         }
-//     }, [projectData?.project_work_header_entries, toBoolean]);
-
-//     const handleCheckboxChange = useCallback((index: number, checked: boolean | "indeterminate") => {
-//         setLocalWorkHeaders(prevHeaders => {
-//             const newHeaders = [...prevHeaders];
-//             if (newHeaders[index]) {
-//                 newHeaders[index] = { ...newHeaders[index], enabled: checked as boolean };
-//             }
-//             return newHeaders;
-//         });
+//         if (typeof entry.project_work_header_name === 'object' && (entry.project_work_header_name as any)?.name) {
+//             return (entry.project_work_header_name as any).name;
+//         }
+//         return null;
 //     }, []);
 
-//     const handleSave = async () => {
-//         try {
-//             const headersToSave = localWorkHeaders;
+//     // Initialize local work headers
+//     useEffect(() => {
+//         if (allWorkHeaders && projectData) {
+//             const projectEnabledWorkHeadersMap = new Map<string, ProjectWorkHeaderEntry>();
+//             if (projectData.project_work_header_entries) {
+//                 projectData.project_work_header_entries.forEach(entry => {
+//                     const linkedName = getLinkedWorkHeaderName(entry);
+//                     if (linkedName) {
+//                         projectEnabledWorkHeadersMap.set(linkedName, { ...entry, enabled: toBoolean(entry.enabled) });
+//                     }
+//                 });
+//             }
 
-//             await updateDoc("Projects", projectData.name, {
-//                 project_work_header_entries: headersToSave,
-//                 enable_project_milestone_tracking: true,
+//             const combinedHeaders: ProjectWorkHeaderEntry[] = allWorkHeaders.map(masterHeader => {
+//                 const masterHeaderName = masterHeader.name;
+//                 const masterHeaderDisplayName = masterHeader.work_header_name;
+
+//                 if (projectEnabledWorkHeadersMap.has(masterHeaderName)) {
+//                     const existingEntry = projectEnabledWorkHeadersMap.get(masterHeaderName)!;
+//                     return {
+//                         ...existingEntry,
+//                         project_work_header_name: masterHeaderDisplayName,
+//                         enabled: existingEntry.enabled,
+//                         name: existingEntry.name || undefined,
+//                     };
+//                 } else {
+//                     return {
+//                         project_work_header_name: masterHeaderDisplayName,
+//                         enabled: false,
+//                     };
+//                 }
 //             });
-//             await project_mutate();
+
+//             setLocalWorkHeaders(combinedHeaders);
+//         } else if (!projectData) {
+//             setLocalWorkHeaders([]);
+//         }
+//     }, [projectData, allWorkHeaders, toBoolean, getLinkedWorkHeaderName]);
+
+//     // Handle toggle switch change
+//     const handleMilestoneTrackingToggle = async (checked: boolean) => {
+//         setIsToggleLoading(true);
+//         try {
+//             await updateDoc("Projects", projectData.name, {
+//                 enable_project_milestone_tracking: checked
+//             });
+            
+//             setIsMilestoneTrackingEnabled(checked);
+            
 //             toast({
 //                 title: "Success",
-//                 description: "Work Headers updated successfully.",
+//                 description: `Project Milestone Tracking ${checked ? 'enabled' : 'disabled'}.`,
 //                 variant: "success",
 //             });
-//             setIsEditing(false);
+            
+//             await project_mutate();
 //         } catch (error) {
-//             console.error("Failed to update work headers:", error);
+//             console.error("Failed to toggle milestone tracking:", error);
 //             toast({
 //                 title: "Error",
-//                 description: "Failed to update Work Headers.",
+//                 description: "Failed to update milestone tracking setting.",
 //                 variant: "destructive",
 //             });
+//             setIsMilestoneTrackingEnabled(!checked);
+//         } finally {
+//             setIsToggleLoading(false);
 //         }
 //     };
-
-//     const handleCancel = () => {
-//         if (projectData?.project_work_header_entries) {
-//             setLocalWorkHeaders(
-//                 projectData.project_work_header_entries.map(entry => ({
-//                     ...entry,
-//                     enabled: toBoolean(entry.enabled)
-//                 }))
-//             );
-//         } else {
-//             setLocalWorkHeaders([]);
-//         }
-//         setIsEditing(false);
-//     };
-
-//     const isSaveDisabled = useMemo(() => {
-//         const currentEnabledNames = new Set(
-//             localWorkHeaders.filter(entry => entry.enabled)
-//                 .map(entry => entry.name || (typeof entry.project_work_header_name === 'string' ? entry.project_work_header_name : (entry.project_work_header_name as any)?.name))
-//                 .filter(Boolean) as string[]
-//         );
-//         const originalEnabledNames = new Set(
-//             (projectData?.project_work_header_entries || []).filter(entry => toBoolean(entry.enabled))
-//                 .map(entry => entry.name || (typeof entry.project_work_header_name === 'string' ? entry.project_work_header_name : (entry.project_work_header_name as any)?.name))
-//                 .filter(Boolean) as string[]
-//         );
-
-//         if (currentEnabledNames.size !== originalEnabledNames.size) {
-//             return false;
-//         }
-
-//         for (const name of currentEnabledNames) {
-//             if (!originalEnabledNames.has(name)) {
-//                 return false;
-//             }
-//         }
-//         return true;
-//     }, [localWorkHeaders, projectData?.project_work_header_entries, toBoolean]);
-
-
-//     if (!projectData.enable_project_milestone_tracking) {
-//         return (
-//             <div className="p-4 text-center text-gray-600">
-//                 Project Milestone Tracking is not enabled for this project.
-//                 Please enable it in the Project Form's "Project Timeline" section.
-//             </div>
-//         );
-//     }
-    
-  
-
-//     if (!localWorkHeaders || localWorkHeaders.length === 0) {
-//         return (
-//             <div className="p-4 text-center text-gray-600">
-//                 No Work Headers configured for milestone tracking.
-//                 Please add them via the Project Form if milestone tracking is enabled.
-//             </div>
-//         );
-//     }
-
-//     return (
-//       <>
-//       {current_role === "Nirmaan Admin Profile" &&(
-//          <div className="p-4 border rounded-md shadow-sm bg-white">
-//             {/* Header with edit button */}
-//             <div className="flex items-center justify-between mb-4">
-//                 <h3 className="text-lg font-semibold">Tracked Work Headers</h3>
-//                 {!isEditing ? (
-//                     <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
-//                         <PencilIcon size={20} className="mr-2" /> Edit
-//                     </Button>
-//                 ) : null}
-//                 {isEditing && (
-//                     <div className="flex justify-end space-x-2">
-//                         <Button variant="outline" onClick={handleCancel}>
-//                             <XIcon size={24} className="mr-2 text-red-500" color="#ee2020" />Cancel
-//                         </Button>
-//                         <Button variant="outline" onClick={handleSave} disabled={updateDocLoading || isSaveDisabled}>
-//                             {updateDocLoading ? (
-//                                 <TailSpin width={20} height={20} color="white" />
-//                             ) : (
-//                                 <>
-//                                     <CircleCheckBig size={24} className="mr-2" color="#25ad4d" />Save
-//                                     {/* Removed "Save Changes" text */}
-//                                 </>
-//                             )}
-//                         </Button>
-//                     </div>
-//                 )}
-//             </div>
-
-//             {/* List of checkboxes/labels */}
-//             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2"> {/* Changed to grid for better spacing */}
-//                 {localWorkHeaders.map((entry, index) => (
-//                     <div
-//                         key={entry.name || (typeof entry.project_work_header_name === 'string' ? entry.project_work_header_name : `idx-${index}`)}
-//                         className="flex items-center space-x-2"
-//                     >
-//                         {isEditing ? (
-//                             <Checkbox
-//                                 id={`wh-${entry.name || (typeof entry.project_work_header_name === 'string' ? entry.project_work_header_name : `idx-${index}`)}`}
-//                                 checked={entry.enabled}
-//                                 onCheckedChange={(checked) => handleCheckboxChange(index, checked)}
-//                             />
-//                         ) : (
-//                             <span className={`h-4 w-4 rounded-sm border ${entry.enabled ? 'bg-primary border-primary' : 'bg-gray-200 border-gray-300'} flex items-center justify-center`}>
-//                                 {entry.enabled && <CheckIcon className="h-3 w-3 text-white" />} {/* Using CheckIcon here */}
-//                             </span>
-//                         )}
-//                         <Label
-//                             htmlFor={isEditing ? `wh-${entry.name || (typeof entry.project_work_header_name === 'string' ? entry.project_work_header_name : `idx-${index}`)}` : undefined}
-//                             className={isEditing ? "cursor-pointer" : ""}
-//                         >
-//                             {typeof entry.project_work_header_name === 'string'
-//                                 ? entry.project_work_header_name
-//                                 : (entry.project_work_header_name as any)?.name || `Unknown Header ${index}`}
-//                         </Label>
-//                     </div>
-//                 ))}
-//             </div>
-
-//         </div>
-//       )}
-//       <MilestonesSummary workReport={true} projectIdForWorkReport={projectData?.name}/>
-//       </>
-       
-//     );
-// };
-
-///
-
-// // src/pages/projects/components/ProjectWorkReportTab.tsx
-// import React, { useState, useEffect, useCallback, useMemo } from "react";
-// import { Projects, ProjectWorkHeaderEntry } from "@/types/NirmaanStack/Projects";
-// import { FrappeDoc, KeyedMutator, useFrappeUpdateDoc } from "frappe-react-sdk";
-// import { Button } from "@/components/ui/button";
-// import { Checkbox } from "@/components/ui/checkbox";
-// import { Label } from "@/components/ui/label";
-// import { toast } from "@/components/ui/use-toast";
-// import { TailSpin } from "react-loader-spinner";
-
-// // Import icons: Pencil (for edit) and Check (for save)
-// import { PencilIcon, CircleCheckBig,CheckIcon, XIcon } from "lucide-react"; // XIcon for cancel
-
-// interface ProjectWorkReportTabProps {
-//     projectData: Projects;
-//     project_mutate: KeyedMutator<FrappeDoc<Projects>>;
-//     current_role:string;
-// }
-
-// export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
-//     projectData,
-//     project_mutate,
-//     current_role
-// }) => {
-//     const [localWorkHeaders, setLocalWorkHeaders] = useState<ProjectWorkHeaderEntry[]>([]);
-//     const [isEditing, setIsEditing] = useState(false);
-//     const { updateDoc, loading: updateDocLoading } = useFrappeUpdateDoc();
-
-//     const toBoolean = useCallback((val: boolean | string | "True" | "False" | undefined | null): boolean => {
-//         if (typeof val === 'boolean') {
-//             return val;
-//         }
-//         if (typeof val === 'string') {
-//             return val.toLowerCase() === 'true';
-//         }
-//         return false;
-//     }, []);
-
-//     useEffect(() => {
-//         if (projectData?.project_work_header_entries) {
-//             setLocalWorkHeaders(
-//                 projectData.project_work_header_entries.map(entry => ({
-//                     ...entry,
-//                     enabled: toBoolean(entry.enabled)
-//                 }))
-//             );
-//         } else {
-//             setLocalWorkHeaders([]);
-//         }
-//     }, [projectData?.project_work_header_entries, toBoolean]);
 
 //     const handleCheckboxChange = useCallback((index: number, checked: boolean | "indeterminate") => {
 //         setLocalWorkHeaders(prevHeaders => {
@@ -690,10 +572,25 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
 //     const handleSave = async () => {
 //         try {
 //             const headersToSave = localWorkHeaders
+//                 .filter(entry => entry.enabled)
+//                 .map(entry => {
+//                     const masterHeader = allWorkHeaders?.find(wh => wh.work_header_name === entry.project_work_header_name);
+
+//                     if (!masterHeader) {
+//                         console.warn(`Could not find master Work Header for display name: ${entry.project_work_header_name}. Skipping this entry.`);
+//                         return null;
+//                     }
+
+//                     return {
+//                         name: entry.name,
+//                         project_work_header_name: masterHeader.name,
+//                         enabled: true,
+//                     };
+//                 })
+//                 .filter(Boolean);
 
 //             await updateDoc("Projects", projectData.name, {
 //                 project_work_header_entries: headersToSave,
-//                 enable_project_milestone_tracking: true,
 //             });
 //             await project_mutate();
 //             toast({
@@ -712,124 +609,230 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
 //         }
 //     };
 
-//     const handleCancel = () => {
-//         if (projectData?.project_work_header_entries) {
-//             setLocalWorkHeaders(
-//                 projectData.project_work_header_entries.map(entry => ({
-//                     ...entry,
-//                     enabled: toBoolean(entry.enabled)
-//                 }))
-//             );
+//     const handleCancel = useCallback(() => {
+//         if (allWorkHeaders && projectData) {
+//             const projectEnabledWorkHeadersMap = new Map<string, ProjectWorkHeaderEntry>();
+//             if (projectData.project_work_header_entries) {
+//                 projectData.project_work_header_entries.forEach(entry => {
+//                     const linkedName = getLinkedWorkHeaderName(entry);
+//                     if (linkedName) {
+//                         projectEnabledWorkHeadersMap.set(linkedName, { ...entry, enabled: toBoolean(entry.enabled) });
+//                     }
+//                 });
+//             }
+
+//             const combinedHeaders: ProjectWorkHeaderEntry[] = allWorkHeaders.map(masterHeader => {
+//                 const masterHeaderName = masterHeader.name;
+//                 const masterHeaderDisplayName = masterHeader.work_header_name;
+
+//                 if (projectEnabledWorkHeadersMap.has(masterHeaderName)) {
+//                     const existingEntry = projectEnabledWorkHeadersMap.get(masterHeaderName)!;
+//                     return {
+//                         ...existingEntry,
+//                         project_work_header_name: masterHeaderDisplayName,
+//                         enabled: existingEntry.enabled,
+//                         name: existingEntry.name || undefined,
+//                     };
+//                 } else {
+//                     return {
+//                         project_work_header_name: masterHeaderDisplayName,
+//                         enabled: false,
+//                     };
+//                 }
+//             });
+//             setLocalWorkHeaders(combinedHeaders);
 //         } else {
 //             setLocalWorkHeaders([]);
 //         }
 //         setIsEditing(false);
-//     };
+//     }, [projectData, allWorkHeaders, toBoolean, getLinkedWorkHeaderName]);
 
 //     const isSaveDisabled = useMemo(() => {
-//         const currentEnabledNames = new Set(
+//         const currentEnabledHeaderDocIds = new Set(
 //             localWorkHeaders.filter(entry => entry.enabled)
-//                             .map(entry => entry.name || (typeof entry.project_work_header_name === 'string' ? entry.project_work_header_name : (entry.project_work_header_name as any)?.name))
-//                             .filter(Boolean) as string[]
-//         );
-//         const originalEnabledNames = new Set(
-//             (projectData?.project_work_header_entries || []).filter(entry => toBoolean(entry.enabled))
-//                                                              .map(entry => entry.name || (typeof entry.project_work_header_name === 'string' ? entry.project_work_header_name : (entry.project_work_header_name as any)?.name))
-//                                                              .filter(Boolean) as string[]
+//                 .map(entry => {
+//                     const masterHeader = allWorkHeaders?.find(wh => wh.work_header_name === entry.project_work_header_name);
+//                     return masterHeader ? masterHeader.name : null;
+//                 })
+//                 .filter(Boolean) as string[]
 //         );
 
-//         if (currentEnabledNames.size !== originalEnabledNames.size) {
+//         const originalEnabledHeaderDocIds = new Set(
+//             (projectData?.project_work_header_entries || [])
+//                 .filter(entry => toBoolean(entry.enabled))
+//                 .map(entry => getLinkedWorkHeaderName(entry))
+//                 .filter(Boolean) as string[]
+//         );
+
+//         if (currentEnabledHeaderDocIds.size !== originalEnabledHeaderDocIds.size) {
 //             return false;
 //         }
 
-//         for (const name of currentEnabledNames) {
-//             if (!originalEnabledNames.has(name)) {
+//         for (const id of currentEnabledHeaderDocIds) {
+//             if (!originalEnabledHeaderDocIds.has(id)) {
 //                 return false;
 //             }
 //         }
 //         return true;
-//     }, [localWorkHeaders, projectData?.project_work_header_entries, toBoolean]);
+//     }, [localWorkHeaders, projectData?.project_work_header_entries, allWorkHeaders, toBoolean, getLinkedWorkHeaderName]);
 
-
-//     if (!projectData.enable_project_milestone_tracking) {
+//     if (allWorkHeadersLoading) {
 //         return (
-//             <div className="p-4 text-center text-gray-600">
-//                 Project Milestone Tracking is not enabled for this project.
-//                 Please enable it in the Project Form's "Project Timeline" section.
+//             <div className="flex justify-center items-center h-40">
+//                 <TailSpin width={40} height={40} color="#007bff" />
 //             </div>
 //         );
 //     }
 
-//     if (!localWorkHeaders || localWorkHeaders.length === 0 current_roleNirmaan Admin Profile) {
+//     if (allWorkHeadersError) {
+//         return (
+//             <div className="p-4 text-center text-red-600">
+//                 Error loading available Work Headers: {allWorkHeadersError.message}
+//             </div>
+//         );
+//     }
+
+   
+
+//     if (!allWorkHeaders || allWorkHeaders.length === 0) {
 //         return (
 //             <div className="p-4 text-center text-gray-600">
-//                 No Work Headers configured for milestone tracking.
-//                 Please add them via the Project Form if milestone tracking is enabled.
+//                 No Work Headers are defined in the system. Please create Work Headers first to enable tracking.
+//             </div>
+//         );
+//     }
+
+//     if (!localWorkHeaders || localWorkHeaders.length === 0) {
+//         return (
+//             <div className="p-4 text-center text-gray-600">
+//                 Initializing Work Headers list...
 //             </div>
 //         );
 //     }
 
 //     return (
-//         <div className="p-4 border rounded-md shadow-sm bg-white">
-//             {/* Header with edit button */}
-//             <div className="flex items-center justify-between mb-4">
-//                 <h3 className="text-lg font-semibold">Tracked Work Headers</h3>
-//                 {!isEditing ? (
-//                     <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
-//                         <PencilIcon size={24} className="mr-2" color="#e2d008" /> Edit
-//                     </Button>
-//                 ) : null}
-//                 {isEditing && (
-//                 <div className="flex justify-end space-x-2">
-//                     <Button variant="outline" onClick={handleCancel}>
-//                         <XIcon size={24} className="mr-2 text-red-500" color="#ee2020" />Cancel
-//                     </Button>
-//                     <Button variant="outline" onClick={handleSave} disabled={updateDocLoading || isSaveDisabled}>
-//                         {updateDocLoading ? (
-//                             <TailSpin width={20} height={20} color="white" />
-//                         ) : (
-//                             <>
-//                                <CircleCheckBig size={24} color="#25ad4d" />Save
-//                                 {/* Removed "Save Changes" text */}
-//                             </>
-//                         )}
-//                     </Button>
+//         <>
+//             {["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(current_role) && (
+//                 <div className="p-4 border rounded-md shadow-sm bg-white">
+//                     <div className="flex items-center justify-between mb-6 pb-4 border-b">
+//                         <div>
+//                             <h3 className="text-lg font-semibold"> Track Project Progress</h3>
+//                             <p className="text-sm text-gray-600">
+//                                 {isMilestoneTrackingEnabled 
+//                                     ? "Progress Tracking is enabled for this project" 
+//                                     : "Progress Tracking is disabled for this project"}
+//                             </p>
+//                         </div>
+//                         <div className="flex items-center space-x-2">
+//                             <span className="text-sm font-medium text-gray-700">
+//                                 {isMilestoneTrackingEnabled ? "Yes" : "No"}
+//                             </span>
+//                             <button
+//                                 type="button"
+//                                 className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+//                                     isMilestoneTrackingEnabled ? 'bg-blue-600' : 'bg-gray-200'
+//                                 }`}
+//                                 role="switch"
+//                                 aria-checked={isMilestoneTrackingEnabled}
+//                                 disabled={isToggleLoading}
+//                                 onClick={() => handleMilestoneTrackingToggle(!isMilestoneTrackingEnabled)}
+//                             >
+//                                 <span
+//                                     aria-hidden="true"
+//                                     className={`pointer-events-none relative inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+//                                         isMilestoneTrackingEnabled ? 'translate-x-5' : 'translate-x-0'
+//                                     }`}
+//                                 >
+//                                     <span
+//                                         className={`absolute inset-0 flex h-full w-full items-center justify-center transition-opacity ${
+//                                             isMilestoneTrackingEnabled ? 'opacity-0 duration-100 ease-out' : 'opacity-100 duration-200 ease-in'
+//                                         }`}
+//                                         aria-hidden="true"
+//                                     >
+//                                         <svg className="h-3 w-3 text-gray-400" fill="none" viewBox="0 0 12 12">
+//                                             <path d="M4 8l2-2m0 0l2-2M6 6L4 4m2 2l2 2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+//                                         </svg>
+//                                     </span>
+//                                     <span
+//                                         className={`absolute inset-0 flex h-full w-full items-center justify-center transition-opacity ${
+//                                             isMilestoneTrackingEnabled ? 'opacity-100 duration-200 ease-in' : 'opacity-0 duration-100 ease-out'
+//                                         }`}
+//                                         aria-hidden="true"
+//                                     >
+//                                         <svg className="h-3 w-3 text-blue-600" fill="currentColor" viewBox="0 0 12 12">
+//                                             <path d="M3.707 5.293a1 1 0 00-1.414 1.414l1.414-1.414zM5 8l-.707.707a1 1 0 001.414 0L5 8zm4.707-4.293a1 1 0 00-1.414-1.414l1.414 1.414zm-7.414 2l2 2 1.414-1.414-2-2-1.414 1.414zm3.414 2l4-4-1.414-1.414-4 4 1.414 1.414z" />
+//                                         </svg>
+//                                     </span>
+//                                 </span>
+//                             </button>
+//                             {isToggleLoading && <TailSpin width={20} height={20} />}
+//                         </div>
+//                     </div>
+
+//                     {/* Work Headers Section - Only shown when tracking is enabled */}
+//                     {isMilestoneTrackingEnabled ? (
+//                         <div>
+//                             <div className="flex items-center justify-between mb-4">
+//                                 <h3 className="text-lg font-semibold">Tracked Work Headers</h3>
+//                                 {!isEditing && (
+//                                     <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
+//                                         <PencilIcon size={20} className="mr-2" /> Edit
+//                                     </Button>
+//                                 )}
+//                                 {isEditing && (
+//                                     <div className="flex justify-end space-x-2">
+//                                         <Button variant="outline" onClick={handleCancel}>
+//                                             <XIcon size={24} className="mr-2 text-red-500" color="#ee2020" />Cancel
+//                                         </Button>
+//                                         <Button variant="outline" onClick={handleSave} disabled={updateDocLoading || isSaveDisabled}>
+//                                             {updateDocLoading ? (
+//                                                 <TailSpin width={20} height={20} color="white" />
+//                                             ) : (
+//                                                 <>
+//                                                     <CircleCheckBig size={24} className="mr-2" color="#25ad4d" />Save
+//                                                 </>
+//                                             )}
+//                                         </Button>
+//                                     </div>
+//                                 )}
+//                             </div>
+
+//                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2">
+//                                 {localWorkHeaders.map((entry, index) => (
+//                                     <div
+//                                         key={entry.name || `new-${entry.project_work_header_name}-${index}`}
+//                                         className="flex items-center space-x-2"
+//                                     >
+//                                         {isEditing ? (
+//                                             <Checkbox
+//                                                 id={`wh-${entry.name || `new-${entry.project_work_header_name}-${index}`}`}
+//                                                 checked={entry.enabled}
+//                                                 onCheckedChange={(checked) => handleCheckboxChange(index, checked)}
+//                                             />
+//                                         ) : (
+//                                             <span className={`h-4 w-4 rounded-sm border ${entry.enabled ? 'bg-primary border-primary' : 'bg-gray-200 border-gray-300'} flex items-center justify-center`}>
+//                                                 {entry.enabled && <CheckIcon className="h-3 w-3 text-white" />}
+//                                             </span>
+//                                         )}
+//                                         <Label
+//                                             htmlFor={isEditing && `wh-${entry.name || `new-${entry.project_work_header_name}-${index}`}`}
+//                                             className={isEditing ? "cursor-pointer" : ""}
+//                                         >
+//                                             {entry.project_work_header_name}
+//                                         </Label>
+//                                     </div>
+//                                 ))}
+//                             </div>
+//                         </div>
+//                     ):("")}
 //                 </div>
 //             )}
-//             </div>
-
-//             {/* List of checkboxes/labels */}
-//             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2"> {/* Changed to grid for better spacing */}
-//                 {localWorkHeaders.map((entry, index) => (
-//                     <div
-//                         key={entry.name || (typeof entry.project_work_header_name === 'string' ? entry.project_work_header_name : `idx-${index}`)}
-//                         className="flex items-center space-x-2"
-//                     >
-//                         {isEditing ? (
-//                             <Checkbox
-//                                 id={`wh-${entry.name || (typeof entry.project_work_header_name === 'string' ? entry.project_work_header_name : `idx-${index}`)}`}
-//                                 checked={entry.enabled}
-//                                 onCheckedChange={(checked) => handleCheckboxChange(index, checked)}
-//                             />
-//                         ) : (
-//                             <span className={`h-4 w-4 rounded-sm border ${entry.enabled ? 'bg-primary border-primary' : 'bg-gray-200 border-gray-300'} flex items-center justify-center`}>
-//                                 {entry.enabled && <CheckIcon className="h-3 w-3 text-white" />} {/* Using CheckIcon here */}
-//                             </span>
-//                         )}
-//                         <Label
-//                             htmlFor={isEditing ? `wh-${entry.name || (typeof entry.project_work_header_name === 'string' ? entry.project_work_header_name : `idx-${index}`)}` : undefined}
-//                             className={isEditing ? "cursor-pointer" : ""}
-//                         >
-//                             {typeof entry.project_work_header_name === 'string'
-//                                 ? entry.project_work_header_name
-//                                 : (entry.project_work_header_name as any)?.name || `Unknown Header ${index}`}
-//                         </Label>
-//                     </div>
-//                 ))}
-//             </div>
-
-           
             
-//         </div>
+//             <MilestonesSummary 
+//                 workReport={true} 
+//                 projectIdForWorkReport={projectData?.name}
+//                 // isMilestoneTrackingEnabled={isMilestoneTrackingEnabled}
+//             />
+//         </>
 //     );
 // };
