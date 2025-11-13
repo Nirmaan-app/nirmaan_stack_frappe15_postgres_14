@@ -129,11 +129,43 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                 .includes(userData?.role)
         ) {
             try {
+                let projectGstToSet = null;
+
+                // --- 1. PROJECT GST LOGIC (Frontend Implementation) ---
+                if (project?.project_gst_number) {
+                    try {
+                        let gstData = project.project_gst_number;
+                        console.log("gstData", gstData);
+                        // Check if it's a string (e.g., if field type is Data/Text and stores JSON string)
+                        if (typeof gstData === 'string') {
+                            gstData = JSON.parse(gstData);
+                        }
+
+                        // Drill down to the actual list under the "list" key
+                        const gstList = gstData?.list;
+                        console.log("gstList", gstList);
+
+                        // Apply the business logic: update ONLY if the list has exactly one entry
+                        if (Array.isArray(gstList) && gstList.length === 1) {
+                            // Assuming the item structure is { location: "...", gst: "..." }
+                            projectGstToSet = gstList[0]?.gst;
+                        }
+console.log("projectGstToSet", projectGstToSet);
+
+                    } catch (e) {
+                        console.error("Failed to parse project_gst_number:", e);
+                        // Log the error but proceed with SR creation
+                    }
+                }
+
+
+                // --- END PROJECT GST LOGIC ---
                 const res = await createDoc('Service Requests', {
                     project: project?.name,
                     service_order_list: orderList,
                     service_category_list: categories,
-                    status: "Created"
+                    status: "Created",
+                    project_gst:projectGstToSet? projectGstToSet : undefined,
                 });
 
                 if (universalComment) {

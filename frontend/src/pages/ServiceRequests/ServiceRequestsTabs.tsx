@@ -72,7 +72,7 @@ export const ServiceRequestsTabs : React.FC = () => {
         {
           label: (
               <div className="flex items-center">
-                  <span>In Progress WO</span>
+                  <span>Pending WO</span>
                   <span className="ml-2 text-xs font-bold">
                       {counts.sr.pending}
                   </span>

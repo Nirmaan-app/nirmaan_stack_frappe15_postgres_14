@@ -40,7 +40,7 @@ const ReportPageHeader = ({ projectData, dailyReportDetails }: any) => (
 );
 
 // --- Height Constants (Based on A4 page in print setup) ---
-const PAGE_APPROX_HEIGHT_PX = 950; // Approximate height of the printable area on an A4 page
+const PAGE_APPROX_HEIGHT_PX = 930; // Approximate height of the printable area on an A4 page
 const REPEATING_HEADER_HEIGHT_PX = 140; // Height of the ReportPageHeader
 const WORK_PLAN_TITLE_HEIGHT_PX = 40; // Height of the "WORK PLAN" h3 title
 const WORK_PROGRESS_TITLE_HEIGHT_PX = 50; // Height of the "WORK PROGRESS" h3 title
@@ -456,8 +456,16 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
                                       <div className="p-2 bg-blue-50 border border-blue-200 rounded-md">
                                         <ul className="list-disc list-inside text-xs text-blue-800 space-y-1 ml-2">
                                           {parseWorkPlan(milestone.work_plan).map((point: string, i: number) => (
-                                            <li key={i} className="break-words whitespace-pre-wrap">{point}</li>
-                                          ))}
+                                           <>
+                              {point.trim() === "" ? (<div className="p-2 bg-red-50 border border-red-200 rounded-md text-center">
+                          <span className="text-sm font-semibold text-red-700">No Activity Plan</span>
+                        </div>) : (
+                           <li key={i} className="break-words whitespace-pre-wrap">
+                                {point}
+                              </li>
+                        )}
+                              </>
+                                        ))}
                                         </ul>
                                       </div>
                                     </div>

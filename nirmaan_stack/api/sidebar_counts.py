@@ -123,7 +123,7 @@ def sidebar_counts(user: str) -> str:
         "approved": simple("Service Requests", {**sr_filters, "status": "Approved"}),
         "amended":  simple("Service Requests", {**sr_filters, "status": "Amendment"}),
         "all":      simple("Service Requests", sr_filters),
-        "pending":  simple("Service Requests", {**sr_filters, "status": ["not in", ["Vendor Selected", "Approved", "Amendment"]]}),
+        "pending":  simple("Service Requests", {**sr_filters, "status": ["not in", ["Approved", "Amendment"]]}),
     }
     pay_filters = {} if is_admin else {"project": ["in", user_projects]}
     pay_counts = {

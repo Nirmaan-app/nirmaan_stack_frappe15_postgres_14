@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { useFrappeGetDocList, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
-import { Trash2 } from 'lucide-react';
+import { Trash2, Edit2 } from 'lucide-react';
 
 // --- UI Components ---
 import { DataTable } from '@/components/data-table/new-data-table';
@@ -59,7 +59,7 @@ export const SelectServiceVendorList: React.FC = () => {
     // --- Static Filters for this View ---
     // This view shows SRs in "Created", "Rejected", or "Edit" status for vendor selection
     const staticFilters = useMemo(() => [
-        ["status", "in", ["Created", "Rejected", "Edit"]]
+        ["status", "in", ["Created", "Rejected", "Edit", "Vendor Selected"]]
     ], []);
 
     // --- Fields to Fetch ---
@@ -79,7 +79,7 @@ export const SelectServiceVendorList: React.FC = () => {
     // --- Column Definitions ---
     const columns = useMemo<ColumnDef<ServiceRequests>[]>(() => [
         {
-            accessorKey: "name", header: ({ column }) => <DataTableColumnHeader column={column} title="#WO" />,
+            accessorKey: "name", header: ({ column }) => <DataTableColumnHeader column={column} title="#sO" />,
             cell: ({ row }) => {
                 const data = row.original;
                 const srName = data.name;
@@ -90,7 +90,7 @@ export const SelectServiceVendorList: React.FC = () => {
                         </Link>
                         {/* Adapt ItemsHoverCard or create ServiceItemsHoverCard if structure differs significantly */}
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                             <ItemsHoverCard parentDocId={data} parentDoctype="Service Requests" childTableName="service_order_list" isSR />
+                            <ItemsHoverCard parentDocId={data} parentDoctype="Service Requests" childTableName="service_order_list" isSR />
                         </div>
                     </div>
                 );
@@ -164,10 +164,11 @@ export const SelectServiceVendorList: React.FC = () => {
             cell: ({ row }) => {
                 const status = row.getValue("status") as string;
                 let variant: "red" | "yellow" | "orange" | "default" = "default";
+                let ShowStatus = status == "Created" ? "InProgress" : status == "Vendor Selected" ? "Pending Approval" : status;
                 if (status === "Rejected") variant = "red";
                 else if (status === "Created") variant = "yellow";
                 else if (status === "Edit") variant = "orange";
-                return <Badge variant={variant}>{status}</Badge>;
+                return <Badge variant={variant}>{ShowStatus}</Badge>;
             }, size: 120, enableColumnFilter: true,
             meta: {
                 exportHeaderName: "Status",
@@ -180,15 +181,29 @@ export const SelectServiceVendorList: React.FC = () => {
             id: 'actions', header: 'Actions',
             cell: ({ row }) => {
                 const serviceRequest = row.original;
-                const canDelete = serviceRequest.owner === user_id || role === "Nirmaan Admin Profile";
-                if (!canDelete) return null;
+                // const deleteddisabled=serviceRequest.status==="Vendor Selected";
+                const canDelete = serviceRequest.owner === user_id || ["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role);
+
+                const canEdit = serviceRequest.owner === user_id || ["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role);
+                if (!canEdit) return "--";
 
                 return (
-                    <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive/80"
-                        disabled={isDeleting} onClick={() => setItemToDelete(serviceRequest)}
-                        aria-label={`Delete SR ${serviceRequest.name}`}>
-                        <Trash2 className="h-4 w-4" />
-                    </Button>
+                    <div className="flex justify-start items-center gap-1">
+                        <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive/80"
+                            disabled={isDeleting || !canDelete} onClick={() => setItemToDelete(serviceRequest)}
+                            aria-label={`Delete SR ${serviceRequest.name}`}>
+                            <Trash2 className="h-4 w-4" />
+                        </Button>
+                        {
+                            (canEdit && (
+                                <Link className="underline hover:underline-offset-2 whitespace-nowrap" to={`/service-requests/${serviceRequest.name}?tab=choose-vendor`} >
+                                    <Edit2 className="h-4 w-4" />
+                                </Link>
+                            ))
+
+                        }
+
+                    </div>
                 );
             }, size: 80,
             meta: {
@@ -202,6 +217,7 @@ export const SelectServiceVendorList: React.FC = () => {
         { label: "Created", value: "Created" },
         { label: "Rejected", value: "Rejected" },
         { label: "Edit", value: "Edit" },
+        { label: "Vendor Selected", value: "Vendor Selected" }
     ], []);
 
     const facetFilterOptions = useMemo(() => ({

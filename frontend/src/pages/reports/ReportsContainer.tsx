@@ -20,6 +20,7 @@ const projectReportOptions: { label: string; value: ProjectReportType }[] = [
     { label: 'Inflow Report', value: 'Inflow Report' },
     { label: 'Outflow Report(Project)', value: 'Outflow Report(Project)' },
     { label: 'Outflow Report(Non-Project)', value: 'Outflow Report(Non-Project)' },
+    { label: 'Project Progress Report', value: 'Project Progress Report' }
 ];
 const VendorReportOptions: { label: string; value: VendorReportType }[] = [{
     label: 'Vendor Ledger', value: 'Vendor Ledger'
