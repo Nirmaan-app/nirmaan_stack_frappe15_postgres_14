@@ -1914,11 +1914,20 @@ const [workPlanPoints, setWorkPlanPoints] = useState<string[]>([]); // Array of 
   };
 
   const getAllAvailableTabs = () => {
+    const dynamicTabs = (projectData?.enable_project_milestone_tracking === 1 && projectData?.project_work_header_entries)
+      ? projectData.project_work_header_entries.filter(entry => entry.enabled === "True")
+      : [];
+
+    // 2. Sort the dynamic entries by project_work_header_name
+    dynamicTabs.sort((a, b) => 
+      a.project_work_header_name.localeCompare(b.project_work_header_name)
+    );
     return [
       { name: "Work force", project_work_header_name: "Work force", enabled: "True" },
-      ...(projectData?.enable_project_milestone_tracking === 1 && projectData?.project_work_header_entries
-        ? projectData.project_work_header_entries.filter(entry => entry.enabled === "True")
-        : []),
+      // ...(projectData?.enable_project_milestone_tracking === 1 && projectData?.project_work_header_entries
+      //   ? projectData.project_work_header_entries.filter(entry => entry.enabled === "True")
+      //   : []),
+      ...dynamicTabs,
           {name:"Photos",project_work_header_name:"Photos",enabled:"True"},
     ];
   };

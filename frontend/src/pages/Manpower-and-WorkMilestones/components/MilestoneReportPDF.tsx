@@ -70,33 +70,84 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
   };
 
 
-   const workPlanGroupedMilestones = useMemo(() => {
+  //  const workPlanGroupedMilestones = useMemo(() => {
+  //   if (!dailyReportDetails?.milestones) return {};
+
+  //   return dailyReportDetails.milestones.reduce((acc: any, milestone: any) => {
+  //     // 1. Check if the status is WIP or Not Started
+  //     const isRelevantStatus = milestone.status === "WIP" || milestone.status === "Not Started";
+      
+  //     // 2. Check if the milestone explicitly has work plan content
+  //     const hasWorkPlanContent = milestone.work_plan && parseWorkPlan(milestone.work_plan).length > 0;
+
+  //     // Include the milestone if it has content OR if it has a relevant status
+  //     if (hasWorkPlanContent && isRelevantStatus) {
+  //       (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone)
+  //     }
+  //     return acc
+  //   }, {})
+  // }, [dailyReportDetails]);
+
+
+
+  // // Group all non-"Not Applicable" milestones for the Work Progress section
+  // const milestoneGroups = dailyReportDetails?.milestones
+  //   ?.filter((milestone: any) => milestone.status !== "Not Applicable")
+  //   ?.reduce((acc: any, milestone: any) => {
+  //     (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
+  //     return acc
+  //   }, {}) || {};
+  const workPlanGroupedMilestones = useMemo(() => {
     if (!dailyReportDetails?.milestones) return {};
 
-    return dailyReportDetails.milestones.reduce((acc: any, milestone: any) => {
+    const grouped = dailyReportDetails.milestones.reduce((acc: any, milestone: any) => {
       // 1. Check if the status is WIP or Not Started
       const isRelevantStatus = milestone.status === "WIP" || milestone.status === "Not Started";
       
       // 2. Check if the milestone explicitly has work plan content
       const hasWorkPlanContent = milestone.work_plan && parseWorkPlan(milestone.work_plan).length > 0;
 
-      // Include the milestone if it has content OR if it has a relevant status
+      // Include the milestone if it has content AND if it has a relevant status
       if (hasWorkPlanContent && isRelevantStatus) {
         (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone)
       }
       return acc
-    }, {})
+    }, {});
+
+    // --- SORTING ADDED HERE ---
+    return Object.entries(grouped)
+      .sort(([headerA], [headerB]) => headerA.localeCompare(headerB))
+      .reduce((acc, [header, milestones]) => {
+        acc[header] = milestones;
+        return acc;
+      }, {});
+      // --- END SORTING ---
+
   }, [dailyReportDetails]);
 
 
 
   // Group all non-"Not Applicable" milestones for the Work Progress section
-  const milestoneGroups = dailyReportDetails?.milestones
-    ?.filter((milestone: any) => milestone.status !== "Not Applicable")
-    ?.reduce((acc: any, milestone: any) => {
-      (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
-      return acc
-    }, {}) || {};
+  const milestoneGroups = useMemo(() => { // Wrap the whole block in useMemo
+    if (!dailyReportDetails?.milestones) return {};
+
+    const grouped = dailyReportDetails.milestones
+      .filter((milestone: any) => milestone.status !== "Not Applicable")
+      .reduce((acc: any, milestone: any) => {
+        (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
+        return acc
+      }, {});
+      
+    // --- SORTING ADDED HERE ---
+    return Object.entries(grouped)
+      .sort(([headerA], [headerB]) => headerA.localeCompare(headerB))
+      .reduce((acc, [header, milestones]) => {
+        acc[header] = milestones;
+        return acc;
+      }, {});
+    // --- END SORTING ---
+
+  }, [dailyReportDetails]); // Add dependency array
 
   
   return (
@@ -255,7 +306,7 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
 
    {/* --- 3. WORK PROGRESS --- */}
 {Object.keys(milestoneGroups).length > 0 && (
-  <div className="page page-break-before">
+  <div className="page page-break-before ">
     <ReportPageHeader
       projectData={projectData}
       dailyReportDetails={dailyReportDetails}
@@ -301,12 +352,15 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
                     <td className="border text-center p-2 align-center">
                       {milestone.work_milestone_name}
                       {milestone.remarks && (
-                        <p className="flex items-start p-1 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs mt-1">
-                          <MessagesSquare className="h-4 w-4 flex-shrink-0 mr-1 mt-0.5" />
-                          <span className="flex-grow text-left">
-                            {milestone.remarks}
-                          </span>
-                        </p>
+                        <p className="flex items-start gap-2 p-1 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs">
+                                                                        {/* Icon: Added classes to control size and ensure it's vertically centered */}
+                                                                        <MessagesSquare className="h-4 w-4 flex-shrink-0" />
+                        
+                                                                        {/* Remarks text */}
+                                                                        <span className="flex-grow">
+                                                                          {milestone.remarks}
+                                                                        </span>
+                                                                      </p>
                       )}
                     </td>
 
