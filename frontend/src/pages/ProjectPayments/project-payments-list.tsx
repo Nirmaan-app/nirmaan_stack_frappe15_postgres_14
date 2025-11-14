@@ -476,7 +476,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
 
     return (
         <div className="flex-1 space-y-4">
-            <PaymentSummaryCards totalCount={combinedData.length} />
+            {/* <PaymentSummaryCards totalCount={combinedData.length} /> */}
             <AlertDialog open={newPaymentDialog} onOpenChange={toggleNewPaymentDialog}>
                 <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
                     <AlertDialogHeader className="text-start ">

@@ -454,9 +454,8 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                     dateFilterColumns={dateColumns}
                     showExportButton={true}
                     onExport={'default'}
-                    summaryCard={
-                        <PaymentSummaryCards totalCount={totalCount} />
-                    }
+                    summaryCard={projectId || customerId ? null : <PaymentSummaryCards totalCount={totalCount} />}
+                
                 // toolbarActions={
                 //     (!projectId && !customerId) && (
                 //         <Button onClick={toggleNewInflowDialog} size="sm">
