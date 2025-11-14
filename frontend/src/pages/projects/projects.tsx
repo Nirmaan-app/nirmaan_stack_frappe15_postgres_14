@@ -164,8 +164,8 @@ export const Projects: React.FC<ProjectsProps> = ({
     const inflowsByProject = memoize((projId: string) => projectInflows.filter(pi => pi.project === projId));
     const paymentsByProject = memoize((projId: string) => projectPayments.filter(pp => pp.project === projId));
     const expensesByProject = memoize((projId: string) => projectExpenses.filter(pe => pe.projects === projId));
-    const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status !== "Paid"));
-    const dueByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status !== "Paid" && cr.term_status !== "Created"));
+    const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId));
+    const dueByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status == "Paid"));
 
     return memoize((projectId: string) => {
       // console.log("projectId",projectId);
@@ -175,7 +175,7 @@ export const Projects: React.FC<ProjectsProps> = ({
       const relatedPayments = paymentsByProject(projectId);
       const relatedExpenses = expensesByProject(projectId);
       const relatedTotalBalanceCredit = creditsByProject(projectId).reduce((sum, term) => sum + parseNumber(term.amount), 0);
-      const relatedTotalDue = dueByProject(projectId).reduce((sum, term) => sum + parseNumber(term.amount), 0);
+      const relatedTotalCreditPaid = dueByProject(projectId).reduce((sum, term) => sum + parseNumber(term.amount), 0);
 
       // let totalInvoiced = 0;
 
@@ -200,7 +200,7 @@ export const Projects: React.FC<ProjectsProps> = ({
         calculatedTotalInflow: totalInflow,
         calculatedTotalOutflow: totalOutflow,
         relatedTotalBalanceCredit,
-        relatedTotalDue
+        relatedTotalCreditPaid
       };
     });
   }, [poData, srData, projectInflows, projectPayments, projectExpenses, CreditData]);
@@ -364,8 +364,8 @@ export const Projects: React.FC<ProjectsProps> = ({
       }
     },
     {
-      id: "liabilities",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Liabilities" />,
+      id: "TotalCreditAmt",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Total Purchase Over Credit" />,
       cell: ({ row }) => {
         const financials = getProjectFinancials(row.original.name);
         return (
@@ -376,7 +376,7 @@ export const Projects: React.FC<ProjectsProps> = ({
       },
       size: 100,
       meta: {
-        exportHeaderName: "Liabilities (Lakhs)",
+        exportHeaderName: "Total Purchase Over Credit",
         exportValue: (row) => {
           const financials = getProjectFinancials(row.name);
           return formatToRoundedIndianRupee(parseNumber(financials.relatedTotalBalanceCredit) / 100000) + " L";
@@ -384,22 +384,22 @@ export const Projects: React.FC<ProjectsProps> = ({
       }
     },
     {
-      id: "due_not_paid",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Due Not Paid" />,
+      id: "creditAmtPaid",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Total Credit Amt Paid" />,
       cell: ({ row }) => {
         const financials = getProjectFinancials(row.original.name);
         return (
           <span className="tabular-nums">
-            {formatToRoundedIndianRupee(parseNumber(financials.relatedTotalDue) / 100000)} L
+            {formatToRoundedIndianRupee(parseNumber(financials.relatedTotalCreditPaid) / 100000)} L
           </span>
         );
       },
       size: 100,
       meta: {
-        exportHeaderName: "Due Not Paid (Lakhs)",
+        exportHeaderName: "Total Credit Amt Paid",
         exportValue: (row) => {
           const financials = getProjectFinancials(row.name);
-          return formatToRoundedIndianRupee(parseNumber(financials.relatedTotalDue) / 100000) + " L";
+          return formatToRoundedIndianRupee(parseNumber(financials.relatedTotalCreditPaid) / 100000) + " L";
         }
       }
     }

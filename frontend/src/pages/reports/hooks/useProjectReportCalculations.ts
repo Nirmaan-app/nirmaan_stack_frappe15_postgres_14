@@ -29,8 +29,8 @@ export interface ProjectCalculatedFields {
     totalProjectInvoiced: number;
     totalInflow: number;
     totalOutflow: number;
-    totalBalanceCredit: number; // ✨ NEW
-    totalDue: number;           // ✨ NEW
+    TotalPurchaseOverCredit: number; // ✨ NEW
+    CreditPaidAmount: number;           // ✨ NEW
     // You can add more calculated fields here if needed, e.g., totalCredit
 }
 
@@ -171,9 +171,9 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
     
 
         const getProjectCreditAndDue = useMemo(() => 
-        memoize((projId: string): { totalBalanceCredit: number; totalDue: number } => {
+        memoize((projId: string): { TotalPurchaseOverCredit: number; CreditPaidAmount: number } => {
             if (!CreditData || !projId) {
-                return { totalBalanceCredit: 0, totalDue: 0 };
+                return { TotalPurchaseOverCredit: 0, CreditPaidAmount: 0 };
             }
 
             return CreditData.reduce(
@@ -181,19 +181,19 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
                     if (term.project === projId) {
                         const amount = parseNumber(term.amount);
 
-                        // Rule for 'totalBalanceCredit'
-                        if (term.term_status !=="Paid") {
-                            totals.totalBalanceCredit += amount;
+                        // Rule for 'TotalPurchaseOverCredit'
+                        if (term.term_status) {
+                            totals.TotalPurchaseOverCredit += amount;
                         }
 
-                        // Rule for 'totalDue'
-                        if (term.term_status !== "Paid" && term.term_status !== "Created") {
-                            totals.totalDue += amount;
+                        // Rule for 'CreditPaidAmount'
+                        if (term.term_status == "Paid") {
+                            totals.CreditPaidAmount += amount;
                         }
                     }
                     return totals;
                 },
-                { totalBalanceCredit: 0, totalDue: 0 }
+                { TotalPurchaseOverCredit: 0, CreditPaidAmount: 0 }
             );
         }), 
     [CreditData]); // This calculation depends only on CreditData
@@ -230,7 +230,7 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
             const totalOutflow = poSrPaymentOutflow + projectExpenseOutflow;
 
                         // ✨ Call your new memoized function to get the credit/due totals
-            const { totalBalanceCredit, totalDue } = getProjectCreditAndDue(projectId);
+            const { TotalPurchaseOverCredit, CreditPaidAmount } = getProjectCreditAndDue(projectId);
 
             // Get the newly calculated invoiced amount from our map
             const totalPoSrInvoiced = totalPoSrInvoicedByProject.get(projectId) || 0;
@@ -240,8 +240,8 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
                 totalProjectInvoiced: parseNumber(totalProjectInvoiced),
                 totalInflow: parseNumber(totalInflow),
                 totalOutflow: parseNumber(totalOutflow),
-                totalBalanceCredit: totalBalanceCredit, // ✨ Add the new value
-                totalDue: totalDue,     
+                TotalPurchaseOverCredit: TotalPurchaseOverCredit, // ✨ Add the new value
+                CreditPaidAmount: CreditPaidAmount,     
             };
         }),
         [
