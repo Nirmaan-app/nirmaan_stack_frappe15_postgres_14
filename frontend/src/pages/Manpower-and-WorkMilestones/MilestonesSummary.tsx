@@ -429,10 +429,15 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
     return acc;
   }, {});
 
-  // Filter out headers that have no milestones (this should generally not happen with the new logic, but is good for safety)
-  const filteredGroups = Object.entries(groupedMilestones).filter(
+  // Filter out headers that have no milestones
+  let filteredGroups = Object.entries(groupedMilestones).filter(
     ([header, milestones]) => (milestones as any[]).length > 0
   );
+  // Filter out headers that have no milestones (this should generally not happen with the new logic, but is good for safety)
+ filteredGroups = filteredGroups.sort(([headerA], [headerB]) => {
+    // Perform a locale-sensitive, case-insensitive string comparison
+    return headerA.localeCompare(headerB, undefined, { sensitivity: 'base' });
+  });
 
   // Only render the entire Work Plan section if there are any valid groups
   if (filteredGroups.length === 0) return null;
@@ -545,7 +550,7 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
                           (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
                           return acc;
                         }, {})
-                      ).map(([header, milestones], groupIdx) => (
+                      ).sort(([headerA], [headerB]) => headerA.localeCompare(headerB)).map(([header, milestones], groupIdx) => (
                         <div key={groupIdx} className="mb-4 last:mb-0 border rounded-md overflow-hidden">
                           {/* Collapsible Header */}
                           <div

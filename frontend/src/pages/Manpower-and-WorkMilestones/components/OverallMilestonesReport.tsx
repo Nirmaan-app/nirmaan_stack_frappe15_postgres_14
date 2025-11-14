@@ -345,15 +345,14 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
           </div>
 
           {/* Collapsible Content - Comparison Table */}
-          {expandedSections[header] && (
+          {/* {expandedSections[header] && (
             <div className="p-0 overflow-x-auto">
               <Table className="w-full min-w-[700px]">
                 <TableHeader className="bg-gray-100">
                  <TableRow>
-                    <TableHead className="w-[30%] font-semibold text-gray-700 text-sm py-2">Work</TableHead>
-                    <TableHead className="w-[14%] text-center font-semibold text-gray-700 text-sm py-2">Status<br/>(Current)</TableHead>
+                    <TableHead className="w-[30%] font-semibold text-gray-700 text-sm py-2">Work</TableHead> 
+                   <TableHead className="w-[14%] text-center font-semibold text-gray-700 text-sm py-2">Status<br/>(Current)</TableHead>
                     <TableHead className="w-[14%] text-center font-semibold text-gray-700 text-sm py-2">% Done<br/>(Current)</TableHead>
-                    {/* Modified the date formatting for -7 Days report */}
                     <TableHead className="w-[14%] text-center font-semibold text-gray-700 text-sm py-2">
                       Status<br/>
                       {report7DaysAgo?.report_date ? formatDate(report7DaysAgo.report_date, { month: 'short', day: 'numeric'}) : '--'}
@@ -362,7 +361,6 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
                       % Done<br/>
                       {report7DaysAgo?.report_date ? formatDate(report7DaysAgo.report_date, { month: 'short', day: 'numeric'}) : '--'}
                     </TableHead>
-                    {/* Modified the date formatting for -14 Days report */}
                     <TableHead className="w-[14%] text-center font-semibold text-gray-700 text-sm py-2">
                       Status<br/>
                       {report14DaysAgo?.report_date ? formatDate(report14DaysAgo.report_date, { month: 'short', day: 'numeric'}) : '--'}
@@ -457,12 +455,170 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
                 </TableBody>
               </Table>
             </div>
+          )} */}
+           {/* Collapsible Content - Comparison Table */}
+          {expandedSections[header] && (
+            <div className="p-0 overflow-x-auto">
+              {/* min-width must accommodate 10 columns */}
+              <Table className="w-full min-w-[1200px]"> 
+                <TableHeader className="bg-gray-100">
+                 
+                 {/* 1. TOP HEADER ROW (Dates - uses colSpan) */}
+                 <TableRow>
+                    {/* Work - Not Spanned - uses rowSpan=2 */}
+                    <TableHead 
+                        className="w-[15%] font-semibold text-gray-700 text-sm py-2 text-left align-bottom"
+                        rowSpan={2} 
+                    >
+                        Work
+                    </TableHead> 
+
+                    {/* Current Report (Spans 3 columns: Status + % Done + Remarks) */}
+                    <TableHead 
+                        className="w-[28%] text-center font-semibold text-gray-700 text-sm py-2 border-r"
+                        colSpan={3}
+                    >
+                        Current ({latestReport.report_date ? formatDate(latestReport.report_date, { month: 'short', day: 'numeric'}) : '--'})
+                    </TableHead>
+
+                    {/* -7 Days Report (Spans 3 columns) */}
+                    <TableHead 
+                        className="w-[28%] text-center font-semibold text-gray-700 text-sm py-2 border-r"
+                        colSpan={3}
+                    >
+                        7 Days Ago ({report7DaysAgo?.report_date ? formatDate(report7DaysAgo.report_date, { month: 'short', day: 'numeric'}) : '--'})
+                    </TableHead>
+
+                    {/* -14 Days Report (Spans 3 columns) */}
+                    <TableHead 
+                        className="w-[28%] text-center font-semibold text-gray-700 text-sm py-2 border-r"
+                        colSpan={3}
+                    >
+                        14 Days Ago ({report14DaysAgo?.report_date ? formatDate(report14DaysAgo.report_date, { month: 'short', day: 'numeric'}) : '--'})
+                    </TableHead>
+                  </TableRow>
+                  
+                  {/* 2. BOTTOM HEADER ROW (Metrics - 3x Status, Done, Remarks) */}
+                 <TableRow className="bg-gray-200">
+                    {/* Current Metrics */}
+                    <TableHead className="w-[8%] text-center font-semibold text-gray-700 text-sm py-2">Status</TableHead>
+                    <TableHead className="w-[10%] text-center font-semibold text-gray-700 text-sm py-2">Done %</TableHead>
+                    <TableHead className="w-[10%] text-center font-semibold text-gray-700 text-sm py-2">Remarks</TableHead>
+                    
+                    {/* -7 Days Metrics */}
+                    <TableHead className="w-[8%] text-center font-semibold text-gray-700 text-sm py-2">Status</TableHead>
+                    <TableHead className="w-[10%] text-center font-semibold text-gray-700 text-sm py-2">Done %</TableHead>
+                    <TableHead className="w-[10%] text-center font-semibold text-gray-700 text-sm py-2">Remarks</TableHead>
+                    
+                    {/* -14 Days Metrics */}
+                    <TableHead className="w-[8%] text-center font-semibold text-gray-700 text-sm py-2">Status</TableHead>
+                    <TableHead className="w-[10%] text-center font-semibold text-gray-700 text-sm py-2">Done %</TableHead>
+                    <TableHead className="w-[10%] text-center font-semibold text-gray-700 text-sm py-2">Remarks</TableHead>
+                  </TableRow>
+                </TableHeader>
+                
+                {/* -------------------- TABLE BODY (10 COLUMNS) -------------------- */}
+                <TableBody>
+                  {(milestones as MilestoneSnapshot[]).map((milestone, idx) => {
+                    
+                    // Helper to get full data (including remarks)
+                    const getFullMilestoneData = (report: ReportDoc | null) => {
+                        const defaultData = { status: "N/A", progress: "N/A", remarks: "" };
+                        if (!report || !report.milestones) return defaultData;
+                        
+                        const foundMilestone = report.milestones.find(
+                            m => m.work_milestone_name === milestone.work_milestone_name && m.work_header === milestone.work_header
+                        );
+                        
+                        return foundMilestone 
+                            ? { status: foundMilestone.status, progress: foundMilestone.progress, remarks: foundMilestone.remarks }
+                            : defaultData;
+                    };
+                    
+                    const currentData = getFullMilestoneData(latestReport);
+                    const sevenDaysAgoData = getFullMilestoneData(report7DaysAgo);
+                    const fourteenDaysAgoData = getFullMilestoneData(report14DaysAgo);
+
+
+                    // Helper to render Remarks
+                    const renderRemarksCell = (remarks: string) => (
+                        <TableCell className="text-center py-3 px-2 text-sm max-w-[150px] overflow-hidden">
+                            {remarks ? (
+                                <p className="text-xs text-gray-700 break-words line-clamp-2" title={remarks}>
+                                    {remarks}
+                                </p>
+                            ) : (
+                                <span className="text-gray-400 text-xs">--</span>
+                            )}
+                        </TableCell>
+                    );
+                    
+                    // Helper to render Progress
+                    const renderProgressCell = (data: typeof currentData) => (
+                         <TableCell className="text-center py-3 px-2 text-sm font-medium">
+                            <MilestoneProgress
+                                milestoneStatus={data.status}
+                                value={data.progress}
+                                sizeClassName="size-[60px]"
+                                textSizeClassName="text-md"
+                            />
+                         </TableCell>
+                    );
+
+
+                    return (
+                      <TableRow key={idx} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} align-middle`}>
+                        {/* 1. Work Name */}
+                        <TableCell className="py-3 px-4 text-sm break-words">{idx + 1}. {milestone.work_milestone_name}</TableCell>
+                        
+                        {/* CURRENT REPORT METRICS (Status, % Done, Remarks) */}
+                        <TableCell className="text-center py-3 px-2">
+                          <Badge variant="secondary" className={`${getStatusBadgeClasses(currentData.status)} text-xs`}>
+                            {currentData.status}
+                          </Badge>
+                        </TableCell>
+                        {renderProgressCell(currentData)}
+                        {renderRemarksCell(currentData.remarks)}
+                        
+                        {/* -7 DAYS AGO METRICS (Status, % Done, Remarks) */}
+                        <TableCell className="text-center py-3 px-2">
+                          {report7DaysAgo ? (
+                            <Badge variant="secondary" className={`${getStatusBadgeClasses(sevenDaysAgoData.status)} text-xs`}>
+                              {sevenDaysAgoData.status}
+                            </Badge>
+                          ) : (
+                            <span className="text-gray-400 text-xs">N/A</span>
+                          )}
+                        </TableCell>
+                        {report7DaysAgo ? renderProgressCell(sevenDaysAgoData) : <TableCell className="text-center text-gray-400 text-xs">N/A</TableCell>}
+                        {report7DaysAgo ? renderRemarksCell(sevenDaysAgoData.remarks) : <TableCell className="text-center text-gray-400 text-xs">N/A</TableCell>}
+
+
+                        {/* -14 DAYS AGO METRICS (Status, % Done, Remarks) */}
+                        <TableCell className="text-center py-3 px-2">
+                          {report14DaysAgo ? (
+                            <Badge variant="secondary" className={`${getStatusBadgeClasses(fourteenDaysAgoData.status)} text-xs`}>
+                              {fourteenDaysAgoData.status}
+                            </Badge>
+                          ) : (
+                            <span className="text-gray-400 text-xs">N/A</span>
+                          )}
+                        </TableCell>
+                        {report14DaysAgo ? renderProgressCell(fourteenDaysAgoData) : <TableCell className="text-center text-gray-400 text-xs">N/A</TableCell>}
+                        {report14DaysAgo ? renderRemarksCell(fourteenDaysAgoData.remarks) : <TableCell className="text-center text-gray-400 text-xs">N/A</TableCell>}
+
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </div>
       ))}
        
  <div className="mt-6">
-                    <h3 className="text-base md:text-lg font-bold mb-3">Work Images</h3>
+                    <h3 className="text-base md:text-lg font-bold mb-3">Most recent Work Images</h3>
                     {latestReport.attachments && latestReport.attachments.length > 0 ? (
                       <div className="grid grid-cols-1 sm:grid-cols-1 lg:grid-cols-2 xl:grid-cols-2 gap-3 md:gap-4">
                         {latestReport.attachments.map((attachment, idx) => (

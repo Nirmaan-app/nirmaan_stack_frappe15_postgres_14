@@ -607,7 +607,7 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
                             <Label htmlFor="customer_po_creation_date">PO Date*</Label>
                             <Input
                                 id="customer_po_creation_date"
-                                type="datetime"
+                                type="date"
                                 value={formData.customer_po_creation_date}
                                 onChange={handleInputChange}
                                 required
