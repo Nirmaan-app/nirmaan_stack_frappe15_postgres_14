@@ -839,44 +839,60 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
               )}
             />
 
-            {/* <FormField
-              control={form.control}
-              name="project_gst_number"
-              render={({ field }) => (
-                <FormItem className="lg:flex lg:items-center gap-4">
-                  <FormLabel className="md:basis-3/12">Project GST<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
-                  <div className="md:basis-2/4">
-                    <Select onValueChange={(selectedLocation) => {
-                      if (selectedLocation === "Both") {
-                        field.onChange({ list: [{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }, { location: "Gurugram", gst: "06ABFCS9095N1ZH" }] })
-                      } else if (selectedLocation === "Bengaluru") {
-                        field.onChange({ list: [{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }] })
-                      } else {
-                        field.onChange({ list: [{ location: "Gurugram", gst: "06ABFCS9095N1ZH" }] })
-                      }
-                    }}
-                      defaultValue={field.value.list.length === 2 ? "Both" : field.value.list?.[0]?.location || ""}>
-                      <div className="flex flex-col items-start">
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select Project GST" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <FormMessage />
-                      </div>
-                      <SelectContent>
-                        {[{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }, { location: "Gurugram", gst: "06ABFCS9095N1ZH" }].map((option) => (
-                          <SelectItem key={option.location} value={option.location}>{option.location}{` (${option.gst})`}</SelectItem>
-                        ))}
-                        <SelectItem key="Both" value="Both">Both</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </FormItem>
-              )}
-            /> */}
 
 <FormField
+  control={form.control}
+  name="project_gst_number" // Form expects { list: [{ location, gst }] }
+  render={({ field }) => {
+    // 1. Extract the currently selected location's name (the single value we need for the Select component).
+    // This correctly displays the default/current selection if the list has one item.
+    const currentValue = field.value?.list?.[0]?.location || "";
+
+    return (
+      <FormItem className="lg:flex lg:items-center gap-4">
+        {/* Preserving the md:basis-3/12 from your last provided component */}
+        <FormLabel className="md:basis-3/12">Project GST<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
+        {/* Preserving the md:basis-2/4 from your last provided component */}
+        <div className="md:basis-2/4">
+          <Select
+            onValueChange={(selectedLocationName: string) => {
+              // 2. Find the full GST object for the selected location name
+              const foundOption = allGstOptions.find(opt => opt.location === selectedLocationName);
+
+              // 3. Update the form field with a new list containing only the selected item.
+              if (foundOption) {
+                  // Set the form value to { list: [the_selected_object] }
+                  field.onChange({ list: [foundOption] });
+              } else {
+                  // Handle case where user might deselect or an unexpected value occurs
+                  field.onChange({ list: [] });
+              }
+            }}
+            value={currentValue}
+            disabled={field.disabled}
+          >
+            <SelectTrigger className="w-full">
+              {/* Display the selected location name or the placeholder */}
+              <SelectValue placeholder="Select Project GST" />
+            </SelectTrigger>
+            <SelectContent>
+              {/* Map all available options */}
+              {allGstOptions.map((option) => (
+                <SelectItem key={option.location} value={option.location}>
+                  {/* Display both location and GST for user clarity */}
+                  {option.location} - {option.gst} 
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <FormMessage />
+        </div>
+      </FormItem>
+    );
+  }}
+/>
+
+{/* <FormField
   control={form.control}
   name="project_gst_number" // Ensure this matches your form's schema for an array of objects
   render={({ field }) => {
@@ -887,9 +903,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
 
     return (
       <FormItem className="lg:flex lg:items-center gap-4">
-        {/* Preserving the md:basis-3/12 from your "edit Form components" version */}
         <FormLabel className="md:basis-3/12">Project GST<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
-        {/* Preserving the md:basis-2/4 from your "edit Form components" version */}
         <div className="md:basis-2/4">
           <MultiSelect
             options={multiSelectGstOptions}
@@ -911,13 +925,12 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
             className="w-full"
             disabled={field.disabled} // Inherit disabled state from form field
           />
-          {/* FormMessage remains here */}
           <FormMessage />
         </div>
       </FormItem>
     );
   }}
-/>
+/> */}
 
 
           </div>

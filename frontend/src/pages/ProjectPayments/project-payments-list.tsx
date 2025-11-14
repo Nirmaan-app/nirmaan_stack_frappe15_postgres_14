@@ -28,6 +28,7 @@ import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
 import { InvoiceDataDialog } from "../ProcurementOrders/purchase-order/components/InvoiceDataDialog";
 import { PaymentsDataDialog } from "./PaymentsDataDialog";
+import PaymentSummaryCards from "./PaymentSummaryCards";
 
 type ProjectFilter = Filter<FrappeDoc<Projects>>;
 export const projectPaymentsQueryKeys = {
@@ -475,6 +476,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
 
     return (
         <div className="flex-1 space-y-4">
+            <PaymentSummaryCards totalCount={combinedData.length} />
             <AlertDialog open={newPaymentDialog} onOpenChange={toggleNewPaymentDialog}>
                 <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
                     <AlertDialogHeader className="text-start ">
@@ -603,7 +605,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                 (poLoading || srLoading || projectsLoading || vendorsLoading || projectPaymentsLoading) ? (
                     <TableSkeleton />
                 ) : (
-                    <DataTable columns={columns} data={combinedData} project_values={!projectId ? projectValues : undefined} approvedQuotesVendors={vendorValues} />
+                    <DataTable columns={columns} data={combinedData} project_values={!projectId ? projectValues : undefined} approvedQuotesVendors={vendorValues}  />
                 )
             }
         </div>

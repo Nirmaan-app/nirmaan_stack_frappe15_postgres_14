@@ -46,7 +46,7 @@ export const ServiceRequestsTabs : React.FC = () => {
             {
                 label: (
                     <div className="flex items-center">
-                        <span>Approve Service Order</span>
+                        <span>Approve Work Order</span>
                         <span className="ml-2 text-xs font-bold">
                             {counts.sr.selected}
                         </span>
@@ -57,7 +57,7 @@ export const ServiceRequestsTabs : React.FC = () => {
             {
                 label: (
                     <div className="flex items-center">
-                        <span>Approve Amended SO</span>
+                        <span>Approve Amended WO</span>
                         <span className="ml-2 text-xs font-bold">
                             {counts.sr.amended}
                         </span>
@@ -72,7 +72,7 @@ export const ServiceRequestsTabs : React.FC = () => {
         {
           label: (
               <div className="flex items-center">
-                  <span>In Progress SR</span>
+                  <span>Pending WO</span>
                   <span className="ml-2 text-xs font-bold">
                       {counts.sr.pending}
                   </span>
@@ -83,7 +83,7 @@ export const ServiceRequestsTabs : React.FC = () => {
       {
           label: (
               <div className="flex items-center">
-                  <span>Approved SR</span>
+                  <span>Approved WO</span>
                   <span className="ml-2 rounded text-xs font-bold">
                       {counts.sr.approved}
                   </span>

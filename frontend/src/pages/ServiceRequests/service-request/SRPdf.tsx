@@ -49,7 +49,7 @@ const SRHeader: React.FC<{ orderData: any; service_vendor: any; project: any; lo
             </div>
           </div>
           <div>
-            <div className="pt-2 text-xl text-gray-600 font-semibold">Purchase Order No.</div>
+            <div className="pt-2 text-xl text-gray-600 font-semibold">Work Order No.</div>
             <div className="text-lg font-semibold text-black">{(orderData?.name)?.toUpperCase()}</div>
           </div>
         </div>

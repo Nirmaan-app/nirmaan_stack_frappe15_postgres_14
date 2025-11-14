@@ -172,7 +172,15 @@ export const basePOColumns: ColumnDef<POReportRowData>[] = [
   {
     accessorKey: "invoiceAmount", // This is pre-calculated in POReportRowData
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Total Invoice Amt" />
+      // <DataTableColumnHeader column={column} title="" />
+      <DataTableColumnHeader column={column}
+        title={
+
+          <div className="text-center whitespace-normal">
+            Total Invoice Amt (incl. GST)
+          </div>
+
+        } />
     ),
     cell: ({ row }) => (
       <div className="tabular-nums">
@@ -181,7 +189,7 @@ export const basePOColumns: ColumnDef<POReportRowData>[] = [
     ),
     meta: {
       exportValue: (row: POReportRowData) => formatForReport(row.invoiceAmount),
-      exportHeaderName: "Total Invoice Amt",
+      exportHeaderName: "Total Invoice Amt (incl. GST)",
       isNumeric: true,
     },
   },
@@ -198,6 +206,22 @@ export const basePOColumns: ColumnDef<POReportRowData>[] = [
     meta: {
       exportValue: (row: POReportRowData) => formatForReport(row.amountPaid),
       exportHeaderName: "Amt Paid",
+      isNumeric: true,
+    },
+  },
+  {
+    id: "PendingInvoice", // This is pre-calculated in POReportRowData
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Pending Invoice Amt" />
+    ),
+    cell: ({ row }) => (
+      <div className="tabular-nums">
+        {formatToRoundedIndianRupee(row.original.amountPaid - row.original.invoiceAmount)}
+      </div>
+    ),
+    meta: {
+      exportValue: (row: POReportRowData) => formatForReport(row.amountPaid - row.invoiceAmount),
+      exportHeaderName: "Pending Invoice Amt",
       isNumeric: true,
     },
   },
@@ -289,8 +313,16 @@ export const basePOColumnsForPM: ColumnDef<POReportRowData>[] = [
   },
   {
     accessorKey: "invoiceAmount", // This is pre-calculated in POReportRowData
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Total Invoice Amt" />
+    header: ({ column }) => ( 
+    //  <DataTableColumnHeader column={column} title="Total Invoice Amt (incl. GST)" />
+     <DataTableColumnHeader column={column}
+        title={
+
+          <div className="text-center whitespace-normal">
+            Total Invoice Amt (incl. GST)
+          </div>
+
+        } />
     ),
     cell: ({ row }) => (
       <div className="tabular-nums">
@@ -299,7 +331,7 @@ export const basePOColumnsForPM: ColumnDef<POReportRowData>[] = [
     ),
     meta: {
       exportValue: (row: POReportRowData) => formatForReport(row.invoiceAmount),
-      exportHeaderName: "Total Invoice Amt",
+      exportHeaderName: "Total Invoice Amt (incl. GST)",
       isNumeric: true,
     },
   },
@@ -316,6 +348,22 @@ export const basePOColumnsForPM: ColumnDef<POReportRowData>[] = [
     meta: {
       exportValue: (row: POReportRowData) => formatForReport(row.amountPaid),
       exportHeaderName: "Amt Paid",
+      isNumeric: true,
+    },
+  },
+  {
+    id: "PendingInvoice", // This is pre-calculated in POReportRowData
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Pending Invoice Amt" />
+    ),
+    cell: ({ row }) => (
+      <div className="tabular-nums">
+        {formatToRoundedIndianRupee(row.original.amountPaid - row.original.invoiceAmount)}
+      </div>
+    ),
+    meta: {
+      exportValue: (row: POReportRowData) => formatForReport(row.amountPaid - row.invoiceAmount),
+      exportHeaderName: "Pending Invoice Amt",
       isNumeric: true,
     },
   },

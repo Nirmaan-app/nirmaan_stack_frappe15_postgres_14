@@ -796,48 +796,56 @@ export const ProjectForm = () => {
                                         )
                                     }}
                                 />
-                                {/* <FormField
-                                    control={form.control}
-                                    name="project_gst_number"
-                                    render={({ field }) => (
-                                        <FormItem className="lg:flex lg:items-center gap-4">
-                                            <FormLabel className="md:basis-2/12">Project GST<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
-                                            <div className="md:basis-2/4">
-                                                <Select onValueChange={(selectedLocation) => {
-                                                    if (selectedLocation === "Both") {
-                                                        field.onChange({ list: [{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }, { location: "Gurugram", gst: "06ABFCS9095N1ZH" }] })
-                                                    } else if (selectedLocation === "Bengaluru") {
-                                                        field.onChange({ list: [{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }] })
-                                                    }else if (selectedLocation === "Noida") {
-                                                        field.onChange({ list: [{ location: "Noida", gst: "09ABFCS9095N1ZB" }] })
-                                                    }
-                                                     else {
-                                                        field.onChange({ list: [{ location: "Gurugram", gst: "06ABFCS9095N1ZH" }] })
-                                                    }
-                                                }}
-                                                    defaultValue={"Bengaluru"}>
-                                                    <div className="flex flex-col items-start">
-                                                        <FormControl>
-                                                            <SelectTrigger>
-                                                                <SelectValue placeholder="Select Project GST" />
-                                                            </SelectTrigger>
-                                                        </FormControl>
-                                                        <FormMessage />
-                                                    </div>
-                                                    <SelectContent>
-                                                        {[{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }, { location: "Gurugram", gst: "06ABFCS9095N1ZH" }].map((option) => (
-                                                            <SelectItem key={option.location} value={option.location}>{option.location}{` (${option.gst})`}</SelectItem>
-                                                        ))}
-                                                        <SelectItem key="Both" value="Both">Both</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-                                        </FormItem>
-                                    )}
-                                /> */}
+                                
 
-                               
 <FormField
+  control={form.control}
+  name="project_gst_number" // Form expects { list: [{ location, gst }] }
+  render={({ field }) => {
+    // 1. Extract the currently selected location's name (the single value we need)
+    const currentValue = field.value?.list?.[0]?.location || "";
+
+    return (
+      <FormItem className="lg:flex lg:items-center gap-4">
+        <FormLabel className="md:basis-2/12">Project GST<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
+        <div className="md:basis-2/4">
+          <Select
+            onValueChange={(selectedLocationName: string) => {
+              // 2. Find the full GST object for the selected location name
+              const foundOption = allGstOptions.find(opt => opt.location === selectedLocationName);
+
+              // 3. Update the form field with the new list containing only the selected item
+              if (foundOption) {
+                  // Ensure the form field value remains in the expected { list: [...] } format
+                  field.onChange({ list: [foundOption] });
+              } else {
+                  // If the user selects the "placeholder" value (or if the value is empty)
+                  field.onChange({ list: [] });
+              }
+            }}
+            value={currentValue}
+            disabled={field.disabled}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Select Project GST" />
+            </SelectTrigger>
+            <SelectContent>
+              {/* Map options to SelectItem */}
+              {allGstOptions.map((option) => (
+                <SelectItem key={option.location} value={option.location}>
+                  {option.location} - {option.gst}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <FormMessage />
+        </div>
+      </FormItem>
+    );
+  }}
+/>
+                               
+{/* <FormField
   control={form.control}
   name="project_gst_number" // Ensure this matches your form's schema for an array of objects
   render={({ field }) => {
@@ -872,7 +880,8 @@ export const ProjectForm = () => {
       </FormItem>
     );
   }}
-/>
+/> */}
+
                                 
                                 {/* <FormField
                                     control={form.control}

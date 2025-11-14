@@ -155,7 +155,7 @@ export default function SRReports() {
         }));
 
         const exportColumnsConfig: ColumnDef<any, any>[] = [
-            { header: "#SR", accessorKey: "sr_id" },
+            { header: "#WO", accessorKey: "sr_id" },
             { header: "Date Created", accessorKey: "creation" },
             { header: "Project", accessorKey: "project_name" },
             { header: "Vendor", accessorKey: "vendor_name" },

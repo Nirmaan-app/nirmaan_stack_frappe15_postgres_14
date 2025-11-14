@@ -100,8 +100,9 @@ export default function POReports() {
 
                         // 2. The corrected logic using ">="
                         const dayDifference = differenceInDays(today, dispatchDate);
+                        // console.log(`PO ${poDoc.name} dispatched on ${poDoc.dispatch_date}, dayDifference: ${dayDifference}`);
                         // CHANGE: DISPATCHED FOR 1+ DAYS
-                        return dayDifference >= 1;
+                        return dayDifference >=1;
 
                     } catch (e) {
                         // This will catch any unexpected errors during date parsing
@@ -113,12 +114,10 @@ export default function POReports() {
             default:
                 filtered = []; // Should not reach here due to initial check
         }
-        // console.log(`POReports: Filtered data count: ${filtered.length}`);
         return filtered;
     }, [allPOsForReports, selectedReportType, payment_delta, invoice_delta]);
 
     // 4. Initialize useServerDataTable in clientData mode
-    // console.log("currentDisplayData", currentDisplayData);
 
     const {
         table,

@@ -1662,6 +1662,9 @@ interface LocalMilestoneData {
   expected_completion_date?: string;
   remarks?: string;
   is_updated_for_current_report?: boolean; // New field for frontend validation
+   // --- NEW FIELD ---
+  work_plan?: string; // Stored as long text with $#,,, delimiter
+  work_plan_ratio?: 'Plan Not Required' | 'Plan Required'; // NEW: To manage the visibility/requirement of work_plan input
 }
 
 // Define the exact structure Frappe expects for a milestone child table entry when submitting a parent doc
@@ -1674,6 +1677,7 @@ interface FrappeMilestoneChildPayload {
   expected_starting_date?: string;
   expected_completion_date?: string;
   remarks?: string;
+  work_plan?: string; 
   // NO other Frappe system fields like docstatus, parent, doctype, etc.
 }
 
@@ -1710,6 +1714,7 @@ interface WorkMilestoneFromFrappe {
   expected_starting_date: string;
   expected_completion_date: string;
   work_header: string;
+    work_plan?: string; 
 }
 
 interface FullPreviousProjectProgressReport extends ProjectProgressReportData {
@@ -1719,6 +1724,43 @@ interface FullPreviousProjectProgressReport extends ProjectProgressReportData {
   draft_last_updated?: string; // ADDED
 }
 // --- END: Refined Interfaces ---
+// Place these near the top of MilestoneTabInner or outside if preferred
+
+export const DELIMITER = "$#,,,"; // Custom delimiter for work plan points
+
+export const parseWorkPlan = (workPlanString?: string | null): string[] => {
+  if (!workPlanString || typeof workPlanString !== 'string' || workPlanString.trim() === '') {
+    return [""]; // Start with an empty point
+  }
+  // Split the string and filter out empty strings resulting from trailing/leading delimiters
+  return workPlanString.split(DELIMITER).filter(p => p.trim() !== '');
+};
+
+export const serializeWorkPlan = (workPlanPoints: string[]): string => {
+  // Filter out empty lines before joining
+  return workPlanPoints.filter(p => p.trim() !== '').join(DELIMITER);
+};
+
+// Helper component for the radio circle indicator
+const RadioIndicator: React.FC<{ isActive: boolean, isDisabled: boolean }> = ({ isActive, isDisabled }) => (
+    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center mr-2 transition-colors duration-150 flex-shrink-0
+        ${isDisabled 
+            ? 'border-gray-400 bg-gray-200' 
+            : isActive 
+                ? 'border-white bg-white' // Active: White fill for the inner circle
+                : 'border-gray-500 bg-transparent' // Inactive: Transparent fill
+        }`}
+    >
+        {/* Inner dot for the active state */}
+        {isActive && !isDisabled && (
+            <div className="w-2 h-2 rounded-full bg-blue-600" /> // Use blue for active dot color
+        )}
+        {/* If you wanted a checkmark for the active state instead of a dot, you'd use: 
+        {isActive && !isDisabled && <Check className="w-3 h-3 text-blue-600" />} */}
+    </div>
+);
+
+
 
 
 const MilestoneTabInner = () => {
@@ -1850,6 +1892,11 @@ const latestCompletedReportDateIsToday =
   const [isMilestoneDatePickerOpen, setIsMilestoneDatePickerOpen] = useState(false);
   const [milestoneRemarks, setMilestoneRemarks] = useState('');
 
+  // --- NEW STATES FOR WORK PLAN ---
+const [workPlanRatio, setWorkPlanRatio] = useState<'Plan Not Required' | 'Plan Required'>('Plan Not Required');
+const [workPlanPoints, setWorkPlanPoints] = useState<string[]>([]); // Array of points for the text area
+//
+
   const [currentTabMilestones, setCurrentTabMilestones] = useState<LocalMilestoneData[]>([]);
 
   const fullManpowerDetails: ManpowerRole[] = [
@@ -1867,11 +1914,20 @@ const latestCompletedReportDateIsToday =
   };
 
   const getAllAvailableTabs = () => {
+    const dynamicTabs = (projectData?.enable_project_milestone_tracking === 1 && projectData?.project_work_header_entries)
+      ? projectData.project_work_header_entries.filter(entry => entry.enabled === "True")
+      : [];
+
+    // 2. Sort the dynamic entries by project_work_header_name
+    dynamicTabs.sort((a, b) => 
+      a.project_work_header_name.localeCompare(b.project_work_header_name)
+    );
     return [
       { name: "Work force", project_work_header_name: "Work force", enabled: "True" },
-      ...(projectData?.enable_project_milestone_tracking === 1 && projectData?.project_work_header_entries
-        ? projectData.project_work_header_entries.filter(entry => entry.enabled === "True")
-        : []),
+      // ...(projectData?.enable_project_milestone_tracking === 1 && projectData?.project_work_header_entries
+      //   ? projectData.project_work_header_entries.filter(entry => entry.enabled === "True")
+      //   : []),
+      ...dynamicTabs,
           {name:"Photos",project_work_header_name:"Photos",enabled:"True"},
     ];
   };
@@ -1931,6 +1987,8 @@ const latestCompletedReportDateIsToday =
       expected_completion_date: frappeM.expected_completion_date,
       remarks: "", // Start with empty remarks for the new report
       is_updated_for_current_report: false,
+       work_plan: "", // Default to empty string
+       work_plan_ratio: 'Plan Not Required', // Default to Plan Not Required
     }));
 
     // 2. Overlay the status/progress from the Last Completed Report onto the base list.
@@ -1952,6 +2010,11 @@ const latestCompletedReportDateIsToday =
             progress: matchingCompletedM.progress,
             expected_starting_date: matchingCompletedM.expected_starting_date,
             expected_completion_date: matchingCompletedM.expected_completion_date,
+
+             // --- NEW FIELDS OVERLAYED ---
+            work_plan:"",
+    // Determine ratio based on whether the plan was present in the last completed report
+            work_plan_ratio: matchingCompletedM.work_plan ? 'Plan Required' : 'Plan Not Required',
             // remarks and is_updated_for_current_report remain the default/initial values
           };
         }
@@ -2458,6 +2521,9 @@ console.log(user)
         status: milestone.status,
         progress: milestone.progress,
         remarks: milestone.remarks || '',
+        // --- NEW FIELD ADDED ---
+            work_plan: milestone.work_plan || '', 
+            // -----------------------
       };
 
       if (milestone.expected_starting_date) {
@@ -2679,6 +2745,11 @@ console.log(user)
         : (milestone.expected_completion_date ? new Date(milestone.expected_completion_date) : null)
     );
     setMilestoneRemarks(milestone.remarks || '');
+     // --- NEW LOGIC: Initialize Work Plan Dialog States ---
+    const ratio = milestone.work_plan_ratio || 'Plan Not Required';
+    setWorkPlanRatio(ratio);
+    setWorkPlanPoints(parseWorkPlan(milestone.work_plan));
+    // ---------------------------------------------------
     setIsUpdateMilestoneDialogOpen(true);
   };
   
@@ -2722,6 +2793,17 @@ console.log(user)
       }
     }
 
+     // --- NEW VALIDATION: Check if work_plan is required but empty ---
+    if (workPlanRatio === 'Plan Required' && workPlanPoints.every(p => p.trim() === '')) {
+        toast({
+            title: "Validation Error 🚫",
+            description: "Work Plan is required for this ratio selection.",
+            variant: "destructive",
+        });
+        return;
+    }
+    // --------------------------------------------------------------
+
     const updatedLocalMilestone: LocalMilestoneData = {
       name: selectedMilestoneForDialog.name,
       work_milestone_name: selectedMilestoneForDialog.work_milestone_name,
@@ -2730,6 +2812,11 @@ console.log(user)
       progress:progress,
       remarks: milestoneRemarks,
       is_updated_for_current_report: true,
+              // --- NEW FIELDS SAVED ---
+        work_plan_ratio: workPlanRatio,
+        work_plan: workPlanRatio === 'Plan Required' ? serializeWorkPlan(workPlanPoints) : '', // Save only if required
+        // ------------------------
+
     };
 
     if (newStatus === 'Not Started') {
@@ -2751,10 +2838,15 @@ console.log(user)
       updatedLocalMilestone.expected_completion_date = undefined;
       updatedLocalMilestone.expected_starting_date = undefined; 
       updatedLocalMilestone.progress = 100;
+      updatedLocalMilestone.work_plan="";
+      updatedLocalMilestone.work_plan_ratio="Plan Not Required";
+
     }else if(newStatus==='Not Applicable'){
       updatedLocalMilestone.expected_completion_date = undefined;
       updatedLocalMilestone.expected_starting_date = undefined; 
       updatedLocalMilestone.progress = 0;
+      updatedLocalMilestone.work_plan="";
+      updatedLocalMilestone.work_plan_ratio="Plan Not Required";
     }
 
     const updatedMilestonesForCurrentTab = [...currentTabMilestones];
@@ -3244,9 +3336,10 @@ console.log(user)
               {localPhotos.map((photo) => (
                 <div 
                   key={photo.local_id} 
-                  className="flex items-center gap-4 p-3 bg-white rounded-xl shadow-sm border border-gray-100"
+                  className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-3 bg-white rounded-md shadow-sm border  border-gray-400"
                 >
-                  <div className="relative flex-shrink-0 w-[180px] h-[140px] border-2 border-pink-500 rounded-xl overflow-hidden">
+                  <div className="relative flex-shrink-0 w-full h-[180px] sm:w-[180px] sm:h-[140px] border-2 border-pink-500 rounded-xl overflow-hidden"
+                  >
                     <img
                       src={photo.image_link}
                       alt={`Photo ${photo.local_id}`}
@@ -3624,7 +3717,7 @@ console.log(user)
 
     <Dialog open={isUpdateMilestoneDialogOpen} onOpenChange={setIsUpdateMilestoneDialogOpen}>
  
-    <DialogContent className="sm:max-w-[425px] overflow-hidden">
+    <DialogContent className="sm:max-w-[425px] sm:max-h-[90vh] sm:overflow-y-auto">
         
         <DialogHeader className="p-2 pb-4 border-b">
             <div className="flex justify-center items-center">
@@ -3820,6 +3913,128 @@ console.log(user)
               </div>
             )}
           
+          
+           {
+            (newStatus === 'WIP' ||newStatus === 'Not Started') && (
+<>
+  {/* --- NEW SECTION: Work Plan Ratio Toggle --- */}
+    <div className="flex flex-col">
+        <label className="block text-base font-semibold text-gray-900 mb-2">Activities Planned for Today </label>
+        <div className="grid grid-cols-2 gap-3">
+            {/* <Button 
+                className={`py-3 text-sm font-semibold ${workPlanRatio === 'Plan Not Required' ? 'bg-gray-700 text-white hover:bg-gray-500' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                onClick={() => {
+                    setWorkPlanRatio('Plan Not Required');
+                    // Optionally clear points when plan is not required
+                    setWorkPlanPoints([""]); 
+                }}
+                disabled={isBlockedByDraftOwnership}
+            >
+                Nothing
+            </Button>
+            <Button 
+                className={`py-3 text-sm font-semibold ${workPlanRatio === 'Plan Required' ? 'bg-blue-600 text-white hover:bg-blue-500' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                onClick={() => setWorkPlanRatio('Plan Required')}
+                disabled={isBlockedByDraftOwnership}
+            >
+                Record Activities 
+            </Button> */}
+            <Button 
+            className={`py-3 text-sm font-semibold flex items-center justify-center 
+                ${workPlanRatio === 'Plan Not Required' 
+                    ? 'bg-gray-700 text-white hover:bg-gray-500' 
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+            onClick={() => {
+                setWorkPlanRatio('Plan Not Required');
+                // Optionally clear points when plan is not required
+                setWorkPlanPoints([""]); 
+            }}
+            disabled={isBlockedByDraftOwnership}
+        >
+            <RadioIndicator 
+                isActive={workPlanRatio === 'Plan Not Required'} 
+                isDisabled={isBlockedByDraftOwnership} 
+            />
+            Nothing
+        </Button>
+        
+        {/* Button 2: Plan Required (Record Activities) */}
+        <Button 
+            className={`py-3 text-sm font-semibold flex items-center justify-center 
+                ${workPlanRatio === 'Plan Required' 
+                    ? 'bg-blue-600 text-white hover:bg-blue-500' 
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+            onClick={() => setWorkPlanRatio('Plan Required')}
+            disabled={isBlockedByDraftOwnership}
+        >
+            <RadioIndicator 
+                isActive={workPlanRatio === 'Plan Required'} 
+                isDisabled={isBlockedByDraftOwnership} 
+            />
+            Record Activities 
+        </Button>
+        </div>
+    </div>
+    {/* --- END NEW SECTION --- */}
+     {workPlanRatio === 'Plan Required' && (
+        <div className="space-y-3 p-2 border border-blue-200 rounded-lg bg-blue-50">
+            <label className="block text-base font-semibold text-gray-900 mb-1 flex items-center justify-between">
+                <span>Activity Details</span><span className='text-xs font-normal text-gray-600 ml-2'> <Button
+                variant="outline"
+                className="w-full flex items-center gap-2 text-blue-600 border-blue-600"
+                onClick={() => setWorkPlanPoints(prev => [...prev, ""])}
+                disabled={isBlockedByDraftOwnership}
+            >
+                <PlusCircledIcon className="h-4 w-4" /> New Point
+            </Button></span>
+            </label>
+            <div className="space-y-2">
+                {workPlanPoints.map((point, index) => (
+                    <div key={index} className="flex items-start gap-2">
+                        {workPlanPoints.length > 1 && (
+                            <Button
+                                variant="destructive"
+                                size="icon"
+                                className="h-7 w-7 p-0 flex-shrink-0 mt-0.5"
+                                onClick={() => setWorkPlanPoints(prev => prev.filter((_, i) => i !== index))}
+                                disabled={isBlockedByDraftOwnership}
+                            >
+                                <X className="h-4 w-4" />
+                            </Button>
+                        )}
+                        <Textarea
+                            value={point}
+                            onChange={(e) => {
+                                const newPoints = [...workPlanPoints];
+                                newPoints[index] = e.target.value;
+                                setWorkPlanPoints(newPoints);
+                            }}
+                            placeholder={`Point ${index + 1}...`}
+                            className="flex-grow min-h-[40px] text-sm"
+                            rows={1}
+                            disabled={isBlockedByDraftOwnership}
+                        />
+                    </div>
+                ))}
+            </div>
+            {/* <Button
+                variant="outline"
+                className="w-full flex items-center gap-2 text-blue-600 border-blue-600"
+                onClick={() => setWorkPlanPoints(prev => [...prev, ""])}
+                disabled={isBlockedByDraftOwnership}
+            >
+                <PlusCircledIcon className="h-4 w-4" /> Add New Point
+            </Button> */}
+        </div>
+    )}
+    {/* --- END NEW SECTION --- */}
+</>
+            )
+           }
+          
+
+
+   
             <div>
                 <label className="block text-base font-semibold text-gray-900 mb-1">Remarks</label>
                 <Textarea

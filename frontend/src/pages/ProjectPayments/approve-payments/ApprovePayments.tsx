@@ -21,7 +21,7 @@ import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { DOC_TYPES, PAYMENT_STATUS, DIALOG_ACTION_TYPES, DialogActionType } from './constants';
-
+import PaymentSummaryCards from "../PaymentSummaryCards";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
@@ -37,6 +37,7 @@ import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { DEFAULT_PP_FIELDS_TO_FETCH, PP_DATE_COLUMNS, PP_SEARCHABLE_FIELDS } from "../config/projectPaymentsTable.config";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
+import {useSWRConfig} from 'swr'
 
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
@@ -48,7 +49,7 @@ interface SelectOption { label: string; value: string; }
 export const ApprovePayments: React.FC = () => {
     const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
-
+     const { mutate } = useSWRConfig();
     // --- State for Dialogs ---
     const [selectedPayment, setSelectedPayment] = useState<ProjectPayments | null>(null);
     const [dialogActionType, setDialogActionType] = useState<DialogActionType>(DIALOG_ACTION_TYPES.APPROVE);
@@ -283,10 +284,14 @@ export const ApprovePayments: React.FC = () => {
             await updateDoc(DOCTYPE, selectedPayment.name, {
                 status: newStatus,
                 amount: amount, // Already a number
+                approval_date: formatDate(new Date(), 'YYYY-MM-DD'),    
                 ...(payment_details && { payment_details: JSON.stringify(payment_details) }) // Add UTR, Date etc.
             });
             refetch();
             closeDialog();
+
+        //    mutate("payment_dashboard_stats_summary")
+
             toast({ title: "Success!", description: `Payment ${actionType} successfully!`, variant: "success" });
             // Refetch is handled by useServerDataTable on data change (via useFrappeDocTypeEventListener)
         } catch (error: any) {
@@ -352,6 +357,9 @@ export const ApprovePayments: React.FC = () => {
                     //     toggle: toggleItemSearch,
                     //     label: "Item Search"
                     // }}
+                    summaryCard={
+                        <PaymentSummaryCards totalCount={totalCount} />
+                    }
                     facetFilterOptions={facetFilterOptions}
                     dateFilterColumns={dateColumns}
                     showExportButton={true} // Optional

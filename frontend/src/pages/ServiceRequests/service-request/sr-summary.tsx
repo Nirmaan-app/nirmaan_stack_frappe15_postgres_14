@@ -130,15 +130,15 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
             await mutate("Service Requests,orderBy(creation-desc)")
             toast({
                 title: "Success!",
-                description: `SR: ${sr_data?.name} deleted successfully!`,
+                description: `WO: ${sr_data?.name} deleted successfully!`,
                 variant: "success"
             })
             navigate("/service-requests-list")
         } catch (error) {
-            console.log("error while deleting SR", error)
+            console.log("error while deleting WO", error)
             toast({
                 title: "Failed!",
-                description: `SR: ${sr_data?.name} deletion Failed!`,
+                description: `WO: ${sr_data?.name} deletion Failed!`,
                 variant: "destructive"
             })
         }
@@ -193,12 +193,12 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                 <AlertDialogTrigger>
                                     <Button className="flex items-center gap-1">
                                         <Trash2 className="h-4 w-4" />
-                                        Delete</Button>
+                                        Delete</Button> 
                                 </AlertDialogTrigger>
                                 <AlertDialogContent>
                                     <AlertDialogHeader>
                                         <AlertDialogTitle className="text-center">
-                                            Are you sure, you want to delete this SR?
+                                            Are you sure, you want to delete this WO?
                                         </AlertDialogTitle>
                                     </AlertDialogHeader>
                                     <AlertDialogDescription className="">
@@ -224,7 +224,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                 <Card className="w-full">
                     <CardHeader>
                         <CardTitle className="text-xl text-red-600 flex items-center justify-between">
-                            SR Details
+                            WO Details
                             <Badge>{sr_data?.status}</Badge>
                         </CardTitle>
                     </CardHeader>
@@ -349,7 +349,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                                     </div>
                                                 </div>
                                                 <div>
-                                                    <div className="pt-2 text-xl text-gray-600 font-semibold">Purchase Order No.</div>
+                                                    <div className="pt-2 text-xl text-gray-600 font-semibold">Work Order No.</div>
                                                     <div className="text-lg font-semibold text-black">{(sr_data?.name)?.toUpperCase()}</div>
                                                 </div>
                                             </div>

@@ -319,7 +319,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-
+         
     ...([
       "Nirmaan Procurement Executive Profile",
       "Nirmaan Admin Profile",
@@ -335,15 +335,15 @@ export function NewSidebar() {
           //         ? adminPrCounts.approved
           //         : prCounts.approved,
         },
-        {
-          key: "/service-requests",
-          icon: SquareSquare,
-          label: "Service Requests",
-          // count: role === "Nirmaan Admin Profile" ||
-          //         user_id === "Administrator"
-          //         ? (adminPendingSRCount || 0) + (adminApprovedSRCount || 0)
-          //         : (pendingSRCount || 0) + (approvedSRCount || 0),
-        },
+        // {
+        //   key: "/service-requests",
+        //   icon: SquareSquare,
+        //   label: "Work Orders",
+        //   // count: role === "Nirmaan Admin Profile" ||
+        //   //         user_id === "Administrator"
+        //   //         ? (adminPendingSRCount || 0) + (adminApprovedSRCount || 0)
+        //   //         : (pendingSRCount || 0) + (approvedSRCount || 0),
+        // },
         {
           key: "/purchase-orders",
           icon: ShoppingCart,
@@ -356,6 +356,22 @@ export function NewSidebar() {
         },
       ]
       : []),
+        ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
+      ? [
+        
+         {
+          key: "/service-requests",
+          icon: SquareSquare,
+          label: "Work Orders",
+          // count: role === "Nirmaan Admin Profile" ||
+          //         user_id === "Administrator"
+          //         ? (adminPendingSRCount || 0) + (adminApprovedSRCount || 0)
+          //         : (pendingSRCount || 0) + (approvedSRCount || 0),
+        },
+
+      ]
+      : []),
+
     // ...(role == "Nirmaan Procurement Executive Profile" ||
     // user_id == "Administrator" ||
     // role == "Nirmaan Admin Profile"
@@ -584,7 +600,7 @@ export function NewSidebar() {
               >
                 <SidebarMenuItem>
 
-                  {new Set(["Dashboard", "Item Price Search", "Procurement Requests", "Purchase Orders", "Project Payments", "Credit Payments", "Sent Back Requests", "Projects", "Service Requests", "In-Flow Payments", "Invoice Recon", "Reports", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses"]).has(item?.label) ? (
+                  {new Set(["Dashboard", "Item Price Search", "Procurement Requests", "Purchase Orders", "Project Payments", "Credit Payments", "Sent Back Requests", "Projects", "Work Orders", "In-Flow Payments", "Invoice Recon", "Reports", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
                         ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"

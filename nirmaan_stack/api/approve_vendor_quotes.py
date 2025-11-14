@@ -88,6 +88,47 @@ def generate_pos_from_selection(project_id: str, pr_name: str, selected_items: l
             if project_doc:
                 po_doc.project_name = project_doc.project_name
                 po_doc.project_address = project_doc.project_address
+                # --- START FINAL REVISED LOGIC: Set Project GST (Header Field) ---
+                # Field name is 'project_gst_number'
+                if hasattr(project_doc, 'project_gst_number') and project_doc.project_gst_number:
+                    
+                    gst_source = project_doc.project_gst_number
+                    gst_json_data = None
+
+                    if isinstance(gst_source, str):
+                        try:
+                            # 1. Parse the JSON string: {"list": [...]}
+                            gst_json_data = json.loads(gst_source)
+                        except json.JSONDecodeError:
+                            frappe.log_error(
+                                f"Could not parse project_gst_number JSON string from Projects {pr_doc.project}", 
+                                "generate_pos_from_selection"
+                            )
+                    elif isinstance(gst_source, dict):
+                        # It's already parsed (e.g., by Frappe ORM), use it directly
+                        gst_json_data = gst_source
+
+
+                    if gst_json_data and isinstance(gst_json_data, dict):
+                        # 2. Extract the actual list of GST details from the "list" key
+                        project_gst_details_list = gst_json_data.get("list")
+                        
+                        if isinstance(project_gst_details_list, list):
+                            
+                            po_gst_to_set = None
+                            # Requirement: Update po_doc.project_gst ONLY if the list has exactly one item.
+                            if len(project_gst_details_list) == 1:
+                                # If there is exactly one item, get its 'gst' value
+                                single_gst_entry = project_gst_details_list[0]
+                                po_gst_to_set = single_gst_entry.get("gst") 
+                            
+                            # Set the header field (po_doc.project_gst). 
+                            po_doc.project_gst = po_gst_to_set
+                            
+                            # The logic to append to a child table ('project_gst_details') is removed as requested.
+                                
+                # --- END FINAL REVISED LOGIC ---
+                    
             po_doc.vendor = vendor_id
             po_doc.vendor_name = vendor_doc.vendor_name
             po_doc.vendor_address = vendor_doc.vendor_address
