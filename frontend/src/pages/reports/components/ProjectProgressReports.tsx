@@ -543,18 +543,19 @@ export function ProjectProgressReports() {
     // --- 2. Data Fetching (useFrappeGetDocList) ---
     
     // 2a. Fetch all active projects (for table rows)
-    const PROJECT_FIELDS = ["name", "project_name", "status"];
+    const PROJECT_FIELDS = ["name", "project_name", "status","enable_project_milestone_tracking"];
 
     const { data: projects, isLoading: isProjectsLoading, error: projectsError } = useFrappeGetDocList<Projects>(
         DOCTYPE_PROJECTS, 
         { 
             fields: PROJECT_FIELDS as (keyof Projects)[], 
-            filters: [["status", "not in", ["Completed", "Cancelled"]]], 
+            filters: [["status", "not in", ["Completed", "Cancelled"]],["enable_project_milestone_tracking", "=", 1]], 
             limit: 0 
         }, 
         "projects_for_progress_report"
     );
 
+    console.log("projects",projects);
     // 2b. Fetch all relevant users/permissions
     const RELEVANT_ROLES = ["Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile"];
     
@@ -675,7 +676,7 @@ const mergedData = useMemo<ProjectProgressReportRow[]>(() => {
     }));
 }, [projects, progressReports, permissions, nirmaanUsers]);
 
-console.log("mergedData",mergedData);
+// console.log("mergedData",mergedData);
 
     // --- Facet Filters Configuration ---
     const projectFacetOptions = useMemo(() => {
@@ -715,7 +716,7 @@ console.log("mergedData",mergedData);
                 cell: ({ row }) => {
                     // Use the pre-merged array
                     const leads = row.original.assigned_leads; 
-                    console.log("leads",leads)
+                    // console.log("leads",leads)
                     if (leads.length === 0) {
                         return <span className="text-gray-400 text-start block">--</span>;
                     }
@@ -836,8 +837,10 @@ console.log("mergedData",mergedData);
         urlSyncKey: URL_SYNC_KEY,
         defaultSort: 'project_name asc',
         enableRowSelection: false,
+         additionalFilters: [["status", "not in", ["Completed", "Cancelled"]],["enable_project_milestone_tracking", "=", 1]],
     });
 
+    console.log("table data",table);
     // --- 6. Custom Export Handler (useCallback) ---
     const handleCustomExport = useCallback(() => {
         const fullyFilteredData = table.getFilteredRowModel().rows.map(row => row.original);
@@ -903,8 +906,8 @@ console.log("mergedData",mergedData);
 
     return (
         <div className="space-y-4">
-            <h2 className="text-xl font-bold tracking-tight">Project Progress Report</h2>
-            <p className="text-sm text-muted-foreground">Report IDs for progress recorded over the last 7 days (including today), showing assigned Project Leads/Managers.</p>
+            {/* <h2 className="text-xl font-bold tracking-tight">Project Progress Report</h2>
+            <p className="text-sm text-muted-foreground">Report IDs for progress recorded over the last 7 days (including today), showing assigned Project Leads/Managers.</p> */}
             
             <DataTable<ProjectProgressReportRow>
                 table={table}
