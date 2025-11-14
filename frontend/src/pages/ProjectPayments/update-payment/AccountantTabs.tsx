@@ -27,9 +27,8 @@ import { NotificationType, useNotificationStore } from "@/zustand/useNotificatio
 import { memoize } from "lodash";
 import { DOC_TYPES } from "../approve-payments/constants";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
-import { formatDate } from "date-fns";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
-import { formatDateToDDMMYYYY } from "@/utils/FormatDate";
+import { formatDateToDDMMYYYY,formatDate } from "@/utils/FormatDate";
 import { unparse } from 'papaparse'; // For CSV export
 import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
@@ -157,7 +156,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
 
     const columns = useMemo<ColumnDef<ProjectPayments>[]>(() => [
         {
-            accessorKey: "modified", header: ({ column }) => <DataTableColumnHeader column={column} title={tab === "New Payments" ? "Approved On" : "Created On"} />,
+            accessorKey: "approval_date", header: ({ column }) => <DataTableColumnHeader column={column} title={tab === "New Payments" ? "Approved On" : "Created On"} />,
             cell: ({ row }) => {
                 const payment = row.original;
                 const eventId = tab === "New Payments" ? "payment:approved" : "payment:paid";
@@ -165,7 +164,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                 return (
                     <div role="button" tabIndex={0} onClick={() => handleNewPaymentSeen(isNew)} className="font-medium relative whitespace-nowrap">
                         {isNew && <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-5 animate-pulse" />}
-                        {formatDate(payment.modified, "dd/MM/yyyy")}
+                       {formatDate(payment.approval_date)}
                     </div>
                 );
             }, size: 150,
