@@ -146,12 +146,12 @@
 //   // Memoized grouped manpower from all reports
 //   const groupedManpower = useMemo(() => {
 //     if (!latestReport?.manpower) return {};
-    
+
 //     const allManpowerLabels = new Set<string>();
 //     latestReport.manpower.forEach(mp => allManpowerLabels.add(mp.label));
 //     report7DaysAgo?.manpower?.forEach(mp => allManpowerLabels.add(mp.label));
 //     report14DaysAgo?.manpower?.forEach(mp => allManpowerLabels.add(mp.label));
-    
+
 //     const groups: Record<string, { current: number, sevenDays: number, fourteenDays: number }> = {};
 //     Array.from(allManpowerLabels).forEach(label => {
 //       groups[label] = {
@@ -166,11 +166,11 @@
 //   // Helper to get milestone data
 //   const getMilestoneData = (milestoneName: string, workHeader: string, report: ReportDoc | null) => {
 //     if (!report || !report.milestones) return { status: "N/A", progress: "N/A" };
-    
+
 //     const foundMilestone = report.milestones.find(
 //       m => m.work_milestone_name === milestoneName && m.work_header === workHeader
 //     );
-    
+
 //     return foundMilestone 
 //       ? { status: foundMilestone.status, progress: `${foundMilestone.progress}%` }
 //       : { status: "N/A", progress: "N/A" };
@@ -242,7 +242,7 @@
 //     const workProgressSectionTitleHeight = 50; // "Work Progress Comparison" title
 
 //     let currentAvailableHeight = PAGE_APPROX_HEIGHT_PX - PAGE_TOP_HEADER_SECTION_HEIGHT_PX - workProgressSectionTitleHeight - 50; // Default for subsequent pages
-    
+
 //     // If manpower section fully fit on the first content page, then work progress can start right after it.
 //     // If manpower needed multiple pages, then work progress will start on a new page.
 //     // Let's assume work progress always starts on a new logical page after manpower to simplify
@@ -485,14 +485,14 @@
 //                                   return (
 //                                     <TableRow key={idx} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} avoid-page-break-inside`}>
 //                                       <TableCell className="py-3 px-4 text-sm break-words">{idx + 1}. {milestone.work_milestone_name}</TableCell>
-                                      
+
 //                                       <TableCell className="text-center py-3 px-2">
 //                                         <Badge variant="secondary" className={`${getStatusBadgeClasses(currentData.status)} text-xs`}>
 //                                           {currentData.status}
 //                                         </Badge>
 //                                       </TableCell>
 //                                       <TableCell className="text-center py-3 px-2 text-sm font-medium">{currentData.progress}</TableCell>
-                                      
+
 //                                       <TableCell className="text-center py-3 px-2">
 //                                         {report7DaysAgo ? (
 //                                           <Badge variant="secondary" className={`${getStatusBadgeClasses(sevenDaysAgoData.status)} text-xs`}>
@@ -532,7 +532,7 @@
 //               </table>
 //             </div>
 //           ))}
-           
+
 
 //           {/* Footer */}
 
@@ -577,9 +577,9 @@
 //                         </div>
 //                       </div>
 //                     )}
-          
+
 //         </div>
-           
+
 //       </div>
 
 //       {/* Print-specific styles */}
@@ -589,30 +589,30 @@
 //             size: A4;
 //             margin: 0.5cm;
 //           }
-          
+
 //           .page {
 //             page-break-after: always;
 //           }
-          
+
 //           .page:last-child {
 //             page-break-after: auto;
 //           }
-          
+
 //           .page-break-before {
 //             page-break-before: always;
 //           }
-          
+
 //           table {
 //             table-layout: fixed;
 //             width: 100%;
 //             border-collapse: collapse;
 //           }
-          
+
 //           th, td {
 //             word-wrap: break-word;
 //             overflow-wrap: break-word;
 //           }
-          
+
 //           thead {
 //             display: table-header-group !important;
 //           }
@@ -620,7 +620,7 @@
 //           .avoid-page-break-inside {
 //             page-break-inside: avoid !important;
 //           }
-          
+
 //           h2, h3, h4 {
 //             page-break-after: avoid;
 //             page-break-inside: avoid;
@@ -639,11 +639,12 @@ import { formatDate } from '@/utils/FormatDate';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 // Retain ShadCN Table components for the comparison tables
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'; 
-import { Download, Truck, MapPin, MessagesSquare, Info } from 'lucide-react'; 
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Download, Truck, Info } from 'lucide-react';
 import logo from "@/assets/logo-svg.svg";
 import { MilestoneProgress } from '../MilestonesSummary';
-import {useFrappeGetDoc} from 'frappe-react-sdk';
+import { useFrappeGetDoc } from 'frappe-react-sdk';
+import { PDFImageGrid } from '@/components/ui/PDFImageGrid';
 
 
 // Define types (retained for context and functionality)
@@ -652,14 +653,14 @@ interface MilestoneSnapshot {
   status: string;
   progress: number;
   work_header: string;
-  remarks: string; 
+  remarks: string;
 }
 interface ManpowerSnapshot { label: string; count: number; }
 interface ProjectProgressAttachment { image_link: string; location: string | null; remarks: string; }
 interface ReportDoc {
   name: string; report_date: string; milestones: MilestoneSnapshot[]; manpower: ManpowerSnapshot[];
   total_completed_works: number; number_of_work_headers: number; total_manpower_used_till_date: number;
-  attachments?: ProjectProgressAttachment[]; owner?: string; 
+  attachments?: ProjectProgressAttachment[]; owner?: string;
 }
 interface OverallMilestonesReportPDFProps {
   latestReport: ReportDoc | null; report7DaysAgo: ReportDoc | null; report14DaysAgo: ReportDoc | null; projectData: any;
@@ -677,11 +678,11 @@ const getStatusBadgeClasses = (status: string) => {
 };
 
 interface PDFReportHeaderProps {
-  projectData: any; reportDate: string; projectlastUpdateBy:string
+  projectData: any; reportDate: string; projectlastUpdateBy: string
 }
 
 // --- NON-REPEATING HEADER COMPONENT (Just a div) ---
-const PDFReportHeaderContent: React.FC<PDFReportHeaderProps> = ({ projectData, reportDate ,projectlastUpdateBy}) => (
+const PDFReportHeaderContent: React.FC<PDFReportHeaderProps> = ({ projectData, reportDate, projectlastUpdateBy }) => (
   <div className="border-b border-black pb-4 mb-4 avoid-page-break-inside">
     <div className="flex text-left justify-between border-gray-600 pb-1">
       <div className="mt-2 flex justify-start">
@@ -722,11 +723,11 @@ const PDFReportHeaderContent: React.FC<PDFReportHeaderProps> = ({ projectData, r
   </div>
 );
 
-const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({ 
-  latestReport, 
-  report7DaysAgo, 
+const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
+  latestReport,
+  report7DaysAgo,
   report14DaysAgo,
-  projectData 
+  projectData
 }) => {
   const componentRef = useRef<HTMLDivElement>(null);
 
@@ -736,10 +737,10 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
   const handlePrint = useReactToPrint({
     content: () => componentRef.current,
     documentTitle: pdfFileName.trim() || `Milestone_Report_${formatDate(new Date())}`,
-    pageStyle: `@page { size: A4 landscape; margin: 0.5cm; }` 
+    pageStyle: `@page { size: A4 landscape; margin: 0.5cm; }`
   });
 
-  const {data:ownerData}= useFrappeGetDoc<{full_name:string}>('Nirmaan Users',latestReport?.owner || '')
+  const { data: ownerData } = useFrappeGetDoc<{ full_name: string }>('Nirmaan Users', latestReport?.owner || '')
 
   // Memoized grouped milestones (with sorting)
   const groupedMilestones = useMemo(() => {
@@ -748,11 +749,11 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
       (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
       return acc;
     }, {} as Record<string, MilestoneSnapshot[]>))
-    .sort(([headerA], [headerB]) => headerA.localeCompare(headerB))
-    .reduce((acc, [header, milestones]) => {
-      acc[header] = milestones;
-      return acc;
-    }, {} as Record<string, MilestoneSnapshot[]>);
+      .sort(([headerA], [headerB]) => headerA.localeCompare(headerB))
+      .reduce((acc, [header, milestones]) => {
+        acc[header] = milestones;
+        return acc;
+      }, {} as Record<string, MilestoneSnapshot[]>);
 
   }, [latestReport]);
 
@@ -763,11 +764,11 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
     latestReport.manpower.forEach(mp => allManpowerLabels.add(mp.label));
     report7DaysAgo?.manpower?.forEach(mp => allManpowerLabels.add(mp.label));
     report14DaysAgo?.manpower?.forEach(mp => allManpowerLabels.add(mp.label));
-    
+
     const groups: Record<string, { current: number, sevenDays: number, fourteenDays: number }> = {};
     Array.from(allManpowerLabels).forEach(label => {
       groups[label] = {
-        current: parseInt(latestReport.manpower.find(mp => mp.label === label)?.count.toString() || '0', 10), 
+        current: parseInt(latestReport.manpower.find(mp => mp.label === label)?.count.toString() || '0', 10),
         sevenDays: parseInt(report7DaysAgo?.manpower?.find(mp => mp.label === label)?.count.toString() || '0', 10),
         fourteenDays: parseInt(report14DaysAgo?.manpower?.find(mp => mp.label === label)?.count.toString() || '0', 10)
       };
@@ -779,14 +780,14 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
   const getFullMilestoneData = (milestoneName: string, workHeader: string, report: ReportDoc | null) => {
     const defaultData = { status: "N/A", progress: "N/A", remarks: "" };
     if (!report || !report.milestones) return defaultData;
-    
+
     const foundMilestone = report.milestones.find(
-        m => m.work_milestone_name === milestoneName && m.work_header === workHeader
+      m => m.work_milestone_name === milestoneName && m.work_header === workHeader
     );
-    
-    return foundMilestone 
-        ? { status: foundMilestone.status, progress: foundMilestone.progress, remarks: foundMilestone.remarks }
-        : defaultData;
+
+    return foundMilestone
+      ? { status: foundMilestone.status, progress: foundMilestone.progress, remarks: foundMilestone.remarks }
+      : defaultData;
   };
 
   const hasHistoricalData = report7DaysAgo || report14DaysAgo;
@@ -795,39 +796,39 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
 
   // Helper to render Remarks
   const renderRemarksCell = (remarks: string) => (
-      <TableCell className="text-center py-3 px-2 text-sm max-w-[150px] overflow-hidden">
-          {remarks ? (
-              <p className="text-xs text-gray-700 break-words line-clamp-2" title={remarks}>
-                  {remarks}
-              </p>
-          ) : (
-              <span className="text-gray-400 text-xs">--</span>
-          )}
-      </TableCell>
+    <TableCell className="text-center py-3 px-2 text-sm max-w-[150px] overflow-hidden">
+      {remarks ? (
+        <p className="text-xs text-gray-700 break-words line-clamp-2" title={remarks}>
+          {remarks}
+        </p>
+      ) : (
+        <span className="text-gray-400 text-xs">--</span>
+      )}
+    </TableCell>
   );
-  
+
   // Helper to render Progress
   const renderProgressCell = (data: { status: string, progress: string | number }) => (
-       <TableCell className="text-center py-3  text-sm font-medium">
-          <MilestoneProgress
-              milestoneStatus={data.status}
-              value={data.progress}
-              sizeClassName="size-[40px]"
-              textSizeClassName="text-md"
-          />
-       </TableCell>
+    <TableCell className="text-center py-3  text-sm font-medium">
+      <MilestoneProgress
+        milestoneStatus={data.status}
+        value={data.progress}
+        sizeClassName="size-[40px]"
+        textSizeClassName="text-sm"
+      />
+    </TableCell>
   );
-  
+
   // --- END Render Helpers ---
 
 
   return (
     <>
-       <button
+      <button
         onClick={handlePrint}
         className="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-6 rounded-lg text-lg flex items-center gap-2"
       >
-        <Download className="w-6 h-6"/>
+        <Download className="w-6 h-6" />
         Download PDF
       </button>
 
@@ -835,66 +836,66 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
       <div className="hidden">
         {/* Main Content Wrapper (Reference Point for Printing) */}
         <div ref={componentRef} className="bg-white p-8">
-          
-            {/* 1. NON-REPEATING HEADER */}
-            <PDFReportHeaderContent 
-              projectData={projectData} 
-              reportDate={latestReport?.report_date || ''} 
-              projectlastUpdateBy={ownerData?.full_name || latestReport?.owner || '--'} 
-            />
-              
-            {/* --- START REPORT CONTENT FLOW --- */}
-            
-            {/* Overall Work Report section */}
-            <div className="mb-6 mt-4 avoid-page-break-inside">
-              <h2 className="text-2xl font-bold mb-3">Overall Work Report</h2>
-              <div className="grid grid-cols-1 gap-2 text-lg">
-                <p>Total Completed: <span className="font-semibold">{latestReport?.total_completed_works ?? '--'}</span></p>
-                <p>Number of packages: <span className="font-semibold">{latestReport?.number_of_work_headers ?? '--'}</span></p>
-                <p>Total Manpower Used (till date): <span className="font-semibold">{latestReport?.total_manpower_used_till_date ?? '--'}</span></p>
-              </div>
-            </div>
 
-            {/* Report Dates Summary */}
-            <div className="grid grid-cols-4 gap-4 mb-8 avoid-page-break-inside">
-              <div className="text-center p-3 bg-gray-100 rounded-lg">
-                <h3 className="font-semibold text-gray-700">Current</h3>
-                <p className="text-sm text-gray-600 mt-1">
-                  {latestReport?.report_date ? formatDate(latestReport.report_date, { month: 'short', day: 'numeric'}) : '--'}
-                </p>
-              </div>
-              <div className="text-center p-3 bg-gray-100 rounded-lg">
-                <h3 className="font-semibold text-gray-700">7 Days Ago</h3>
-                <p className="text-sm text-gray-600 mt-1">
-                  {report7DaysAgo?.report_date ? formatDate(report7DaysAgo.report_date, { month: 'short', day: 'numeric'}) : '--'}
-                </p>
-              </div>
-              <div className="text-center p-3 bg-gray-100 rounded-lg">
-                <h3 className="font-semibold text-gray-700">14 Days Ago</h3>
-                <p className="text-sm text-gray-600 mt-1">
-                  {report14DaysAgo?.report_date ? formatDate(report14DaysAgo.report_date, { month: 'short', day: 'numeric'}) : '--'}
-                </p>
-              </div>
-            </div>
+          {/* 1. NON-REPEATING HEADER */}
+          <PDFReportHeaderContent
+            projectData={projectData}
+            reportDate={latestReport?.report_date || ''}
+            projectlastUpdateBy={ownerData?.full_name || latestReport?.owner || '--'}
+          />
 
-            {!hasHistoricalData && (
-              <div className="mb-6 bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded avoid-page-break-inside">
-                <div className="flex items-start">
-                  <div className="flex-shrink-0">
-                    <Info className="h-5 w-5 text-yellow-400" />
-                  </div>
-                  <div className="ml-3">
-                    <p className="text-sm text-yellow-700">
-                      Limited historical data available. Showing current report data only. 
-                      Create more reports over time to enable comparison features.
-                    </p>
-                  </div>
+          {/* --- START REPORT CONTENT FLOW --- */}
+
+          {/* Overall Work Report section */}
+          <div className="mb-6 mt-4 avoid-page-break-inside">
+            <h2 className="text-2xl font-bold mb-3">Overall Work Report</h2>
+            <div className="grid grid-cols-1 gap-2 text-lg">
+              <p>Total Completed: <span className="font-semibold">{latestReport?.total_completed_works ?? '--'}</span></p>
+              <p>Number of packages: <span className="font-semibold">{latestReport?.number_of_work_headers ?? '--'}</span></p>
+              <p>Total Manpower Used (till date): <span className="font-semibold">{latestReport?.total_manpower_used_till_date ?? '--'}</span></p>
+            </div>
+          </div>
+
+          {/* Report Dates Summary */}
+          <div className="grid grid-cols-4 gap-4 mb-8 avoid-page-break-inside">
+            <div className="text-center p-3 bg-gray-100 rounded-lg">
+              <h3 className="font-semibold text-gray-700">Current</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                {latestReport?.report_date ? formatDate(latestReport.report_date, { month: 'short', day: 'numeric' }) : '--'}
+              </p>
+            </div>
+            <div className="text-center p-3 bg-gray-100 rounded-lg">
+              <h3 className="font-semibold text-gray-700">7 Days Ago</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                {report7DaysAgo?.report_date ? formatDate(report7DaysAgo.report_date, { month: 'short', day: 'numeric' }) : '--'}
+              </p>
+            </div>
+            <div className="text-center p-3 bg-gray-100 rounded-lg">
+              <h3 className="font-semibold text-gray-700">14 Days Ago</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                {report14DaysAgo?.report_date ? formatDate(report14DaysAgo.report_date, { month: 'short', day: 'numeric' }) : '--'}
+              </p>
+            </div>
+          </div>
+
+          {!hasHistoricalData && (
+            <div className="mb-6 bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded avoid-page-break-inside">
+              <div className="flex items-start">
+                <div className="flex-shrink-0">
+                  <Info className="h-5 w-5 text-yellow-400" />
+                </div>
+                <div className="ml-3">
+                  <p className="text-sm text-yellow-700">
+                    Limited historical data available. Showing current report data only.
+                    Create more reports over time to enable comparison features.
+                  </p>
                 </div>
               </div>
-            )}
-            
-            {/* Manpower Comparison Section */}
-            {/* {Object.keys(groupedManpower).length > 0 && (
+            </div>
+          )}
+
+          {/* Manpower Comparison Section */}
+          {/* {Object.keys(groupedManpower).length > 0 && (
               <div className="mb-6 avoid-page-break-inside"> 
                 <h2 className="text-xl font-bold mb-4 mt-4 flex items-center gap-2">
                    <Truck className="h-5 w-5"/> Manpower Comparison
@@ -929,73 +930,73 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
             )} */}
 
 
-            {/* Work Progress Comparison Section (Main Content) */}
-            {Object.entries(groupedMilestones).length > 0 && (
-              <div className="mb-6 avoid-page-break-inside">
-                <PDFReportHeaderContent 
-              projectData={projectData} 
-              reportDate={latestReport?.report_date || ''} 
-              projectlastUpdateBy={ownerData?.full_name || latestReport?.owner || '--'} 
-            />
-                <h2 className="text-xl font-bold mb-4 mt-4">Work Progress Comparison</h2>
-                {/* Main comparison table starts here */}
-                <Table className="w-full min-w-[1000px]"> 
-                  <TableHeader className="bg-gray-100">
-                      {/* 1. TOP HEADER ROW (Dates - uses colSpan) */}
-                      <TableRow>
-                          {/* Work - Not Spanned - uses rowSpan=2 */}
-                          <TableHead 
-                              className="w-[10%] font-semibold text-gray-700 text-sm py-2 text-left align-bottom"
-                              rowSpan={2} 
-                          >
-                              Work
-                          </TableHead> 
+          {/* Work Progress Comparison Section (Main Content) */}
+          {Object.entries(groupedMilestones).length > 0 && (
+            <div className="mb-6 avoid-page-break-inside">
+              <PDFReportHeaderContent
+                projectData={projectData}
+                reportDate={latestReport?.report_date || ''}
+                projectlastUpdateBy={ownerData?.full_name || latestReport?.owner || '--'}
+              />
+              <h2 className="text-xl font-bold mb-4 mt-4">Work Progress Comparison</h2>
+              {/* Main comparison table starts here */}
+              <Table className="w-full min-w-[1000px]">
+                <TableHeader className="bg-gray-100">
+                  {/* 1. TOP HEADER ROW (Dates - uses colSpan) */}
+                  <TableRow>
+                    {/* Work - Not Spanned - uses rowSpan=2 */}
+                    <TableHead
+                      className="w-[10%] font-semibold text-gray-700 text-sm py-2 text-left align-bottom"
+                      rowSpan={2}
+                    >
+                      Work
+                    </TableHead>
 
-                          {/* Current Report (Spans 3 columns: Status + % Done + Remarks) */}
-                          <TableHead 
-                              className="w-[25%] text-center font-semibold text-gray-700 text-sm py-2"
-                              colSpan={3}
-                          >
-                              Current ({latestReport?.report_date ? formatDate(latestReport.report_date, { month: 'short', day: 'numeric'}) : '--'})
-                          </TableHead>
+                    {/* Current Report (Spans 3 columns: Status + % Done + Remarks) */}
+                    <TableHead
+                      className="w-[25%] text-center font-semibold text-gray-700 text-sm py-2"
+                      colSpan={3}
+                    >
+                      Current ({latestReport?.report_date ? formatDate(latestReport.report_date, { month: 'short', day: 'numeric' }) : '--'})
+                    </TableHead>
 
-                          {/* -7 Days Report (Spans 3 columns) */}
-                          <TableHead 
-                              className="w-[25%] text-center font-semibold text-gray-700 text-sm py-2"
-                              colSpan={3}
-                          >
-                              7 Days Ago ({report7DaysAgo?.report_date ? formatDate(report7DaysAgo.report_date, { month: 'short', day: 'numeric'}) : '--'})
-                          </TableHead>
+                    {/* -7 Days Report (Spans 3 columns) */}
+                    <TableHead
+                      className="w-[25%] text-center font-semibold text-gray-700 text-sm py-2"
+                      colSpan={3}
+                    >
+                      7 Days Ago ({report7DaysAgo?.report_date ? formatDate(report7DaysAgo.report_date, { month: 'short', day: 'numeric' }) : '--'})
+                    </TableHead>
 
-                          {/* -14 Days Report (Spans 3 columns) */}
-                          <TableHead 
-                              className="w-[25%] text-center font-semibold text-gray-700 text-sm py-2"
-                              colSpan={3}
-                          >
-                              14 Days Ago ({report14DaysAgo?.report_date ? formatDate(report14DaysAgo.report_date, { month: 'short', day: 'numeric'}) : '--'})
-                          </TableHead>
-                      </TableRow>
-                      
-                      {/* 2. BOTTOM HEADER ROW (Metrics - 3x Status, Done, Remarks) */}
-                      <TableRow className="bg-gray-200">
-                          {/* Current Metrics */}
-                          <TableHead className="w-[5%] text-center font-semibold text-gray-700 text-sm py-2">Status</TableHead>
-                          <TableHead className="w-[8%] text-center font-semibold text-gray-700 text-sm py-2">Done %</TableHead>
-                          <TableHead className="w-[5%] text-center font-semibold text-gray-700 text-sm py-2">Remarks</TableHead>
-                          
-                          {/* -7 Days Metrics */}
-                          <TableHead className="w-[5%] text-center font-semibold text-gray-700 text-sm py-2">Status</TableHead>
-                          <TableHead className="w-[8%] text-center font-semibold text-gray-700 text-sm py-2">Done %</TableHead>
-                          <TableHead className="w-[5%] text-center font-semibold text-gray-700 text-sm py-2">Remarks</TableHead>
-                          
-                          {/* -14 Days Metrics */}
-                          <TableHead className="w-[5%] text-center font-semibold text-gray-700 text-sm py-2">Status</TableHead>
-                          <TableHead className="w-[8%] text-center font-semibold text-gray-700 text-sm py-2">Done %</TableHead>
-                          <TableHead className="w-[5%] text-center font-semibold text-gray-700 text-sm py-2">Remarks</TableHead>
-                      </TableRow>
-                  </TableHeader>
+                    {/* -14 Days Report (Spans 3 columns) */}
+                    <TableHead
+                      className="w-[25%] text-center font-semibold text-gray-700 text-sm py-2"
+                      colSpan={3}
+                    >
+                      14 Days Ago ({report14DaysAgo?.report_date ? formatDate(report14DaysAgo.report_date, { month: 'short', day: 'numeric' }) : '--'})
+                    </TableHead>
+                  </TableRow>
 
-                  <TableBody>
+                  {/* 2. BOTTOM HEADER ROW (Metrics - 3x Status, Done, Remarks) */}
+                  <TableRow className="bg-gray-200">
+                    {/* Current Metrics */}
+                    <TableHead className="w-[5%] text-center font-semibold text-gray-700 text-sm py-2">Status</TableHead>
+                    <TableHead className="w-[8%] text-center font-semibold text-gray-700 text-sm py-2">Done %</TableHead>
+                    <TableHead className="w-[5%] text-center font-semibold text-gray-700 text-sm py-2">Remarks</TableHead>
+
+                    {/* -7 Days Metrics */}
+                    <TableHead className="w-[5%] text-center font-semibold text-gray-700 text-sm py-2">Status</TableHead>
+                    <TableHead className="w-[8%] text-center font-semibold text-gray-700 text-sm py-2">Done %</TableHead>
+                    <TableHead className="w-[5%] text-center font-semibold text-gray-700 text-sm py-2">Remarks</TableHead>
+
+                    {/* -14 Days Metrics */}
+                    <TableHead className="w-[5%] text-center font-semibold text-gray-700 text-sm py-2">Status</TableHead>
+                    <TableHead className="w-[8%] text-center font-semibold text-gray-700 text-sm py-2">Done %</TableHead>
+                    <TableHead className="w-[5%] text-center font-semibold text-gray-700 text-sm py-2">Remarks</TableHead>
+                  </TableRow>
+                </TableHeader>
+
+                <TableBody>
                   {/* Loop through sorted work headers and then milestones */}
                   {Object.entries(groupedMilestones).map(([header, milestones], groupIdx) => (
                     <>
@@ -1008,109 +1009,82 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
 
                       {/* Milestone Rows */}
                       {milestones.map((milestone, idx) => {
-                          const currentData = getFullMilestoneData(milestone.work_milestone_name, milestone.work_header, latestReport);
-                          const sevenDaysAgoData = getFullMilestoneData(milestone.work_milestone_name, milestone.work_header, report7DaysAgo);
-                          const fourteenDaysAgoData = getFullMilestoneData(milestone.work_milestone_name, milestone.work_header, report14DaysAgo);
-                          
-                          return (
-                            <TableRow key={idx} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} avoid-page-break-inside align-middle`}>
-                              {/* 1. Work Name */}
-                              <TableCell className="py-3 px-4 text-sm break-words">{idx + 1}. {milestone.work_milestone_name}</TableCell>
-                              
-                              {/* CURRENT REPORT METRICS (Status, % Done, Remarks) */}
-                              <TableCell className="text-center py-3 px-2">
-                                <Badge variant="secondary" className={`${getStatusBadgeClasses(currentData.status)} text-xs`}>
-                                  {currentData.status}
+                        const currentData = getFullMilestoneData(milestone.work_milestone_name, milestone.work_header, latestReport);
+                        const sevenDaysAgoData = getFullMilestoneData(milestone.work_milestone_name, milestone.work_header, report7DaysAgo);
+                        const fourteenDaysAgoData = getFullMilestoneData(milestone.work_milestone_name, milestone.work_header, report14DaysAgo);
+
+                        return (
+                          <TableRow key={idx} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} avoid-page-break-inside align-middle`}>
+                            {/* 1. Work Name */}
+                            <TableCell className="py-3 px-4 text-sm break-words">{idx + 1}. {milestone.work_milestone_name}</TableCell>
+
+                            {/* CURRENT REPORT METRICS (Status, % Done, Remarks) */}
+                            <TableCell className="text-center py-3 px-2">
+                              <Badge variant="secondary" className={`${getStatusBadgeClasses(currentData.status)} text-xs`}>
+                                {currentData.status}
+                              </Badge>
+                            </TableCell>
+                            {renderProgressCell(currentData)}
+                            {renderRemarksCell(currentData.remarks)}
+
+                            {/* -7 DAYS AGO METRICS (Status, % Done, Remarks) */}
+                            <TableCell className="text-center py-3 px-2">
+                              {report7DaysAgo ? (
+                                <Badge variant="secondary" className={`${getStatusBadgeClasses(sevenDaysAgoData.status)} text-xs`}>
+                                  {sevenDaysAgoData.status}
                                 </Badge>
-                              </TableCell>
-                              {renderProgressCell(currentData)}
-                              {renderRemarksCell(currentData.remarks)}
-                              
-                              {/* -7 DAYS AGO METRICS (Status, % Done, Remarks) */}
-                              <TableCell className="text-center py-3 px-2">
-                                {report7DaysAgo ? (
-                                  <Badge variant="secondary" className={`${getStatusBadgeClasses(sevenDaysAgoData.status)} text-xs`}>
-                                    {sevenDaysAgoData.status}
-                                  </Badge>
-                                ) : (
-                                  <span className="text-gray-400 text-xs">N/A</span>
-                                )}
-                              </TableCell>
-                              {report7DaysAgo ? renderProgressCell(sevenDaysAgoData) : <TableCell className="text-center text-gray-400 text-xs">N/A</TableCell>}
-                              {report7DaysAgo ? renderRemarksCell(sevenDaysAgoData.remarks) : <TableCell className="text-center text-gray-400 text-xs">N/A</TableCell>}
+                              ) : (
+                                <span className="text-gray-400 text-xs">N/A</span>
+                              )}
+                            </TableCell>
+                            {report7DaysAgo ? renderProgressCell(sevenDaysAgoData) : <TableCell className="text-center text-gray-400 text-xs">N/A</TableCell>}
+                            {report7DaysAgo ? renderRemarksCell(sevenDaysAgoData.remarks) : <TableCell className="text-center text-gray-400 text-xs">N/A</TableCell>}
 
 
-                              {/* -14 DAYS AGO METRICS (Status, % Done, Remarks) */}
-                              <TableCell className="text-center py-3 px-2">
-                                {report14DaysAgo ? (
-                                  <Badge variant="secondary" className={`${getStatusBadgeClasses(fourteenDaysAgoData.status)} text-xs`}>
-                                    {fourteenDaysAgoData.status}
-                                  </Badge>
-                                ) : (
-                                  <span className="text-gray-400 text-xs">N/A</span>
-                                )}
-                              </TableCell>
-                              {report14DaysAgo ? renderProgressCell(fourteenDaysAgoData) : <TableCell className="text-center text-gray-400 text-xs">N/A</TableCell>}
-                              {report14DaysAgo ? renderRemarksCell(fourteenDaysAgoData.remarks) : <TableCell className="text-center text-gray-400 text-xs">N/A</TableCell>}
+                            {/* -14 DAYS AGO METRICS (Status, % Done, Remarks) */}
+                            <TableCell className="text-center py-3 px-2">
+                              {report14DaysAgo ? (
+                                <Badge variant="secondary" className={`${getStatusBadgeClasses(fourteenDaysAgoData.status)} text-xs`}>
+                                  {fourteenDaysAgoData.status}
+                                </Badge>
+                              ) : (
+                                <span className="text-gray-400 text-xs">N/A</span>
+                              )}
+                            </TableCell>
+                            {report14DaysAgo ? renderProgressCell(fourteenDaysAgoData) : <TableCell className="text-center text-gray-400 text-xs">N/A</TableCell>}
+                            {report14DaysAgo ? renderRemarksCell(fourteenDaysAgoData.remarks) : <TableCell className="text-center text-gray-400 text-xs">N/A</TableCell>}
 
-                            </TableRow>
-                          );
+                          </TableRow>
+                        );
                       })}
                     </>
                   ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-            {/* End Work Progress Comparison Section */}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+          {/* End Work Progress Comparison Section */}
 
 
-            {/* Work Images Section (Starts on a new page) */}
-            {latestReport?.attachments && latestReport.attachments.length > 0 && (
-              <div className="page-break-before pt-8 avoid-page-break-inside">
-                <PDFReportHeaderContent 
-              projectData={projectData} 
-              reportDate={latestReport?.report_date || ''} 
-              projectlastUpdateBy={ownerData?.full_name || latestReport?.owner || '--'} 
-            />
-                    <h3 className="text-2xl font-bold mb-3 text-gray-800">Most Recent WORK IMAGES</h3>
-                    <div className="grid grid-cols-2 gap-4"> 
-                       {latestReport.attachments.map((attachment, idx) => (
-                                                <div
-                                                  key={idx}
-                                                  className="rounded-lg overflow-hidden shadow-md bg-white border border-gray-200" 
-                                                >
-                                                    <div className="flex flex-col sm:flex-row h-full">
-                                                      <div className="w-full sm:w-1/2 flex-shrink-0">
-                                                        <img
-                                                          src={attachment.image_link}
-                                                          alt={`Work Image ${idx + 1}`}
-                                                          className="w-full h-[180px] sm:h-full object-cover rounded-t-lg sm:rounded-l-lg sm:rounded-tr-none" 
-                                                        />
-                                                      </div>
-                                       
-                                                      <div className="w-full sm:w-1/2 p-3 flex flex-col justify-between">
-                                                        <div className="flex items-center text-xs text-gray-700 mb-2">
-                                                          <MapPin className="h-4 w-4 mr-1 text-red-500 flex-shrink-0" />
-                                                          <span className="font-medium break-words">
-                                                            {attachment.location || `Lat: ${attachment.latitude?.toFixed(2)}, Lon: ${attachment.longitude?.toFixed(2)}`}
-                                                          </span>
-                                                        </div>
-                                                        <p className="p-2 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs mt-auto">
-                                                          <MessagesSquare className="h-4 w-4 inline-block mr-1 flex-shrink-0" />
-                                                          {attachment.remarks || "No remarks provided."}
-                                                        </p>
-                                                      </div>
-                                                    </div>
-                                                  </div>
-                                                ))}
-                      </div>
-              </div>
-            )}
-            {/* End Work Images Section */}
-          
+          {/* Work Images Section (Starts on a new page) */}
+          {latestReport?.attachments && latestReport.attachments.length > 0 && (
+            <div className="page-break-before pt-8 avoid-page-break-inside">
+              <PDFReportHeaderContent
+                projectData={projectData}
+                reportDate={latestReport?.report_date || ''}
+                projectlastUpdateBy={ownerData?.full_name || latestReport?.owner || '--'}
+              />
+              <h3 className="text-2xl font-bold mb-3 text-gray-800">Most Recent WORK IMAGES</h3>
+              <PDFImageGrid
+                images={latestReport.attachments}
+                maxImagesPerPage={4}
+              />
+            </div>
+          )}
+          {/* End Work Images Section */}
+
         </div>
-           
+
       </div>
 
       {/* Print-specific styles (Essential for native pagination) */}

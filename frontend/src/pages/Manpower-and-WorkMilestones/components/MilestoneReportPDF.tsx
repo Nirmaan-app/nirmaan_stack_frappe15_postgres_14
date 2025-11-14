@@ -7,6 +7,7 @@ import { ProgressCircle } from '@/components/ui/ProgressCircle';
 import { MilestoneProgress } from '../MilestonesSummary';
 import { useFrappeGetDoc } from 'frappe-react-sdk';
 import { DELIMITER, parseWorkPlan, serializeWorkPlan } from '../MilestoneTab';
+import { PDFImageGrid } from '@/components/ui/PDFImageGrid';
 
 // --- Type Definitions (Assuming these are correct based on usage) ---
 interface MilestoneReportPDFProps {
@@ -247,20 +248,20 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
         ([header, milestones]: [string, any[]], groupIdx: number) => (
           <div key={groupIdx} className="mb-6 ">
             {/* Group Header */}
-            <div className="mb-3 p-3 bg-gray-100 rounded-lg border-l-4 border-blue-600">
+            <div className="mb-3 p-2">
               <h4 className="text-md font-bold">
                 {header} - {milestones.length.toString().padStart(2, "0")}
               </h4>
             </div>
 
             {/* Work Plan List */}
-            <div className="space-y-3 pl-2">
+            <div className="space-y-2 pl-2">
               {milestones.map((milestone: any, idx: number) => (
                 <div
                   key={idx}
-                  className=" bg-white shadow-sm avoid-page-break-inside"
+                  className="avoid-page-break-inside"
                 >
-                  <div className="mb-2">
+                  <div className="mb-2 ml-2">
                     <h5 className="font-medium text-sm">
                       {milestone.work_milestone_name} - (<span className='text-red-500'>{milestone.status}</span>)
                     </h5>
@@ -268,7 +269,7 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
 
                   <div className="mt-2">
                     <div className="">
-                      <ul className="list-disc list-inside text-xs  space-y-1 ml-2">
+                      <ul className="list-disc list-inside text-xs  space-y-1 ml-4">
                         {parseWorkPlan(milestone.work_plan).map(
                           (point: string, i: number) =>
                             point.trim() === "" ? (
@@ -348,8 +349,8 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
 
               <tbody>
                 {milestones.map((milestone: any, idx: number) => (
-                  <tr key={idx}>
-                    <td className="border text-center p-2 align-center">
+                  <tr key={idx} className="avoid-page-break-inside">
+                    <td className="border text-center p-2 align-center ">
                       {milestone.work_milestone_name}
                       {milestone.remarks && (
                         <p className="flex items-start gap-2 p-1 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs">
@@ -383,7 +384,7 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
                         milestoneStatus={milestone.status}
                         value={milestone.progress}
                         sizeClassName="size-[40px]"
-                        textSizeClassName="text-md"
+                        textSizeClassName="text-sm"
                       />
                     </td>
 
@@ -416,58 +417,20 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
 
 
 
-          {/* --- 4. ATTACHMENTS PAGE (Optional) --- */}
+          {/* --- 4. ATTACHMENTS PAGES (Optional) - 4 images per page --- */}
           {dailyReportDetails.attachments && dailyReportDetails.attachments.length > 0 && (
             <div className="page page-break-before">
-              <div className="overflow-x-auto p-4">
+              <div className="p-4">
                 <table className="min-w-full divide-gray-200">
                   <ReportPageHeader projectData={projectData} dailyReportDetails={dailyReportDetails} />
-                  <tbody className="bg-white">
+                  <tbody className="min-full bg-white">
                     <tr>
                       <td colSpan={4}>
                         <h3 className="text-lg font-bold mb-3 text-gray-800">WORK IMAGES</h3>
-                          {dailyReportDetails.attachments && dailyReportDetails.attachments.length > 0 ? (
-                                              <div className="grid grid-cols-1 sm:grid-cols-1 lg:grid-cols-2 xl:grid-cols-2 gap-3 md:gap-4">
-                                                {dailyReportDetails.attachments.map((attachment, idx) => (
-                                                  <div
-                                                    key={idx}
-                                                    className="rounded-lg overflow-hidden shadow-md bg-white border border-gray-200" // Card wrapper
-                                                  >
-                                                    {/* Responsive container for image and text details */}
-                                                    {/* Stacks on mobile (flex-col), becomes row on small screens and up (sm:flex-row) */}
-                                                    <div className="flex flex-col sm:flex-row h-full">
-                                                      {/* Image container */}
-                                                      <div className="w-full sm:w-1/2 flex-shrink-0">
-                                                        <img
-                                                          src={attachment.image_link}
-                                                          alt={`Work Image ${idx + 1}`}
-                                                          className="w-full h-[180px] sm:h-full object-cover rounded-t-lg sm:rounded-l-lg sm:rounded-tr-none" // Adjust rounding based on layout
-                                                        />
-                                                      </div>
-                        
-                                                      <div className="w-full sm:w-1/2 p-3 flex flex-col justify-between">
-                                                        {/* Location */}
-                                                        <div className="flex items-center text-xs text-gray-700 mb-2">
-                                                          <MapPin className="h-4 w-4 mr-1 text-red-500 flex-shrink-0" />
-                                                          <span className="font-medium break-words">
-                                                            {attachment.location || `Lat: ${attachment.latitude?.toFixed(2)}, Lon: ${attachment.longitude?.toFixed(2)}`}
-                                                          </span>
-                                                        </div>
-                                                        {/* Remarks - highlighted yellow card style, pushed to bottom if space */}
-                                                        <p className="p-2 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs mt-auto">
-                                                          <MessagesSquare className="h-4 w-4 inline-block mr-1 flex-shrink-0" />
-                                                          {attachment.remarks || "No remarks provided."}
-                                                        </p>
-                                                      </div>
-                                                    </div>
-                                                  </div>
-                                                ))}
-                                              </div>
-                                            ) : (
-                                              <div className="w-full h-32 bg-gray-100 flex items-center justify-center text-gray-500 rounded-lg border-2 border-dashed border-gray-300">
-                                                <p className="text-base font-medium">No Work Images Available</p>
-                                              </div>
-                                            )}
+                        <PDFImageGrid
+                          images={dailyReportDetails.attachments}
+                          maxImagesPerPage={4}
+                        />
                       </td>
                     </tr>
                   </tbody>
@@ -536,6 +499,27 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
           h3, h4 {
             page-break-after: avoid;
             page-break-inside: avoid;
+          }
+
+          /* Image rendering optimization for PDF */
+          img {
+            max-width: 100%;
+            height: auto;
+            display: block;
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
+          }
+
+          /* Ensure grid items don't break across pages */
+          .grid > * {
+            page-break-inside: avoid !important;
+          }
+
+          /* Force color printing for images */
+          * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            color-adjust: exact !important;
           }
         }
       `}</style>

@@ -46,6 +46,15 @@ export const datePresets: DatePreset[] = [
         // The end date is always the end of the current day.
         const today = new Date();
         return { from: financialYearStart, to: endOfDay(today) };
+    },},
+     {
+    label: 'ALL',
+    getRange: () => {
+        // The start date is fixed as per your requirement.
+        const financialYearStart = new Date('2024-04-01');
+        // The end date is always the end of the current day.
+        const today = new Date();
+        return { from: financialYearStart, to: endOfDay(today) };
     },}
 ,
 ];

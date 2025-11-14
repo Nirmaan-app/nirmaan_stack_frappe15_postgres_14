@@ -56,15 +56,15 @@ interface ProjectExpenseListParams extends ListParams { }
 const PROJECT_REPORT_FIELDS: (keyof Projects)[] = ['name', 'project_name', 'project_value', 'creation', 'modified'];
 const PO_REPORT_FIELDS: (keyof ProcurementOrder)[] = ['name', 'creation', 'project', 'vendor', 'total_amount', 'loading_charges', 'freight_charges', 'invoice_data', 'status', 'modified', 'project_name', 'vendor_name', 'dispatch_date',"latest_delivery_date","latest_payment_date",'amount_paid'];
 const SR_REPORT_FIELDS: (keyof ServiceRequests)[] = ['name', 'creation', 'project', 'vendor', 'service_order_list', 'gst', 'invoice_data', 'status', 'modified','amount_paid'];
-const PAYMENT_REPORT_FIELDS: (keyof ProjectPayments)[] = ['name', 'document_type', 'document_name', 'project', 'amount', 'status']; // Added 'project'
-const INFLOW_REPORT_FIELDS: (keyof ProjectInflows)[] = ['name', 'project', 'amount', 'payment_date']; // Add fields as needed
-const PROJECT_INVOICE_REPORT_FIELDS: (keyof ProjectInvoice)[] = ['name', 'project', 'amount']; // Add fields as needed
-const PROJECT_MINIMAL_FIELDS: (keyof Projects)[] = ['name', 'project_name'];
-const VENDOR_MINIMAL_FIELDS: (keyof Vendors)[] = ['name', 'vendor_name']; // Assuming this type/field exists
+const PAYMENT_REPORT_FIELDS: (keyof ProjectPayments)[] = ['name', 'document_type', 'document_name', 'project', 'amount', 'status','creation','payment_date']; // Added 'project'
+const INFLOW_REPORT_FIELDS: (keyof ProjectInflows)[] = ['name', 'project', 'amount', 'payment_date', 'creation']; // Add fields as needed
+const PROJECT_INVOICE_REPORT_FIELDS: (keyof ProjectInvoice)[] = ['name', 'project', 'amount','creation','invoice_date']; // Add fields as needed
+const PROJECT_MINIMAL_FIELDS: (keyof Projects)[] = ['name', 'project_name','creation'];
+const VENDOR_MINIMAL_FIELDS: (keyof Vendors)[] = ['name', 'vendor_name','creation']; // Assuming this type/field exists
 
-const CUSTOMER_MINIMAL_FIELDS: (keyof Customers)[] = ['name', 'company_name'];
+const CUSTOMER_MINIMAL_FIELDS: (keyof Customers)[] = ['name', 'company_name','creation'];
 
-const EXPENSE_TYPE_MINIMAL_FIELDS: (keyof ExpenseType)[] = ['name', 'expense_name', 'project', 'non_project'];
+const EXPENSE_TYPE_MINIMAL_FIELDS: (keyof ExpenseType)[] = ['name', 'expense_name', 'project', 'non_project','creation'];
 const NON_PROJECT_EXPENSE_DEFAULT_FIELDS: (keyof NonProjectExpenses | `type.${string}`)[] = [
   "name", "creation", "modified", "owner",
   "type",
@@ -236,13 +236,13 @@ export const getProjectReportListOptions = (): ProjectListParams => ({
 });
 
 export const getPOForProjectInvoiceOptions = (): POListParams => ({
-  fields: ['name', 'project', 'loading_charges', 'freight_charges', 'invoice_data',"total_amount","amount","tax_amount"], // Only fields needed for invoice calc
+  fields: ['name', 'project', 'loading_charges', 'freight_charges', 'invoice_data',"total_amount","amount","tax_amount",'creation'], // Only fields needed for invoice calc
   filters: [["status", "not in", ["Merged", "Cancelled", "PO Amendment","Inactive"]]], // Match PO report filters
   limit: 100000,
 });
 
 export const getSRForProjectInvoiceOptions = (): SRListParams => ({
-  fields: ['name', 'project', 'gst', "service_order_list", 'invoice_data'], // Only fields needed for invoice calc
+  fields: ['name', 'project', 'gst', "service_order_list", 'invoice_data','creation'], // Only fields needed for invoice calc
   filters: [['status', '=', "Approved"]], // Match SR report filters
   limit: 100000,
 });

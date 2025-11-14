@@ -22,6 +22,17 @@ import {
 import { ProjectInvoice } from '@/types/NirmaanStack/ProjectInvoice';
 import { useCredits } from '@/pages/credits/hooks/useCredits';
 
+// ----- 
+import { parseISO,isWithinInterval } from 'date-fns';
+import {isDateInPeriod,isDateOnOrAfter} from './useVendorLedgerCalculations';
+
+// Define a type for the parameters for better readability
+interface ProjectReportParams { // <--- NEW INTERFACE
+    startDate?: Date | null;
+    endDate?: Date | null;
+}
+
+
 // Define the structure for the calculated fields
 export interface ProjectCalculatedFields {
     totalInvoiced: number;
@@ -29,8 +40,8 @@ export interface ProjectCalculatedFields {
     totalProjectInvoiced: number;
     totalInflow: number;
     totalOutflow: number;
-    totalBalanceCredit: number; // ✨ NEW
-    totalDue: number;           // ✨ NEW
+    TotalPurchaseOverCredit: number; // ✨ NEW
+    CreditPaidAmount: number;           // ✨ NEW
     // You can add more calculated fields here if needed, e.g., totalCredit
 }
 
@@ -50,7 +61,11 @@ export interface UseProjectReportCalculationsResult {
     mutateProjectExpenses: () => Promise<any>; // --- (Indicator) NEW: Mutator for Project Expenses ---
 }
 
-export const useProjectReportCalculations = (): UseProjectReportCalculationsResult => {
+
+
+export const useProjectReportCalculations = (params: ProjectReportParams = {}): UseProjectReportCalculationsResult => {
+
+     const { startDate, endDate } = params; // <--- DESTUCTURE DATES
     // --- Fetch All Underlying Data Needed for Calculations ---
     const poOptions = getPOForProjectInvoiceOptions();
     const srOptions = getSRForProjectInvoiceOptions();
@@ -89,114 +104,245 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
         }, 'AllProjectExpensesForReports');
 
     // --- Pre-process and Group Data (Memoized) ---
+    // const posByProject = useMemo(() => {
+    //     return purchaseOrders?.reduce((acc, po) => {
+    //         if (po.project) {
+    //             (acc.get(po.project) || acc.set(po.project, []).get(po.project))!.push(po);
+    //         }
+    //         return acc;
+    //     }, new Map<string, ProcurementOrder[]>()) ?? new Map();
+    // }, [purchaseOrders]);
+
     const posByProject = useMemo(() => {
-        return purchaseOrders?.reduce((acc, po) => {
+        const filteredPOs = purchaseOrders?.filter(po => {
+            // Apply filter only to creation date
+            return isDateInPeriod(po.creation, startDate, endDate);
+        }) || [];
+
+        return filteredPOs.reduce((acc, po) => {
             if (po.project) {
                 (acc.get(po.project) || acc.set(po.project, []).get(po.project))!.push(po);
             }
             return acc;
-        }, new Map<string, ProcurementOrder[]>()) ?? new Map();
-    }, [purchaseOrders]);
+        }, new Map<string, ProcurementOrder[]>());
+    }, [purchaseOrders, startDate, endDate]); // <--- NEW DEPENDENCIES
+
+
+    // const srsByProject = useMemo(() => {
+    //     return serviceRequests?.reduce((acc, sr) => {
+    //         if (sr.project) {
+    //             (acc.get(sr.project) || acc.set(sr.project, []).get(sr.project))!.push(sr);
+    //         }
+    //         return acc;
+    //     }, new Map<string, ServiceRequests[]>()) ?? new Map();
+    // }, [serviceRequests]);
+
 
     const srsByProject = useMemo(() => {
-        return serviceRequests?.reduce((acc, sr) => {
+        const filteredSRs = serviceRequests?.filter(sr => {
+            // Apply filter only to creation date
+            return isDateInPeriod(sr.creation, startDate, endDate);
+        }) || [];
+        
+        return filteredSRs.reduce((acc, sr) => {
             if (sr.project) {
                 (acc.get(sr.project) || acc.set(sr.project, []).get(sr.project))!.push(sr);
             }
             return acc;
-        }, new Map<string, ServiceRequests[]>()) ?? new Map();
-    }, [serviceRequests]);
+        }, new Map<string, ServiceRequests[]>());
+    }, [serviceRequests, startDate, endDate]); // <--- NEW DEPENDENCIES
 
-    const totalInflowByProject = useMemo(() => {
-        return inflowsData?.reduce((acc, inflow) => {
+    // const totalInflowByProject = useMemo(() => {
+    //     return inflowsData?.reduce((acc, inflow) => {
+    //         if (inflow.project) {
+    //             acc.set(inflow.project, (acc.get(inflow.project) || 0) + parseNumber(inflow.amount));
+    //         }
+    //         return acc;
+    //     }, new Map<string, number>()) ?? new Map();
+    // }, [inflowsData]);
+
+      const totalInflowByProject = useMemo(() => {
+         const filteredInflows = inflowsData?.filter(inflow => {
+            // Inflows typically only have 'creation'
+            return isDateInPeriod(inflow.payment_date, startDate, endDate); 
+        }) || [];
+        
+        return filteredInflows.reduce((acc, inflow) => {
             if (inflow.project) {
                 acc.set(inflow.project, (acc.get(inflow.project) || 0) + parseNumber(inflow.amount));
             }
             return acc;
         }, new Map<string, number>()) ?? new Map();
-    }, [inflowsData]);
+    }, [inflowsData, startDate, endDate]); // <--- NEW DEPENDENCIES
 
-    const totalProjectInvoiceByProject = useMemo(() => {
-        return projectInvoiceData?.reduce((acc, inv) => {
+
+    // const totalProjectInvoiceByProject = useMemo(() => {
+    //     return projectInvoiceData?.reduce((acc, inv) => {
+    //         if (inv.project) {
+    //             acc.set(inv.project, (acc.get(inv.project) || 0) + parseNumber(inv.amount));
+    //         }
+    //         return acc;
+    //     }, new Map<string, number>()) ?? new Map();
+    // }, [projectInvoiceData]);
+
+     const totalProjectInvoiceByProject = useMemo(() => {
+        const filteredInvoices = projectInvoiceData?.filter(inv => {
+            // Project Invoices should be filtered by 'creation' or a specific 'invoice_date' field if present
+            return isDateInPeriod(inv.invoice_date, startDate, endDate); 
+        }) || [];
+        
+        return filteredInvoices.reduce((acc, inv) => {
             if (inv.project) {
                 acc.set(inv.project, (acc.get(inv.project) || 0) + parseNumber(inv.amount));
             }
             return acc;
         }, new Map<string, number>()) ?? new Map();
-    }, [projectInvoiceData]);
+    }, [projectInvoiceData, startDate, endDate]); // <--- NEW DEPENDENCIES
 
-    const totalOutflowByProject = useMemo(() => {
-        return paymentsData?.reduce((acc, payment) => {
+
+    // const totalOutflowByProject = useMemo(() => {
+    //     return paymentsData?.reduce((acc, payment) => {
+    //         if (payment.project) {
+    //             acc.set(payment.project, (acc.get(payment.project) || 0) + parseNumber(payment.amount));
+    //         }
+    //         return acc;
+    //     }, new Map<string, number>()) ?? new Map();
+    // }, [paymentsData]);
+
+    // --- (Indicator) NEW: Create a map for Project Expenses totals ---
+    
+     const totalOutflowByProject = useMemo(() => {
+        const filteredPayments = paymentsData?.filter(payment => {
+            // Payments should be filtered by 'payment_date' or 'creation'
+            return isDateInPeriod(payment.payment_date, startDate, endDate); 
+        }) || [];
+
+        return filteredPayments.reduce((acc, payment) => {
             if (payment.project) {
                 acc.set(payment.project, (acc.get(payment.project) || 0) + parseNumber(payment.amount));
             }
             return acc;
         }, new Map<string, number>()) ?? new Map();
-    }, [paymentsData]);
-    // --- (Indicator) NEW: Create a map for Project Expenses totals ---
-    const totalProjectExpensesByProject = useMemo(() => {
-        return projectExpensesData?.reduce((acc, expense) => {
-            if (expense.projects) { // The link field in the doctype is 'projects'
+    }, [paymentsData, startDate, endDate]); // <--- NEW DEPENDENCIES
+
+    // const totalProjectExpensesByProject = useMemo(() => {
+    //     return projectExpensesData?.reduce((acc, expense) => {
+    //         if (expense.projects) { // The link field in the doctype is 'projects'
+    //             acc.set(expense.projects, (acc.get(expense.projects) || 0) + parseNumber(expense.amount));
+    //         }
+    //         return acc;
+    //     }, new Map<string, number>()) ?? new Map();
+    // }, [projectExpensesData]);
+
+    // --- (Indicator) NEW MEMOIZED MAP: Calculate total invoiced amount from POs and SRs ---
+    
+        const totalProjectExpensesByProject = useMemo(() => {
+        const filteredExpenses = projectExpensesData?.filter(expense => {
+            // Project Expenses should be filtered by 'creation'
+            return isDateInPeriod(expense.creation, startDate, endDate); 
+        }) || [];
+        
+        return filteredExpenses.reduce((acc, expense) => {
+            if (expense.projects) { 
                 acc.set(expense.projects, (acc.get(expense.projects) || 0) + parseNumber(expense.amount));
             }
             return acc;
         }, new Map<string, number>()) ?? new Map();
-    }, [projectExpensesData]);
+    }, [projectExpensesData, startDate, endDate]); // <--- NEW DEPENDENCIES
 
-    // --- (Indicator) NEW MEMOIZED MAP: Calculate total invoiced amount from POs and SRs ---
-    const totalPoSrInvoicedByProject = useMemo(() => {
+
+    
+    // const totalPoSrInvoicedByProject = useMemo(() => {
+    //     const projectTotals = new Map<string, number>();
+
+    //     // Process Purchase Orders
+    //     purchaseOrders?.forEach(po => {
+    //         if (po.project && po.invoice_data) {
+    //             const currentTotal = projectTotals.get(po.project) || 0;
+    //             // getTotalInvoiceAmount is the utility function that iterates through the invoice_data JSON
+    //             projectTotals.set(po.project, currentTotal + getTotalInvoiceAmount(po.invoice_data));
+    //         }
+    //     });
+
+    //     // Process Service Requests
+    //     serviceRequests?.forEach(sr => {
+    //         if (sr.project && sr.invoice_data) {
+    //             const currentTotal = projectTotals.get(sr.project) || 0;
+    //             projectTotals.set(sr.project, currentTotal + getTotalInvoiceAmount(sr.invoice_data));
+    //         }
+    //     });
+
+    //     return projectTotals;
+    // }, [purchaseOrders, serviceRequests]);
+
+
+     const totalPoSrInvoicedByProject = useMemo(() => {
         const projectTotals = new Map<string, number>();
 
-        // Process Purchase Orders
-        purchaseOrders?.forEach(po => {
-            if (po.project && po.invoice_data) {
-                const currentTotal = projectTotals.get(po.project) || 0;
-                // getTotalInvoiceAmount is the utility function that iterates through the invoice_data JSON
-                projectTotals.set(po.project, currentTotal + getTotalInvoiceAmount(po.invoice_data));
-            }
-        });
+        // Process Purchase Orders and Service Requests (from the full, UNFILTERED lists)
+        // We MUST use the original purchaseOrders/serviceRequests and filter the invoice lines individually
+        [...(purchaseOrders || []), ...(serviceRequests || [])].forEach(doc => {
+            const project = doc.project || doc.project;
+            const invoiceData = doc.invoice_data?.data;
 
-        // Process Service Requests
-        serviceRequests?.forEach(sr => {
-            if (sr.project && sr.invoice_data) {
-                const currentTotal = projectTotals.get(sr.project) || 0;
-                projectTotals.set(sr.project, currentTotal + getTotalInvoiceAmount(sr.invoice_data));
+            if (project && invoiceData) {
+                let invoiceSum = 0;
+                for (const dateStr in invoiceData) {
+                    // Filter the actual invoice date
+                    if (isDateInPeriod(dateStr, startDate, endDate)) { 
+                // console.log("dateStr",dateStr)
+                        
+                        invoiceSum += parseNumber(invoiceData[dateStr].amount);
+                    }
+                }
+                if (invoiceSum > 0) {
+                    const currentTotal = projectTotals.get(project) || 0;
+                    projectTotals.set(project, currentTotal + invoiceSum);
+                }
             }
         });
 
         return projectTotals;
-    }, [purchaseOrders, serviceRequests]);
-
-
+    }, [purchaseOrders, serviceRequests, startDate, endDate]); // <--- NEW DEPENDENCIES
     
 
         const getProjectCreditAndDue = useMemo(() => 
-        memoize((projId: string): { totalBalanceCredit: number; totalDue: number } => {
+        memoize((projId: string): { TotalPurchaseOverCredit: number; CreditPaidAmount: number } => {
             if (!CreditData || !projId) {
-                return { totalBalanceCredit: 0, totalDue: 0 };
+                return { TotalPurchaseOverCredit: 0, CreditPaidAmount: 0 };
             }
-
-            return CreditData.reduce(
+// console.log("CreditData",CreditData)
+              return CreditData.reduce(
                 (totals, term) => {
                     if (term.project === projId) {
                         const amount = parseNumber(term.amount);
 
-                        // Rule for 'totalBalanceCredit'
-                        if (term.term_status !=="Paid") {
-                            totals.totalBalanceCredit += amount;
+                        // 1. Rule for 'TotalPurchaseOverCredit' (Based on DUE DATE)
+                        // Sums all credit terms that were scheduled to be DUE within the period.
+                        if (isDateInPeriod(term.due_date, startDate, endDate)) { 
+                            // Check if it's a valid term (term_status is not empty/null)
+                            if (term.term_status) { 
+                                totals.TotalPurchaseOverCredit += amount;
+                            }
                         }
 
-                        // Rule for 'totalDue'
-                        if (term.term_status !== "Paid" && term.term_status !== "Created") {
-                            totals.totalDue += amount;
+                        // 2. Rule for 'CreditPaidAmount' (Based on PAID STATUS and MODIFIED DATE)
+                        // Sums all terms that were marked 'Paid' within the period.
+                        if (term.term_status === "Paid") {
+                            // The user's requested logic: filter paid terms by the modified date.
+                            if (isDateInPeriod(term.modified, startDate, endDate)) {
+                            // console.log("term.modified",term.term_modified,term.ptname)
+
+                                totals.CreditPaidAmount += amount;
+                            }
                         }
                     }
                     return totals;
                 },
-                { totalBalanceCredit: 0, totalDue: 0 }
+                { TotalPurchaseOverCredit: 0, CreditPaidAmount: 0 }
             );
         }), 
-    [CreditData]); // This calculation depends only on CreditData
+    [CreditData,startDate, endDate]); // This calculation depends only on CreditData
 
 
     // --- Memoized Function for Per-Project Calculation ---
@@ -210,16 +356,16 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
 
             const relatedPOs = posByProject.get(projectId) || [];
             const relatedSRs = srsByProject.get(projectId) || [];
-
+// console.log("DEBUG: relatedPOs, relatedSRs",relatedPOs,relatedSRs)
             let totalInvoiced = 0;
             relatedPOs.forEach(po => {
                 totalInvoiced += getPOTotal(po)?.totalWithTax || 0;
             });
-            // console.log("DEBUG: totalInvoiced",totalInvoiced)
             relatedSRs.forEach(sr => {
                 const amount = getSRTotal(sr) || 0;
                 totalInvoiced += sr?.gst === "true" ? amount * 1.18 : amount;
             });
+            // console.log("DEBUG: totalInvoiced",totalInvoiced)
 
             const totalInflow = totalInflowByProject.get(projectId) || 0;
             const totalProjectInvoiced = totalProjectInvoiceByProject.get(projectId) || 0;
@@ -230,7 +376,7 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
             const totalOutflow = poSrPaymentOutflow + projectExpenseOutflow;
 
                         // ✨ Call your new memoized function to get the credit/due totals
-            const { totalBalanceCredit, totalDue } = getProjectCreditAndDue(projectId);
+            const { TotalPurchaseOverCredit, CreditPaidAmount } = getProjectCreditAndDue(projectId);
 
             // Get the newly calculated invoiced amount from our map
             const totalPoSrInvoiced = totalPoSrInvoicedByProject.get(projectId) || 0;
@@ -240,14 +386,14 @@ export const useProjectReportCalculations = (): UseProjectReportCalculationsResu
                 totalProjectInvoiced: parseNumber(totalProjectInvoiced),
                 totalInflow: parseNumber(totalInflow),
                 totalOutflow: parseNumber(totalOutflow),
-                totalBalanceCredit: totalBalanceCredit, // ✨ Add the new value
-                totalDue: totalDue,     
+                TotalPurchaseOverCredit: TotalPurchaseOverCredit, // ✨ Add the new value
+                CreditPaidAmount: CreditPaidAmount,     
             };
         }),
         [
             // Add the new map to the dependency array
             posByProject, srsByProject, totalInflowByProject, totalProjectInvoiceByProject, totalOutflowByProject, totalPoSrInvoicedByProject,
-            isLoadingPOs, isLoadingSRs, isLoadingInflows, isLoadingProjectInvoice, isLoadingPayments,getProjectCreditAndDue,CreditData
+            isLoadingPOs, isLoadingSRs, isLoadingInflows, isLoadingProjectInvoice, isLoadingPayments,getProjectCreditAndDue,CreditData,startDate,endDate,
         ]
     );
 

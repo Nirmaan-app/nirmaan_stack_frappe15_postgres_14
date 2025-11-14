@@ -6,8 +6,8 @@ import { MapPin, MessagesSquare, ChevronDown, ChevronUp } from 'lucide-react';
 
 // --- Frappe and Context Imports ---
 import { useFrappeGetDoc, useFrappeGetDocList } from 'frappe-react-sdk';
-import { UserContext } from "@/utils/auth/UserProvider"; 
-import { useUserData } from "@/hooks/useUserData"; 
+import { UserContext } from "@/utils/auth/UserProvider";
+import { useUserData } from "@/hooks/useUserData";
 
 // --- UI Components ---
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +28,7 @@ import { DELIMITER, parseWorkPlan, serializeWorkPlan } from "./MilestoneTab"
 import MilestoneReportPDF from "./components/MilestoneReportPDF";
 import OverallMilestonesReport from "./components/OverallMilestonesReport"
 import { ProgressCircle } from '@/components/ui/ProgressCircle';
+import { ImageBentoGrid } from '@/components/ui/ImageBentoGrid';
 
 
 // --- Helper Functions ---
@@ -620,48 +621,10 @@ export const MilestoneDailySummary = () => {
               {/* Work Images Section */}
               <div className="mt-6">
                 <h3 className="text-base md:text-lg font-bold mb-3">Work Images</h3>
-                {dailyReportDetails.attachments && dailyReportDetails.attachments.length > 0 ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-1 lg:grid-cols-2 xl:grid-cols-2 gap-3 md:gap-4">
-                    {dailyReportDetails.attachments.map((attachment: any, idx: number) => (
-                      <div
-                        key={idx}
-                        className="rounded-lg overflow-hidden shadow-md bg-white border border-gray-200" // Card wrapper
-                      >
-                        {/* Responsive container for image and text details */}
-                        {/* Stacks on mobile (flex-col), becomes row on small screens and up (sm:flex-row) */}
-                        <div className="flex flex-col sm:flex-row h-full">
-                          {/* Image container */}
-                          <div className="w-full sm:w-1/2 flex-shrink-0">
-                            <img
-                              src={attachment.image_link}
-                              alt={`Work Image ${idx + 1}`}
-                              className="w-full h-[180px] sm:h-full object-cover rounded-t-lg sm:rounded-l-lg sm:rounded-tr-none" // Adjust rounding based on layout
-                            />
-                          </div>
-
-                          <div className="w-full sm:w-1/2 p-3 flex flex-col justify-between">
-                            {/* Location */}
-                            <div className="flex items-center text-xs text-gray-700 mb-2">
-                              <MapPin className="h-4 w-4 mr-1 text-red-500 flex-shrink-0" />
-                              <span className="font-medium break-words">
-                                {attachment.location || `Lat: ${attachment.latitude?.toFixed(2)}, Lon: ${attachment.longitude?.toFixed(2)}`}
-                              </span>
-                            </div>
-                            {/* Remarks - highlighted yellow card style, pushed to bottom if space */}
-                            <p className="p-2 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs mt-auto">
-                              <MessagesSquare className="h-4 w-4 inline-block mr-1 flex-shrink-0" />
-                              {attachment.remarks || "No remarks provided."}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="w-full h-32 bg-gray-100 flex items-center justify-center text-gray-500 rounded-lg border-2 border-dashed border-gray-300">
-                    <p className="text-base font-medium">No Work Images Available</p>
-                  </div>
-                )}
+                <ImageBentoGrid
+                  images={dailyReportDetails.attachments || []}
+                  forPdf={false}
+                />
               </div>
               
               {/* Download PDF Button */}

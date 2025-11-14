@@ -79,12 +79,12 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
 
   const { data: CreditData } = useCredits()
   // console.log("CreditData financials",CreditData)
-  const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status !== "Paid"));
-  const dueByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status !== "Paid" && cr.term_status !== "Created"));
+  const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId));
+  const dueByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status == "Paid"));
 
   const relatedTotalBalanceCredit = creditsByProject(projectData?.name).reduce((sum, term) => sum + parseNumber(term.amount), 0);
 
-  const relatedTotalDue = dueByProject(projectData?.name).reduce((sum, term) => sum + parseNumber(term.amount), 0);
+  const relatedTotalCreditPaid = dueByProject(projectData?.name).reduce((sum, term) => sum + parseNumber(term.amount), 0);
 
 
   const { data: projectInflows, isLoading: projectInflowsLoading } = useFrappeGetDocList<ProjectInflows>("Project Inflows", {
@@ -138,10 +138,10 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
       info:"Amount we have invoiced to the client for this project."
     },
     {
-      label: "Total Liabilities",
+      label: "Total Purchase Over Credit",
       value: relatedTotalBalanceCredit,
       style: "",
-      info:"Total value of credit POs scheduled for future payment."
+      info:" Total value of credit POs Purchase for this Project."
     },
 
 
@@ -154,10 +154,10 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
 
 
     {
-      label: "Total Due Not Paid",
-      value: relatedTotalDue,
+      label: "Total Credit Amount Paid",
+      value: relatedTotalCreditPaid,
       style: "",
-      info:"Total value of credit POs that are due but not yet paid."
+      info:"Total value of credit POs that are paid."
     },
     {
       label: "Project Value (Excl. GST)",

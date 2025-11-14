@@ -34,7 +34,7 @@ export interface UseVendorLedgerCalculationsResult {
 }
 
 // Helper function to safely check if a date string is within the period
-const isDateInPeriod = (dateStr: string | null | undefined, startDate: Date | null, endDate: Date | null): boolean => {
+export const isDateInPeriod = (dateStr: string | null | undefined, startDate: Date | null, endDate: Date | null): boolean => {
     if (!dateStr || !startDate || !endDate) return false;
     try {
         const date = parseISO(dateStr);
@@ -45,7 +45,7 @@ const isDateInPeriod = (dateStr: string | null | undefined, startDate: Date | nu
 };
 
 // Helper function to safely check if a date is before or on the end of the period
-const isDateOnOrAfter = (dateStr: string | null | undefined, compareDate: Date | null): boolean => {
+export const isDateOnOrAfter = (dateStr: string | null | undefined, compareDate: Date | null): boolean => {
     if (!dateStr || !compareDate) return false;
     try {
         const date = parseISO(dateStr);

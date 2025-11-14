@@ -4,7 +4,7 @@ import { PAYMENT_STATUS } from '../approve-payments/constants';
 
 export const DEFAULT_PP_FIELDS_TO_FETCH: (keyof ProjectPayments | 'name')[] =  [
     "name", "project", "owner", "vendor", "document_name", "document_type",
-    "status", "amount"
+    "status", "amount","approval_date",
 ];
 
 export const PP_SEARCHABLE_FIELDS: SearchFieldOption[] = [
@@ -18,7 +18,7 @@ export const PP_SEARCHABLE_FIELDS: SearchFieldOption[] = [
 ];
 
 // Date columns commonly used for filtering Payments tables
-export const PP_DATE_COLUMNS: string[] = ["creation", "modified", "payment_date"];
+export const PP_DATE_COLUMNS: string[] = ["creation", "modified", "payment_date", "approval_date"];
 
 // Function to get static filters based on tab for ProjectPayments context
 export const getProjectPaymentsStaticFilters = (tab: string): Array<[string, string, string | string[]]> => {

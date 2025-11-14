@@ -149,7 +149,7 @@ export const ProgressCircle = ({
     <div
       className={cn(
         'relative inline-flex items-center justify-center', 
-        'size-6', // Default size
+        'size-5', // Default size
         className // This should include both size AND color classes
       )}
     >
