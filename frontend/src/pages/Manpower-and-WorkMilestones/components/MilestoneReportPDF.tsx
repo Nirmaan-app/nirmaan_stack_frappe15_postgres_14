@@ -7,6 +7,7 @@ import { ProgressCircle } from '@/components/ui/ProgressCircle';
 import { MilestoneProgress } from '../MilestonesSummary';
 import { useFrappeGetDoc } from 'frappe-react-sdk';
 import { DELIMITER, parseWorkPlan, serializeWorkPlan } from '../MilestoneTab';
+import { PDFImageGrid } from '@/components/ui/PDFImageGrid';
 
 // --- Type Definitions (Assuming these are correct based on usage) ---
 interface MilestoneReportPDFProps {
@@ -416,58 +417,20 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
 
 
 
-          {/* --- 4. ATTACHMENTS PAGE (Optional) --- */}
+          {/* --- 4. ATTACHMENTS PAGES (Optional) - 4 images per page --- */}
           {dailyReportDetails.attachments && dailyReportDetails.attachments.length > 0 && (
             <div className="page page-break-before">
               <div className="p-4">
                 <table className="min-w-full divide-gray-200">
                   <ReportPageHeader projectData={projectData} dailyReportDetails={dailyReportDetails} />
-                  <tbody className=" min-full bg-white">
+                  <tbody className="min-full bg-white">
                     <tr>
                       <td colSpan={4}>
                         <h3 className="text-lg font-bold mb-3 text-gray-800">WORK IMAGES</h3>
-                          {dailyReportDetails.attachments && dailyReportDetails.attachments.length > 0 ? (
-                                              <div className="grid grid-cols-2 gap-2">
-                                                {dailyReportDetails.attachments.map((attachment, idx) => (
-                                                  <div
-                                                    key={idx}
-                                                    className="rounded-lg overflow-hidden shadow-md bg-white border border-gray-200 avoid-page-break-inside" // Card wrapper
-                                                  >
-                                                    {/* Responsive container for image and text details */}
-                                                    {/* Stacks on mobile (flex-col), becomes row on small screens and up (sm:flex-row) */}
-                                                    <div className="flex flex-col h-full">
-                                                      {/* Image container */}
-                                                      <div className="w-full flex-shrink-0">
-                                                        <img
-                                                          src={attachment.image_link}
-                                                          alt={`Work Image ${idx + 1}`}
-                                                          className="w-full h-[180px] object-cover rounded-t-lg" // Adjust rounding based on layout
-                                                        />
-                                                      </div>
-                        
-                                                      <div className="w-full p-3 flex flex-col justify-between">
-                                                        {/* Location */}
-                                                        <div className="flex items-center text-xs text-gray-700 mb-2">
-                                                          <MapPin className="h-4 w-4 mr-1 text-red-500 flex-shrink-0" />
-                                                          <span className="font-medium break-words">
-                                                            {attachment.location || `Lat: ${attachment.latitude?.toFixed(2)}, Lon: ${attachment.longitude?.toFixed(2)}`}
-                                                          </span>
-                                                        </div>
-                                                        {/* Remarks - highlighted yellow card style, pushed to bottom if space */}
-                                                        <p className="p-2 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs mt-auto">
-                                                          <MessagesSquare className="h-4 w-4 inline-block mr-1 flex-shrink-0" />
-                                                          {attachment.remarks || "No remarks provided."}
-                                                        </p>
-                                                      </div>
-                                                    </div>
-                                                  </div>
-                                                ))}
-                                              </div>
-                                            ) : (
-                                              <div className="w-full h-32 bg-gray-100 flex items-center justify-center text-gray-500 rounded-lg border-2 border-dashed border-gray-300">
-                                                <p className="text-base font-medium">No Work Images Available</p>
-                                              </div>
-                                            )}
+                        <PDFImageGrid
+                          images={dailyReportDetails.attachments}
+                          maxImagesPerPage={4}
+                        />
                       </td>
                     </tr>
                   </tbody>
@@ -536,6 +499,27 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
           h3, h4 {
             page-break-after: avoid;
             page-break-inside: avoid;
+          }
+
+          /* Image rendering optimization for PDF */
+          img {
+            max-width: 100%;
+            height: auto;
+            display: block;
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
+          }
+
+          /* Ensure grid items don't break across pages */
+          .grid > * {
+            page-break-inside: avoid !important;
+          }
+
+          /* Force color printing for images */
+          * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            color-adjust: exact !important;
           }
         }
       `}</style>
