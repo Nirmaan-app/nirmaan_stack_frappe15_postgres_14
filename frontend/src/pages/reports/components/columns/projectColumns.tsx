@@ -154,20 +154,20 @@ export const getProjectColumns = (): ColumnDef<Projects>[] => [
   },
   // --- ✨ THIS IS THE FIX FOR YOUR NEW COLUMNS ---
   {
-    id: "totalBalanceCredit", // A unique ID for the column
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Total Liabilities" />,
+    id: "TotalPurchaseOverCredit", // A unique ID for the column
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Total Purchase Over Credit" />,
     // Pass the correct accessor string that matches the key in ProjectCalculatedFields
-    cell: (props) => <CalculatedCell {...props} accessor="totalBalanceCredit" formatter={formatValueToLakhsString} />,
+    cell: (props) => <CalculatedCell {...props} accessor="TotalPurchaseOverCredit" formatter={formatValueToLakhsString} />,
     meta: {
       exportHeaderName: "Balance on Credit (Lakhs)",
       isNumeric: true
     }
   },
   {
-    id: "totalDue", // A unique ID for the column
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Total Due Not Paid" />,
+    id: "CreditPaidAmount", // A unique ID for the column
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Total Credit Amount Paid" />,
     // Pass the correct accessor string
-    cell: (props) => <CalculatedCell {...props} accessor="totalDue" formatter={formatValueToLakhsString} />,
+    cell: (props) => <CalculatedCell {...props} accessor="CreditPaidAmount" formatter={formatValueToLakhsString} />,
     meta: {
       exportHeaderName: "Amount Due (Lakhs)",
       isNumeric: true

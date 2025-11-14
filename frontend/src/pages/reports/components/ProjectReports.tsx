@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from "react"; // Added useCallback
+import { useMemo ,useEffect,useCallback,useState} from "react"; // Added useCallback
 import { DataTable } from "@/components/data-table/new-data-table";
 import { Projects } from "@/types/NirmaanStack/Projects"; // Base Project type
 import { useProjectReportCalculations } from "../hooks/useProjectReportCalculations"; // Updated hook
@@ -21,6 +21,11 @@ import { OutflowReportTable } from './outflowReportTable';
 import {NonProjectExpensesPage} from "@/pages/NonProjectExpenses/NonProjectExpensesPage";
 import { ProjectProgressReports } from "./ProjectProgressReports";
 
+import { StandaloneDateFilter } from "@/components/ui/StandaloneDateFilter";
+import { urlStateManager } from "@/utils/urlStateManager"; // <--- NEW IMPORT
+import { parse, formatISO, startOfDay, format } from 'date-fns'; // <--- NEW IMPORT
+import { DateRange } from "react-day-picker"; // <--- NEW IMPORT
+
 // Define base fields for Projects doctype fetch
 const projectBaseFields: (keyof Projects)[] = [
     'name', 'project_name', 'project_value', 'creation', 'modified', 'status',
@@ -29,15 +34,51 @@ const projectReportListOptions = () => ({
     fields: projectBaseFields as string[],
 });
 
+const URL_SYNC_KEY = "project_case_sheet"; // Use a specific key for URL state
+const getDefaultDateRange = (): DateRange => ({
+    from: new Date('2024-04-01'),
+    to: startOfDay(new Date()),
+});
+
 // Component for the existing Cash Sheet report
 function CashSheetReport() {
+
+    const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
+        const fromParam = urlStateManager.getParam(`${URL_SYNC_KEY}_from`);
+        const toParam = urlStateManager.getParam(`${URL_SYNC_KEY}_to`);
+        if (fromParam && toParam) {
+            try {
+                return {
+                    from: parse(fromParam, 'yyyy-MM-dd', new Date()),
+                    to: parse(toParam, 'yyyy-MM-dd', new Date()),
+                };
+            } catch (e) {
+                console.error("Error parsing date from URL:", e);
+                // Fall through to default if parsing fails
+            }
+        }
+        return getDefaultDateRange()
+    });
+     
     const {
         getProjectCalculatedFields,
         isLoadingGlobalDeps,
         globalDepsError,
-    } = useProjectReportCalculations();
+    } = useProjectReportCalculations({ // <--- PASS DATES TO HOOK
+        startDate: dateRange?.from,
+        endDate: dateRange?.to
+    });
+    
 
     const tableColumns = useMemo(() => getProjectColumns(), []);
+ // 3. Effect to sync state changes back to the URL
+    useEffect(() => {
+        const fromISO = dateRange?.from ? formatISO(dateRange.from, { representation: 'date' }) : null;
+        const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }) : null;
+
+        urlStateManager.updateParam(`${URL_SYNC_KEY}_from`, fromISO);
+        urlStateManager.updateParam(`${URL_SYNC_KEY}_to`, toISO);
+    }, [dateRange]);
 
     const {
         table,
@@ -108,6 +149,11 @@ function CashSheetReport() {
     const isLoading = isLoadingGlobalDeps || isProjectsLoading;
     const error = globalDepsError || projectsError;
 
+      const handleClearDateFilter = useCallback(() => {
+            setDateRange(getDefaultDateRange());
+        }, []);
+    
+
     if (error) {
         return <AlertDestructive error={error as Error} />;
     }
@@ -117,6 +163,12 @@ function CashSheetReport() {
     }
 
     return (
+        <>
+            <StandaloneDateFilter
+                value={dateRange}
+                onChange={setDateRange}
+                onClear={handleClearDateFilter}
+            />
         <DataTable<Projects>
             table={table}
             columns={tableColumns}
@@ -134,6 +186,7 @@ function CashSheetReport() {
             exportFileName={exportFileName}
             showRowSelection={false}
         />
+        </>
     );
 }
 
