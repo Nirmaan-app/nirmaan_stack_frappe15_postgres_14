@@ -16,7 +16,7 @@ interface StandaloneDateFilterProps {
   className?: string;
 }
 
-export function StandaloneDateFilter({ value, onChange,onClear, className }: StandaloneDateFilterProps) {
+export function StandaloneDateFilter({ value, onChange, onClear, className }: StandaloneDateFilterProps) {
   const [isOpen, setIsOpen] = useState(false);
   // Temporary state for the calendar while the popover is open
   const [tempDate, setTempDate] = useState<DateRange | undefined>(value);
@@ -50,49 +50,51 @@ export function StandaloneDateFilter({ value, onChange,onClear, className }: Sta
     onChange(tempDate);
     setIsOpen(false);
   };
-  
+
   const handleClear = () => {
     onClear();
     setIsOpen(false);
   }
 
   return (
-    <Popover open={isOpen} onOpenChange={setIsOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          className={cn('w-[280px] justify-start text-left font-normal', !value && 'text-muted-foreground', className)}
-        >
-          <CalendarIcon className="mr-2 h-4 w-4" />
-          {selectedPresetLabel ? (
-             <span>{selectedPresetLabel}</span>
-          ) : value?.from ? (
-            value.to ? (
-              <>
-                {format(value.from, 'LLL dd, y')} - {format(value.to, 'LLL dd, y')}
-              </>
+    <div className='flex items-center gap-2'>
+      <div>Selected Date Range:</div>
+      <Popover open={isOpen} onOpenChange={setIsOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="outline"
+            className={cn('w-[280px] justify-start text-left font-normal', !value && 'text-muted-foreground', className)}
+          >
+            <CalendarIcon className="mr-2 h-4 w-4" />
+            {selectedPresetLabel ? (
+              <span>{selectedPresetLabel}</span>
+            ) : value?.from ? (
+              value.to ? (
+                <>
+                  {format(value.from, 'LLL dd, y')} - {format(value.to, 'LLL dd, y')}
+                </>
+              ) : (
+                format(value.from, 'LLL dd, y')
+              )
             ) : (
-              format(value.from, 'LLL dd, y')
-            )
-          ) : (
-            <span>Pick a date range</span>
-          )}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-auto p-0 flex" align="start">
-        <div className="flex flex-col space-y-2 border-r p-2">
+              <span>Pick a date range</span>
+            )}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-auto p-0 flex" align="start">
+          <div className="flex flex-col space-y-2 border-r p-2">
             {datePresets.map((preset) => (
-                <Button
-                    key={preset.label}
-                    variant="ghost"
-                    className="justify-start"
-                    onClick={() => handlePresetClick(preset)}
-                >
-                    {preset.label}
-                </Button>
+              <Button
+                key={preset.label}
+                variant="ghost"
+                className="justify-start"
+                onClick={() => handlePresetClick(preset)}
+              >
+                {preset.label}
+              </Button>
             ))}
-        </div>
-        <div className="flex flex-col">
+          </div>
+          <div className="flex flex-col">
             <Calendar
               initialFocus
               mode="range"
@@ -102,11 +104,12 @@ export function StandaloneDateFilter({ value, onChange,onClear, className }: Sta
               numberOfMonths={2}
             />
             <div className="p-2 border-t flex justify-between">
-                <Button variant="ghost" onClick={handleClear}>Clear</Button>
-                <Button onClick={handleApply} disabled={!tempDate?.from || !tempDate?.to}>Apply</Button>
+              <Button variant="ghost" onClick={handleClear}>Clear</Button>
+              <Button onClick={handleApply} disabled={!tempDate?.from || !tempDate?.to}>Apply</Button>
             </div>
-        </div>
-      </PopoverContent>
-    </Popover>
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 }
