@@ -3614,7 +3614,7 @@ console.log(user)
       </div>
 
       <Dialog open={isUpdateManpowerDialogOpen} onOpenChange={setIsUpdateManpowerDialogOpen}>
-        <DialogContent className="sm:max-w-[425px] sm:max-h-[90vh] sm:overflow-y-auto">
+        <DialogContent className="max-w-[425px] max-h-[70vh] overflow-y-auto lg:max-w-[425px] lg:max-h-[90vh] lg:overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-xl text-center font-bold text-red-600">Update Manpower</DialogTitle>
             <DialogDescription className="text-sm text-center">
@@ -3717,15 +3717,13 @@ console.log(user)
 
     <Dialog open={isUpdateMilestoneDialogOpen} onOpenChange={setIsUpdateMilestoneDialogOpen}>
  
-    <DialogContent className="sm:max-w-[425px] sm:max-h-[90vh] sm:overflow-y-auto">
+    <DialogContent className="max-w-[425px] max-h-[70vh] overflow-y-auto lg:max-w-[425px] lg:max-h-[70vh] lg:overflow-y-auto">
         
         <DialogHeader className="p-2 pb-4 border-b">
             <div className="flex justify-center items-center">
                 <DialogTitle className="text-xl font-bold text-red-600">
                     {/* {selectedMilestoneForDialog?.work_milestone_name || "Milestones Update"} */}
                     {"Milestones Update"}
-
-
                 </DialogTitle>
                 
             </div>
@@ -4068,7 +4066,7 @@ console.log(user)
 </Dialog>
 
         <Dialog open={isCaptureDialogOpen} onOpenChange={setIsCaptureDialogOpen}>
-    <DialogContent className="sm:max-w-[90vw] md:max-w-[600px] p-0 border-none bg-transparent">
+    <DialogContent className=" max-w-[70vh] max-w-[600px] lg:max-w-[90vw] lg:max-w-[600px] p-0 border-none bg-transparent">
                <DialogClose className="absolute right-4 top-4 h-8 w-8 rounded-full flex items-center justify-center bg-white/10 text-white transition-colors duration-200 hover:bg-white/20 focus:outline-none  z-30">
             <X className="h-5 w-5" /> {/* Smaller X for better fit in 8x8 circle */}
             <span className="sr-only">Close</span>
