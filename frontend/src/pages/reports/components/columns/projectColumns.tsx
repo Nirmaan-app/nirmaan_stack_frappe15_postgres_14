@@ -81,26 +81,18 @@ const CalculatedCell: React.FC<{
 
 const dateColumnIdInReport = 'payment_date';
 
-if (dateRange && dateRange.from) {
-  filters.push({
-    id: dateColumnIdInReport,
-    // The value is the YYYY-MM-DD string passed from ProjectReports.tsx
-    value: {
-      operator: '>=', // Greater than or equal to
-      value: dateRange.from, // <--- This now holds the 'YYYY-MM-DD' string!
-    },
-  });
-}
+if (dateRange && dateRange.from && dateRange.to) {
+        // We push a single filter object using the 'Between' operator 
+        // and an array containing the start and end date strings.
+        filters.push({
+            id: dateColumnIdInReport,
+            value: {
+                operator: 'Between', // <-- NEW OPERATOR
+                value: [dateRange.from, dateRange.to] // <-- NEW ARRAY VALUE
+            },
+        });
+    }
 
-if (dateRange && dateRange.to) {
-  filters.push({
-    id: dateColumnIdInReport,
-    value: {
-      operator: '<=', // Less than or equal to
-      value: dateRange.to, // <--- This now holds the 'YYYY-MM-DD' string!
-    },
-  });
-}
     // 2. Stringify and Base64 encode the filter array.
     const encodedFilters = btoa(JSON.stringify(filters));
 
