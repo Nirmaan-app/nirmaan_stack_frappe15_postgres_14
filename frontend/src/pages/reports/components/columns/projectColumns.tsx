@@ -75,6 +75,32 @@ const CalculatedCell: React.FC<{
     // 1. Define the filter structure for tanstack-table
     const filters = [{ id: 'project', value: [projectId] }];
 
+    const { dateRange } = meta; 
+
+// ...
+
+const dateColumnIdInReport = 'payment_date';
+
+if (dateRange && dateRange.from) {
+  filters.push({
+    id: dateColumnIdInReport,
+    // The value is the YYYY-MM-DD string passed from ProjectReports.tsx
+    value: {
+      operator: '>=', // Greater than or equal to
+      value: dateRange.from, // <--- This now holds the 'YYYY-MM-DD' string!
+    },
+  });
+}
+
+if (dateRange && dateRange.to) {
+  filters.push({
+    id: dateColumnIdInReport,
+    value: {
+      operator: '<=', // Less than or equal to
+      value: dateRange.to, // <--- This now holds the 'YYYY-MM-DD' string!
+    },
+  });
+}
     // 2. Stringify and Base64 encode the filter array.
     const encodedFilters = btoa(JSON.stringify(filters));
 

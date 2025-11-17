@@ -80,6 +80,10 @@ function CashSheetReport() {
         urlStateManager.updateParam(`${URL_SYNC_KEY}_to`, toISO);
     }, [dateRange]);
 
+    const fromISO = dateRange?.from ? formatISO(dateRange.from, { representation: 'date' }) : undefined;
+const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }) : undefined;
+
+
     const {
         table,
         data: projectsData,
@@ -95,7 +99,10 @@ function CashSheetReport() {
         searchableFields: PROJECT_REPORTS_SEARCHABLE_FIELDS,
         urlSyncKey: "project_reports_cash_sheet_table",
         defaultSort: 'creation desc',
-        meta: { getProjectCalculatedFields, isLoadingGlobalDeps }
+        meta: { getProjectCalculatedFields, isLoadingGlobalDeps, dateRange: { 
+            from: fromISO, 
+            to: toISO 
+        }  }
     });
 
     const exportFileName = "projects_report_Cash_Sheet";
@@ -185,6 +192,7 @@ function CashSheetReport() {
             onExport={handleCustomExport}
             exportFileName={exportFileName}
             showRowSelection={false}
+            
         />
         </>
     );
