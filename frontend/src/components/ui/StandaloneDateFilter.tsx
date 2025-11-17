@@ -8,6 +8,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { datePresets, DatePreset } from '../../utils/datePresents'; // Corrected path
 import { format } from 'date-fns';
+import { formatDate } from "@/utils/FormatDate";
+
 
 interface StandaloneDateFilterProps {
   value?: DateRange;
@@ -56,6 +58,21 @@ export function StandaloneDateFilter({ value, onChange, onClear, className }: St
     setIsOpen(false);
   }
 
+  // NEW: Function to clear only the temporary date state
+  const handleTempClear = () => {
+    setTempDate(undefined); // Clear the dates in the calendar view
+    onChange(undefined); // Notify parent about the clear action
+    //  setIsOpen(false);
+  }
+
+  const formatTempDate = (dateRange?: DateRange) => {
+    if (!dateRange?.from) return 'No selection';
+    
+    return dateRange.to
+      ? `${formatDate(dateRange.from)} - ${formatDate(dateRange.to)}`
+      : formatDate(dateRange.from);
+  }
+
   return (
     <div className='flex items-center gap-2'>
       <div>Selected Date Range:</div>
@@ -82,6 +99,7 @@ export function StandaloneDateFilter({ value, onChange, onClear, className }: St
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-auto p-0 flex" align="start">
+          
           <div className="flex flex-col space-y-2 border-r p-2">
             {datePresets.map((preset) => (
               <Button
@@ -95,6 +113,19 @@ export function StandaloneDateFilter({ value, onChange, onClear, className }: St
             ))}
           </div>
           <div className="flex flex-col">
+             <div className="flex justify-between items-center p-3 border-b">
+            <span className="text-sm font-semibold">
+              Range: {formatTempDate(tempDate)}
+            </span>
+            <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={handleTempClear} 
+                disabled={!tempDate?.from && !tempDate?.to}
+            >
+                Clear
+            </Button>
+          </div>
             <Calendar
               initialFocus
               mode="range"
@@ -103,8 +134,8 @@ export function StandaloneDateFilter({ value, onChange, onClear, className }: St
               onSelect={setTempDate} // Update temporary state
               numberOfMonths={2}
             />
-            <div className="p-2 border-t flex justify-between">
-              <Button variant="ghost" onClick={handleClear}>Clear</Button>
+            <div className="p-2 border-t flex justify-end space-x-2">
+              <Button variant="outline" onClick={handleClear}>Reset</Button>
               <Button onClick={handleApply} disabled={!tempDate?.from || !tempDate?.to}>Apply</Button>
             </div>
           </div>

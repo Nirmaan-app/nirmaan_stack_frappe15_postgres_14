@@ -56,6 +56,7 @@ export const isDateOnOrAfter = (dateStr: string | null | undefined, compareDate:
     }
 }
 
+
 export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): UseVendorLedgerCalculationsResult => {
     const { startDate, endDate } = params;
 
@@ -80,6 +81,10 @@ export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): Us
         filters: [['status', '=', 'Paid']],
         limit: 0
     }, 'all-payments-for-vendor-ledger');
+     // --- KEY CHANGE: Calculate flag once in the hook scope ---
+    const shouldFilterByPeriod = useMemo(() => startDate && endDate, [startDate, endDate]);
+    const HISTORICAL_START_DATE = new Date("1900-01-01"); 
+    // ---------------------------------------------------
     
    
         // --- 👇 STEP 2: CREATE A MAP FOR VENDORS FOR QUICK LOOKUP ---
@@ -135,51 +140,45 @@ export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): Us
 
             // --- PERIOD-SPECIFIC CALCULATIONS ---
             // These sum up values for transactions created/paid WITHIN the date range.
-//------------------ Date Filter Start -----------------
+            //------------------ Date Filter Start -----------------
+           // totalPO: Filtered by PO Creation Date
             const totalPO = relatedPOs.reduce((sum, po) => {
-                if (isDateInPeriod(po.creation, startDate, endDate)) {
-                    return sum + parseNumber(po.total_amount);
-                }
-                return sum;
+                const shouldInclude = !shouldFilterByPeriod || isDateInPeriod(po.creation, startDate, endDate);
+                return shouldInclude ? sum + parseNumber(po.total_amount) : sum;
             }, 0);
 
+            // totalSR: Filtered by SR Creation Date
             const totalSR = relatedSRs.reduce((sum, sr) => {
-                if (isDateInPeriod(sr.creation, startDate, endDate)) {
+                const shouldInclude = !shouldFilterByPeriod || isDateInPeriod(sr.creation, startDate, endDate);
+                if (shouldInclude) {
                     const amount = getSRTotal(sr) || 0;
                     return sum + (sr?.gst === "true" ? amount * 1.18 : amount);
                 }
                 return sum;
             }, 0);
 
+            // totalInvoiced: Filtered by INVOICE DATE within the range
             const totalInvoiced = [...relatedPOs, ...relatedSRs].reduce((sum, doc) => {
                 const invoiceData = doc.invoice_data?.data;
                 if (!invoiceData) return sum;
                 
                 let invoiceSum = 0;
                 for (const dateStr in invoiceData) {
-                    if (isDateInPeriod(dateStr, startDate, endDate)) {
+                    const shouldInclude = !shouldFilterByPeriod || isDateInPeriod(dateStr, startDate, endDate);
+                    if (shouldInclude) {
                         invoiceSum += parseNumber(invoiceData[dateStr].amount);
                     }
                 }
                 return sum + invoiceSum;
             }, 0);
             
+            // totalPaid: Filtered by Payment Date within the range
             const totalPaid = relatedPayments.reduce((sum, p) => {
-                if (isDateInPeriod(p.payment_date || p.creation, startDate, endDate)) {
-                    console.log("DEBUG: p.amount", p.amount, "vendor", vendorId, "sum", sum)
-                    return sum + parseNumber(p.amount);
-                }
-                return sum;
+                const shouldInclude = !shouldFilterByPeriod || isDateInPeriod(p.payment_date || p.creation, startDate, endDate);
+                return shouldInclude ? sum + parseNumber(p.amount) : sum;
             }, 0);
 
-            //------------------ Date Filter Start END-----------------
-
-             const openingInvoiceBalance = parseNumber(vendorDoc?.invoice_balance);
-            const openingPaymentBalance = parseNumber(vendorDoc?.payment_balance);
-            const openingBalance = openingInvoiceBalance - openingPaymentBalance;
-
-
-
+            
             // --- CUMULATIVE BALANCE CALCULATION ---
             // This sums up ALL historical transactions up to the endDate to get the true running balance.
 
@@ -205,16 +204,49 @@ export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): Us
                 }
                 return sum;
             }, 0);
+
+                        // --- CUMULATIVE BALANCE CALCULATION (Total up to endDate) ---
+
+            // const cumulativeInvoiced = [...relatedPOs, ...relatedSRs].reduce((sum, doc) => {
+            //     const invoiceData = doc.invoice_data?.data;
+            //     if (!invoiceData || !endDate) return sum; 
+                
+            //     let invoiceSum = 0;
+            //     for (const dateStr in invoiceData) {
+            //         // CUMULATIVE: Filter by date <= endDate
+            //         if (isDateOnOrBefore(dateStr, endDate)) {
+            //             invoiceSum += parseNumber(invoiceData[dateStr].amount);
+            //         }
+            //     }
+            //     return sum + invoiceSum;
+            // }, 0);
+
+            // const cumulativePaid = relatedPayments.reduce((sum, p) => {
+            //     if (!endDate) return sum; // Cannot calculate cumulative balance without an end date
+            //     // CUMULATIVE: Filter by date <= endDate
+            //     if (isDateOnOrBefore(p.payment_date || p.creation, endDate)) {
+            //         return sum + parseNumber(p.amount);
+            //     }
+            //     return sum;
+            // }, 0);
+
             
             
             // const balance = cumulativeInvoiced - cumulativePaid;
             // console.log("DEBUG: cumulativeInvoiced", cumulativeInvoiced, "cumulativePaid", cumulativePaid, "vendor", vendorId, "openingBalance", openingBalance)
+
+            // Get Opening Balance (assuming you want to use the total historical balance for the balance column)
+            const openingInvoiceBalance = parseNumber(vendorDoc?.invoice_balance);
+            const openingPaymentBalance = parseNumber(vendorDoc?.payment_balance);
+            const openingBalance = openingInvoiceBalance - openingPaymentBalance;
+            
+            // The running balance up to the end date
             const balance = openingBalance + (cumulativeInvoiced - cumulativePaid);
 
             return { totalPO, totalSR, totalInvoiced, totalPaid, balance };
         }),
         // Dependencies now include the dates, so this function is re-created when they change.
-        [posByVendor, srsByVendor, paymentsByVendor, isLoadingPOs, isLoadingSRs, isLoadingPayments, startDate, endDate]
+        [posByVendor, srsByVendor, paymentsByVendor,vendorsMap, isLoadingPOs, isLoadingSRs, isLoadingPayments, startDate, endDate,shouldFilterByPeriod]
     );
 
     const isLoadingGlobalDeps = isLoadingVendors || isLoadingPOs || isLoadingSRs || isLoadingPayments;
