@@ -142,6 +142,8 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
   const [reportType, setReportType] = useState<'Daily' | 'Overall'>('Daily');
   // State for the date selected by the user for displaying reports
   const [displayDate, setDisplayDate] = useState<Date>(new Date()); // Initialize with today's date
+  // NEW STATE for Zone selection
+  const [selectedZone, setSelectedZone] = useState<string | null>(null);
 
   // State to hold the Frappe document name of the Project Progress Report for the selected displayDate
   const [reportForDisplayDateName, setReportForDisplayDateName] = useState<string | null>(null);
@@ -165,10 +167,11 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
   } = useFrappeGetDocList(
     "Project Progress Reports",
     {
-      fields: ["name", "report_date", "project"],
+      fields: ["name", "report_date","report_zone", "project"],
       limit: 0,
       filters: [
         ["project", "=", selectedProject],
+        ["report_zone", "=", selectedZone],
         ["report_status", "=", "Completed"]
       ],
     },
@@ -186,13 +189,31 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
     reportForDisplayDateName && reportType === 'Daily' ? undefined : null // Only fetch if a name exists and reportType is Daily
   );
 
+  // Effect to initialize selectedZone to the first zone available if none is selected
+  useEffect(() => {
+      if (projectData?.project_zones?.length > 0 && selectedZone === null) {
+          // Find the first non-empty zone name
+          const firstZoneName = projectData.project_zones[0].zone_name;
+          if (firstZoneName) {
+              // setSelectedZone(firstZoneName);
+              setSelectedZone(null);
+          }
+      }
+      // If a project is unselected, clear the zone
+      if (!selectedProject) {
+           setSelectedZone(null);
+      }
+  }, [projectData, selectedProject, selectedZone]);
+
+
   // Effect to determine reportForDisplayDateName based on selectedProject and displayDate
   useEffect(() => {
-    if (projectProgressReports && selectedProject && displayDate) {
+    if (projectProgressReports && selectedProject && displayDate && selectedZone) {
       const selectedDateFormatted = formatDate(displayDate); // Assuming formatDate handles Date objects
 
       const foundReport = projectProgressReports.find(
-        (report) => formatDate(report.report_date) === selectedDateFormatted
+        (report) => formatDate(report.report_date) === selectedDateFormatted && report.report_zone===selectedZone
+        
       );
 
       if (foundReport) {
@@ -200,8 +221,10 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
       } else {
         setReportForDisplayDateName(null);
       }
+    }else{
+      setReportForDisplayDateName(null);
     }
-  }, [projectProgressReports, selectedProject, displayDate]);
+  }, [projectProgressReports, selectedProject, displayDate, selectedZone]);
 
   // Initialize expanded sections when dailyReportDetails changes
   useEffect(() => {
@@ -310,7 +333,7 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
               <Button
                 onClick={() => navigate(`${selectedProject}`)}
                 className="text-xs"
-                disabled={dailyReportDetails || reportType !== "Daily" || !selectedProject}
+                disabled={dailyReportDetails || reportType !== "Daily" || !selectedProject ||!selectedZone}
               >
                 {"Add Today's Report"}
               </Button>
@@ -319,7 +342,7 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
         )}
 
 
-        {selectedProject && (
+        {selectedProject  && (
           <div className="mx-0 px-0 pt-4">
             {/* Report Type and Show By Date section - as per image */}
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-4 p-4 shadow-sm border border-gray-300 rounded-md gap-3">
@@ -347,6 +370,32 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
               </div>
 
               {reportType === 'Daily' && ( // Only show date picker for Daily report type
+              <>
+                 {/* NEW: Zone Selector */}
+                    <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+                        <span className="font-semibold text-gray-700 whitespace-nowrap">Zone</span>
+                        <select
+                            value={selectedZone || ''}
+                            onChange={(e) => setSelectedZone(e.target.value)}
+                            className="pl-3 pr-10 py-2 border border-gray-300 rounded-md text-sm cursor-pointer w-full md:w-auto"
+                            defaultValue=""
+                            disabled={!projectData?.project_zones?.length}
+                        >
+                            {projectData?.project_zones?.length === 0 && (
+                                <option value="" disabled>No Zones defined</option>
+                            )}
+                            <option value="" disabled>No Zones defined</option>
+                            {projectData?.project_zones?.map((zone) => (
+                                <option key={zone.zone_name} value={zone.zone_name}>
+                                    {zone.zone_name}
+                                </option>
+                            ))}
+                        </select>
+                        {(!projectData?.project_zones || projectData.project_zones.length === 0) && (
+                            <div className="text-red-500 text-xs ml-2 whitespace-nowrap">Define Zones in Project Setup</div>
+                        )}
+                    </div>
+
                 <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
                   <span className="font-semibold text-gray-700 whitespace-nowrap">Report Date</span>
                   <div className="relative w-full md:w-auto">
@@ -358,6 +407,7 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
                     />
                   </div>
                 </div>
+              </>
               )}
             </div>
 
