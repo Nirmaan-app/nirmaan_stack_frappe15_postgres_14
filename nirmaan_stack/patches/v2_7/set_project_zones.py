@@ -4,7 +4,7 @@ def execute():
     """
     Main execution function for the patch.
     Adds default zones to projects and updates existing progress reports.
-    Ensures rollback on critical errr and collects skipped document names.
+    Ensures rollback on critical erorr and collects skipped document names.
     """
     try:
         print("Starting Patch Execution: Project Zone Initialization and Report Update.")
@@ -41,9 +41,9 @@ def add_default_zones_to_projects():
     skipped_names = []
 
     projects = frappe.get_all(
-        "Projects", fields=["name", "project_zones"],
+        "Projects", fields=["name"],
         filters={"enable_project_milestone_tracking":["=",1]},
-        order_by="modifield asc")
+        order_by="modified asc")
 
     total_fetched_count = len(projects) # <<< ADDED TOTAL FETCH COUNT
 
@@ -61,8 +61,9 @@ def add_default_zones_to_projects():
                 
                 # Save the parent document. This is MANDATORY for child tables.
                 # update_modified=False prevents modified date/user changes.
-                doc.flags.ignore_version = True
-                doc.save(ignore_permissions=True, update_modified=False)
+                doc.flags.ignore_permissions = True
+                doc.flags.ignore_version = True # Avoid creating new version for a data patch
+                doc.save()
                 
                 # print(f"Updated Project: {project.name} - Added 'Default' zone.")
                 updated_count += 1

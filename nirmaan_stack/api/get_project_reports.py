@@ -43,7 +43,7 @@ def _process_report_data(report_doc):
     return report_dict
 
 @frappe.whitelist()
-def get_project_progress_reports_comparison(project):
+def get_project_progress_reports_comparison(project,report_zone):
     """
     Get three reports for comparison:
     1. Current report (latest available)
@@ -53,7 +53,7 @@ def get_project_progress_reports_comparison(project):
     # Get all reports for the project, ordered by date descending
     reports = frappe.get_all(
         "Project Progress Reports",
-        filters={"project": project},
+        filters={"project": project,"report_zone": report_zone},
         fields=["name", "report_date"],
         order_by="report_date desc"
     )

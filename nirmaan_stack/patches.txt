@@ -59,4 +59,4 @@ nirmaan_stack.patches.v2_7.approval_date_for_project_payments #v7
 nirmaan_stack.patches.v2_5.populate_sr_total_amount
 nirmaan_stack.patches.v2_5.populate_amount_paid_for_sr_and_po #2
 
-nirmaan_stack.patches.v2_7.set_dafault_project_zones_reports
+nirmaan_stack.patches.v2_7.set_project_zones #6
