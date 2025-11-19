@@ -1555,7 +1555,7 @@
 
 // MilestoneTab.tsx
 import { useContext, useEffect, useRef, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate,useLocation } from "react-router-dom";
 import { UserContext } from "@/utils/auth/UserProvider";
 import {
   useFrappeGetDoc,
@@ -1690,6 +1690,7 @@ interface ProjectProgressReportData {
   milestones?: LocalMilestoneData[];
   photos?: ProjectProgressAttachment[];
   report_status?: 'Draft' | 'Completed';
+  report_zone?: string; // <-- NEW FIELD
   draft_owner?: string; // ADDED
   draft_last_updated?: string; // ADDED
 }
@@ -1702,6 +1703,7 @@ interface FrappeProjectProgressReportPayload {
   milestones?: FrappeMilestoneChildPayload[]; // Now uses the cleaned payload type
   attachments?: Omit<ProjectProgressAttachment, 'local_id'>[];
   report_status: 'Draft' | 'Completed';
+  report_zone?: string; // <-- NEW FIELD
   draft_owner?: string; // ADDED
   draft_last_updated?: string; // ADDED
 }
@@ -1774,13 +1776,26 @@ const MilestoneTabInner = () => {
   } = useFrappeGetDoc("Map API", {
     fields: ["*"],
   });
+  const location = useLocation(); // <-- NEW: Hook to get location object
 
+  // Function to get query parameters
+  const useQuery = () => {
+    return new URLSearchParams(location.search);
+  };
+  const query = useQuery();
+  const initialZone = query.get("zone"); // <-- NEW: Get the 'zone' parameter
+
+  // Use a state/variable for the current report's zone
+  // Since this is read-only for the MilestoneTab flow, a simple variable is fine
+  const reportZone = initialZone; // <-- NEW
+
+ const zoneKey = reportZone; // Use the zone in the key
   const [activeTabValue, setActiveTabValue] = useState("Work force");
   const [summaryWorkDate, setSummaryWorkDate] = useState<Date>(new Date());
 
   const [isCaptureDialogOpen, setIsCaptureDialogOpen] = useState(false);
   const [localPhotos, setLocalPhotos] = useState<ProjectProgressAttachment[]>([]);
-  const getPhotosStorageKey = (dateString: string) => `project_${projectId}_date_${dateString}_tab_Photos`;
+  const getPhotosStorageKey = (dateString: string) => `project_${projectId}_date_${dateString}_zone_${reportZone}_tab_Photos`;
 
 
   const {
@@ -1805,10 +1820,11 @@ const MilestoneTabInner = () => {
     isLoading: latestCompletedReportsListLoading,
     error: latestCompletedReportsListError,
   } = useFrappeGetDocList<{ name: string, project: string, report_date: string, report_status: 'Draft' | 'Completed' }>("Project Progress Reports", {
-    fields: ["name", "project", "report_date", "report_status"],
+    fields: ["name", "project", "report_date", "report_status",'report_zone'],
     filters: [
       ["project", "=", projectId],
-      ["report_status", "=", "Completed"]
+      ["report_status", "=", "Completed"],
+      ["report_zone","=",reportZone]
     ],
     orderBy: { field: "report_date", order: "desc" },
     limit: 1,
@@ -1816,6 +1832,7 @@ const MilestoneTabInner = () => {
   });
 
   const latestCompletedReportName = latestCompletedReportsList?.[0]?.name;
+  console.log("latestCompletedReportName",latestCompletedReportName)
 
   const todayFormatted = formatDate(new Date());
 
@@ -1848,11 +1865,12 @@ const latestCompletedReportDateIsToday =
     mutate: refetchExistingDraftReport,
   } = useFrappeGetDocList<ProjectProgressReportData>("Project Progress Reports", {
     // MODIFIED: Added `draft_owner` and `draft_last_updated`
-    fields: ["name", "report_date", "report_status", "manpower_remarks","draft_owner", "draft_last_updated"],
+    fields: ["name", "report_date", "report_status", "manpower_remarks","draft_owner", "draft_last_updated","report_zone"],
     filters: [
       ["project", "=", projectId],
       ["report_date", "=", formatDate(summaryWorkDate)],
-      ["report_status", "=", "Draft"]
+      ["report_status", "=", "Draft"],
+      ["report_zone",'=',reportZone]
     ],
     limit: 1,
     enabled: !!projectId && !!summaryWorkDate,
@@ -2030,13 +2048,14 @@ const [workPlanPoints, setWorkPlanPoints] = useState<string[]>([]); // Array of 
 
   const initializeTabStructureInLocalStorage = () => {
     const dateString = formatDate(summaryWorkDate);
+   
     const allTabs = getAllAvailableTabs();
     
     const existingDraftOwner = existingDraftReport?.[0]?.draft_owner || null;
     const existingDraftLastUpdated = existingDraftReport?.[0]?.draft_last_updated || null;
 
     allTabs.forEach(tab => {
-      const storageKey = `project_${projectId}_date_${dateString}_tab_${tab.project_work_header_name}`;
+      const storageKey = `project_${projectId}_date_${dateString}_zone_${zoneKey}_tab_${tab.project_work_header_name}`;
       const existingData = sessionStorage.getItem(storageKey);
       
       if (!existingData) {
@@ -2077,6 +2096,7 @@ const [workPlanPoints, setWorkPlanPoints] = useState<string[]>([]); // Array of 
             })),
             photos: [],
             report_status: 'Draft',
+            report_zone: reportZone,
             draft_owner: existingDraftOwner,
             draft_last_updated: existingDraftLastUpdated
           };
@@ -2108,7 +2128,8 @@ const [workPlanPoints, setWorkPlanPoints] = useState<string[]>([]); // Array of 
   const loadDailyReport = () => {
     setReportsLoading(true);
     const dateString = formatDate(summaryWorkDate);
-    const storageKey = `project_${projectId}_date_${dateString}_tab_${activeTabValue}`;
+    const zoneKey = reportZone; // Use the zone in the key
+    const storageKey = `project_${projectId}_date_${dateString}_zone_${zoneKey}_tab_${activeTabValue}`;
     const storedData = sessionStorage.getItem(storageKey);
 
     if (activeTabValue === "Photos") {
@@ -2159,6 +2180,7 @@ const [workPlanPoints, setWorkPlanPoints] = useState<string[]>([]); // Array of 
             milestones: activeTabValue !== "Work force" && activeTabValue !== "Photos" ? getInheritedMilestones(activeTabValue) : [],
             photos: [],
             report_status: 'Draft',
+            report_zone:reportZone,
             draft_owner: user || null,
             draft_last_updated: new Date()
           });
@@ -2436,7 +2458,7 @@ const [workPlanPoints, setWorkPlanPoints] = useState<string[]>([]); // Array of 
 
   const saveCurrentTabData = (milestoneData?: LocalMilestoneData[]) => {
     const dateString = formatDate(summaryWorkDate);
-    const storageKey = `project_${projectId}_date_${dateString}_tab_${activeTabValue}`;
+    const storageKey = `project_${projectId}_date_${dateString}_zone_${zoneKey}_tab_${activeTabValue}`;
 console.log(user)
     const currentDraftOwner = user || null;
     const currentTimestamp = new Date();
@@ -2457,6 +2479,7 @@ console.log(user)
         milestones: [],
         photos: [],
         report_status: 'Draft',
+        report_zone: reportZone,
         draft_owner: currentDraftOwner,
         draft_last_updated: currentTimestamp
       };
@@ -2473,6 +2496,7 @@ console.log(user)
         milestones: milestoneData || currentTabMilestones,
         photos: [],
         report_status: 'Draft',
+        report_zone: reportZone,
         draft_owner: currentDraftOwner,
         draft_last_updated: currentTimestamp
       };
@@ -2490,7 +2514,8 @@ console.log(user)
     let manpowerRemarks = "";
 
     allTabs.forEach(tab => {
-      const storageKey = `project_${projectId}_date_${dateString}_tab_${tab.project_work_header_name}`;
+
+      const storageKey = `project_${projectId}_date_${dateString}_zone_${zoneKey}_tab_${tab.project_work_header_name}`;
       const tabData = sessionStorage.getItem(storageKey);
       
       let parsedData: ProjectProgressReportData | Pick<ProjectProgressReportData, 'photos'> | null = null;
@@ -2553,6 +2578,8 @@ console.log(user)
       milestones: cleanedMilestones,
       attachments: cleanedAttachments,
       report_status: status,
+      report_zone: reportZone, // <-- NEW: Add the zone to the payload
+
     };
 
     if (status === 'Draft') {
@@ -2572,7 +2599,7 @@ console.log(user)
     const allTabs = getAllAvailableTabs();
     
     allTabs.forEach(tab => {
-      const storageKey = `project_${projectId}_date_${dateString}_tab_${tab.project_work_header_name}`;
+      const storageKey = `project_${projectId}_date_${dateString}_zone${zoneKey}_tab_${tab.project_work_header_name}`;
       sessionStorage.removeItem(storageKey);
     });
   };
@@ -2794,7 +2821,7 @@ console.log(user)
     }
 
      // --- NEW VALIDATION: Check if work_plan is required but empty ---
-    if (workPlanRatio === 'Plan Required' && workPlanPoints.every(p => p.trim() === '')) {
+    if ((newStatus != "Completed" || newStatus != "Not Started") && workPlanRatio === 'Plan Required' && workPlanPoints.every(p => p.trim() === '')) {
         toast({
             title: "Validation Error 🚫",
             description: "Work Plan is required for this ratio selection.",
@@ -3126,7 +3153,7 @@ console.log(user)
     <div className="flex flex-col">
       {/* Dynamic Step and Title */}
       <span className="text-base font-semibold text-gray-800">
-        Step {currentIndex + 1}/{allAvailableTabs.length}: {headerTitle}
+        Step {currentIndex + 1}/{allAvailableTabs.length}: {headerTitle} 
       </span>
       {/* Conditional subtitle for "Work force" tab */}
       {activeTabValue === "Work force" ? (
@@ -3138,7 +3165,9 @@ console.log(user)
           <span className="text-sm text-gray-600">Specify the Milestones details</span>
         )
       )}
-     
+      {reportZone && (
+        <span className="text-xs text-gray-600">Zone: {reportZone}</span>
+      )}
     </div>
     <div className="flex flex-col items-end">
       {/* Dynamic Report Date */}

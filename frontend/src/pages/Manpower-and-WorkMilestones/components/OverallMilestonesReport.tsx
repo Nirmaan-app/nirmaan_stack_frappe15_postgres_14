@@ -36,6 +36,7 @@ interface ReportDoc {
 interface OverallMilestonesReportProps {
   selectedProject: string;
   projectData?: any; // Added projectData prop
+  selectedZone: string;
 }
 
 // Helper function to get badge classes based on status
@@ -49,14 +50,14 @@ const getStatusBadgeClasses = (status: string) => {
   }
 };
 
-const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selectedProject, projectData }) => {
+const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selectedProject, projectData,selectedZone }) => {
   const {
     data: reportsData,
     isLoading: isReportsLoading,
     error: reportsError
   } = useFrappeGetCall(
     "nirmaan_stack.api.get_project_reports.get_project_progress_reports_comparison",
-    { project: selectedProject },
+    { project: selectedProject, report_zone: selectedZone },
     selectedProject ? undefined : null
   );
 
@@ -265,30 +266,39 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
       )}
 
       {/* Manpower Comparison Section */}
-      {/* <div className="mb-6">
+      <div className="mb-6">
         <div className="flex justify-between items-center mb-3">
           <h3 className="text-lg font-bold">Manpower Comparison</h3>
         </div>
         <div className="overflow-x-auto">
-          <Table className="w-full min-w-[600px]">
+          <Table className="w-full min-w-[600px] border border-gray-300">
             <TableHeader className="bg-gray-100">
               <TableRow>
-                <TableHead className="w-[25%] font-semibold text-gray-700 text-sm py-2">Manpower Type</TableHead>
-                <TableHead className="w-[25%] text-center font-semibold text-gray-700 text-sm py-2">Current</TableHead>
-                <TableHead className="w-[25%] text-center font-semibold text-gray-700 text-sm py-2">7 Days Ago</TableHead>
-                <TableHead className="w-[25%] text-center font-semibold text-gray-700 text-sm py-2">14 Days Ago</TableHead>
+                <TableHead className="w-[25%] font-semibold text-gray-700 text-sm py-2 border-r">Manpower Type</TableHead>
+                <TableHead className="w-[25%] text-center font-semibold text-gray-700 text-sm py-2 border-r"> <h3 className="font-semibold text-gray-700">Current</h3>
+                              <p className="text-sm text-gray-600 mt-1">
+                                {latestReport?.report_date ? formatDate(latestReport.report_date, { month: 'short', day: 'numeric' }) : '--'}
+                              </p></TableHead>
+                <TableHead className="w-[25%] text-center font-semibold text-gray-700 text-sm py-2 border-r"> <h3 className="font-semibold text-gray-700">7 Days Ago</h3>
+                              <p className="text-sm text-gray-600 mt-1">
+                                {report7DaysAgo?.report_date ? formatDate(report7DaysAgo.report_date, { month: 'short', day: 'numeric' }) : '--'}
+                              </p></TableHead>
+                <TableHead className="w-[25%] text-center font-semibold text-gray-700 text-sm py-2 border-r"><h3 className="font-semibold text-gray-700">14 Days Ago</h3>
+                              <p className="text-sm text-gray-600 mt-1">
+                                {report14DaysAgo?.report_date ? formatDate(report14DaysAgo.report_date, { month: 'short', day: 'numeric' }) : '--'}
+                              </p></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {Object.entries(groupedManpower).map(([label, counts], idx) => {
                 return (
                   <TableRow key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                    <TableCell className="py-3 px-4 text-sm font-medium">{label}</TableCell>
-                    <TableCell className="text-center py-3 px-2 text-sm font-semibold">{counts.current}</TableCell>
-                    <TableCell className="text-center py-3 px-2 text-sm">
+                    <TableCell className="py-3 px-4 text-sm font-medium border-r">{label}</TableCell>
+                    <TableCell className="text-center py-3 px-2 text-sm font-semibold border-r">{counts.current}</TableCell>
+                    <TableCell className="text-center py-3 px-2 text-sm border-r">
                       {report7DaysAgo ? counts.sevenDays : <span className="text-gray-400 text-xs">N/A</span>}
                     </TableCell>
-                    <TableCell className="text-center py-3 px-2 text-sm">
+                    <TableCell className="text-center py-3 px-2 text-sm border-r">
                       {report14DaysAgo ? counts.fourteenDays : <span className="text-gray-400 text-xs">N/A</span>}
                     </TableCell>
                   </TableRow>
@@ -297,7 +307,7 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
             </TableBody>
           </Table>
         </div>
-      </div> */}
+      </div>
 
       {/* Expand/Collapse All Button */}
       {latestReport.milestones && latestReport.milestones.length > 0 && (
@@ -504,17 +514,17 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
                     {/* Current Metrics */}
                     <TableHead className="w-[8%] text-center font-semibold text-gray-700 text-sm py-2">Status</TableHead>
                     <TableHead className="w-[10%] text-center font-semibold text-gray-700 text-sm py-2">Done %</TableHead>
-                    <TableHead className="w-[10%] text-center font-semibold text-gray-700 text-sm py-2">Remarks</TableHead>
+                    <TableHead className="w-[10%] text-center font-semibold text-gray-700 text-sm py-2 border-r">Remarks</TableHead>
                     
                     {/* -7 Days Metrics */}
                     <TableHead className="w-[8%] text-center font-semibold text-gray-700 text-sm py-2">Status</TableHead>
                     <TableHead className="w-[10%] text-center font-semibold text-gray-700 text-sm py-2">Done %</TableHead>
-                    <TableHead className="w-[10%] text-center font-semibold text-gray-700 text-sm py-2">Remarks</TableHead>
+                    <TableHead className="w-[10%] text-center font-semibold text-gray-700 text-sm py-2  border-r">Remarks</TableHead>
                     
                     {/* -14 Days Metrics */}
                     <TableHead className="w-[8%] text-center font-semibold text-gray-700 text-sm py-2">Status</TableHead>
                     <TableHead className="w-[10%] text-center font-semibold text-gray-700 text-sm py-2">Done %</TableHead>
-                    <TableHead className="w-[10%] text-center font-semibold text-gray-700 text-sm py-2">Remarks</TableHead>
+                    <TableHead className="w-[10%] text-center font-semibold text-gray-700 text-sm py-2  border-r">Remarks</TableHead>
                   </TableRow>
                 </TableHeader>
                 
@@ -543,9 +553,9 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
 
                     // Helper to render Remarks
                     const renderRemarksCell = (remarks: string) => (
-                        <TableCell className="text-center py-3 px-2 text-sm max-w-[150px] overflow-hidden">
+                        <TableCell className="text-center py-3 px-2 text-sm overflow-hidden  border-r">
                             {remarks ? (
-                                <p className="text-xs text-gray-700 break-words line-clamp-2" title={remarks}>
+                                <p className="text-[10px] text-gray-700 " title={remarks}>
                                     {remarks}
                                 </p>
                             ) : (
@@ -556,7 +566,7 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
                     
                     // Helper to render Progress
                     const renderProgressCell = (data: typeof currentData) => (
-                         <TableCell className="text-center py-3 px-2 text-sm font-medium">
+                         <TableCell className="text-center py-3 px-2 text-sm font-medium ">
                             <MilestoneProgress
                                 milestoneStatus={data.status}
                                 value={data.progress}
@@ -591,8 +601,8 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
                             <span className="text-gray-400 text-xs">N/A</span>
                           )}
                         </TableCell>
-                        {report7DaysAgo ? renderProgressCell(sevenDaysAgoData) : <TableCell className="text-center text-gray-400 text-xs">N/A</TableCell>}
-                        {report7DaysAgo ? renderRemarksCell(sevenDaysAgoData.remarks) : <TableCell className="text-center text-gray-400 text-xs">N/A</TableCell>}
+                        {report7DaysAgo ? renderProgressCell(sevenDaysAgoData) : <TableCell className="text-center text-gray-400 text-xs  ">N/A</TableCell>}
+                        {report7DaysAgo ? renderRemarksCell(sevenDaysAgoData.remarks) : <TableCell className="text-center text-gray-400 text-xs border-r">N/A</TableCell>}
 
 
                         {/* -14 DAYS AGO METRICS (Status, % Done, Remarks) */}
@@ -605,8 +615,8 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
                             <span className="text-gray-400 text-xs">N/A</span>
                           )}
                         </TableCell>
-                        {report14DaysAgo ? renderProgressCell(fourteenDaysAgoData) : <TableCell className="text-center text-gray-400 text-xs">N/A</TableCell>}
-                        {report14DaysAgo ? renderRemarksCell(fourteenDaysAgoData.remarks) : <TableCell className="text-center text-gray-400 text-xs">N/A</TableCell>}
+                        {report14DaysAgo ? renderProgressCell(fourteenDaysAgoData) : <TableCell className="text-center text-gray-400 text-xs  ">N/A</TableCell>}
+                        {report14DaysAgo ? renderRemarksCell(fourteenDaysAgoData.remarks) : <TableCell className="text-center text-gray-400 text-xs border-r">N/A</TableCell>}
 
                       </TableRow>
                     );
@@ -632,6 +642,7 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
           report7DaysAgo={report7DaysAgo}
           report14DaysAgo={report14DaysAgo}
           projectData={projectData}
+          selectedZone={selectedZone}
         />
       </div>
 
