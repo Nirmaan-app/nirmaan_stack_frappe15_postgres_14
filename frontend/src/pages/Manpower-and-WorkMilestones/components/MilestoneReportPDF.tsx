@@ -1,13 +1,16 @@
 import React, { useRef, useMemo, useState } from 'react';
 import { useReactToPrint } from 'react-to-print';
 import { formatDate } from '@/utils/FormatDate';
-import { MapPin, MessagesSquare } from 'lucide-react';
+import { MapPin, MessagesSquare, Eye, EyeOff } from 'lucide-react';
 import logo from "@/assets/logo-svg.svg";
 import { ProgressCircle } from '@/components/ui/ProgressCircle';
 import { MilestoneProgress } from '../MilestonesSummary';
 import { useFrappeGetDoc } from 'frappe-react-sdk';
 import { DELIMITER, parseWorkPlan, serializeWorkPlan } from '../MilestoneTab';
 import { PDFImageGrid } from '@/components/ui/PDFImageGrid';
+import { Button } from '@/components/ui/button'; // Ensure Button is imported
+import { Label } from '@/components/ui/label'; // Ensure Label is imported
+
 
 // --- Type Definitions (Assuming these are correct based on usage) ---
 interface MilestoneReportPDFProps {
@@ -16,7 +19,9 @@ interface MilestoneReportPDFProps {
 }
 
 // --- Component: ReportPageHeader (Repeats on every page) ---
-const ReportPageHeader = ({ projectData, dailyReportDetails }: any) => (
+const ReportPageHeader = ({ projectData, dailyReportDetails,showHeader }: any) =>{ 
+  if (!showHeader) return null;
+  return(
   <thead className="border-b border-black">
     <tr>
       <th colSpan={4}>
@@ -38,7 +43,7 @@ const ReportPageHeader = ({ projectData, dailyReportDetails }: any) => (
       </th>
     </tr>
   </thead>
-);
+)};
 
 // // --- Height Constants (Based on A4 page in print setup) ---
 // const PAGE_APPROX_HEIGHT_PX = 930; // Approximate height of the printable area on an A4 page
@@ -48,10 +53,11 @@ const ReportPageHeader = ({ projectData, dailyReportDetails }: any) => (
 
 
 
-const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReportPDFProps) => {
+const MilestoneReportPDF = ({ dailyReportDetails, projectData,selectedZone }: MilestoneReportPDFProps) => {
   const componentRef = useRef<HTMLDivElement>(null);
   const defaultFileName = `${projectData?.project_name || 'Project'}_${formatDate(dailyReportDetails?.report_date)}_MilestoneReport`;
   const [pdfFileName, setPdfFileName] = useState(defaultFileName);
+  const [showHeaderOnPrint, setShowHeaderOnPrint] = useState(true); // NEW STATE for toggle
 
   const handlePrint = useReactToPrint({
     content: () => componentRef.current,
@@ -129,36 +135,109 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
 
 
   // Group all non-"Not Applicable" milestones for the Work Progress section
-  const milestoneGroups = useMemo(() => { // Wrap the whole block in useMemo
-    if (!dailyReportDetails?.milestones) return {};
+  // const milestoneGroups = useMemo(() => { // Wrap the whole block in useMemo
+  //   if (!dailyReportDetails?.milestones) return {};
 
-    const grouped = dailyReportDetails.milestones
-      .filter((milestone: any) => milestone.status !== "Not Applicable")
-      .reduce((acc: any, milestone: any) => {
-        (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
-        return acc
-      }, {});
+  //   const grouped = dailyReportDetails.milestones
+  //     .filter((milestone: any) => milestone.status !== "Not Applicable")
+  //     .reduce((acc: any, milestone: any) => {
+  //       (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
+  //       return acc
+  //     }, {});
       
-    // --- SORTING ADDED HERE ---
-    return Object.entries(grouped)
-      .sort(([headerA], [headerB]) => headerA.localeCompare(headerB))
-      .reduce((acc, [header, milestones]) => {
-        acc[header] = milestones;
-        return acc;
-      }, {});
-    // --- END SORTING ---
+  //     // console.log("Milestone Groups for Work Progress:", grouped);
+  //   // --- SORTING ADDED HERE ---
+  //   return Object.entries(grouped)
+  //     .sort(([headerA], [headerB]) => headerA.localeCompare(headerB))
+  //     .reduce((acc, [header, milestones]) => {
+  //       acc[header] = milestones;
+  //       return acc;
+  //     }, {});
+  //   // --- END SORTING ---
 
-  }, [dailyReportDetails]); // Add dependency array
+  // }, [dailyReportDetails]); // Add dependency array
 
-  
+  // Define a type for the Grouped Milestones structure
+interface GroupedMilestoneData {
+  milestones: any[]; // The list of individual milestones (now with number progress)
+  averageProgress: number; // The calculated average progress for the group
+}
+
+// Group all non-"Not Applicable" milestones for the Work Progress section
+const milestoneGroups = useMemo(() => {
+  if (!dailyReportDetails?.milestones) return {};
+
+  // Step 1: Group and convert progress to number
+  const groupedMilestones = dailyReportDetails.milestones
+    .filter((milestone: any) => milestone.status !== "Not Applicable")
+    .reduce((acc: Record<string, any[]>, milestone: any) => {
+      
+      const milestoneWithNumberProgress = {
+        ...milestone,
+        progress: Number(milestone.progress) || 0,
+      };
+      
+      (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestoneWithNumberProgress);
+      return acc;
+    }, {});
+    
+  // Step 2: Calculate Average Progress and re-structure
+  const groupsWithAverage = Object.entries(groupedMilestones)
+    .map(([header, milestones]) => {
+      const totalProgressSum = milestones.reduce(
+        (sum, m) => sum + m.progress, 
+        0
+      );
+      const milestoneCount = milestones.length;
+      
+      const averageProgress = milestoneCount > 0 
+        ? Math.round(totalProgressSum / milestoneCount) // Use Math.round for clean percentage
+        : 0;
+
+      return [header, {
+        milestones: milestones,
+        averageProgress: averageProgress
+      }] as [string, GroupedMilestoneData];
+    });
+
+  // Step 3: Sort and return the final structure
+  return groupsWithAverage
+    .sort(([headerA], [headerB]) => headerA.localeCompare(headerB))
+    .reduce((acc: Record<string, GroupedMilestoneData>, [header, data]) => {
+      acc[header] = data;
+      return acc;
+    }, {});
+
+}, [dailyReportDetails]); // Dependency array
   return (
     <>
+     <div className="flex items-center space-x-4"> 
+       <div className="flex items-center space-x-2">
+            <Label htmlFor="pdf-header-switch" className="text-sm font-medium flex items-center space-x-1 cursor-pointer">
+                <span className="sm:inline">PDF Header</span>
+            </Label>
+            {/* Using a custom button/toggle */}
+            <Button
+                variant="outline"
+                size="sm"
+                className="p-1 h-auto"
+                onClick={() => setShowHeaderOnPrint(prev => !prev)}
+            >
+                {/* Visual indicator for the toggle */}
+                {showHeaderOnPrint ? 
+                    <Eye className="w-4 h-4 text-green-600" title="Header is Visible" /> 
+                    : 
+                    <EyeOff className="w-4 h-4 text-red-600" title="Header is Hidden" />
+                }
+            </Button>
+        </div>
       <button onClick={handlePrint} className="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-6 rounded-lg text-lg flex items-center justify-end-safe gap-2">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
           <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
         </svg>
         Download PDF
       </button>
+    </div>
 
       {/* Hidden container for print content */}
       <div style={{ position: "absolute", top: "-9999px", left: "-9999px" }}>
@@ -168,15 +247,15 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
           <div className="page">
             <div className="overflow-x-auto p-4">
               <table className="min-w-full divide-gray-200">
-                <ReportPageHeader projectData={projectData} dailyReportDetails={dailyReportDetails} />
+                <ReportPageHeader projectData={projectData} dailyReportDetails={dailyReportDetails} showHeader={showHeaderOnPrint} />
                 <tbody className="bg-white">
                   {/* Project Details */}
                   <tr className="border-black">
                     <td colSpan={4} className="">
                       <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-md mt-4">
                         <div className="flex justify-between items-center">
-                          <span className="font-semibold">Project :</span>
-                          <span className="text-right">{projectData?.project_name || "--"}</span>
+                          <span className="font-semibold">Project {`${selectedZone ? "+ Zone" : ""}`}:</span>
+                          <span className="text-right">{projectData?.project_name || "--"}{`${selectedZone ?  ` (${selectedZone})` : ""}`}</span>
                         </div>
                         <div className="flex justify-between items-center">
                           <span className="font-semibold">Project Manager :</span>
@@ -237,6 +316,7 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
     <ReportPageHeader
       projectData={projectData}
       dailyReportDetails={dailyReportDetails}
+     showHeader={showHeaderOnPrint}
     />
 
     <div className="overflow-x-auto">
@@ -311,6 +391,7 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
     <ReportPageHeader
       projectData={projectData}
       dailyReportDetails={dailyReportDetails}
+      showHeader={showHeaderOnPrint}
     />
 
     <div className="overflow-x-auto">
@@ -319,13 +400,30 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
       </h3>
 
       {Object.entries(milestoneGroups).map(
-        ([header, milestones]: [string, any[]], groupIdx: number) => (
+        ([header, data]: [string, { milestones: any[], averageProgress: number }], groupIdx: number) => (
           <div key={groupIdx} className="mb-6 ">
             {/* Group Header */}
-            <div className="mb-4 p-3 bg-gray-100 rounded-lg border-l-4 border-red-600">
-              <h4 className="text-md font-bold">
-                {header} ({milestones.length})
+            <div className=" flex justify-between items-center mb-4 p-3 bg-gray-100 rounded-lg border-l-4 border-red-600">
+              <h4 className="text-md font-bold mx-5">
+                {header} ({data?.milestones.length})
+                {/* --- START CHANGE 2: Displaying Average Progress --- */}
+                      
+                {/* <span className="text-base font-extrabold text-green-700">
+                   {data.averageProgress}% 
+                </span> */}
+                {/* --- END CHANGE 2 --- */}
               </h4>
+
+              <div className="flex items-center">
+                <span className="mr-4 font-semibold">Overall Progress:</span>
+                <MilestoneProgress
+                  milestoneStatus={"Completed"}
+                  value={data.averageProgress}
+                  sizeClassName="size-[40px]"
+                  textSizeClassName="text-sm"
+                />
+              </div>
+                     
             </div>
 
             {/* Milestone Progress Table */}
@@ -348,7 +446,7 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
               </thead>
 
               <tbody>
-                {milestones.map((milestone: any, idx: number) => (
+                {data.milestones.map((milestone: any, idx: number) => (
                   <tr key={idx} className="avoid-page-break-inside">
                     <td className="border text-center p-2 align-center ">
                       {milestone.work_milestone_name}
@@ -422,7 +520,7 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData }: MilestoneReport
             <div className="page page-break-before">
               <div className="p-4">
                 <table className="min-w-full divide-gray-200">
-                  <ReportPageHeader projectData={projectData} dailyReportDetails={dailyReportDetails} />
+                  <ReportPageHeader projectData={projectData} dailyReportDetails={dailyReportDetails} showHeader={showHeaderOnPrint}/>
                   <tbody className="min-full bg-white">
                     <tr>
                       <td colSpan={4}>

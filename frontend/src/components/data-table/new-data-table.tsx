@@ -72,6 +72,7 @@ export interface DataTableProps<T> {
   headerClassName?: string;
   stickyHeaderClassName?: string;
   stickyColumnClassName?: string;
+  tableHeight?: string;
 }
 
 /* ---------- component --------------------------------------------------- */
@@ -93,6 +94,7 @@ export function DataTable<T>({
   headerClassName = "bg-red-50",
   stickyHeaderClassName = "bg-red-50",
   stickyColumnClassName = "bg-background",
+  tableHeight="70vh",
 }: DataTableProps<T>) {
 
   /* ───────── helpers ───────── */
@@ -203,7 +205,7 @@ export function DataTable<T>({
 
       {/* ───── Table container ───── */}
       <div ref={parentRef}
-        className="rounded-md border overflow-x-auto max-h-[70vh] overflow-y-auto relative">
+        className={`rounded-md border overflow-x-auto max-h-[${tableHeight}] overflow-y-auto relative`}>
         {/* Setting position relative for proper stacking context */}
 
         <Table className="min-w-full table-fixed">

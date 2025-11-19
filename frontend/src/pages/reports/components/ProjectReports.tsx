@@ -10,11 +10,14 @@ import {
     PROJECT_REPORTS_SEARCHABLE_FIELDS,
     PROJECT_REPORTS_DATE_COLUMNS,
 } from "../config/projectReportsTable.config"; // Make sure this file exists and is correct
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"; 
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { toast } from "@/components/ui/use-toast"; // For custom export
 import { exportToCsv } from "@/utils/exportToCsv"; // For custom export
 import { parseNumber } from "@/utils/parseNumber"; // For custom export credit calc
 import { formatDate } from "@/utils/FormatDate";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+
 
 import { InflowReportTable } from './InflowReportTable';
 import { OutflowReportTable } from './outflowReportTable';
@@ -25,6 +28,7 @@ import { StandaloneDateFilter } from "@/components/ui/StandaloneDateFilter";
 import { urlStateManager } from "@/utils/urlStateManager"; // <--- NEW IMPORT
 import { parse, formatISO, startOfDay, format } from 'date-fns'; // <--- NEW IMPORT
 import { DateRange } from "react-day-picker"; // <--- NEW IMPORT
+
 
 // Define base fields for Projects doctype fetch
 const projectBaseFields: (keyof Projects)[] = [
@@ -80,6 +84,10 @@ function CashSheetReport() {
         urlStateManager.updateParam(`${URL_SYNC_KEY}_to`, toISO);
     }, [dateRange]);
 
+    const fromISO = dateRange?.from ? formatISO(dateRange.from, { representation: 'date' }) : undefined;
+const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }) : undefined;
+
+
     const {
         table,
         data: projectsData,
@@ -95,8 +103,76 @@ function CashSheetReport() {
         searchableFields: PROJECT_REPORTS_SEARCHABLE_FIELDS,
         urlSyncKey: "project_reports_cash_sheet_table",
         defaultSort: 'creation desc',
-        meta: { getProjectCalculatedFields, isLoadingGlobalDeps }
+        meta: { getProjectCalculatedFields, isLoadingGlobalDeps, dateRange: { 
+            from: fromISO, 
+            to: toISO 
+        }  }
     });
+
+    const financialSummary = useMemo(() => {
+        const rowsToSum = table.getFilteredRowModel().rows; 
+
+        return rowsToSum.reduce((acc, row) => {
+            const calculated = getProjectCalculatedFields(row.original.name);
+            if (calculated) {
+               
+                // ACCUMULATE ALL FIELDS
+                acc.projectValue += parseNumber(row.original.project_value); // From the Project Doc
+                acc.totalInvoiced += parseNumber(calculated.totalInvoiced); // Total PO+SR Value
+                acc.totalPoSrInvoiced += parseNumber(calculated.totalPoSrInvoiced); 
+                acc.totalProjectInvoiced += parseNumber(calculated.totalProjectInvoiced);
+                acc.totalInflow += parseNumber(calculated.totalInflow);
+                acc.totalOutflow += parseNumber(calculated.totalOutflow);
+                acc.totalPurchaseOverCredit += parseNumber(calculated.TotalPurchaseOverCredit); // Added from your columns
+                acc.creditPaidAmount += parseNumber(calculated.CreditPaidAmount); // Added from your =
+            }
+            return acc;
+        }, {
+            // INITIAL ACCUMULATOR STATE
+            projectValue: 0,
+            totalInvoiced: 0,
+            totalPoSrInvoiced: 0,
+            totalProjectInvoiced: 0,
+            totalInflow: 0,
+            totalOutflow: 0,
+            totalCredit: 0,
+            totalPurchaseOverCredit: 0,
+            creditPaidAmount: 0,
+        });
+    }, [table.getFilteredRowModel().rows, getProjectCalculatedFields]); 
+    // -------------------------------------------------------------
+
+    // // Helper function to format the total amount to Indian Rupee Lakhs for display
+    // const formatTotalToLakhsDisplay = (total: number): string => {
+    //     return formatToRoundedIndianRupee(total / 100000) + ' L';
+    // };
+
+        // Helper to display current filter status
+    const getCurrentFilterStatus = () => {
+        const activeFilters = table.getState().columnFilters.length;
+        const searchTerm = table.getState().globalFilter;
+
+        if (activeFilters === 0 && !searchTerm) {
+             return "Showing overall summary for selected date range.";
+        }
+
+        const projectFilter = table.getState().columnFilters.find(f => f.id === 'project_name');
+        
+        let filterText = '';
+        if (projectFilter) {
+            filterText = `Filtered by: Project(s).`;
+        } else if (activeFilters > 0) {
+            filterText = `Filtered by ${activeFilters} column(s).`;
+        }
+
+        if (searchTerm) {
+            filterText += (filterText ? ' And ' : 'Filtered by: ') + `Search term: "${searchTerm}".`;
+        }
+
+        return filterText || "Filtered data summary.";
+    }
+
+
 
     const exportFileName = "projects_report_Cash_Sheet";
 
@@ -169,6 +245,7 @@ function CashSheetReport() {
                 onChange={setDateRange}
                 onClear={handleClearDateFilter}
             />
+ 
         <DataTable<Projects>
             table={table}
             columns={tableColumns}
@@ -185,10 +262,239 @@ function CashSheetReport() {
             onExport={handleCustomExport}
             exportFileName={exportFileName}
             showRowSelection={false}
+            tableHeight="40vh"
+            // summaryCard={
+            //         <Card className="mb-4">
+            //             <CardHeader className="p-4">
+            //                 <CardTitle className="text-lg">Financial Summary</CardTitle>
+            //                 <CardDescription>{getCurrentFilterStatus()}</CardDescription>
+            //             </CardHeader>
+            //             <CardContent className="p-4 pt-0">
+            //                 <dl className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                
+            //                     {/* 1. Project Value (excl. GST) - Neutral */}
+            //                     <div className="flex justify-between sm:flex-col border-b sm:border-b-0 pb-2 sm:pb-0">
+            //                         <dt className="font-semibold text-gray-600 text-sm">Project Value (excl. GST)</dt>
+            //                         <dd className="sm:text-left font-bold text-base tabular-nums text-gray-700">
+            //                             {formatToRoundedIndianRupee(financialSummary.projectValue)}
+            //                         </dd>
+            //                     </div>
+
+            //                     {/* 2. Total Client Invoiced - Income/Revenue (Blue) */}
+            //                     <div className="flex justify-between sm:flex-col border-b sm:border-b-0 pb-2 sm:pb-0">
+            //                         <dt className="font-semibold text-gray-600 text-sm">Client Invoiced (incl. GST)</dt>
+            //                         <dd className="sm:text-left font-bold text-base tabular-nums text-blue-700">
+            //                             {formatToRoundedIndianRupee(financialSummary.totalProjectInvoiced)}
+            //                         </dd>
+            //                     </div>
+                                
+            //                     {/* 3. Total Inflow - Actual Cash In (Green) */}
+            //                     <div className="flex justify-between sm:flex-col border-b sm:border-b-0 pb-2 sm:pb-0">
+            //                         <dt className="font-semibold text-gray-600 text-sm">Total Inflow</dt>
+            //                         <dd className="sm:text-left font-bold text-base tabular-nums text-green-700">
+            //                             {formatToRoundedIndianRupee(financialSummary.totalInflow)}
+            //                         </dd>
+            //                     </div>
+                                
+            //                     {/* 4. Total Outflow - Actual Cash Out (Red) */}
+            //                     <div className="flex justify-between sm:flex-col border-b sm:border-b-0 pb-2 sm:pb-0">
+            //                         <dt className="font-semibold text-gray-600 text-sm">Total Outflow</dt>
+            //                         <dd className="sm:text-left font-bold text-base tabular-nums text-red-700">
+            //                             {formatToRoundedIndianRupee(financialSummary.totalOutflow)}
+            //                         </dd>
+            //                     </div>
+
+            //                     {/* 7. Total Credit Outstanding (Client Invoiced - Inflow) - Balance/Due (Purple/Indigo)
+            //                     <div className="flex justify-between sm:flex-col border-b sm:border-b-0 pb-2 sm:pb-0">
+            //                         <dt className="font-semibold text-gray-600 text-sm">Credit Outstanding</dt>
+            //                         <dd className="sm:text-left font-bold text-base tabular-nums text-indigo-700">
+            //                             {formatToRoundedIndianRupee(financialSummary.totalCredit)}
+            //                         </dd>
+            //                     </div> */}
+
+            //                     {/* 5. Total PO+SR Value (Vendor Invoiced) - Vendor Liability (Gray/Neutral) */}
+            //                     <div className="flex justify-between sm:flex-col border-b sm:border-b-0 pb-2 sm:pb-0">
+            //                         <dt className="font-semibold text-gray-600 text-sm">Total PO+SR Value (incl. GST)</dt>
+            //                         <dd className="sm:text-left font-bold text-base tabular-nums text-gray-700">
+            //                             {formatToRoundedIndianRupee(financialSummary.totalInvoiced)}
+            //                         </dd>
+            //                     </div>
+
+            //                     {/* 6. Total PO+SR Invoiced - Vendor Liability (Gray/Neutral) */}
+            //                     <div className="flex justify-between sm:flex-col border-b sm:border-b-0 pb-2 sm:pb-0">
+            //                         <dt className="font-semibold text-gray-600 text-sm">Total PO+SR Invoiced (incl. GST)</dt>
+            //                         <dd className="sm:text-left font-bold text-base tabular-nums text-gray-700">
+            //                             {formatToRoundedIndianRupee(financialSummary.totalPoSrInvoiced)}
+            //                         </dd>
+            //                     </div>
+
+
+            //                     {/* 8. Total Purchase Over Credit (New Credit Col 1) - Neutral/Detail */}
+            //                     <div className="flex justify-between sm:flex-col border-b sm:border-b-0 pb-2 sm:pb-0">
+            //                         <dt className="font-semibold text-gray-600 text-sm">Total Purchase Over Credit</dt>
+            //                         <dd className="sm:text-left font-bold text-base tabular-nums text-gray-700">
+            //                             {formatToRoundedIndianRupee(financialSummary.totalPurchaseOverCredit)}
+            //                         </dd>
+            //                     </div>
+
+            //                     {/* 9. Total Credit Paid Amount (New Credit Col 2) - Neutral/Detail */}
+            //                     <div className="flex justify-between sm:flex-col">
+            //                         <dt className="font-semibold text-gray-600 text-sm">Total Credit Amount Paid</dt>
+            //                         <dd className="sm:text-left font-bold text-base tabular-nums text-gray-700">
+            //                             {formatToRoundedIndianRupee(financialSummary.creditPaidAmount)}
+            //                         </dd>
+            //                     </div>
+
+            //                 </dl>
+            //             </CardContent>
+            //         </Card>
+            //     }
+                                    summaryCard={
+                    <Card className="mb-4">
+                        <CardHeader className="p-4">
+                            <CardTitle className="text-lg">Financial Summary</CardTitle>
+                            <CardDescription>{getCurrentFilterStatus()}</CardDescription>
+                        </CardHeader>
+                        <CardContent className="p-4 pt-0">
+                            {/* --- Grid Layout with correct responsive columns --- */}
+                            <dl className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-8 gap-4">
+                                
+                               
+                                {/* 2. Total Client Invoiced - Income/Revenue (Blue) */}
+                                <div className="flex justify-between sm:flex-col
+                                    border-r border-gray-200
+                                    pr-4
+                                    sm:pb-0
+                                    sm:border-b-0
+                                ">
+                                    <dt className="font-semibold text-gray-600 text-xs">
+                                        Client Invoiced (incl. GST)
+                                    </dt>
+                                    <dd className="sm:text-left font-bold text-base sm:text-sm tabular-nums text-blue-700">
+                                        {formatValueToLakhsString(financialSummary.totalProjectInvoiced)}
+                                    </dd>
+                                </div>
+                                
+                                {/* 3. Total Inflow - Actual Cash In (Green) */}
+                                <div className="flex justify-between sm:flex-col
+                                    border-r border-gray-200
+                                    pr-4
+                                    sm:pb-0
+                                    sm:border-b-0
+                                ">
+                                    <dt className="font-semibold text-gray-600 text-xs">
+                                        Total Inflow
+                                    </dt>
+                                    <dd className="sm:text-left font-bold text-base sm:text-sm tabular-nums text-green-700">
+                                        {formatValueToLakhsString(financialSummary.totalInflow)}
+                                    </dd>
+                                </div>
+                                
+                                {/* 4. Total Outflow - Actual Cash Out (Red) */}
+                                <div className="flex justify-between sm:flex-col
+                                    border-r border-gray-200
+                                    pr-4
+                                    sm:pb-0
+                                    sm:border-b-0
+                                ">
+                                    <dt className="font-semibold text-gray-600 text-xs">
+                                        Total Outflow
+                                    </dt>
+                                    <dd className="sm:text-left font-bold text-base sm:text-sm tabular-nums text-red-700">
+                                        {formatValueToLakhsString(financialSummary.totalOutflow)}
+                                    </dd>
+                                </div>
+
+                                {/* 5. Total PO+SR Value (Vendor Invoiced) - Vendor Liability (Gray/Neutral) */}
+                                <div className="flex justify-between sm:flex-col
+                                    border-r border-gray-200
+                                    pr-4
+                                    sm:pb-0
+                                    sm:border-b-0
+                                ">
+                                    <dt className="font-semibold text-gray-600 text-xs">
+                                        Total PO+SR Value (incl. GST)
+                                    </dt>
+                                    <dd className="sm:text-left font-bold text-base sm:text-sm tabular-nums text-gray-700">
+                                        {formatValueToLakhsString(financialSummary.totalInvoiced)}
+                                    </dd>
+                                </div>
+
+                                {/* 6. Total PO+SR Invoiced - Vendor Liability (Gray/Neutral) */}
+                                <div className="flex justify-between sm:flex-col
+                                    border-r border-gray-200
+                                    pr-4
+                                    sm:pb-0
+                                    sm:border-b-0
+                                ">
+                                    <dt className="font-semibold text-gray-600 text-xs">
+                                        Total PO+SR Invoiced (incl. GST)
+                                    </dt>
+                                    <dd className="sm:text-left font-bold text-base sm:text-sm tabular-nums text-gray-700">
+                                        {formatValueToLakhsString(financialSummary.totalPoSrInvoiced)}
+                                    </dd>
+                                </div>
+
+                                 {/* 1. Project Value (excl. GST) - Neutral */}
+                                <div className="flex justify-between sm:flex-col
+                                    border-r border-gray-200
+                                    md:pr-0
+                                    sm:pb-0
+                                    pr-4
+                                ">
+                                    <dt className="font-semibold text-gray-600 text-xs">
+                                        Project Value (excl. GST)
+                                    </dt>
+                                    <dd className="sm:text-left font-bold text-base sm:text-sm tabular-nums text-gray-700">
+                                        {formatValueToLakhsString(financialSummary.projectValue)}
+                                    </dd>
+                                </div>
+
+
+
+                                {/* 8. Total Purchase Over Credit (New Credit Col 1) - Detail (Orange/Warning) */}
+                                <div className="flex justify-between sm:flex-col
+                                    border-r border-gray-200
+                                    pr-4
+                                    sm:pb-0
+                                    sm:border-b-0
+                                ">
+                                    <dt className="font-semibold text-gray-600 text-xs">
+                                        Total Purchase Over Credit
+                                    </dt>
+                                    <dd className="sm:text-left font-bold text-base sm:text-sm tabular-nums text-orange-700">
+                                        {formatValueToLakhsString(financialSummary.totalPurchaseOverCredit)}
+                                    </dd>
+                                </div>
+
+                                {/* 9. Total Credit Paid Amount (New Credit Col 2) - Detail (Teal/Neutral) */}
+                                <div className="flex justify-between sm:flex-col
+                                    border-r border-gray-200
+                                    pr-4
+                                    sm:pb-0
+                                    sm:border-b-0
+                                ">
+                                    <dt className="font-semibold text-gray-600 text-xs">
+                                        Total Credit Amount Paid
+                                    </dt>
+                                    <dd className="sm:text-left font-bold text-base sm:text-sm tabular-nums text-teal-700">
+                                        {formatValueToLakhsString(financialSummary.creditPaidAmount)}
+                                    </dd>
+                                </div>
+
+                            </dl>
+                        </CardContent>
+                    </Card>
+                }
+
+
+            
         />
+        
         </>
     );
 }
+
 
 export default function ProjectReports() {
     const selectedReportType = useReportStore((state) => state.selectedReportType as ReportType);

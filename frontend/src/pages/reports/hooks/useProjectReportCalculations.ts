@@ -103,23 +103,19 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
             limit: 0,
         }, 'AllProjectExpensesForReports');
 
-    // --- Pre-process and Group Data (Memoized) ---
-    // const posByProject = useMemo(() => {
-    //     return purchaseOrders?.reduce((acc, po) => {
-    //         if (po.project) {
-    //             (acc.get(po.project) || acc.set(po.project, []).get(po.project))!.push(po);
-    //         }
-    //         return acc;
-    //     }, new Map<string, ProcurementOrder[]>()) ?? new Map();
-    // }, [purchaseOrders]);
+    // --- KEY CHANGE: Calculate once in the hook scope ---
+    const shouldFilterByDate = useMemo(() => startDate && endDate, [startDate, endDate]);
+    // ---------------------------------------------------
 
     const posByProject = useMemo(() => {
-        const filteredPOs = purchaseOrders?.filter(po => {
-            // Apply filter only to creation date
-            return isDateInPeriod(po.creation, startDate, endDate);
-        }) || [];
+        if (!purchaseOrders) return new Map();
+       const docsToProcess = shouldFilterByDate ? purchaseOrders.filter(po => {
+                // Only filter if we have a valid range
+                return isDateInPeriod(po.creation, startDate, endDate);
+            })
+            : purchaseOrders; // If no dates, use the full list
 
-        return filteredPOs.reduce((acc, po) => {
+        return docsToProcess.reduce((acc, po) => {
             if (po.project) {
                 (acc.get(po.project) || acc.set(po.project, []).get(po.project))!.push(po);
             }
@@ -128,152 +124,106 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
     }, [purchaseOrders, startDate, endDate]); // <--- NEW DEPENDENCIES
 
 
-    // const srsByProject = useMemo(() => {
-    //     return serviceRequests?.reduce((acc, sr) => {
-    //         if (sr.project) {
-    //             (acc.get(sr.project) || acc.set(sr.project, []).get(sr.project))!.push(sr);
-    //         }
-    //         return acc;
-    //     }, new Map<string, ServiceRequests[]>()) ?? new Map();
-    // }, [serviceRequests]);
+    
 
-
+     // --- 2. Conditional Filtering: srsByProject ---
     const srsByProject = useMemo(() => {
-        const filteredSRs = serviceRequests?.filter(sr => {
-            // Apply filter only to creation date
-            return isDateInPeriod(sr.creation, startDate, endDate);
-        }) || [];
+        if (!serviceRequests) return new Map();
+
+        const docsToProcess = shouldFilterByDate
+            ? serviceRequests.filter(sr => {
+                return isDateInPeriod(sr.creation, startDate, endDate);
+            })
+            : serviceRequests; // If no dates, use the full list
         
-        return filteredSRs.reduce((acc, sr) => {
+        return docsToProcess.reduce((acc, sr) => {
             if (sr.project) {
                 (acc.get(sr.project) || acc.set(sr.project, []).get(sr.project))!.push(sr);
             }
             return acc;
         }, new Map<string, ServiceRequests[]>());
-    }, [serviceRequests, startDate, endDate]); // <--- NEW DEPENDENCIES
+    }, [serviceRequests, startDate, endDate, shouldFilterByDate]);
+   
 
-    // const totalInflowByProject = useMemo(() => {
-    //     return inflowsData?.reduce((acc, inflow) => {
-    //         if (inflow.project) {
-    //             acc.set(inflow.project, (acc.get(inflow.project) || 0) + parseNumber(inflow.amount));
-    //         }
-    //         return acc;
-    //     }, new Map<string, number>()) ?? new Map();
-    // }, [inflowsData]);
+     // --- 3. Conditional Filtering: totalInflowByProject ---
+    const totalInflowByProject = useMemo(() => {
+         if (!inflowsData) return new Map();
 
-      const totalInflowByProject = useMemo(() => {
-         const filteredInflows = inflowsData?.filter(inflow => {
-            // Inflows typically only have 'creation'
-            return isDateInPeriod(inflow.payment_date, startDate, endDate); 
-        }) || [];
+         const docsToProcess = shouldFilterByDate
+            ? inflowsData.filter(inflow => {
+                return isDateInPeriod(inflow.payment_date, startDate, endDate); 
+            })
+            : inflowsData; // If no dates, use the full list
         
-        return filteredInflows.reduce((acc, inflow) => {
+        return docsToProcess.reduce((acc, inflow) => {
             if (inflow.project) {
                 acc.set(inflow.project, (acc.get(inflow.project) || 0) + parseNumber(inflow.amount));
             }
             return acc;
-        }, new Map<string, number>()) ?? new Map();
-    }, [inflowsData, startDate, endDate]); // <--- NEW DEPENDENCIES
+        }, new Map<string, number>());
+    }, [inflowsData, startDate, endDate, shouldFilterByDate]); 
 
-
-    // const totalProjectInvoiceByProject = useMemo(() => {
-    //     return projectInvoiceData?.reduce((acc, inv) => {
-    //         if (inv.project) {
-    //             acc.set(inv.project, (acc.get(inv.project) || 0) + parseNumber(inv.amount));
-    //         }
-    //         return acc;
-    //     }, new Map<string, number>()) ?? new Map();
-    // }, [projectInvoiceData]);
-
+     // --- 4. Conditional Filtering: totalProjectInvoiceByProject ---
      const totalProjectInvoiceByProject = useMemo(() => {
-        const filteredInvoices = projectInvoiceData?.filter(inv => {
-            // Project Invoices should be filtered by 'creation' or a specific 'invoice_date' field if present
-            return isDateInPeriod(inv.invoice_date, startDate, endDate); 
-        }) || [];
+        if (!projectInvoiceData) return new Map();
+
+        const docsToProcess = shouldFilterByDate
+            ? projectInvoiceData.filter(inv => {
+                // Project Invoices should be filtered by 'invoice_date'
+                return isDateInPeriod(inv.invoice_date, startDate, endDate); 
+            })
+            : projectInvoiceData; // If no dates, use the full list
         
-        return filteredInvoices.reduce((acc, inv) => {
+        return docsToProcess.reduce((acc, inv) => {
             if (inv.project) {
                 acc.set(inv.project, (acc.get(inv.project) || 0) + parseNumber(inv.amount));
             }
             return acc;
-        }, new Map<string, number>()) ?? new Map();
-    }, [projectInvoiceData, startDate, endDate]); // <--- NEW DEPENDENCIES
+        }, new Map<string, number>());
+    }, [projectInvoiceData, startDate, endDate, shouldFilterByDate]); // <--- UPDATED DEPENDENCIES
 
 
-    // const totalOutflowByProject = useMemo(() => {
-    //     return paymentsData?.reduce((acc, payment) => {
-    //         if (payment.project) {
-    //             acc.set(payment.project, (acc.get(payment.project) || 0) + parseNumber(payment.amount));
-    //         }
-    //         return acc;
-    //     }, new Map<string, number>()) ?? new Map();
-    // }, [paymentsData]);
 
-    // --- (Indicator) NEW: Create a map for Project Expenses totals ---
-    
+    // --- 5. Conditional Filtering: totalOutflowByProject (Project Payments) ---
      const totalOutflowByProject = useMemo(() => {
-        const filteredPayments = paymentsData?.filter(payment => {
-            // Payments should be filtered by 'payment_date' or 'creation'
-            return isDateInPeriod(payment.payment_date, startDate, endDate); 
-        }) || [];
+        if (!paymentsData) return new Map();
 
-        return filteredPayments.reduce((acc, payment) => {
+        const docsToProcess = shouldFilterByDate
+            ? paymentsData.filter(payment => {
+                // Payments should be filtered by 'payment_date'
+                return isDateInPeriod(payment.payment_date, startDate, endDate); 
+            })
+            : paymentsData; // If no dates, use the full list
+
+        return docsToProcess.reduce((acc, payment) => {
             if (payment.project) {
                 acc.set(payment.project, (acc.get(payment.project) || 0) + parseNumber(payment.amount));
             }
             return acc;
-        }, new Map<string, number>()) ?? new Map();
-    }, [paymentsData, startDate, endDate]); // <--- NEW DEPENDENCIES
+        }, new Map<string, number>());
+    }, [paymentsData, startDate, endDate, shouldFilterByDate]); // <--- UPDATED DEPENDENCIES
 
-    // const totalProjectExpensesByProject = useMemo(() => {
-    //     return projectExpensesData?.reduce((acc, expense) => {
-    //         if (expense.projects) { // The link field in the doctype is 'projects'
-    //             acc.set(expense.projects, (acc.get(expense.projects) || 0) + parseNumber(expense.amount));
-    //         }
-    //         return acc;
-    //     }, new Map<string, number>()) ?? new Map();
-    // }, [projectExpensesData]);
+    // --- 6. Conditional Filtering: totalProjectExpensesByProject ---
+    const totalProjectExpensesByProject = useMemo(() => {
+        if (!projectExpensesData) return new Map();
 
-    // --- (Indicator) NEW MEMOIZED MAP: Calculate total invoiced amount from POs and SRs ---
-    
-        const totalProjectExpensesByProject = useMemo(() => {
-        const filteredExpenses = projectExpensesData?.filter(expense => {
-            // Project Expenses should be filtered by 'creation'
-            return isDateInPeriod(expense.creation, startDate, endDate); 
-        }) || [];
+        const docsToProcess = shouldFilterByDate
+            ? projectExpensesData.filter(expense => {
+                // Project Expenses should be filtered by 'creation'
+                return isDateInPeriod(expense.creation, startDate, endDate); 
+            })
+            : projectExpensesData; // If no dates, use the full list
         
-        return filteredExpenses.reduce((acc, expense) => {
+        return docsToProcess.reduce((acc, expense) => {
             if (expense.projects) { 
                 acc.set(expense.projects, (acc.get(expense.projects) || 0) + parseNumber(expense.amount));
             }
             return acc;
-        }, new Map<string, number>()) ?? new Map();
-    }, [projectExpensesData, startDate, endDate]); // <--- NEW DEPENDENCIES
+        }, new Map<string, number>());
+    }, [projectExpensesData, startDate, endDate, shouldFilterByDate]); // <--- UPDATED DEPENDENCIES
 
 
     
-    // const totalPoSrInvoicedByProject = useMemo(() => {
-    //     const projectTotals = new Map<string, number>();
-
-    //     // Process Purchase Orders
-    //     purchaseOrders?.forEach(po => {
-    //         if (po.project && po.invoice_data) {
-    //             const currentTotal = projectTotals.get(po.project) || 0;
-    //             // getTotalInvoiceAmount is the utility function that iterates through the invoice_data JSON
-    //             projectTotals.set(po.project, currentTotal + getTotalInvoiceAmount(po.invoice_data));
-    //         }
-    //     });
-
-    //     // Process Service Requests
-    //     serviceRequests?.forEach(sr => {
-    //         if (sr.project && sr.invoice_data) {
-    //             const currentTotal = projectTotals.get(sr.project) || 0;
-    //             projectTotals.set(sr.project, currentTotal + getTotalInvoiceAmount(sr.invoice_data));
-    //         }
-    //     });
-
-    //     return projectTotals;
-    // }, [purchaseOrders, serviceRequests]);
 
 
      const totalPoSrInvoicedByProject = useMemo(() => {
@@ -306,35 +256,29 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
     }, [purchaseOrders, serviceRequests, startDate, endDate]); // <--- NEW DEPENDENCIES
     
 
-        const getProjectCreditAndDue = useMemo(() => 
+         // Note: getProjectCreditAndDue's memoization logic:
+    const getProjectCreditAndDue = useMemo(() => 
         memoize((projId: string): { TotalPurchaseOverCredit: number; CreditPaidAmount: number } => {
             if (!CreditData || !projId) {
                 return { TotalPurchaseOverCredit: 0, CreditPaidAmount: 0 };
             }
-// console.log("CreditData",CreditData)
-              return CreditData.reduce(
+
+            // The inner logic now just uses the pre-calculated flag
+            return CreditData.reduce(
                 (totals, term) => {
                     if (term.project === projId) {
                         const amount = parseNumber(term.amount);
-
-                        // 1. Rule for 'TotalPurchaseOverCredit' (Based on DUE DATE)
-                        // Sums all credit terms that were scheduled to be DUE within the period.
-                        if (isDateInPeriod(term.due_date, startDate, endDate)) { 
-                            // Check if it's a valid term (term_status is not empty/null)
-                            if (term.term_status) { 
-                                totals.TotalPurchaseOverCredit += amount;
-                            }
+                        
+                        // Check 1: TotalPurchaseOverCredit (Due Date)
+                        const filterDue = !shouldFilterByDate || isDateInPeriod(term.due_date, startDate, endDate);
+                        if (filterDue && term.term_status) { 
+                            totals.TotalPurchaseOverCredit += amount;
                         }
 
-                        // 2. Rule for 'CreditPaidAmount' (Based on PAID STATUS and MODIFIED DATE)
-                        // Sums all terms that were marked 'Paid' within the period.
-                        if (term.term_status === "Paid") {
-                            // The user's requested logic: filter paid terms by the modified date.
-                            if (isDateInPeriod(term.modified, startDate, endDate)) {
-                            // console.log("term.modified",term.term_modified,term.ptname)
-
-                                totals.CreditPaidAmount += amount;
-                            }
+                        // Check 2: CreditPaidAmount (Modified Date)
+                        const filterPaid = !shouldFilterByDate || isDateInPeriod(term.modified, startDate, endDate);
+                        if (term.term_status === "Paid" && filterPaid) {
+                            totals.CreditPaidAmount += amount;
                         }
                     }
                     return totals;
@@ -342,9 +286,10 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
                 { TotalPurchaseOverCredit: 0, CreditPaidAmount: 0 }
             );
         }), 
-    [CreditData,startDate, endDate]); // This calculation depends only on CreditData
+    // Include shouldFilterByDate in the dependency array
+    [CreditData, startDate, endDate, shouldFilterByDate]); 
 
-
+    
     // --- Memoized Function for Per-Project Calculation ---
     const getProjectCalculatedFields = useCallback(
         memoize((projectId: string): ProjectCalculatedFields | null => {
