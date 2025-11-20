@@ -239,7 +239,8 @@ export const MilestoneDailySummary = () => {
     params.set('zone', zoneName);
     
     // 2. Navigate to the current path with the new query string
-    navigate(`${location.pathname}?${params.toString()}`);
+    // navigate(`${location.pathname}?${params.toString()}`);
+    navigate(`?${params.toString()}`);
   }, [location.search, location.pathname]);
 
 
@@ -252,7 +253,8 @@ export const MilestoneDailySummary = () => {
     params.set('report_date', formatDateForInput(newDate));
     
     // 2. Navigate
-    navigate(`${location.pathname}?${params.toString()}`);
+    // navigate(`${location.pathname}?${params.toString()}`);
+    navigate(`?${params.toString()}`);
   }, [location.search, location.pathname]);
 
 

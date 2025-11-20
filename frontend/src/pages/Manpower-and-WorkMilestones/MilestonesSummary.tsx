@@ -379,7 +379,9 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
     }
 
     // 3. Navigate to the current path with the new query string
-    navigate(`${location.pathname}?${params.toString()}`);
+    // navigate(`${location.pathname}?${params.toString()}`);
+    navigate(`?${params.toString()}`);
+
   };
 
 
