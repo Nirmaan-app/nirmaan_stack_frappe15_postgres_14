@@ -10,6 +10,7 @@
   "item_name",
   "unit",
   "rate",
+  "make",
   "selected_quotations"
  ],
  "fields": [
@@ -45,12 +46,17 @@
    "fieldtype": "Table",
    "label": "Selected Quotations",
    "options": "Selected Quotations"
+  },
+  {
+   "fieldname": "make",
+   "fieldtype": "Data",
+   "label": "Make"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-05-10 17:03:50.717586",
+ "modified": "2025-11-20 14:16:34.757006",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Target Rates",

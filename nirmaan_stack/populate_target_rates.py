@@ -7,18 +7,17 @@ def populate_target_rates_by_unit():
     """
     Populates the 'Target Rates' and 'Selected Quotations' DocTypes based on
     'Approved Quotations'. This version creates a unique Target Rate for each
-    distinct Item-Unit combination found in the quotations.
+    distinct Item-Unit-Make combination found in the quotations.
 
     Logic:
     1. Deletes all existing Target Rates and Selected Quotations for a clean slate.
-    2. Fetches all unique (item_id, unit) combinations from Approved Quotations.
+    2. Fetches all unique (item_id, unit, make) combinations from Approved Quotations
+       where make is NOT NULL or empty.
     3. For each combination, it calculates a target rate:
         - If only one recent (last 3 months) quote exists, that quote's rate is used.
         - If multiple recent quotes exist, a weighted average (quote * quantity) is calculated.
         - If no recent quotes exist, the rate from the latest overall quote is used.
     4. Creates 'Selected Quotations' children for each quote used in the calculation.
-    5. After processing all quoted items, it finds any Items that had NO quotes at all
-       and creates a placeholder Target Rate for them with a rate of "-1".
     """
     try:
         # Step 0: Clear existing data for a full refresh
@@ -28,37 +27,37 @@ def populate_target_rates_by_unit():
 
         admin_user = "Administrator"
 
-        # Step 1: Get all unique item-unit combinations that have approved quotes
-        item_unit_combinations = frappe.db.sql("""
-            SELECT DISTINCT item_id, unit
+        # Step 1: Get all unique item-unit-make combinations that have approved quotes
+        # Only include quotations where make is specified (not NULL or empty)
+        item_unit_make_combinations = frappe.db.sql("""
+            SELECT DISTINCT item_id, unit, make
             FROM `tabApproved Quotations`
             WHERE item_id IS NOT NULL AND unit IS NOT NULL AND item_id != '' AND unit != ''
+              AND make IS NOT NULL AND make != ''
         """, as_dict=True)
 
-        processed_item_ids = set() # To track items that have at least one quote
-
         # Step 2: Iterate through each combination to calculate its specific target rate
-        for combo in item_unit_combinations:
+        for combo in item_unit_make_combinations:
             item_id = combo.item_id
             unit = combo.unit
-            processed_item_ids.add(item_id)
+            make = combo.make
 
             item_name = frappe.db.get_value("Items", item_id, "item_name")
             if not item_name:
                 print(f"Skipping combination for a deleted or invalid item: {item_id}", "TargetRatePopulation")
                 continue
 
-            print(f"Processing combination: {item_id} ({item_name}) - Unit: {unit}", "TargetRatePopulation")
+            print(f"Processing combination: {item_id} ({item_name}) - Unit: {unit} - Make: {make}", "TargetRatePopulation")
 
-            # Fetch all approved quotes for this specific item-unit pair
+            # Fetch all approved quotes for this specific item-unit-make combination
             approved_quotes_raw = frappe.db.sql("""
                 SELECT
                     name, item_id, item_name, vendor, procurement_order, unit,
                     quantity, quote, city, state, category, procurement_package, make, creation
                 FROM `tabApproved Quotations`
-                WHERE item_id = %s AND unit = %s
+                WHERE item_id = %s AND unit = %s AND make = %s
                 ORDER BY creation DESC
-            """, (item_id, unit), as_dict=True)
+            """, (item_id, unit, make), as_dict=True)
 
             # Validate and convert raw quote data
             approved_quotes = []
@@ -76,7 +75,7 @@ def populate_target_rates_by_unit():
 
             # If after validation no quotes remain, skip this combination
             if not approved_quotes:
-                print(f"No valid approved quotes for {item_id} - {unit}. Skipping.", "TargetRatePopulation")
+                print(f"No valid approved quotes for {item_id} - {unit} - {make}. Skipping.", "TargetRatePopulation")
                 continue
 
             # Create the main Target Rate document
@@ -85,7 +84,8 @@ def populate_target_rates_by_unit():
             target_rate_doc.modified_by = admin_user
             target_rate_doc.item_id = item_id
             target_rate_doc.item_name = item_name
-            target_rate_doc.unit = unit  # <-- KEY CHANGE: Using the unit for this combination
+            target_rate_doc.unit = unit
+            target_rate_doc.make = make
 
             latest_quote = approved_quotes[0]
 
@@ -124,32 +124,11 @@ def populate_target_rates_by_unit():
             try:
                 target_rate_doc.insert(ignore_permissions=True, ignore_mandatory=True)
             except Exception as e:
-                frappe.log_error(f"Error inserting target rate for {item_id}/{unit}: {e}", "TargetRatePopulation")
-
-        # Step 4: Handle items that had NO approved quotes at all
-        print("Processing items with no approved quotations.", "TargetRatePopulation")
-        all_items = frappe.get_all("Items", fields=["name", "item_name", "unit_name"])
-
-        for item_doc in all_items:
-            if item_doc.name not in processed_item_ids:
-                print(f"Item {item_doc.name}: No quotes found. Creating placeholder rate.", "TargetRatePopulation")
-
-                target_rate_doc = frappe.new_doc("Target Rates")
-                target_rate_doc.owner = admin_user
-                target_rate_doc.modified_by = admin_user
-                target_rate_doc.item_id = item_doc.name
-                target_rate_doc.item_name = item_doc.item_name
-                target_rate_doc.unit = item_doc.unit_name # Use the item's default UOM
-                target_rate_doc.rate = "-1"
-
-                try:
-                    target_rate_doc.insert(ignore_permissions=True, ignore_mandatory=True)
-                except Exception as e:
-                    frappe.log_error(f"Error inserting placeholder rate for item {item_doc.name}: {e}", "TargetRatePopulation")
+                frappe.log_error(f"Error inserting target rate for {item_id}/{unit}/{make}: {e}", "TargetRatePopulation")
 
         frappe.db.commit()
         print("Target Rate population process finished.", "TargetRatePopulation")
-        return {"status": "success", "message": "Target Rates repopulated by item-unit combination."}
+        return {"status": "success", "message": "Target Rates repopulated by item-unit-make combination."}
     except Exception as e:
         frappe.db.rollback()
         frappe.log_error(frappe.get_traceback(), "PopulateTargetRatesError")
