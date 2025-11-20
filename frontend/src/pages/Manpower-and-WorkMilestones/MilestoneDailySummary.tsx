@@ -215,7 +215,7 @@ export const MilestoneDailySummary = () => {
               ["report_date", "=", formatDateForInput(displayDate)], 
           ]
       },
-      selectedProject && reportType === 'Daily' && displayDate ? undefined : null
+      selectedProject  && displayDate ? undefined : null
   );
   console.log("All Reports for Date:", allReportsForDate);
   //-------Validation tab--------
@@ -339,7 +339,7 @@ export const MilestoneDailySummary = () => {
     });
 
     return reportStatusMap;
-  }, [projectData?.project_zones, allReportsForDate]);
+  }, [projectData?.project_zones, allReportsForDate,reportType]);
   // --- END NEW: Zone Progress Validation/Status Calculation ---
 
 

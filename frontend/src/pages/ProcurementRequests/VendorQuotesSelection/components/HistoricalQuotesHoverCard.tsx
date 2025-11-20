@@ -103,6 +103,16 @@ export const HistoricalQuotesHoverCard: React.FC<HistoricalQuotesHoverCardProps>
                                             </span>
                                         </div>
                                     )}
+                                    {quote.make && (
+                                        <div className="flex items-center justify-between text-muted-foreground">
+                                            <span className="flex items-center gap-1">
+                                                <Truck className="h-3 w-3" /> Make: {/* Use Truck Icon */}
+                                            </span>
+                                            <span className="font-medium text-foreground">
+                                                {quote.make || 'N/A'}
+                                            </span>
+                                        </div>
+                                    )}
                                     <div className="flex items-center justify-between text-muted-foreground">
                                         <span className="flex items-center gap-1">
                                             <Tag className="h-3 w-3" /> Rate/Qty:

@@ -1,4 +1,4 @@
-import React, { useCallback,useState,useEffect } from 'react';
+import React, { useCallback,useState,useEffect,useMemo } from 'react';
 import {
     RFQData
 } from "@/types/NirmaanStack/ProcurementRequests";
@@ -15,6 +15,7 @@ import { parseNumber } from "@/utils/parseNumber";
 import { CircleCheck, CircleMinus, MessageCircleMore,AlertTriangle } from "lucide-react";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { TargetRateDetailFromAPI, mapApiQuotesToApprovedQuotations } from '../ApproveVendorQuotes/types'; // Keep
+import {useFrappeGetDocList} from 'frappe-react-sdk';
 import { ProgressDocument, getItemListFromDocument, getCategoryListFromDocument, ProgressItem } from './types'; // Local feature types
 import { getTargetRateKey } from './hooks/useTargetRatesForItems';
 import { SelectUnit } from '@/components/helpers/SelectUnit';
@@ -59,7 +60,7 @@ export function SelectVendorQuotesTable({
     // console.log("currentDocument", currentDocument)
     const itemsToDisplay = getItemListFromDocument(currentDocument);
     const categoriesToDisplay = getCategoryListFromDocument(currentDocument);
-    // console.log("currentDocument", currentDocument) 
+
 
     const [initialTargetRatesMap, setInitialTargetRatesMap] = useState<Map<string, number,any>>(() => new Map());
 
@@ -127,9 +128,11 @@ export function SelectVendorQuotesTable({
             // Only save if it hasn't been saved before
             if (!newMap.has(item.item_id)) {
                 // The item.unit is the initial unit on the first render/data load
-                const lookupKey = getTargetRateKey(item.item_id, item.unit);
+                // console.log(item)
+                const lookupKey = getTargetRateKey(item.item_id, item.unit,item.make);
+                // console.log("lookupKey",lookupKey)
                 const targetRateDetail = targetRatesData.get(lookupKey);
-                console.log("targetRateDetail",targetRateDetail)
+                // console.log("targetRateDetail",targetRateDetail)
                 if (targetRateDetail?.rate && targetRateDetail.rate !== "-1") {
                     const parsedRate = parseNumber(targetRateDetail.rate);
                     if (!isNaN(parsedRate)) {
@@ -227,14 +230,26 @@ export function SelectVendorQuotesTable({
                             </TableHeader>
                             <TableBody>
                                 {itemsInCategory.map((item) => {
-                                     const lookupKey = getTargetRateKey(item.item_id, item.unit);
+                                    // console.log("Rendering item:", item);
+                                     const selectedVendorId = selectedVendorQuotes.get(item.item_id);
+
+// 2. Determine the Make to use for the Target Rate Lookup
+// PRIORITY 1: If a vendor is selected, use THAT vendor's specific make (from formData)
+// PRIORITY 2: If no vendor is selected, use the generic 'initialMake' from formData
+// PRIORITY 3: Fallback to the original static Make from the PR document
+const activeMake = selectedVendorId
+    ? formData.details[item.item_id]?.vendorQuotes?.[selectedVendorId]?.make 
+    : (formData.details[item.item_id]?.initialMake || item.make);
+
+                                     const lookupKey = getTargetRateKey(item.item_id, item.unit, activeMake);
+
                                     const targetRateDetail = targetRatesData?.get(lookupKey);
                                     let targetRateValue = -1;
                                     if (targetRateDetail?.rate && targetRateDetail.rate !== "-1") {
                                         const parsedRate = parseNumber(targetRateDetail.rate);
                                         if (!isNaN(parsedRate)) targetRateValue = parsedRate * 0.98;
                                     }
-                                     console.log("targetRateDetail",targetRateDetail?.selected_quotations_items)
+                                    //  console.log("targetRateDetail",targetRateDetail?.selected_quotations_items)
 
 
                                    // 4. NEW: Extract saved initial rate and unit
@@ -347,22 +362,22 @@ export function SelectVendorQuotesTable({
                     {/* 1. If targetRateValue is valid, show it directly */}
                     {(targetRateValue !== -1 && targetRateValue) ? 
                         (
-                            <div className='font-semibold text-sm'>
+                            <span className='font-semibold text-sm'>
                                 {formatToRoundedIndianRupee(targetRateValue)}
-                            </div>
+                            </span>
                         ) :
                         /* 2. Target Rate is invalid. Check for Initial Rate. */
                         (initialTargetRateValue) ? 
                         (
                             /* Show Initial Target Rate with Warning Icon and Unit (small, as requested) */
-                            <div className='flex flex-col items-end'>
+                            <span className='flex flex-col items-end'>
                                
                                 <div className='flex items-center gap-1 text-xs' title={`Initial Target Rate: ${formatToRoundedIndianRupee(initialTargetRateValue)} per ${initialTargetRateUnit}`}>
                                     <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
                                     <span className="font-medium text-amber-600">{formatToRoundedIndianRupee(initialTargetRateValue)}</span>
                                     <span className="text-muted-foreground">({initialTargetRateUnit})</span>
                                 </div>
-                            </div>
+                            </span>
                         ) : 
                         /* 3. No Target Rate and no Initial Rate. Show "N/A" only. */
                         (
