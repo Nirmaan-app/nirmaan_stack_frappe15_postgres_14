@@ -33,16 +33,16 @@ def rename_zone_and_cascade(project_name: str, zone_doc_name: str, old_zone_name
 
         # Save the Project document. This updates the zone name in the master doc.
         # Use ignore_permissions=True if the user lacks write permission on child table field directly
-        project.save(ignore_permissions=False, ignore_mandatory=True)
+        project.save(ignore_permissions=False)
         frappe.db.commit()
 
         # 2. Cascade the update to all Project Progress Reports
         
         # Query for all Project Progress Reports linked to this Project and using the old zone name
-        report_names = frappe.get_list(
-            "Project Progress Report",
+        report_names = frappe.get_all(
+            "Project Progress Reports",
             filters={
-                "project_id": project_name,
+                "project": project_name,
                 "report_zone": old_zone_name
             },
             fields=["name"]
@@ -51,10 +51,10 @@ def rename_zone_and_cascade(project_name: str, zone_doc_name: str, old_zone_name
         reports_updated_count = 0
         for report in report_names:
             try:
-                report_doc = frappe.get_doc("Project Progress Report", report.name, for_update=True)
+                # report_doc = frappe.get_doc("Project Progress Reports", report.name, for_update=True)
                 
                 # Update the field, explicitly setting modified=False to prevent unnecessary modification stamp changes
-                report_doc.report_zone = new_zone_name
+                # report_doc.report_zone = new_zone_name
                 
                 # Use frappe.db.set_value to update quickly and prevent triggering other hooks/validations 
                 # that might occur on a full .save() if we only want a direct field update.
@@ -62,7 +62,7 @@ def rename_zone_and_cascade(project_name: str, zone_doc_name: str, old_zone_name
                 
                 # Manually setting the value and updating DB directly for modification control
                 frappe.db.set_value(
-                    "Project Progress Report", 
+                    "Project Progress Reports", 
                     report.name, 
                     "report_zone", 
                     new_zone_name,

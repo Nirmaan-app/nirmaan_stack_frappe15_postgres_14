@@ -2821,7 +2821,7 @@ console.log(user)
     }
 
      // --- NEW VALIDATION: Check if work_plan is required but empty ---
-    if ((newStatus != "Completed" || newStatus != "Not Started") && workPlanRatio === 'Plan Required' && workPlanPoints.every(p => p.trim() === '')) {
+    if (newStatus != "Completed" && newStatus != "Not Applicable" && workPlanRatio === 'Plan Required' && workPlanPoints.every(p => p.trim() === '')) {
         toast({
             title: "Validation Error 🚫",
             description: "Work Plan is required for this ratio selection.",
