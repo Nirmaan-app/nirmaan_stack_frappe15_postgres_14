@@ -137,10 +137,10 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport, 
 
 
   console.log(selectedProject, projectIdForWorkReport)
-  if (workReport) {
-    console.log("In work report", projectIdForWorkReport)
-    setSelectedProject(projectIdForWorkReport)
-  }
+  // if (workReport) {
+  //   console.log("In work report", projectIdForWorkReport)
+  //   setSelectedProject(projectIdForWorkReport)
+  // }
   // State for Report Type toggle ('Daily' or 'Overall')
   const [reportType, setReportType] = useState<'Daily' | 'Overall'>('Daily');
   // State for the date selected by the user for displaying reports
@@ -170,7 +170,9 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport, 
                 ["report_date", "=", formatDateForInput(displayDate)], 
             ]
         },
-        selectedProject && reportType === 'Daily' && displayDate ? undefined : null
+        // selectedProject && reportType === 'Daily' && displayDate ? undefined : null
+        selectedProject && displayDate ? undefined : null
+
     );
     console.log("All Reports for Date:", allReportsForDate);
     //-------Validation tab--------
@@ -213,36 +215,61 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport, 
     reportForDisplayDateName && reportType === 'Daily' ? undefined : null // Only fetch if a name exists and reportType is Daily
   );
 // Effect to initialize selectedZone (updated to handle tabs and parent control)
-  useEffect(() => {
-      // Priority 0: If parent is controlling the zone (workReport mode), use parentSelectedZone
-      if (workReport && parentSelectedZone !== null) {
-          setSelectedZone(parentSelectedZone);
-          return;
-      }
+useEffect(() => {
+    // A. PREREQUISITE CHECK
+    if (!projectData || !selectedProject) {
+        // If the project is unselected, clear the zone
+        setSelectedZone(null);
+        return;
+    }
+     
+    // B. PRIORITY 0: PARENT CONTROL (Work Report Mode)
+    // If parent is controlling, always use the parent's value and stop.
+    if (workReport && parentSelectedZone !== null) {
+        setSelectedZone(parentSelectedZone);
+        return;
+    }
 
-      if (projectData?.project_zones?.length > 0) {
-          if (selectedZone === null) {
-              // Priority 1: Check URL for a 'zone' parameter
-              const urlZone = searchParams.get('zone');
-              if (urlZone && projectData.project_zones.some(z => z.zone_name === urlZone)) {
-                  setSelectedZone(urlZone);
-                  return;
-              }
+    const currentProjectZones = projectData.project_zones?.map(z => z.zone_name) || [];
+    
+    // C. IMPLICIT PROJECT CHANGE CHECK (Focusing on reset/re-run logic)
+    // If the selected project has changed, the selectedZone will often be invalid. 
+    // We only proceed to selection if the current zone is null, or if it's already valid.
+    
+    // 💡 THE CORE LOGIC CHANGE: 
+    // If a zone is currently selected BUT it is not in the new project's zones, 
+    // we assume the project changed and force a reset (set selectedZone to null).
+    if (selectedZone !== null && !currentProjectZones.includes(selectedZone)) {
+        console.log(`Project changed (selectedProject: ${selectedProject}). Resetting zone from ${selectedZone} to null.`);
+        setSelectedZone(null); 
+        return; // Re-run effect to pick up new zone
+    }
 
-              // Priority 2: Select the first available zone
-              const firstZoneName = projectData.project_zones[0].zone_name;
-              if (firstZoneName) {
-                  setSelectedZone(firstZoneName);
-              }
-          }
-      }
-      // If a project is unselected, clear the zone
-      if (!selectedProject) {
-           setSelectedZone(null);
-      }
-  }, [projectData, selectedProject, selectedZone, workReport, parentSelectedZone]); // Added workReport and parentSelectedZone
+    // D. ZONE SELECTION LOGIC (Only runs if selectedZone is null or already valid)
+    if (selectedZone === null && currentProjectZones.length > 0) {
+        // Priority 1: Check URL for a 'zone' parameter
+        const urlZone = searchParams.get('zone');
+        if (urlZone && currentProjectZones.includes(urlZone)) {
+            setSelectedZone(urlZone);
+            return;
+        }
 
-
+        // Priority 2: Select the first available zone
+        const firstZoneName = currentProjectZones[0];
+        if (firstZoneName) {
+            setSelectedZone(firstZoneName);
+        }
+    }
+    
+}, [
+    projectData, 
+    selectedProject, 
+    workReport, 
+    parentSelectedZone,
+    selectedZone, 
+    // Assuming searchParams is available in scope
+]);
+console.log("Selected Zone:", selectedZone);
   // Effect to determine reportForDisplayDateName based on selectedProject and displayDate
   useEffect(() => {
     if (projectProgressReports && selectedProject && displayDate && selectedZone) {
@@ -330,7 +357,7 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport, 
       });
   
       return reportStatusMap;
-    }, [projectData?.project_zones, allReportsForDate]);
+    }, [projectData?.project_zones, allReportsForDate,reportType]);
     // --- END NEW: Zone Progress Validation/Status Calculation ---
   
 
