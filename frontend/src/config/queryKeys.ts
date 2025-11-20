@@ -362,6 +362,6 @@ export const getCustomerListOptions = (customerOptions?: { filters?: Filter<Frap
 
 // Helper for Approved Quotations options (adjust fields/limits as needed)
 export const getApprovedQuotationOptions = (): ListParams => ({
-  fields: ['name', 'item_id', 'quote', 'creation', 'procurement_order', 'vendor', 'quantity', 'unit', 'item_name'], // Add fields needed for 3-month lowest calc
+  fields: ['name', 'item_id', 'quote', 'creation', 'procurement_order', 'vendor', 'quantity', 'unit', 'item_name', "make"], // Add fields needed for 3-month lowest calc
   limit: 100000, // Be mindful of performance with large datasets
 });

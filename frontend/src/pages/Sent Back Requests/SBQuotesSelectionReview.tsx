@@ -302,7 +302,7 @@ export const SBQuotesSelectionReview: React.FC = () => {
         delayedItemsTotalInclGst += itemTotalInclGst;
       } else {
         // 1. Target Rate Calculation
-        const lookupKey = getTargetRateKey(item.item_id, item.unit);
+        const lookupKey = getTargetRateKey(item.item_id, item.unit,item.make);
         const targetRateDetail = targetRatesDataMap?.get(lookupKey);
         
         let pureTargetRate = -1;

@@ -43,6 +43,7 @@ export interface ChargeItem {
     item_name: string; // The name of the charge (e.g., "Loading Charges")
     quote: number;     // The quoted amount for this charge
     tax: number;       // The tax percentage for this charge
+    
 }
 // Define specific types for PR and SBC that include the new order_list
 

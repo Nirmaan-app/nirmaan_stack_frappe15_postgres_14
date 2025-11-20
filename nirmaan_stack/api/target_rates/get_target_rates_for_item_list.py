@@ -30,7 +30,7 @@ def get_target_rates_for_item_list(item_ids_json, order_by="modified desc"):
              return []
 
         # Define fields to fetch for the parent "Target Rates"
-        parent_fields = ["name", "item_name", "unit", "rate", "item_id", "creation", "modified"]
+        parent_fields = ["name", "item_name", "unit","make", "rate", "item_id", "creation", "modified"]
 
         # Fetch parent "Target Rates" documents for the given item_ids
         target_rates_list = frappe.get_all(

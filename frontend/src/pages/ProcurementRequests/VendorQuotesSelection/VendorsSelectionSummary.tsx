@@ -303,7 +303,7 @@ export const VendorsSelectionSummary: React.FC = () => {
         delayedItemsTotalInclGst += itemTotalInclGst;
       } else {
         // 1. Target Rate
-        const lookupKey = getTargetRateKey(item.item_id, item.unit);
+        const lookupKey = getTargetRateKey(item.item_id, item.unit,item.make);
         const targetRateDetail = targetRatesDataMap?.get(lookupKey);
         
         let pureTargetRate = -1;
