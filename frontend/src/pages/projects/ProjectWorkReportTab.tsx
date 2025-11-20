@@ -8,9 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/use-toast";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { TailSpin } from "react-loader-spinner";
 import { MilestonesSummary } from "../Manpower-and-WorkMilestones/MilestonesSummary";
-import { PencilIcon, CircleCheckBig, CheckIcon, XIcon, PlusIcon } from "lucide-react";
+import { PencilIcon, CircleCheckBig, CheckIcon, XIcon, PlusIcon, ChevronDown, ChevronUp } from "lucide-react";
 import {Input} from "@/components/ui/input";
 
 // Import the separate dialog and the new zone edit component
@@ -54,16 +55,23 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
 
     const [isSetupDialogOpen, setIsSetupDialogOpen] = useState(false);
     const [localWorkHeaders, setLocalWorkHeaders] = useState<LocalProjectWorkHeaderEntry[]>([]);
-    const [isEditingHeaders, setIsEditingHeaders] = useState(false); 
-    const [isEditingZones, setIsEditingZones] = useState(false); 
-    
+    const [isEditingHeaders, setIsEditingHeaders] = useState(false);
+    const [isEditingZones, setIsEditingZones] = useState(false);
+
+    // Accordion state for Track Progress section (closed by default)
+    const [isProgressAccordionOpen, setIsProgressAccordionOpen] = useState(false);
+
+    // Zone selection state (managed locally, no URL updates to avoid tab navigation issues)
+    const [selectedZone, setSelectedZone] = useState<string | null>(null);
+
     // Note: localProjectZones state is now primarily managed inside ProjectZoneEditSection
     // The state is kept here to be passed to the child, but its management is delegated.
     // We initialize it once, and the child handles subsequent changes via its internal logic.
     // The parent's useEffect below will handle resyncing on external changes.
     const [localProjectZones, setLocalProjectZones] = useState<ProjectZoneEntry[]>(projectData.project_zones || []);
 
-    const isMilestoneTrackingEnabled = projectData.enable_project_milestone_tracking;
+    // Convert to proper boolean to prevent React from rendering "0" when false
+    const isMilestoneTrackingEnabled = Boolean(projectData.enable_project_milestone_tracking);
 
     const { updateDoc, loading: updateDocLoading } = useFrappeUpdateDoc();
 
@@ -73,6 +81,17 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
             setLocalProjectZones(projectData.project_zones || []);
         }
     }, [projectData.project_zones, isEditingZones]);
+
+    // Initialize selectedZone to first zone when project zones are available
+    useEffect(() => {
+        if (projectDataWithZones?.project_zones?.length > 0 && selectedZone === null) {
+            setSelectedZone(projectDataWithZones.project_zones[0].zone_name);
+        }
+        // Reset zone if no project zones exist
+        if (!projectDataWithZones?.project_zones?.length) {
+            setSelectedZone(null);
+        }
+    }, [projectDataWithZones?.project_zones, selectedZone]);
 
 
     // Fetch all available Work Headers
@@ -300,96 +319,109 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
                                 Setup Progress Tracking
                             </Button>
                         ) : (
-                            <div className="text-sm text-gray-500 italic">
-                                Use the edit buttons below to manage settings.
-                            </div>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setIsProgressAccordionOpen(!isProgressAccordionOpen)}
+                                className="flex items-center gap-2"
+                            >
+                                {isProgressAccordionOpen ? (
+                                    <>
+                                        <ChevronUp className="h-4 w-4" />
+                                        Hide Settings
+                                    </>
+                                ) : (
+                                    <>
+                                        <ChevronDown className="h-4 w-4" />
+                                        Show Settings
+                                    </>
+                                )}
+                            </Button>
                         )}
                     </div>
 
                     {/* Work Headers and Zones Section - Only shown when tracking is enabled */}
-                    {isMilestoneTrackingEnabled ? (
-                        <div>
-                            {/* --- Zone Section --- */}
-                           
+                    {isMilestoneTrackingEnabled && (
+                        <Collapsible open={isProgressAccordionOpen} onOpenChange={setIsProgressAccordionOpen}>
+                            <CollapsibleContent className="space-y-4 pt-4">
+                                {/* --- Zone Section --- */}
+                                <ProjectZoneEditSection
+                                    projectData={projectDataWithZones}
+                                    isEditing={isEditingZones}
+                                    setIsEditing={setIsEditingZones}
+                                    project_mutate={project_mutate}
+                                    isEditingHeaders={isEditingHeaders}
+                                />
 
-                            <ProjectZoneEditSection
-                                projectData={projectDataWithZones}
-                                isEditing={isEditingZones}
-                                setIsEditing={setIsEditingZones}
-                                project_mutate={project_mutate}
-                                isEditingHeaders={isEditingHeaders}
-                            />
-                            
-                           
-                           
-                            {/* --- Work Headers Section --- */}
-                            <div className="flex items-center justify-between mt-6 mb-4 pt-4 border-t">
-                                <h3 className="text-lg font-semibold">Tracked Work Headers</h3>
-                                {!isEditingHeaders && (
-                                    <Button 
-                                        variant="outline" 
-                                        size="sm" 
-                                        onClick={() => setIsEditingHeaders(true)}
-                                        disabled={isEditingZones} // Disable header edit if zones are being edited
-                                    >
-                                        <PencilIcon size={20} className="mr-2" /> Edit Headers
-                                    </Button>
-                                )}
-                                {isEditingHeaders && (
-                                    <div className="flex justify-end space-x-2">
-                                        <Button variant="outline" onClick={handleCancelHeaders}>
-                                            <XIcon size={24} className="mr-2 text-red-500" color="#ee2020" />Cancel
+                                {/* --- Work Headers Section --- */}
+                                <div className="flex items-center justify-between mt-6 mb-4 pt-4 border-t">
+                                    <h3 className="text-lg font-semibold">Tracked Work Headers</h3>
+                                    {!isEditingHeaders && (
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => setIsEditingHeaders(true)}
+                                            disabled={isEditingZones} // Disable header edit if zones are being edited
+                                        >
+                                            <PencilIcon size={20} className="mr-2" /> Edit Headers
                                         </Button>
-                                        <Button variant="outline" onClick={handleSaveHeaders} disabled={updateDocLoading || isSaveDisabledHeaders}>
-                                            {updateDocLoading ? (
-                                                <TailSpin width={20} height={20} color="white" />
-                                            ) : (
-                                                <>
-                                                    <CircleCheckBig size={24} className="mr-2" color="#25ad4d" />Save
-                                                </>
-                                            )}
-                                        </Button>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Render grouped work headers */}
-                            <div className="space-y-4">
-                                {groupedWorkHeaders.map(([workPackage, headers]) => (
-                                    <div key={workPackage} className="border p-4 rounded-md bg-gray-50">
-                                        <h4 className="text-md font-semibold mb-3 text-gray-800 border-b pb-2">{workPackage}</h4>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
-                                            {headers.map((entry) => (
-                                                <div
-                                                    key={entry.work_header_doc_name}
-                                                    className="flex items-center space-x-3"
-                                                >
-                                                    {isEditingHeaders ? (
-                                                        <Checkbox
-                                                            id={`wh-${entry.work_header_doc_name}`}
-                                                            checked={entry.enabled}
-                                                            onCheckedChange={(checked) => handleCheckboxChange(entry.work_header_doc_name, checked)}
-                                                            disabled={isEditingZones} // Disable checkbox if zones are being edited
-                                                        />
-                                                    ) : (
-                                                        <span className={`h-4 w-4 rounded-sm border ${entry.enabled ? 'bg-primary border-primary' : 'bg-gray-200 border-gray-300'} flex items-center justify-center flex-shrink-0`}>
-                                                            {entry.enabled && <CheckIcon className="h-3 w-3 text-white" />}
-                                                        </span>
-                                                    )}
-                                                    <Label
-                                                        htmlFor={isEditingHeaders ? `wh-${entry.work_header_doc_name}` : undefined}
-                                                        className={isEditingHeaders ? "cursor-pointer text-gray-700" : "text-gray-700"}
-                                                    >
-                                                        {entry.work_header_display_name}
-                                                    </Label>
-                                                </div>
-                                            ))}
+                                    )}
+                                    {isEditingHeaders && (
+                                        <div className="flex justify-end space-x-2">
+                                            <Button variant="outline" onClick={handleCancelHeaders}>
+                                                <XIcon size={24} className="mr-2 text-red-500" color="#ee2020" />Cancel
+                                            </Button>
+                                            <Button variant="outline" onClick={handleSaveHeaders} disabled={updateDocLoading || isSaveDisabledHeaders}>
+                                                {updateDocLoading ? (
+                                                    <TailSpin width={20} height={20} color="white" />
+                                                ) : (
+                                                    <>
+                                                        <CircleCheckBig size={24} className="mr-2" color="#25ad4d" />Save
+                                                    </>
+                                                )}
+                                            </Button>
                                         </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    ):("")}
+                                    )}
+                                </div>
+
+                                {/* Render grouped work headers */}
+                                <div className="space-y-4">
+                                    {groupedWorkHeaders.map(([workPackage, headers]) => (
+                                        <div key={workPackage} className="border p-4 rounded-md bg-gray-50">
+                                            <h4 className="text-md font-semibold mb-3 text-gray-800 border-b pb-2">{workPackage}</h4>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
+                                                {headers.map((entry) => (
+                                                    <div
+                                                        key={entry.work_header_doc_name}
+                                                        className="flex items-center space-x-3"
+                                                    >
+                                                        {isEditingHeaders ? (
+                                                            <Checkbox
+                                                                id={`wh-${entry.work_header_doc_name}`}
+                                                                checked={entry.enabled}
+                                                                onCheckedChange={(checked) => handleCheckboxChange(entry.work_header_doc_name, checked)}
+                                                                disabled={isEditingZones} // Disable checkbox if zones are being edited
+                                                            />
+                                                        ) : (
+                                                            <span className={`h-4 w-4 rounded-sm border ${entry.enabled ? 'bg-primary border-primary' : 'bg-gray-200 border-gray-300'} flex items-center justify-center flex-shrink-0`}>
+                                                                {entry.enabled && <CheckIcon className="h-3 w-3 text-white" />}
+                                                            </span>
+                                                        )}
+                                                        <Label
+                                                            htmlFor={isEditingHeaders ? `wh-${entry.work_header_doc_name}` : undefined}
+                                                            className={isEditingHeaders ? "cursor-pointer text-gray-700" : "text-gray-700"}
+                                                        >
+                                                            {entry.work_header_display_name}
+                                                        </Label>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </CollapsibleContent>
+                        </Collapsible>
+                    )}
                 </div>
             )}
 
@@ -406,10 +438,46 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
                 getLinkedWorkHeaderName={getLinkedWorkHeaderName as any}
             />
 
-            <MilestonesSummary 
-                workReport={true} 
-                projectIdForWorkReport={projectData?.name}
-            />
+            {/* Zone Selector and Milestone Summary - Only show if tracking is enabled */}
+            {isMilestoneTrackingEnabled && (
+                <>
+                    {/* Zone Selector - Only show if zones exist */}
+                    {Boolean(projectDataWithZones?.project_zones?.length) && (
+                        <div className="p-4 border rounded-md shadow-sm bg-white mt-4">
+                            <div className="flex flex-col gap-4">
+                                <div className="flex items-center gap-2 w-full overflow-x-auto pb-1 flex-shrink-0">
+                                    <span className="font-semibold text-gray-700 whitespace-nowrap flex-shrink-0 hidden md:block">
+                                        Select Zone:
+                                    </span>
+                                    <div className="flex rounded-md border border-gray-300 overflow-hidden flex-shrink-0">
+                                        {projectDataWithZones.project_zones.map((zone) => (
+                                            <button
+                                                key={zone.zone_name}
+                                                className={`px-2 py-1 text-xs font-medium transition-colors md:text-sm md:px-3 md:py-1.5 ${
+                                                    selectedZone === zone.zone_name
+                                                        ? 'bg-blue-600 text-white shadow-inner'
+                                                        : 'bg-white text-blue-600 hover:bg-blue-50'
+                                                }`}
+                                                onClick={() => setSelectedZone(zone.zone_name)}
+                                                disabled={isEditingZones || isEditingHeaders}
+                                            >
+                                                <span className="text-xs md:text-sm">{zone.zone_name}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Milestone Summary - Always show when tracking is enabled */}
+                    <MilestonesSummary
+                        workReport={true}
+                        projectIdForWorkReport={projectData?.name}
+                        parentSelectedZone={selectedZone}
+                    />
+                </>
+            )}
         </>
     );
 };

@@ -685,29 +685,29 @@ interface PDFReportHeaderProps {
 }
 
 // --- NON-REPEATING HEADER COMPONENT (Just a div) ---
-const PDFReportHeaderContent: React.FC<PDFReportHeaderProps> = ({ projectData, reportDate, projectlastUpdateBy,showHeader }) => {
-  if(!showHeader) return null;
+const PDFReportHeaderContent: React.FC<PDFReportHeaderProps> = ({ projectData, reportDate, projectlastUpdateBy, showHeader }) => {
+  if (!showHeader) return null;
   return (
-  <div className="border-b border-black pb-4 mb-4 avoid-page-break-inside">
-    <div className="flex text-left justify-between border-gray-600 pb-1">
-      <div className="mt-2 flex justify-start">
-        <div>
-          <img
-            src={logo}
-            alt="Nirmaan"
-            width="180"
-            height="52"
-          />
-          <div className="pt-2 text-lg font-semibold">
-            Nirmaan(Stratos Infra Technologies Pvt. Ltd.)
-          </div>
-          <div className="text-sm text-gray-500 mt-0.5">
-            First floor, 234, 9th Main, 16th Cross Rd, Sector 6, HSR Layout, Bengaluru, Karnataka 560102
+    <div className="border-b border-black pb-4 mb-4 avoid-page-break-inside">
+      <div className="flex text-left justify-between border-gray-600 pb-1">
+        <div className="mt-2 flex justify-start">
+          <div>
+            <img
+              src={logo}
+              alt="Nirmaan"
+              width="180"
+              height="52"
+            />
+            <div className="pt-2 text-lg font-semibold">
+              Nirmaan(Stratos Infra Technologies Pvt. Ltd.)
+            </div>
+            <div className="text-sm text-gray-500 mt-0.5">
+              First floor, 234, 9th Main, 16th Cross Rd, Sector 6, HSR Layout, Bengaluru, Karnataka 560102
+            </div>
           </div>
         </div>
       </div>
-    </div>
-    {/* <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-md mt-4 pb-2 border-b border-gray-300">
+      {/* <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-md mt-4 pb-2 border-b border-gray-300">
       <div className="flex justify-between items-center">
         <span className="font-semibold">Project :</span>
         <span className="text-right">{projectData?.project_name || "--"}</span>
@@ -725,8 +725,9 @@ const PDFReportHeaderContent: React.FC<PDFReportHeaderProps> = ({ projectData, r
         <span className="text-right">{formatDate(reportDate) || "--"}</span>
       </div>
     </div> */}
-  </div>
-)};
+    </div>
+  )
+};
 
 const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
   latestReport,
@@ -831,33 +832,33 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
 
   return (
     <>
-      <div className="flex items-center space-x-4"> 
-             <div className="flex items-center space-x-2">
-                  <Label htmlFor="pdf-header-switch" className="text-sm font-medium flex items-center space-x-1 cursor-pointer">
-                      <span className="hidden sm:inline">PDF Header</span>
-                  </Label>
-                  {/* Using a custom button/toggle */}
-                  <Button
-                      variant="outline"
-                      size="sm"
-                      className="p-1 h-auto"
-                      onClick={() => setShowHeaderOnPrint(prev => !prev)}
-                  >
-                      {/* Visual indicator for the toggle */}
-                      {showHeaderOnPrint ? 
-                          <Eye className="w-4 h-4 text-green-600" title="Header is Visible" /> 
-                          : 
-                          <EyeOff className="w-4 h-4 text-red-600" title="Header is Hidden" />
-                      }
-                  </Button>
-              </div>
-            <button onClick={handlePrint} className="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-6 rounded-lg text-lg flex items-center justify-end-safe gap-2">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-              </svg>
-              Download PDF
-            </button>
-          </div>
+      <div className="flex items-center space-x-4">
+        <div className="flex items-center space-x-2">
+          <Label htmlFor="pdf-header-switch" className="text-sm font-medium flex items-center space-x-1 cursor-pointer">
+            <span className="hidden sm:inline">PDF Header</span>
+          </Label>
+          {/* Using a custom button/toggle */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="p-1 h-auto"
+            onClick={() => setShowHeaderOnPrint(prev => !prev)}
+          >
+            {/* Visual indicator for the toggle */}
+            {showHeaderOnPrint ?
+              <Eye className="w-4 h-4 text-green-600" title="Header is Visible" />
+              :
+              <EyeOff className="w-4 h-4 text-red-600" title="Header is Hidden" />
+            }
+          </Button>
+        </div>
+        <button onClick={handlePrint} className="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-6 rounded-lg text-lg flex items-center justify-end-safe gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+          </svg>
+          Download PDF
+        </button>
+      </div>
 
       {/* Hidden container for print content - Single Flow Document */}
       <div className="hidden">
@@ -872,38 +873,38 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
             showHeader={showHeaderOnPrint}
           />
           <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-md mt-4 pb-2 border-b border-gray-300">
-      <div className="flex justify-between items-center">
-       <span className="font-semibold">Project {`${selectedZone ? "+ Zone" : ""}`}:</span>
-                          <span className="text-right">{projectData?.project_name || "--"}{`${selectedZone ?  ` (${selectedZone})` : ""}`}</span>
-      </div>
-      <div className="flex justify-between items-center">
-        <span className="font-semibold">Last Updated By :</span>
-        <span className="text-right">{ownerData?.full_name || latestReport?.owner || '--'}</span>
-      </div>
-      <div className="flex justify-between items-center">
-        <span className="font-semibold">Start Date :</span>
-        <span className="text-right">{projectData?.project_start_date ? formatDate(projectData.project_start_date) : "--"}</span>
-      </div>
-      <div className="flex justify-between items-center">
-        <span className="font-semibold">Lastest Report Date :</span>
-        <span className="text-right">{formatDate(latestReport?.report_date || '') || "--"}</span>
-      </div>
-    </div>
+            <div className="flex justify-between items-center">
+              <span className="font-semibold">Project {`${selectedZone ? "+ Zone" : ""}`}:</span>
+              <span className="text-right">{projectData?.project_name || "--"}{`${selectedZone ? ` (${selectedZone})` : ""}`}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="font-semibold">Last Updated By :</span>
+              <span className="text-right">{ownerData?.full_name || latestReport?.owner || '--'}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="font-semibold">Start Date :</span>
+              <span className="text-right">{projectData?.project_start_date ? formatDate(projectData.project_start_date) : "--"}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="font-semibold">Lastest Report Date :</span>
+              <span className="text-right">{formatDate(latestReport?.report_date || '') || "--"}</span>
+            </div>
+          </div>
 
           {/* --- START REPORT CONTENT FLOW --- */}
 
           {/* Overall Work Report section */}
-          <div className="mb-6 mt-4 avoid-page-break-inside">
+          {/* <div className="mb-6 mt-4 avoid-page-break-inside">
             <h2 className="text-2xl font-bold mb-3">Overall Work Report</h2>
             <div className="grid grid-cols-1 gap-2 text-lg">
               <p>Total Completed: <span className="font-semibold">{latestReport?.total_completed_works ?? '--'}</span></p>
               <p>Number of packages: <span className="font-semibold">{latestReport?.number_of_work_headers ?? '--'}</span></p>
               <p>Total Manpower Used (till date): <span className="font-semibold">{latestReport?.total_manpower_used_till_date ?? '--'}</span></p>
             </div>
-          </div>
+          </div> */}
 
           {/* Report Dates Summary */}
-          <div className="grid grid-cols-4 gap-4 mb-8 avoid-page-break-inside">
+          {/* <div className="grid grid-cols-4 gap-4 mb-8 avoid-page-break-inside">
             <div className="text-center p-3 bg-gray-100 rounded-lg">
               <h3 className="font-semibold text-gray-700">Current</h3>
               <p className="text-sm text-gray-600 mt-1">
@@ -922,9 +923,9 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
                 {report14DaysAgo?.report_date ? formatDate(report14DaysAgo.report_date, { month: 'short', day: 'numeric' }) : '--'}
               </p>
             </div>
-          </div>
+          </div> */}
 
-          {!hasHistoricalData && (
+          {/* {!hasHistoricalData && (
             <div className="mb-6 bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded avoid-page-break-inside">
               <div className="flex items-start">
                 <div className="flex-shrink-0">
@@ -938,53 +939,53 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
                 </div>
               </div>
             </div>
-          )}
+          )} */}
 
           {/* Manpower Comparison Section */}
           {Object.keys(groupedManpower).length > 0 && (
-              <div className="mb-6 avoid-page-break-inside"> 
-                <h2 className="text-xl font-bold mb-4 mt-4 flex items-center gap-2">
-                   <Truck className="h-5 w-5"/> Manpower Comparison
-                </h2>
-                <Table className="w-full min-w-[600px] border border-gray-300">
-                    <TableHeader className="bg-gray-100">
-                      <TableRow>
-                        <TableHead className="w-[25%] font-semibold text-gray-700 text-sm py-2">Manpower Type</TableHead>
-                        <TableHead className="w-[25%] text-center font-semibold text-gray-700 text-sm py-2 border-r"> <h3 className="font-semibold text-gray-700">Current</h3>
-              <p className="text-sm text-gray-600 mt-1">
-                {latestReport?.report_date ? formatDate(latestReport.report_date, { month: 'short', day: 'numeric' }) : '--'}
-              </p></TableHead>
-                        <TableHead className="w-[25%] text-center font-semibold text-gray-700 text-sm py-2 border-r"> <h3 className="font-semibold text-gray-700">7 Days Ago</h3>
-              <p className="text-sm text-gray-600 mt-1">
-                {report7DaysAgo?.report_date ? formatDate(report7DaysAgo.report_date, { month: 'short', day: 'numeric' }) : '--'}
-              </p></TableHead>
-                        <TableHead className="w-[25%] text-center font-semibold text-gray-700 text-sm py-2 border-r">
-                         <h3 className="font-semibold text-gray-700">14 Days Ago</h3>
-              <p className="text-sm text-gray-600 mt-1">
-                {report14DaysAgo?.report_date ? formatDate(report14DaysAgo.report_date, { month: 'short', day: 'numeric' }) : '--'}
-              </p>
-                          </TableHead>
+            <div className="mb-6 avoid-page-break-inside">
+              <h2 className="text-xl font-bold mb-4 mt-4 flex items-center gap-2">
+                <Truck className="h-5 w-5" /> Manpower Comparison
+              </h2>
+              <Table className="w-full min-w-[600px] border border-gray-300">
+                <TableHeader className="bg-gray-100">
+                  <TableRow>
+                    <TableHead className="w-[25%] font-semibold text-gray-700 text-sm py-2">Manpower Type</TableHead>
+                    <TableHead className="w-[25%] text-center font-semibold text-gray-700 text-sm py-2 border-r"> <h3 className="font-semibold text-gray-700">Current</h3>
+                      <p className="text-sm text-gray-600 mt-1">
+                        {latestReport?.report_date ? formatDate(latestReport.report_date, { month: 'short', day: 'numeric' }) : '--'}
+                      </p></TableHead>
+                    <TableHead className="w-[25%] text-center font-semibold text-gray-700 text-sm py-2 border-r"> <h3 className="font-semibold text-gray-700">7 Days Ago</h3>
+                      <p className="text-sm text-gray-600 mt-1">
+                        {report7DaysAgo?.report_date ? formatDate(report7DaysAgo.report_date, { month: 'short', day: 'numeric' }) : '--'}
+                      </p></TableHead>
+                    <TableHead className="w-[25%] text-center font-semibold text-gray-700 text-sm py-2 border-r">
+                      <h3 className="font-semibold text-gray-700">14 Days Ago</h3>
+                      <p className="text-sm text-gray-600 mt-1">
+                        {report14DaysAgo?.report_date ? formatDate(report14DaysAgo.report_date, { month: 'short', day: 'numeric' }) : '--'}
+                      </p>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {Object.entries(groupedManpower).map(([label, counts], idx) => {
+                    return (
+                      <TableRow key={idx} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} avoid-page-break-inside`}>
+                        <TableCell className="py-3 px-4 text-sm font-medium break-words border-r">{label}</TableCell>
+                        <TableCell className="text-center py-3 px-2 text-sm font-semibold border-r">{counts.current}</TableCell>
+                        <TableCell className="text-center py-3 px-2 text-sm border-r">
+                          {report7DaysAgo ? counts.sevenDays : <span className="text-gray-400 text-xs">--</span>}
+                        </TableCell>
+                        <TableCell className="text-center py-3 px-2 text-sm border-r">
+                          {report14DaysAgo ? counts.fourteenDays : <span className="text-gray-400 text-xs">--</span>}
+                        </TableCell>
                       </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {Object.entries(groupedManpower).map(([label, counts], idx) => {
-                        return (
-                          <TableRow key={idx} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} avoid-page-break-inside`}>
-                            <TableCell className="py-3 px-4 text-sm font-medium break-words border-r">{label}</TableCell>
-                            <TableCell className="text-center py-3 px-2 text-sm font-semibold border-r">{counts.current}</TableCell>
-                            <TableCell className="text-center py-3 px-2 text-sm border-r">
-                              {report7DaysAgo ? counts.sevenDays : <span className="text-gray-400 text-xs">--</span>}
-                            </TableCell>
-                            <TableCell className="text-center py-3 px-2 text-sm border-r">
-                              {report14DaysAgo ? counts.fourteenDays : <span className="text-gray-400 text-xs">--</span>}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-              </div>
-            )}
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
 
 
           {/* Work Progress Comparison Section (Main Content) */}

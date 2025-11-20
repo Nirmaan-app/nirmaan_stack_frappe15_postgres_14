@@ -129,7 +129,7 @@ export const MilestoneProgress = ({
   )
 }
 
-export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }) => {
+export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport, parentSelectedZone = null }) => {
   const { selectedProject, setSelectedProject } = useContext(UserContext);
   const navigate = useNavigate();
   const { role, has_project } = useUserData()
@@ -212,8 +212,14 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
     reportForDisplayDateName, // Fetch using the determined report name
     reportForDisplayDateName && reportType === 'Daily' ? undefined : null // Only fetch if a name exists and reportType is Daily
   );
-// Effect to initialize selectedZone (updated to handle tabs)
+// Effect to initialize selectedZone (updated to handle tabs and parent control)
   useEffect(() => {
+      // Priority 0: If parent is controlling the zone (workReport mode), use parentSelectedZone
+      if (workReport && parentSelectedZone !== null) {
+          setSelectedZone(parentSelectedZone);
+          return;
+      }
+
       if (projectData?.project_zones?.length > 0) {
           if (selectedZone === null) {
               // Priority 1: Check URL for a 'zone' parameter
@@ -222,7 +228,7 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
                   setSelectedZone(urlZone);
                   return;
               }
-              
+
               // Priority 2: Select the first available zone
               const firstZoneName = projectData.project_zones[0].zone_name;
               if (firstZoneName) {
@@ -234,7 +240,7 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
       if (!selectedProject) {
            setSelectedZone(null);
       }
-  }, [projectData, selectedProject, selectedZone]); // Removed searchParams dependency since it's now internal state.
+  }, [projectData, selectedProject, selectedZone, workReport, parentSelectedZone]); // Added workReport and parentSelectedZone
 
 
   // Effect to determine reportForDisplayDateName based on selectedProject and displayDate
