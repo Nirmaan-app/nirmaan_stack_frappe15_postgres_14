@@ -9,6 +9,7 @@
   "project",
   "report_details_section",
   "report_date",
+  "report_zone",
   "manpower_remarks",
   "attachment_remarks",
   "report_status",
@@ -88,12 +89,17 @@
    "fieldname": "draft_last_updated",
    "fieldtype": "Datetime",
    "label": "Draft Last Updated"
+  },
+  {
+   "fieldname": "report_zone",
+   "fieldtype": "Data",
+   "label": "Report Zone"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-10-09 13:49:37.092481",
+ "modified": "2025-11-18 18:34:22.166044",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Progress Reports",

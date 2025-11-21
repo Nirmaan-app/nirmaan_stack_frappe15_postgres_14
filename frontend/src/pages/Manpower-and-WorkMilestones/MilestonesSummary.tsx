@@ -12,7 +12,6 @@ import { TailSpin } from "react-loader-spinner";
 import { useNavigate } from "react-router-dom";
 // import ProjectSelect from "@/components/custom-select/project-select";
 import ProjectMilestoneSelect from "@/components/custom-select/project-milestone-select";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -32,6 +31,9 @@ import { cn } from '@/lib/utils' // Assuming you have this utility
 import {DELIMITER,parseWorkPlan,serializeWorkPlan} from "./MilestoneTab"
 import { OrientationAwareImage } from "@/components/ui/OrientationAwareImage";
 import { ImageBentoGrid } from "@/components/ui/ImageBentoGrid";
+import { Badge } from "@/components/ui/badge";
+import { getZoneStatusIndicator } from "./MilestoneDailySummary";
+
 
 
 // Helper function to format date for input type="date" (YYYY-MM-DD)
@@ -127,21 +129,29 @@ export const MilestoneProgress = ({
   )
 }
 
-export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }) => {
+export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport, parentSelectedZone = null }) => {
   const { selectedProject, setSelectedProject } = useContext(UserContext);
   const navigate = useNavigate();
   const { role, has_project } = useUserData()
+  const [searchParams] = useState(new URLSearchParams(window.location.search));
 
 
   console.log(selectedProject, projectIdForWorkReport)
-  if (workReport) {
-    console.log("In work report", projectIdForWorkReport)
-    setSelectedProject(projectIdForWorkReport)
-  }
+
+  // Set selected project when in work report mode
+  useEffect(() => {
+    if (workReport && projectIdForWorkReport) {
+      console.log("In work report", projectIdForWorkReport)
+      setSelectedProject(projectIdForWorkReport)
+    }
+  }, [workReport, projectIdForWorkReport, setSelectedProject])
+
   // State for Report Type toggle ('Daily' or 'Overall')
   const [reportType, setReportType] = useState<'Daily' | 'Overall'>('Daily');
   // State for the date selected by the user for displaying reports
   const [displayDate, setDisplayDate] = useState<Date>(new Date()); // Initialize with today's date
+  // NEW STATE for Zone selection
+  const [selectedZone, setSelectedZone] = useState<string | null>(null);
 
   // State to hold the Frappe document name of the Project Progress Report for the selected displayDate
   const [reportForDisplayDateName, setReportForDisplayDateName] = useState<string | null>(null);
@@ -149,6 +159,29 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
   // State for collapsible sections
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   const [allExpanded, setAllExpanded] = useState(false);
+
+  //-------Validation tab--------
+     const {
+      data: allReportsForDate,
+      isLoading: allReportsLoading,
+    } = useFrappeGetDocList(
+        "Project Progress Reports",
+        {
+            fields: ["name", "report_zone", "report_status"],
+            limit: 0,
+            filters: [
+                ["project", "=", selectedProject],
+                // Filter by the current date being viewed
+                ["report_date", "=", formatDateForInput(displayDate)], 
+            ]
+        },
+        // selectedProject && reportType === 'Daily' && displayDate ? undefined : null
+        selectedProject && displayDate ? undefined : null
+
+    );
+    console.log("All Reports for Date:", allReportsForDate);
+    //-------Validation tab--------
+    // Fetch the detailed Daily Report
 
   // Fetch project data (e.g., project name, work packages)
   const {
@@ -165,10 +198,11 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
   } = useFrappeGetDocList(
     "Project Progress Reports",
     {
-      fields: ["name", "report_date", "project"],
+      fields: ["name", "report_date","report_zone", "project"],
       limit: 0,
       filters: [
         ["project", "=", selectedProject],
+        ["report_zone", "=", selectedZone],
         ["report_status", "=", "Completed"]
       ],
     },
@@ -185,14 +219,70 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
     reportForDisplayDateName, // Fetch using the determined report name
     reportForDisplayDateName && reportType === 'Daily' ? undefined : null // Only fetch if a name exists and reportType is Daily
   );
+// Effect to initialize selectedZone (updated to handle tabs and parent control)
+useEffect(() => {
+    // A. PREREQUISITE CHECK
+    if (!projectData || !selectedProject) {
+        // If the project is unselected, clear the zone
+        setSelectedZone(null);
+        return;
+    }
+     
+    // B. PRIORITY 0: PARENT CONTROL (Work Report Mode)
+    // If parent is controlling, always use the parent's value and stop.
+    if (workReport && parentSelectedZone !== null) {
+        setSelectedZone(parentSelectedZone);
+        return;
+    }
 
+    const currentProjectZones = projectData.project_zones?.map(z => z.zone_name) || [];
+    
+    // C. IMPLICIT PROJECT CHANGE CHECK (Focusing on reset/re-run logic)
+    // If the selected project has changed, the selectedZone will often be invalid. 
+    // We only proceed to selection if the current zone is null, or if it's already valid.
+    
+    // 💡 THE CORE LOGIC CHANGE: 
+    // If a zone is currently selected BUT it is not in the new project's zones, 
+    // we assume the project changed and force a reset (set selectedZone to null).
+    if (selectedZone !== null && !currentProjectZones.includes(selectedZone)) {
+        console.log(`Project changed (selectedProject: ${selectedProject}). Resetting zone from ${selectedZone} to null.`);
+        setSelectedZone(null); 
+        return; // Re-run effect to pick up new zone
+    }
+
+    // D. ZONE SELECTION LOGIC (Only runs if selectedZone is null or already valid)
+    if (selectedZone === null && currentProjectZones.length > 0) {
+        // Priority 1: Check URL for a 'zone' parameter
+        const urlZone = searchParams.get('zone');
+        if (urlZone && currentProjectZones.includes(urlZone)) {
+            setSelectedZone(urlZone);
+            return;
+        }
+
+        // Priority 2: Select the first available zone
+        const firstZoneName = currentProjectZones[0];
+        if (firstZoneName) {
+            setSelectedZone(firstZoneName);
+        }
+    }
+    
+}, [
+    projectData, 
+    selectedProject, 
+    workReport, 
+    parentSelectedZone,
+    selectedZone, 
+    // Assuming searchParams is available in scope
+]);
+console.log("Selected Zone:", selectedZone);
   // Effect to determine reportForDisplayDateName based on selectedProject and displayDate
   useEffect(() => {
-    if (projectProgressReports && selectedProject && displayDate) {
+    if (projectProgressReports && selectedProject && displayDate && selectedZone) {
       const selectedDateFormatted = formatDate(displayDate); // Assuming formatDate handles Date objects
 
       const foundReport = projectProgressReports.find(
-        (report) => formatDate(report.report_date) === selectedDateFormatted
+        (report) => formatDate(report.report_date) === selectedDateFormatted && report.report_zone===selectedZone
+        
       );
 
       if (foundReport) {
@@ -200,8 +290,10 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
       } else {
         setReportForDisplayDateName(null);
       }
+    }else{
+      setReportForDisplayDateName(null);
     }
-  }, [projectProgressReports, selectedProject, displayDate]);
+  }, [projectProgressReports, selectedProject, displayDate, selectedZone]);
 
   // Initialize expanded sections when dailyReportDetails changes
   useEffect(() => {
@@ -256,6 +348,24 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
     }
   };
 
+   // --- NEW: Zone Progress Validation/Status Calculation ---
+    const validationZoneProgress = useMemo(() => {
+      if (!projectData?.project_zones || !allReportsForDate) {
+          // Return null/empty map if data is not ready
+          return new Map<string, { status: string, name: string }>(); 
+      }
+      
+      // Map fetched reports by zone for quick lookup
+      const reportStatusMap = new Map<string, { status: string, name: string }>();
+      allReportsForDate.forEach((report: any) => {
+          reportStatusMap.set(report.report_zone, { status: report.report_status, name: report.name });
+      });
+  
+      return reportStatusMap;
+    }, [projectData?.project_zones, allReportsForDate,reportType]);
+    // --- END NEW: Zone Progress Validation/Status Calculation ---
+  
+
   // Calculate metrics for the Daily Work Report Summary Section
   const totalWorkHeaders = dailyReportDetails?.milestones?.length || 0;
   const completedWorksOnReport = dailyReportDetails?.milestones?.filter(m => m.status === "Completed").length || 0;
@@ -289,37 +399,153 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
       </div>
     );
   }
-  // --- End: Improved Generic Global Error Display ---
+    // --- NEW: Zone Select Handler (Updates State and URL) ---
+  const handleZone = (zoneName: string | null) => {
+    setSelectedZone(zoneName);
+
+    // 1. Prepare new URLSearchParams object
+    const params = new URLSearchParams(location.search);
+    
+    // 2. Set or delete the zone parameter
+    if (zoneName) {
+      params.set('zone', zoneName);
+      // OPTIONAL: Save to session if you prefer persistence (original request included this)
+      sessionStorage.setItem("selectedZone", JSON.stringify(zoneName));
+    } else {
+      params.delete('zone');
+      sessionStorage.removeItem("selectedZone");
+    }
+
+    // 3. Navigate to the current path with the new query string
+    // navigate(`${location.pathname}?${params.toString()}`);
+    navigate(`?${params.toString()}`);
+
+  };
 
 
   return (
     <>
       <div className="flex-1 space-y-4 min-h-[50vh]">
         {/* Project Selector and "Update Milestone" button at the top */}
-        {!workReport && (
-          <div className="flex items-center gap-2">
+        {/* {!workReport && (
+          <div className="flex-row md:flex-row md:items-center md:justify-between gap-4 mb-2">
 
-            <div className="flex-1">
+            <div className="flex-1 mb-2">
               <ProjectMilestoneSelect
                 onChange={handleChange}
+                // proj_value={selectedProject}
                 universal={true} // Or false, depending on if you want to remember the selection
               />
+
             </div>
 
-            {selectedProject && (
+               <div className="flex-row  md:flex items-center justify-between gap-2 px-0 md:px-2  lg:px-8">
+                <div className="flex md:items-center gap-2">
+                    <span className="font-semibold text-gray-700 whitespace-nowrap">Zone:</span>
+                    <div className="flex rounded-md border border-gray-300 overflow-hidden">
+                        {projectData?.project_zones?.length === 0 ? (
+                            <div className="text-red-500 text-xs p-2 bg-gray-50 border border-red-300 rounded-md">Define Zones in Project Setup</div>
+                        ) : (
+                            projectData.project_zones.map((zone) => (
+                                <button
+                                    key={zone.zone_name}
+                                    className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                                        selectedZone === zone.zone_name 
+                                            ? 'bg-blue-600 text-white shadow-inner' 
+                                            : 'bg-white text-blue-600 hover:bg-blue-50'
+                                    }`}
+                                    onClick={() => handleZone(zone.zone_name)}
+                                >
+                                    {zone.zone_name}
+                                </button>
+                            ))
+                        )}
+                    </div>
+                </div>
+                {selectedProject && (
               <Button
-                onClick={() => navigate(`${selectedProject}`)}
-                className="text-xs"
-                disabled={dailyReportDetails || reportType !== "Daily" || !selectedProject}
+                onClick={() => navigate(`${selectedProject}?zone=${selectedZone}`)}
+                className="text-xs xs:mt-2"
+                disabled={dailyReportDetails || reportType !== "Daily" || !selectedProject ||!selectedZone}
               >
                 {"Add Today's Report"}
               </Button>
             )}
+              </div>
+
+            
+          </div>
+        )} */}
+       {!workReport && (
+          // Main Container: Vertical stack on mobile, horizontal on desktop, aligns items
+          <div className="flex flex-col  gap-4 mb-2 w-full">
+
+            {/* 1. Project Select - Compact width on desktop */}
+            <div className="w-full flex-shrink-0">
+              <ProjectMilestoneSelect
+                onChange={handleChange}
+                universal={true} 
+              />
+            </div>
+            
+            {/* 2. Zone Tab Section & Add Report Button Container - Remaining space on desktop */}
+            {selectedProject && (
+              <div className="flex flex-col w-full  gap-4">
+
+                {/* START ZONE TAB SECTION */}
+                <div className="flex items-center gap-2 w-full overflow-x-auto pb-1 flex-shrink-0">
+                    <span className="font-semibold text-gray-700 whitespace-nowrap flex-shrink-0 hidden md:block">Zone:</span>
+                    <div className="flex rounded-md border border-gray-300 overflow-hidden flex-shrink-0">
+                        {projectData.project_zones?.length === 0 ? (
+                            <div className="text-red-500 text-xs p-1.5 bg-gray-50 border border-red-300 rounded-md">Define Zones</div>
+                        ) : (
+                            projectData.project_zones.map((zone) => {
+                               const zoneStatus = validationZoneProgress.get(zone.zone_name);
+                                                          const statusData = getZoneStatusIndicator(zoneStatus ? zoneStatus.status : null);
+                                return (  
+                                <button
+                                    key={zone.zone_name}
+                                    className={`px-2 py-1 text-xs font-medium transition-colors md:text-sm md:px-3 md:py-1.5 ${
+                                        selectedZone === zone.zone_name 
+                                            ? 'bg-blue-600 text-white shadow-inner' 
+                                            : 'bg-white text-blue-600 hover:bg-blue-50'
+                                    }`}
+                                    onClick={() => handleZone(zone.zone_name)} 
+                                >
+                                     <span className="text-xs md:text-sm">{zone.zone_name}</span>
+                                                                        <Badge 
+                                                                            variant="secondary" 
+                                                                            className={`p-0 ${statusData.color}`}
+                                                                        >
+                                                                            {statusData.icon}
+                                                                        </Badge>
+                                </button>
+                                )
+})
+                        )}
+                    </div>
+                </div>
+                {/* END ZONE TAB SECTION */}
+
+                {/* 3. Add Report Button (Full width on mobile, compact on desktop, custom color) */}
+                {selectedProject && selectedZone && (
+                  <Button
+                    onClick={() => navigate(`${selectedProject}?zone=${selectedZone}`)}
+                    // Custom Pink/Red Color to match image
+                    className="text-sm w-full flex-shrink-0" 
+                    disabled={dailyReportDetails || reportType !== "Daily" || !selectedProject ||!selectedZone}
+                  >
+                    {"Add Today's Report"}
+                  </Button>
+                )}
+              </div>
+            )}
+            
           </div>
         )}
 
 
-        {selectedProject && (
+        {selectedProject  && (
           <div className="mx-0 px-0 pt-4">
             {/* Report Type and Show By Date section - as per image */}
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-4 p-4 shadow-sm border border-gray-300 rounded-md gap-3">
@@ -358,6 +584,7 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
                     />
                   </div>
                 </div>
+             
               )}
             </div>
 
@@ -421,7 +648,7 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
   // Group milestones by header and filter
  const groupedMilestones = dailyReportDetails.milestones.reduce((acc: any, milestone: any) => {
     // Determine if the milestone is relevant for the Work Plan section
-    const isWIPOrNotStarted = milestone.status === "WIP" || milestone.status === "Not Started";
+    const isWIPOrNotStarted = milestone.status === "WIP" || milestone.status === "Not Started"|| milestone.status === "Completed";
     const hasWorkPlanContent = milestone.work_plan && parseWorkPlan(milestone.work_plan).length > 0;
 
     // Include the milestone if it has content OR if it has a relevant status
@@ -548,7 +775,7 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
                       </div>
 
                       {Object.entries(
-                        dailyReportDetails.milestones.reduce((acc, milestone) => {
+                        dailyReportDetails.milestones.filter((milestone: any) => milestone.status !== "Not Applicable").reduce((acc, milestone) => {
                           (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
                           return acc;
                         }, {})
@@ -741,6 +968,7 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
                       <MilestoneReportPDF
                         dailyReportDetails={dailyReportDetails}
                         projectData={projectData}
+                        selectedZone={selectedZone}
                       />
                     )}
                     {/* {dailyReportDetails && projectData && (
@@ -771,7 +999,7 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport }
               // Display when Overall is selected (placeholder)
               <Card className="mt-4">
                 <CardContent>
-                  <OverallMilestonesReport selectedProject={selectedProject} projectData={projectData} />
+                  <OverallMilestonesReport selectedProject={selectedProject} projectData={projectData} selectedZone={selectedZone} />
                 </CardContent>
               </Card>
             )}

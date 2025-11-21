@@ -6,8 +6,8 @@ import { queryKeys } from '@/config/queryKeys';
 const KEY_DELIMITER = "::"; 
 
     // Helper function (optional, but good practice)
-export const getTargetRateKey = (itemId: string, unit: string): string => {
-    return `${itemId}${KEY_DELIMITER}${unit}`;
+export const getTargetRateKey = (itemId: string, unit: string, make: string): string => {
+    return `${itemId}${KEY_DELIMITER}${unit}${KEY_DELIMITER}${make}`;
 };
 
 
@@ -31,6 +31,7 @@ export const useTargetRatesForItems = (itemIds: string[], prId?: string) => {
         // { revalidateOnFocus: false, isPaused: () => !itemIds.length } // Pause if no items
     );
 
+
    const targetRatesDataMap = useMemo(() => {
        const map = new Map<string, TargetRateDetailFromAPI>();
        
@@ -38,9 +39,9 @@ export const useTargetRatesForItems = (itemIds: string[], prId?: string) => {
        if (apiResponse?.message && Array.isArray(apiResponse.message)) {
            apiResponse.message.forEach(tr => {
                // Check for valid item_id and unit before creating the key
-               if (tr.item_id && tr.unit) {
+               if (tr.item_id && tr.unit && tr.make) {
                    // 1. Create the unique, composite key
-                   const key = getTargetRateKey(tr.item_id, tr.unit);
+                   const key = getTargetRateKey(tr.item_id, tr.unit, tr.make);
                    
                    // 2. Set the data using the composite key
                    map.set(key, tr);
@@ -51,7 +52,8 @@ export const useTargetRatesForItems = (itemIds: string[], prId?: string) => {
        return map;
    }, [apiResponse]);
 
-    // console.log("apiResponse", targetRatesDataMap)
+      console.log("apiResponse",apiResponse, targetRatesDataMap)
+
 
     return {
         targetRatesDataMap,

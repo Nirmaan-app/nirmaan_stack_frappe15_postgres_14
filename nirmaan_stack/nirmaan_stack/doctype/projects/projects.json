@@ -37,7 +37,8 @@
   "project_wp_category_makes",
   "project_milestone_details_section",
   "enable_project_milestone_tracking",
-  "project_work_header_entries"
+  "project_work_header_entries",
+  "project_zones"
  ],
  "fields": [
   {
@@ -220,12 +221,18 @@
    "fieldtype": "Table",
    "label": "Customer PO Details",
    "options": "Customer PO Child Table"
+  },
+  {
+   "fieldname": "project_zones",
+   "fieldtype": "Table",
+   "label": "Project Zones",
+   "options": "Project Zone Child Table"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-11-03 13:36:16.648045",
+ "modified": "2025-11-18 12:39:10.801268",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Projects",

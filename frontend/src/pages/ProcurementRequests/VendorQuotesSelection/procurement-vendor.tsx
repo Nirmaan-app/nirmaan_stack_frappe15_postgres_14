@@ -69,8 +69,8 @@ console.log("targetRatesApiResponse",targetRatesApiResponse)
 const KEY_DELIMITER = "::"; 
 
 // Helper function (optional, but good practice)
-const getTargetRateKey = (itemId: string, unit: string): string => {
-    return `${itemId}${KEY_DELIMITER}${unit}`;
+const getTargetRateKey = (itemId: string, unit: string,make: string): string => {
+    return `${itemId}${KEY_DELIMITER}${unit}${KEY_DELIMITER}${make}`;
 };
 
 const targetRatesDataMap = useMemo(() => {
@@ -82,7 +82,7 @@ const targetRatesDataMap = useMemo(() => {
             // Check for valid item_id and unit before creating the key
             if (tr.item_id && tr.unit) {
                 // 1. Create the unique, composite key
-                const key = getTargetRateKey(tr.item_id, tr.unit);
+                const key = getTargetRateKey(tr.item_id, tr.unit,tr.make);
                 
                 // 2. Set the data using the composite key
                 map.set(key, tr);
@@ -216,6 +216,7 @@ console.log("targetRatesDataMap", targetRatesDataMap);
                       </div> */}
                     </TableHead>
                     <TableHead className="w-[10%] text-red-700">UOM</TableHead>
+                    <TableHead className="w-[20%] text-red-700">Make</TableHead>
                     <TableHead className="w-[10%] text-red-700">Qty</TableHead>
                     <TableHead className="w-[20%] text-red-700">Target Rate</TableHead>
                   </TableRow>
@@ -227,7 +228,7 @@ console.log("targetRatesDataMap", targetRatesDataMap);
                       // const minQuote = getItemEstimate(item.name)?.averageRate
                       // --- Get Target Rate Info ---
                        // --- FIX APPLIED HERE: Create the composite key for the lookup ---
-                      const lookupKey = getTargetRateKey(item.item_id, item.unit);
+                      const lookupKey = getTargetRateKey(item.item_id, item.unit,item.make);
 
                       const targetRateDetail = targetRatesDataMap.get(lookupKey); // item.name is the item_id
                       let targetRateValue: number = -1;
@@ -267,6 +268,10 @@ console.log("targetRatesDataMap", targetRatesDataMap);
                             </div>
                           </TableCell>
                           <TableCell>{item.unit}</TableCell>
+                          <TableCell>
+                {item.make || "--"}
+            </TableCell>
+
                           <TableCell>{item.quantity}</TableCell>
                           <TableCell>
                             {/* Use HistoricalQuotesHoverCard here */}

@@ -42,6 +42,14 @@ export interface ProjectWorkHeaderEntry {
 }
 
 
+export interface ProjectZoneEntry {
+    name?: string; // Child Doc name
+    zone_name: string;
+}
+
+
+
+
 export interface ProjectGSTNumber {
 	location: string;
 	gst: string;
@@ -111,5 +119,6 @@ export interface Projects {
 	  // --- NEW FIELDS ---
     enable_project_milestone_tracking: boolean;
     project_work_header_entries?: ProjectWorkHeaderEntry[]; // Child table for work headers
+		project_zones?: ProjectZoneEntry[]; // Child table for project zones
 		customer_po_details?: CustomerPODetail[]; // Child table for Customer PO Details
 }

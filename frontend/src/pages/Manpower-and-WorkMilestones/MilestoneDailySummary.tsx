@@ -1,8 +1,8 @@
-import React, { useRef, useMemo, useState, useContext, useEffect } from 'react';
-import { useLocation } from 'react-router-dom'; // Import to read URL parameters
+import React, { useRef, useMemo, useState, useContext, useEffect,useCallback } from 'react';
+import { useLocation,useNavigate } from 'react-router-dom'; // Import to read URL parameters
 import { useReactToPrint } from 'react-to-print';
 import { formatDate } from '@/utils/FormatDate';
-import { MapPin, MessagesSquare, ChevronDown, ChevronUp } from 'lucide-react';
+import { MapPin, MessagesSquare, ChevronDown, ChevronUp,CheckCircle2,Clock,XCircle } from 'lucide-react';
 
 // --- Frappe and Context Imports ---
 import { useFrappeGetDoc, useFrappeGetDocList } from 'frappe-react-sdk';
@@ -30,6 +30,16 @@ import OverallMilestonesReport from "./components/OverallMilestonesReport"
 import { ProgressCircle } from '@/components/ui/ProgressCircle';
 import { ImageBentoGrid } from '@/components/ui/ImageBentoGrid';
 
+// --- Shared Types ---
+interface ProjectZoneEntry {
+    name?: string; 
+    zone_name: string;
+}
+interface ProjectDataWithZones {
+    project_zones: ProjectZoneEntry[];
+    project_name: string;
+    // ... other project fields
+}
 
 // --- Helper Functions ---
 
@@ -46,6 +56,20 @@ const formatDateForInput = (date: Date): string => {
   const day = d.getDate().toString().padStart(2, '0');
   return `${year}-${month}-${day}`;
 };
+// Helper function to get status icon/color for a badge
+export const getZoneStatusIndicator = (status: string | null) => {
+    switch (status) {
+        case "Completed":
+            return { icon: <CheckCircle2 className="w-3 h-3 text-green-700" />, color: "bg-green-100 text-green-700" };
+       
+        case "Draft":
+            return { icon: <Clock className="w-3 h-3 text-yellow-700" />, color: "bg-yellow-100 text-yellow-700" };
+        case null:
+        default:
+            return { icon: <XCircle className="w-3 h-3 text-red-700" />, color: "bg-red-100 text-red-700" };
+    }
+};
+
 
 // Function to get badge classes based on status
 const getStatusBadgeClasses = (status: string) => {
@@ -128,8 +152,12 @@ export const MilestoneProgress = ({
 
 export const MilestoneDailySummary = () => {
   const query = useQuery();
+  const navigate = useNavigate();
+  const location = useLocation();
+
   const initialProjectId = query.get('project_id') || '';
   const initialDateStr = query.get('report_date'); // YYYY-MM-DD from URL
+  const initialZone = query.get('zone') 
   const initialDate = initialDateStr ? new Date(initialDateStr) : new Date();
 
   const { role } = useUserData();
@@ -140,6 +168,7 @@ export const MilestoneDailySummary = () => {
 
   // --- ADDED: Report Type state re-introduced ---
   const [reportType, setReportType] = useState<'Daily' | 'Overall'>('Daily'); 
+  const [selectedZone, setSelectedZone] = useState<string | null>(initialZone);
   // --- END ADDED ---
 
   const [reportForDisplayDateName, setReportForDisplayDateName] = useState<string | null>(null);
@@ -161,16 +190,35 @@ export const MilestoneDailySummary = () => {
   } = useFrappeGetDocList(
     "Project Progress Reports",
     {
-      fields: ["name", "report_date", "project"],
+      fields: ["name", "report_date", "project","report_zone"],
       limit: 0,
       filters: [
         ["project", "=", selectedProject],
+        ["report_zone", "=", selectedZone],
         ["report_status", "=", "Completed"]
       ],
     },
     selectedProject && reportType === 'Daily' ? undefined : null // Only fetch if we're in Daily mode
   );
-
+//-------Validation tab--------
+   const {
+    data: allReportsForDate,
+    isLoading: allReportsLoading,
+  } = useFrappeGetDocList(
+      "Project Progress Reports",
+      {
+          fields: ["name", "report_zone", "report_status"],
+          limit: 0,
+          filters: [
+              ["project", "=", selectedProject],
+              // Filter by the current date being viewed
+              ["report_date", "=", formatDateForInput(displayDate)], 
+          ]
+      },
+      selectedProject  && displayDate ? undefined : null
+  );
+  console.log("All Reports for Date:", allReportsForDate);
+  //-------Validation tab--------
   // Fetch the detailed Daily Report
   const {
     data: dailyReportDetails,
@@ -181,6 +229,34 @@ export const MilestoneDailySummary = () => {
     reportForDisplayDateName,
     reportForDisplayDateName && reportType === 'Daily' ? undefined : null // Only fetch if we're in Daily mode AND have a report name
   );
+
+  // Handler for Zone Tab Click
+  const handleZoneChange = useCallback((zoneName: string) => {
+    setSelectedZone(zoneName);
+
+    // 1. Update URL query parameter
+    const params = new URLSearchParams(location.search);
+    params.set('zone', zoneName);
+    
+    // 2. Navigate to the current path with the new query string
+    // navigate(`${location.pathname}?${params.toString()}`);
+    navigate(`?${params.toString()}`);
+  }, [location.search, location.pathname]);
+
+
+  // Handler for Date Change
+  const handleDateChange = useCallback((newDate: Date) => {
+    setDisplayDate(newDate);
+
+    // 1. Update URL query parameter
+    const params = new URLSearchParams(location.search);
+    params.set('report_date', formatDateForInput(newDate));
+    
+    // 2. Navigate
+    // navigate(`${location.pathname}?${params.toString()}`);
+    navigate(`?${params.toString()}`);
+  }, [location.search, location.pathname]);
+
 
   // Effect to determine reportForDisplayDateName based on selectedProject and displayDate
   useEffect(() => {
@@ -249,6 +325,22 @@ export const MilestoneDailySummary = () => {
     }, {});
   }, [dailyReportDetails, reportType]);
   // --- End Work Plan Grouping ---
+ // --- NEW: Zone Progress Validation/Status Calculation ---
+  const validationZoneProgress = useMemo(() => {
+    if (!projectData?.project_zones || !allReportsForDate) {
+        // Return null/empty map if data is not ready
+        return new Map<string, { status: string, name: string }>(); 
+    }
+    
+    // Map fetched reports by zone for quick lookup
+    const reportStatusMap = new Map<string, { status: string, name: string }>();
+    allReportsForDate.forEach((report: any) => {
+        reportStatusMap.set(report.report_zone, { status: report.report_status, name: report.name });
+    });
+
+    return reportStatusMap;
+  }, [projectData?.project_zones, allReportsForDate,reportType]);
+  // --- END NEW: Zone Progress Validation/Status Calculation ---
 
 
   // Calculate metrics for the Daily Work Report Summary Section
@@ -277,6 +369,68 @@ export const MilestoneDailySummary = () => {
                <span className="font-semibold text-gray-700 whitespace-nowrap">Project:</span>
                 {projectData?.project_name || "Daily Report Summary"}
             </div>
+            {/* 2. Zone Tabs */}
+            {/* <div>
+            {projectData?.project_zones?.length > 0 && (
+                <div className="flex flex-row md:items-center gap-2 overflow-x-auto pb-1 flex-shrink-0">
+                    <span className="font-semibold text-gray-700 whitespace-nowrap flex-shrink-0">Zone:</span>
+                    <div className="flex rounded-md border border-gray-300 overflow-hidden flex-shrink-0">
+                        {projectData.project_zones.map((zone) => (
+                            <button
+                                key={zone.zone_name}
+                                  className={`px-2 py-1 text-xs font-medium transition-colors md:text-sm md:px-3 md:py-1.5 ${
+                                        selectedZone === zone.zone_name 
+                                            ? 'bg-blue-600 text-white shadow-inner' 
+                                            : 'bg-white text-blue-600 hover:bg-blue-50'
+                                    }`}
+                                onClick={() => handleZoneChange(zone.zone_name)} 
+                            >
+                                {zone.zone_name}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div> */}
+          {/* 2. Zone Tabs (Includes Status Badge) */}
+            <div>
+            {projectData?.project_zones?.length > 0 && (
+                <div className="flex flex-row md:items-center gap-2 overflow-x-auto pb-1 flex-shrink-0">
+                    <span className="font-semibold text-gray-700 whitespace-nowrap flex-shrink-0 hidden md:block
+                    ">Zone:</span>
+                    <div className="flex rounded-md border border-gray-300 overflow-hidden flex-shrink-0">
+                        {projectData.project_zones.map((zone: ProjectZoneEntry) => {
+                            const zoneStatus = validationZoneProgress.get(zone.zone_name);
+                            const statusData = getZoneStatusIndicator(zoneStatus ? zoneStatus.status : null);
+                            
+                            return (
+                                <button
+                                    key={zone.zone_name}
+                                   className={`px-2 py-1 text-xs font-medium transition-colors md:text-sm md:px-3 md:py-1.5 ${
+                                        selectedZone === zone.zone_name 
+                                            ? 'bg-blue-600 text-white shadow-inner' 
+                                            : 'bg-white text-blue-600 hover:bg-blue-50'
+                                    }`}
+                                    onClick={() => handleZoneChange(zone.zone_name)} 
+                                >
+                                    <span className='text-xs md:text-sm'>{zone.zone_name}</span>
+                                    <Badge 
+                                        variant="secondary" 
+                                        className={`p-0 ${statusData.color}`}
+                                    >
+                                        {statusData.icon}
+                                    </Badge>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+        </div>
+        {/* --- End Top Control Bar --- */}
+
+        {/* --- End Top Control Bar --- */}
+
 
             <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
                  {/* Report Type Toggle */}
@@ -287,7 +441,7 @@ export const MilestoneDailySummary = () => {
                       <input
                         type="date"
                         value={displayDate ? formatDateForInput(displayDate) : ''}
-                        onChange={(e) => setDisplayDate(new Date(e.target.value))}
+                        onChange={(e) => handleDateChange(new Date(e.target.value))}
                         className="pl-3 pr-10 py-2 border border-gray-300 rounded-md text-sm cursor-pointer w-full"
                       />
                     </div>
@@ -633,6 +787,7 @@ export const MilestoneDailySummary = () => {
                   <MilestoneReportPDF
                     dailyReportDetails={dailyReportDetails}
                     projectData={projectData}
+                     selectedZone={selectedZone}
                   />
                 )}
               </div>
@@ -652,7 +807,8 @@ export const MilestoneDailySummary = () => {
                     {/* Assuming OverallMilestonesReport takes projectData and selectedProject */}
                     <OverallMilestonesReport 
                         selectedProject={selectedProject} 
-                        projectData={projectData} 
+                        projectData={projectData}
+                        selectedZone={selectedZone}
                     />
                 </CardContent>
               </Card>

@@ -76,6 +76,7 @@ export interface TargetRateDetailFromAPI {
     item_id?: string; // Key for matching
     creation?: string;
     modified?: string;
+    make?: string;
     selected_quotations_items: ApiSelectedQuotation[]; 
     }
 export interface FrappeTargetRateApiResponse { message: TargetRateDetailFromAPI[]; }
