@@ -12,13 +12,20 @@ import QuantityQuoteInput from "@/components/helpers/QtyandQuoteInput";
 import { VendorHoverCard } from "@/components/helpers/vendor-hover-card";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
-import { CircleCheck, CircleMinus, MessageCircleMore,AlertTriangle } from "lucide-react";
+import { CircleCheck, CircleMinus, MessageCircleMore,AlertTriangle,AlertCircle } from "lucide-react";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { TargetRateDetailFromAPI, mapApiQuotesToApprovedQuotations } from '../ApproveVendorQuotes/types'; // Keep
 import {useFrappeGetDocList} from 'frappe-react-sdk';
 import { ProgressDocument, getItemListFromDocument, getCategoryListFromDocument, ProgressItem } from './types'; // Local feature types
 import { getTargetRateKey } from './hooks/useTargetRatesForItems';
 import { SelectUnit } from '@/components/helpers/SelectUnit';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+
 
 interface SelectVendorQuotesTableProps {
     currentDocument: ProgressDocument;
@@ -305,11 +312,12 @@ const activeMake = selectedVendorId
                                                 </Select>
                                             </TableCell>
                                              {numVendors === 0 && <TableCell />}
-                                            {formData.selectedVendors.map(vendor => {
+                                            {/* {formData.selectedVendors.map(vendor => {
                                                 const itemVendorDetails = formData.details[item.item_id]?.vendorQuotes?.[vendor.value];
                                                 const currentQuote = itemVendorDetails?.quote ?? "";
                                                 const currentMake = itemVendorDetails?.make ?? formData.details[item.item_id]?.initialMake;
                                                 const isSelectedForQuote = selectedVendorQuotes.get(item.item_id) === vendor.value;
+
                                                 const canSelectThisQuote = (currentQuote || String(currentQuote) === "0") && !isReadOnly && mode !== 'edit';
 
                                                 return (
@@ -326,7 +334,7 @@ const activeMake = selectedVendorId
                                                             `}
                                                         >
                                                             {isSelectedForQuote && <CircleCheck className="absolute w-3.5 h-3.5 top-1 right-1 text-primary" />}
-                                                            {/* ... Vendor Make and Rate details ... */}
+                                                           
                                                              <div className="space-y-0.5">
                                                                 <Label className="text-xs font-medium text-muted-foreground">Make</Label>
                                                                 {mode === "edit" && !isReadOnly ? (
@@ -355,7 +363,136 @@ const activeMake = selectedVendorId
                                                         </div>
                                                     </TableCell>
                                                 );
-                                            })}
+                                            })} */}
+                                            {numVendors === 0 && <TableCell />}
+{formData.selectedVendors.map(vendor => {
+    // 1. Extract Data
+    const itemVendorDetails = formData.details[item.item_id]?.vendorQuotes?.[vendor.value];
+    const currentQuote = itemVendorDetails?.quote ?? "";
+    // Fallback to initialMake if specific vendor make isn't set yet
+    const currentMake = itemVendorDetails?.make ?? formData.details[item.item_id]?.initialMake;
+    const isSelectedForQuote = selectedVendorQuotes.get(item.item_id) === vendor.value;
+
+    // 2. Apply Your Validation Logic
+    const hasMake = Boolean(currentMake && currentMake !== "" && currentMake !== "-");
+    // Check if Rate exists and is greater than 0 (using your parseNumber utility)
+    const hasRate = Boolean(currentQuote && parseNumber(String(currentQuote)) > 0);
+
+    // Block selection ONLY in Edit mode if data is missing, unless it's read-only
+    const isDataMissing = (!hasMake || !hasRate) && mode !== "edit" && !isReadOnly;
+
+    // Determine Warning Message
+    let warningMessage = "";
+    if (!hasMake) warningMessage = "Please select a Make first";
+    else if (!hasRate) warningMessage = "Please enter a Rate";
+
+    // 3. Determine if clickable
+    // Standard logic: Not read only. 
+    // New Logic: If in edit mode, data must not be missing.
+    const canClickToSelect = !isReadOnly && !isDataMissing;
+
+    return (
+        <TableCell key={`${item.item_id}-${vendor.value}`} className="p-1.5">
+            <TooltipProvider>
+                <Tooltip delayDuration={100}>
+                    <TooltipTrigger asChild>
+                        <div className="h-full w-full">
+                            <div
+                                role="radio"
+                                aria-checked={isSelectedForQuote}
+                                // Disable focus if data is missing in edit mode
+                                tabIndex={canClickToSelect ? 0 : -1}
+                                
+                                // Click Handler with Guards
+                                onClick={() => {
+                                    if (isDataMissing) return; // BLOCK Selection
+                                    if (canClickToSelect) {
+                                        onVendorSelectForItem(item.item_id, vendor.value);
+                                    }
+                                }}
+                                
+                                // Keyboard Handler
+                                onKeyDown={(e) => {
+                                    if (isDataMissing) return; // BLOCK Selection
+                                    if (canClickToSelect && (e.key === 'Enter' || e.key === ' ')) {
+                                        onVendorSelectForItem(item.item_id, vendor.value);
+                                    }
+                                }}
+                                
+                                // Dynamic Styling
+                                className={`min-w-[150px] max-w-[150px] mx-auto space-y-1.5 p-2 border rounded-md transition-all relative hover:shadow-sm
+                                    ${isSelectedForQuote 
+                                        ? "ring-1 ring-primary bg-primary/5 shadow-md" 
+                                        : "bg-card"}
+                                    ${isDataMissing
+                                        ? "opacity-70 bg-gray-50 cursor-not-allowed border-dashed" // Visual feedback for missing data
+                                        : !canClickToSelect && mode === 'view' // Standard view-only disabled state
+                                            ? "opacity-60 cursor-not-allowed" 
+                                            : "cursor-pointer focus:ring-1 focus:ring-ring"} 
+                                `}
+                            >
+                                {isSelectedForQuote && (
+                                    <CircleCheck className="absolute w-3.5 h-3.5 top-1 right-1 text-primary" />
+                                )}
+
+                                {/* --- MAKE SECTION --- */}
+                                <div className="space-y-0.5">
+                                    <Label className="text-xs font-medium text-muted-foreground">Make</Label>
+                                    {mode === "edit" && !isReadOnly ? (
+                                        // stopPropagation ensures clicking the dropdown doesn't trigger the card selection logic
+                                        <div onClick={(e) => e.stopPropagation()}> 
+                                            <MakesSelection
+                                                defaultMake={formData.details[item.item_id]?.initialMake}
+                                                vendor={vendor}
+                                                item={item}
+                                                formData={formData}
+                                                setFormData={setFormData}
+                                            />
+                                        </div>
+                                    ) : (
+                                        <p className={`text-xs font-medium truncate ${targetRateValue !== -1 && parseNumber(String(currentQuote)) < targetRateValue ? "text-green-600" : ""}`}>
+                                            {currentMake || "-"}
+                                        </p>
+                                    )}
+                                </div>
+
+                                {/* --- RATE SECTION --- */}
+                                <div className="space-y-0.5">
+                                    <Label className="text-xs font-medium text-muted-foreground">Rate</Label>
+                                    {mode === "edit" && !isReadOnly ? (
+                                        // stopPropagation ensures clicking the input doesn't trigger the card selection logic
+                                        <div onClick={(e) => e.stopPropagation()}>
+                                            <QuantityQuoteInput
+                                                value={currentQuote}
+                                                onChange={(val) => handleInternalQuoteChange(item.item_id, vendor.value, val)}
+                                            />
+                                        </div>
+                                    ) : (
+                                        <p className={`text-sm font-semibold ${targetRateValue !== -1 && parseNumber(String(currentQuote)) < targetRateValue ? "text-green-600" : ""}`}>
+                                            {(currentQuote || String(currentQuote) === "0") 
+                                                ? formatToIndianRupee(parseNumber(String(currentQuote))) 
+                                                : "-"}
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </TooltipTrigger>
+                    
+                    {/* Show Tooltip only if IsDataMissing is true */}
+                    {isDataMissing && (
+                        <TooltipContent className="bg-destructive text-destructive-foreground border-destructive z-50">
+                            <div className="flex items-center gap-1.5">
+                                <AlertCircle className="w-4 h-4" />
+                                <p>{warningMessage}</p>
+                            </div>
+                        </TooltipContent>
+                    )}
+                </Tooltip>
+            </TooltipProvider>
+        </TableCell>
+    );
+})}
                                          
                                             <TableCell className="align-middle text-right">
                                                 <HistoricalQuotesHoverCard quotes={mappedContributingQuotes}>

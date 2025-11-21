@@ -36,6 +36,7 @@ const ItemView = ({ productId }: { productId: string }) => {
     const location = useLocation(); // <--- ADDED: Hook to read URL location
     const queryParams = new URLSearchParams(location.search); // Object to easily read query params
     const unitFromQuery = queryParams.get('unit'); // <--- GET UNIT FROM URL
+    const MakeFromQuery = queryParams.get('make'); // <--- GET MAKE FROM URL
 
     const { data, error, isLoading, mutate } = useFrappeGetDoc<Items>(
         'Items',
@@ -60,12 +61,12 @@ const ItemView = ({ productId }: { productId: string }) => {
             ],
             limit: 0, // Only expect one Target Rate document for a unique Item-Unit combination
         },
-       productId && `TargetRates_${productId}_${unitFromQuery}`
+       productId && `TargetRates_${productId}_${unitFromQuery}_${MakeFromQuery}`
     );
 
-// console.log("targetRatesList",targetRatesList)
+console.log("targetRatesList",targetRatesList)
 
-const FilterTargetRateUnit=targetRatesList?.filter((item)=>item.unit===unitFromQuery)
+const FilterTargetRateUnit=targetRatesList?.filter((item)=>item.unit===unitFromQuery && item.make === MakeFromQuery)
 
 // console.log("FilterTargetRateUnit",FilterTargetRateUnit)
 
@@ -289,13 +290,18 @@ const FilterTargetRateUnit=targetRatesList?.filter((item)=>item.unit===unitFromQ
                                         // --- EXISTING MAPPED LIST (Only runs when not loading) ---
                                         targetRatesList.map((listTarget, i) => {
                                             // Highlight the rate matching the current URL query unit
-                                            const isCurrentUnit = unitFromQuery?listTarget?.unit === unitFromQuery:listTarget?.unit===data?.unit_name; 
+                                            const isCurrentUnit = unitFromQuery && MakeFromQuery 
+                                            && listTarget?.unit === unitFromQuery && listTarget?.make === MakeFromQuery 
                                             
                                             return (
                                                 <div key={i} className={`flex justify-between items-center text-sm p-1 rounded ${isCurrentUnit ? 'bg-blue-50 border border-blue-200' : ''}`}> 
                                                     <CardDescription className="space-y-1">
                                                         <span className="text-xs">Unit</span>
                                                         <p className={`font-bold ${isCurrentUnit ? 'text-blue-700' : 'text-black'}`}>{listTarget?.unit}</p>
+                                                    </CardDescription>
+                                                    <CardDescription className="space-y-1">
+                                                        <span className="text-xs">Make</span>
+                                                        <p className={`font-bold ${isCurrentUnit ? 'text-blue-700' : 'text-black'}`}>{listTarget?.make || "N/A"}</p>
                                                     </CardDescription>
                                                 
                                                     <CardDescription className="space-y-1 text-right">
