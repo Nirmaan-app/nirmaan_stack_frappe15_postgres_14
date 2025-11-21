@@ -137,10 +137,15 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport, 
 
 
   console.log(selectedProject, projectIdForWorkReport)
-  // if (workReport) {
-  //   console.log("In work report", projectIdForWorkReport)
-  //   setSelectedProject(projectIdForWorkReport)
-  // }
+
+  // Set selected project when in work report mode
+  useEffect(() => {
+    if (workReport && projectIdForWorkReport) {
+      console.log("In work report", projectIdForWorkReport)
+      setSelectedProject(projectIdForWorkReport)
+    }
+  }, [workReport, projectIdForWorkReport, setSelectedProject])
+
   // State for Report Type toggle ('Daily' or 'Overall')
   const [reportType, setReportType] = useState<'Daily' | 'Overall'>('Daily');
   // State for the date selected by the user for displaying reports

@@ -438,46 +438,41 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
                 getLinkedWorkHeaderName={getLinkedWorkHeaderName as any}
             />
 
-            {/* Zone Selector and Milestone Summary - Only show if tracking is enabled */}
-            {isMilestoneTrackingEnabled && (
-                <>
-                    {/* Zone Selector - Only show if zones exist */}
-                    {Boolean(projectDataWithZones?.project_zones?.length) && (
-                        <div className="p-4 border rounded-md shadow-sm bg-white mt-4">
-                            <div className="flex flex-col gap-4">
-                                <div className="flex items-center gap-2 w-full overflow-x-auto pb-1 flex-shrink-0">
-                                    <span className="font-semibold text-gray-700 whitespace-nowrap flex-shrink-0 hidden md:block">
-                                        Select Zone:
-                                    </span>
-                                    <div className="flex rounded-md border border-gray-300 overflow-hidden flex-shrink-0">
-                                        {projectDataWithZones.project_zones.map((zone) => (
-                                            <button
-                                                key={zone.zone_name}
-                                                className={`px-2 py-1 text-xs font-medium transition-colors md:text-sm md:px-3 md:py-1.5 ${
-                                                    selectedZone === zone.zone_name
-                                                        ? 'bg-blue-600 text-white shadow-inner'
-                                                        : 'bg-white text-blue-600 hover:bg-blue-50'
-                                                }`}
-                                                onClick={() => setSelectedZone(zone.zone_name)}
-                                                disabled={isEditingZones || isEditingHeaders}
-                                            >
-                                                <span className="text-xs md:text-sm">{zone.zone_name}</span>
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
+            {/* Zone Selector - Only show if tracking is enabled and zones exist */}
+            {isMilestoneTrackingEnabled && Boolean(projectDataWithZones?.project_zones?.length) && (
+                <div className="p-4 border rounded-md shadow-sm bg-white mt-4">
+                    <div className="flex flex-col gap-4">
+                        <div className="flex items-center gap-2 w-full overflow-x-auto pb-1 flex-shrink-0">
+                            <span className="font-semibold text-gray-700 whitespace-nowrap flex-shrink-0 hidden md:block">
+                                Select Zone:
+                            </span>
+                            <div className="flex rounded-md border border-gray-300 overflow-hidden flex-shrink-0">
+                                {projectDataWithZones.project_zones.map((zone) => (
+                                    <button
+                                        key={zone.zone_name}
+                                        className={`px-2 py-1 text-xs font-medium transition-colors md:text-sm md:px-3 md:py-1.5 ${
+                                            selectedZone === zone.zone_name
+                                                ? 'bg-blue-600 text-white shadow-inner'
+                                                : 'bg-white text-blue-600 hover:bg-blue-50'
+                                        }`}
+                                        onClick={() => setSelectedZone(zone.zone_name)}
+                                        disabled={isEditingZones || isEditingHeaders}
+                                    >
+                                        <span className="text-xs md:text-sm">{zone.zone_name}</span>
+                                    </button>
+                                ))}
                             </div>
                         </div>
-                    )}
-
-                    {/* Milestone Summary - Always show when tracking is enabled */}
-                    <MilestonesSummary
-                        workReport={true}
-                        projectIdForWorkReport={projectData?.name}
-                        parentSelectedZone={selectedZone}
-                    />
-                </>
+                    </div>
+                </div>
             )}
+
+            {/* Milestone Summary - Always show */}
+            <MilestonesSummary
+                workReport={true}
+                projectIdForWorkReport={projectData?.name}
+                parentSelectedZone={selectedZone}
+            />
         </>
     );
 };
