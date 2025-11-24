@@ -648,7 +648,7 @@ console.log("Selected Zone:", selectedZone);
   // Group milestones by header and filter
  const groupedMilestones = dailyReportDetails.milestones.reduce((acc: any, milestone: any) => {
     // Determine if the milestone is relevant for the Work Plan section
-    const isWIPOrNotStarted = milestone.status === "WIP" || milestone.status === "Not Started"|| milestone.status === "Completed";
+    const isWIPOrNotStarted = milestone.status === "WIP" || milestone.status === "Not Started";
     const hasWorkPlanContent = milestone.work_plan && parseWorkPlan(milestone.work_plan).length > 0;
 
     // Include the milestone if it has content OR if it has a relevant status
