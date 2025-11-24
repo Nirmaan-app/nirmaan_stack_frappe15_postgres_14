@@ -8,6 +8,17 @@ import { toast } from "@/components/ui/use-toast";
 import { FrappeDoc, KeyedMutator, useFrappeUpdateDoc, useFrappePostCall } from "frappe-react-sdk"; // Added useFrappePostCall
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"; 
 
+// --- CONSTANTS ---
+// Allow: a-z, A-Z, 0-9, - (hyphen), _ (underscore), and \s (SPACE)
+// Disallow: Special chars like ?, &, /, etc.
+const ZONE_NAME_REGEX = /^[a-zA-Z0-9\s,]+$/;
+const VALIDATION_MSG = "Only letters, numbers, spaces, hyphens (-) and underscores (_) are allowed.";
+const VALID_CHAR_REGEX = /^[a-zA-Z0-9\s,]$/;
+// Regex for full string strings (used in onPaste)
+const VALID_STRING_REGEX = /[^a-zA-Z0-9\s,]/g;
+
+
+
 // Assuming types are imported from a shared location or re-declared for module usage
 interface ProjectZoneEntry {
     name?: string; // Child Doc name (Frappe primary key for row)
@@ -50,6 +61,47 @@ const RenameZoneDialog: React.FC<RenameDialogProps> = ({ isOpen, zone, onClose, 
         }
     }, [isOpen, zone.zone_name]);
 
+        // 1. Validate Format (Allow Spaces)
+    const isFormatValid = useMemo(() => {
+        if (!newName) return false;
+        return ZONE_NAME_REGEX.test(newName);
+    }, [newName]);
+
+
+    // 1. Block invalid keys instantly
+const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // List of allowed navigation/control keys
+    const allowedKeys = [
+        'Backspace', 'Delete', 'Tab', 'Escape', 'Enter',
+        'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 
+        'Home', 'End'
+    ];
+
+    // Allow navigation keys or Ctrl/Cmd shortcuts (e.g., Ctrl+C, Ctrl+V)
+    if (allowedKeys.includes(e.key) || e.ctrlKey || e.metaKey) {
+        return;
+    }
+
+    // Check if the pressed key matches the allowed regex
+    if (!VALID_CHAR_REGEX.test(e.key)) {
+        e.preventDefault(); // BLOCKS the character
+    }
+};
+
+// 2. Clean up pasted text
+const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    // Get the text being pasted
+    const pasteData = e.clipboardData.getData('text');
+
+    // Check if the pasted text contains invalid characters
+    if (!VALID_STRING_REGEX.test(pasteData)) {
+        e.preventDefault(); // BLOCKS the paste
+        // Optional: You could strip invalid chars and insert the rest manually, 
+        // but blocking is safer/simpler for strict validation.
+    }
+};
+
+
     const isLocalDuplicate = useMemo(() => {
         const trimmedNewName = newName.trim();
         if (trimmedNewName === zone.zone_name.trim()) return false;
@@ -87,6 +139,8 @@ const RenameZoneDialog: React.FC<RenameDialogProps> = ({ isOpen, zone, onClose, 
                         id="new-zone-name"
                         value={newName}
                         onChange={(e) => setNewName(e.target.value)}
+                        onKeyDown={handleKeyDown}                        // Blocks typing special chars
+                        onPaste={handlePaste}  
                         placeholder="New Zone Name"
                         autoFocus
                     />

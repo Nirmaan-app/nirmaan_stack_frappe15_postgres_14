@@ -12,6 +12,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
+const INVALID_CHARS_REGEX = /[^a-zA-Z0-9\s]/g; 
+// 2. VALID_KEY_REGEX: Used for onKeyDown to allow only specific single keys.
+const VALID_KEY_REGEX = /^[a-zA-Z0-9\s]$/;
+
 
 interface WorkHeaderDoc {
     name: string;
@@ -186,6 +190,44 @@ export const SetupProgressTrackingDialog: React.FC<SetupProgressTrackingDialogPr
         validateZones(newZones); // Re-validate after removal
     }
 
+      // --- INPUT VALIDATION HANDLERS ---
+
+    // 1. Block invalid keys (Special chars)
+    const handleZoneKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        const allowedControlKeys = ['Backspace', 'Delete', 'Tab', 'Escape', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'];
+        
+        if (e.key === 'Enter') {
+            e.preventDefault(); // Stop form submit
+            handleAddZone();    // Trigger Add
+            return;
+        }
+
+        if (allowedControlKeys.includes(e.key) || e.ctrlKey || e.metaKey) return;
+
+        if (!VALID_KEY_REGEX.test(e.key)) {
+            e.preventDefault(); // Block key
+        }
+    };
+
+    // 2. Clean Pasted Text
+    const handleZonePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+        e.preventDefault();
+        const text = e.clipboardData.getData('text');
+        const sanitized = text.replace(INVALID_CHARS_REGEX, '');
+        if (sanitized !== text) {
+             toast({ title: "Warning", description: "Special characters removed.", variant: "warning" });
+        }
+        setNewZoneName(sanitized); // Simple replacement
+    };
+
+    // 3. Clean Input Change (Safety net)
+    const handleZoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const raw = e.target.value;
+        const clean = raw.replace(INVALID_CHARS_REGEX, '');
+        setNewZoneName(clean);
+        setZoneErrors({ empty: false, unique: false });
+    };
+
 
     // --- Final Save Handler ---
     const handleFinalSave = async () => {
@@ -351,11 +393,9 @@ export const SetupProgressTrackingDialog: React.FC<SetupProgressTrackingDialogPr
                             <Input
                                 placeholder="Enter Zone Name (e.g., Block A)"
                                 value={newZoneName}
-                                onChange={(e) => {
-                                    setNewZoneName(e.target.value);
-                                    setZoneErrors({ empty: false, unique: false }); // Clear error on change
-                                }}
-                                onKeyDown={(e) => e.key === 'Enter' && handleAddZone()}
+                                onChange={handleZoneChange}   // Clean on change
+                                onKeyDown={handleZoneKeyDown} // Block bad keys
+                                onPaste={handleZonePaste}     // Clean paste
                             />
                             <Button onClick={handleAddZone} disabled={!newZoneName.trim()} variant="outline">
                                 <PlusIcon className="h-4 w-4 mr-2" /> Add
