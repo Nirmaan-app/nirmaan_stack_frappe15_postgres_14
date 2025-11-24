@@ -14,14 +14,40 @@ import {
 import { Button } from "@/components/ui/button";
 import { useUserData } from "@/hooks/useUserData";
 import { UserContext } from "@/utils/auth/UserProvider";
-import { useContext } from "react";
+import { useContext ,useEffect} from "react";
+import * as Sentry from "@sentry/react";
+
 
 export default function Dashboard() {
 
-    const { role, has_project } = useUserData()
-    const { logout } = useContext(UserContext)
+    // const { role, has_project } = useUserData()
+    const { user_id, full_name, user_image, role, has_project } = useUserData();
+    const { currentUser,logout } = useContext(UserContext)
 
-console.log("Role",role,has_project)
+    
+     // Set Sentry user context when user is authenticated
+      useEffect(() => {
+        if (currentUser && currentUser !== "Guest" && user_id) {
+          const savedProject = sessionStorage.getItem("selectedProject");
+          Sentry.setUser({
+            id: user_id,
+            username: currentUser,
+            full_name: full_name,
+            role: role,
+            has_project: has_project,
+            selected_project: savedProject ? JSON.parse(savedProject) : null || undefined,
+          });
+    
+          console.log("Sentry user context set:", { user_id, currentUser, role });
+        } else if (!currentUser || currentUser === "Guest") {
+          // Clear Sentry user context if not authenticated
+          Sentry.setUser(null);
+          console.log("Sentry user context cleared");
+        }
+      }, [currentUser, user_id, role, has_project]);
+    
+
+    console.log("Role",role,has_project)
     return (
         <>
 
