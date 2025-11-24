@@ -121,8 +121,8 @@ export const useApproveSBSLogic = ({
  const KEY_DELIMITER = "::"; 
  
  // Helper function (optional, but good practice)
- const getTargetRateKey = (itemId: string, unit: string): string => {
-     return `${itemId}${KEY_DELIMITER}${unit}`;
+ const getTargetRateKey = (itemId: string, unit: string,make:string): string => {
+      return `${itemId}${KEY_DELIMITER}${unit}${KEY_DELIMITER}${make}`;
  };
  
  const targetRatesDataMap = useMemo(() => {
@@ -132,9 +132,9 @@ export const useApproveSBSLogic = ({
      if (targetRatesApiResponse?.message && Array.isArray(targetRatesApiResponse.message)) {
          targetRatesApiResponse.message.forEach(tr => {
              // Check for valid item_id and unit before creating the key
-             if (tr.item_id && tr.unit) {
+             if (tr.item_id && tr.unit && tr.make) {
                  // 1. Create the unique, composite key
-                 const key = getTargetRateKey(tr.item_id, tr.unit);
+                 const key = getTargetRateKey(tr.item_id, tr.unit,tr.make);
                  
                  // 2. Set the data using the composite key
                  map.set(key, tr);
@@ -183,16 +183,39 @@ export const useApproveSBSLogic = ({
             const currentAmount = quantity * selectedRate;
 
             const actualItemId = sbItem.item_id; // This is the key for target rates and RFQ lookup
-            const lookupKey = getTargetRateKey(sbItem.item_id, sbItem.unit);
+            const lookupKey = getTargetRateKey(sbItem.item_id, sbItem.unit,sbItem.make);
 
             const targetRateDetail = targetRatesDataMap.get(lookupKey); // item.
+
+            const contributingHistoricalQuotes = targetRateDetail 
+                            ? mapApiQuotesToApprovedQuotations(targetRateDetail.selected_quotations_items || []) as ApprovedQuotationForHoverCard[] 
+                            : [];
+
             let targetRateValue: number | undefined = undefined;
-            if (targetRateDetail?.rate) {
-                const parsedTargetRate = parseNumber(targetRateDetail.rate);
-                if (parsedTargetRate > 0) {
-                    targetRateValue = parsedTargetRate;
-                }
-            }
+
+            if (contributingHistoricalQuotes.length > 0) {
+                            let minHistoricalRate = Infinity;
+                            
+                            contributingHistoricalQuotes.forEach(quote => {
+                                // Parse the rate from the quote object (handle both 'quote' and 'rate' fields)
+                                const rate = parseNumber(quote.quote || quote.rate);
+                                
+                                // If valid rate and lower than current min, update min
+                                if (rate > 0 && rate < minHistoricalRate) {
+                                    minHistoricalRate = rate;
+                                }
+                            });
+            
+                            // If we found a valid minimum, use it
+                            if (minHistoricalRate !== Infinity) {
+                                targetRateValue = minHistoricalRate;
+                            }
+                        }
+
+            if ((targetRateValue === undefined || targetRateValue === 0) && targetRateDetail?.rate) {
+                            const parsedTargetRate = parseNumber(targetRateDetail.rate);
+                            if (parsedTargetRate > 0) targetRateValue = parsedTargetRate;
+                        }
 
             const lowestRateInOriginalRfqContext = getLowestRateFromOriginalRfqForSB(actualItemId);
 
@@ -240,7 +263,8 @@ export const useApproveSBSLogic = ({
                 lowestQuotedAmountForItem: calculatedLowestQuotedAmountInRfq,
                 targetRate: targetRateValue,
                 targetAmount: calculatedTargetAmount,
-                contributingHistoricalQuotes: targetRateDetail ? mapApiQuotesToApprovedQuotations(targetRateDetail.selected_quotations_items || []) as ApprovedQuotationForHoverCard[] : [],
+                // contributingHistoricalQuotes: targetRateDetail ? mapApiQuotesToApprovedQuotations(targetRateDetail.selected_quotations_items || []) as ApprovedQuotationForHoverCard[] : [],
+                contributingHistoricalQuotes: contributingHistoricalQuotes,
                 savingLoss: undefined, // Initialize
             };
 
