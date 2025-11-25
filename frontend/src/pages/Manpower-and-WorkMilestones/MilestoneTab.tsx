@@ -1070,9 +1070,11 @@ console.log(user)
   const clearAllTabData = () => {
     const dateString = formatDate(summaryWorkDate);
     const allTabs = getAllAvailableTabs();
+    // sessionStorage.clear();
+    
     
     allTabs.forEach(tab => {
-      const storageKey = `project_${projectId}_date_${dateString}_zone${zoneKey}_tab_${tab.project_work_header_name}`;
+      const storageKey = `project_${projectId}_date_${dateString}_zone_${zoneKey}_tab_${tab.project_work_header_name}`;
       sessionStorage.removeItem(storageKey);
     });
   };
