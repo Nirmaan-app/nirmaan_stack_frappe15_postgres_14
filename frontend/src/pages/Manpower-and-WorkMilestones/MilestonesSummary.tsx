@@ -34,6 +34,8 @@ import { ImageBentoGrid } from "@/components/ui/ImageBentoGrid";
 import { Badge } from "@/components/ui/badge";
 import { getZoneStatusIndicator } from "./MilestoneDailySummary";
 
+import {CopyReportButton} from "./components/CopyReportButton";
+
 
 
 // Helper function to format date for input type="date" (YYYY-MM-DD)
@@ -529,14 +531,33 @@ console.log("Selected Zone:", selectedZone);
 
                 {/* 3. Add Report Button (Full width on mobile, compact on desktop, custom color) */}
                 {selectedProject && selectedZone && (
-                  <Button
-                    onClick={() => navigate(`${selectedProject}?zone=${selectedZone}`)}
-                    // Custom Pink/Red Color to match image
-                    className="text-sm w-full flex-shrink-0" 
-                    disabled={dailyReportDetails || reportType !== "Daily" || !selectedProject ||!selectedZone}
-                  >
-                    {"Add Today's Report"}
-                  </Button>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 w-full p-2">
+                    <div className="w-full">
+      <CopyReportButton
+        selectedProject={selectedProject}
+        selectedZone={selectedZone}
+        dailyReportDetailsDisable={reportType !== "Daily" || dailyReportDetails}
+      />
+    </div>
+                    
+                      <Button
+      onClick={() => navigate(`${selectedProject}?zone=${selectedZone}`)}
+      // 3. Remove fixed width ([200px]) and flex-shrink. Use w-full to fill the grid cell.
+      className="text-sm w-full" 
+      disabled={
+        dailyReportDetails ||
+        reportType !== "Daily" ||
+        !selectedProject ||
+        !selectedZone
+      }
+    >
+      {"Add Today's Report"}
+    </Button>
+
+                    
+                    </div>
+                  
+
                 )}
               </div>
             )}
@@ -641,6 +662,8 @@ console.log("Selected Zone:", selectedZone);
                       </div>
                     </div>
                   )}
+
+
 
 
 {/* --- UPDATED SECTION: Upcoming Work Plan Summary (Grouped by Header) --- */}
@@ -779,16 +802,36 @@ console.log("Selected Zone:", selectedZone);
                           (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
                           return acc;
                         }, {})
-                      ).sort(([headerA], [headerB]) => headerA.localeCompare(headerB)).map(([header, milestones], groupIdx) => (
+                      ).sort(([headerA], [headerB]) => headerA.localeCompare(headerB)).map(([header, milestones], groupIdx) => { 
+                        const totalProgress = (milestones as any[]).reduce((sum, m) => sum + (Number(m.progress) || 0), 0);
+    const averageProgress = (milestones as any[]).length > 0 
+        ? Math.round(totalProgress / (milestones as any[]).length) 
+        : 0;
+                        return(
                         <div key={groupIdx} className="mb-4 last:mb-0 border rounded-md overflow-hidden">
                           {/* Collapsible Header */}
                           <div
                             className="flex items-center justify-between p-3 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors"
                             onClick={() => toggleSection(header)}
                           >
-                            <h3 className="text-base md:text-lg font-bold">{header} - {milestones.length.toString().padStart(2, '0')}</h3>
+                           <div className="flex items-center  gap-4">
+                                  <h3 className="text-base md:text-lg font-bold">
+                                    {header} - {milestones.length.toString().padStart(2, '0')}
+                                  </h3>
+                            </div>
                             <div className="flex items-center">
-                              <span className="text-xs md:text-sm text-gray-500 mr-2">
+                              {milestones.length > 0 && (
+                                    <div className="flex items-center text-end gap-2">
+                                      <span className="text-xs text-gray-500 font-medium hidden sm:inline">Overall:</span>
+                                      <MilestoneProgress
+                                        milestoneStatus="Completed"
+                                        value={averageProgress}
+                                        sizeClassName="size-[40px]"
+                                        textSizeClassName="text-[10px]"
+                                      />
+                                    </div>
+                                  )}
+                              <span className="text-xs md:text-sm text-gray-500 mx-2">
                                 {milestones.length} milestone{milestones.length !== 1 ? 's' : ''}
                               </span>
                               {expandedSections[header] ? (
@@ -950,7 +993,8 @@ console.log("Selected Zone:", selectedZone);
                             </div>
                           )}
                         </div>
-                      ))}
+
+                      )})}
                     </div>
                   )}
 
@@ -1009,6 +1053,8 @@ console.log("Selected Zone:", selectedZone);
     </>
   );
 };
+
+
 
 // import { UserContext } from "@/utils/auth/UserProvider";
 // import { formatDate } from "@/utils/FormatDate";
