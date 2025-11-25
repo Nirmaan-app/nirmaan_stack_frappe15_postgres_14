@@ -52,22 +52,6 @@ interface RenameDialogProps {
     localProjectZones: ProjectZoneEntry[];
 }
 
-const RenameZoneDialog: React.FC<RenameDialogProps> = ({ isOpen, zone, onClose, onSave, isLoading, localProjectZones }) => {
-    const [newName, setNewName] = useState(zone.zone_name);
-
-    useEffect(() => {
-        if (isOpen) {
-            setNewName(zone.zone_name);
-        }
-    }, [isOpen, zone.zone_name]);
-
-        // 1. Validate Format (Allow Spaces)
-    const isFormatValid = useMemo(() => {
-        if (!newName) return false;
-        return ZONE_NAME_REGEX.test(newName);
-    }, [newName]);
-
-
     // 1. Block invalid keys instantly
 const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     // List of allowed navigation/control keys
@@ -100,6 +84,24 @@ const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
         // but blocking is safer/simpler for strict validation.
     }
 };
+
+const RenameZoneDialog: React.FC<RenameDialogProps> = ({ isOpen, zone, onClose, onSave, isLoading, localProjectZones }) => {
+    const [newName, setNewName] = useState(zone.zone_name);
+
+    useEffect(() => {
+        if (isOpen) {
+            setNewName(zone.zone_name);
+        }
+    }, [isOpen, zone.zone_name]);
+
+        // 1. Validate Format (Allow Spaces)
+    const isFormatValid = useMemo(() => {
+        if (!newName) return false;
+        return ZONE_NAME_REGEX.test(newName);
+    }, [newName]);
+
+
+
 
 
     const isLocalDuplicate = useMemo(() => {
@@ -336,8 +338,11 @@ export const ProjectZoneEditSection: React.FC<ProjectZoneEditSectionProps> = ({
                             placeholder="Enter New Zone Name"
                             value={newZoneName}
                             onChange={(e) => setNewZoneName(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleAddZone()}
-                            className="h-9 w-64"
+                            onKeyDown={(e) => {
+                                handleKeyDown(e);
+                                if (e.key === 'Enter' && !e.defaultPrevented) handleAddZone();
+                            }}
+                            onPaste={handlePaste}
                             disabled={updateDocLoading}
                         />
                         <Button 

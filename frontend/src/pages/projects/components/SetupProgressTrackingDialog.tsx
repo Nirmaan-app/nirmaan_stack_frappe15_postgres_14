@@ -12,9 +12,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
-const INVALID_CHARS_REGEX = /[^a-zA-Z0-9\s]/g; 
+const INVALID_CHARS_REGEX = /[^a-zA-Z0-9\s,]/g; 
 // 2. VALID_KEY_REGEX: Used for onKeyDown to allow only specific single keys.
-const VALID_KEY_REGEX = /^[a-zA-Z0-9\s]$/;
+const VALID_KEY_REGEX = /^[a-zA-Z0-9\s,]$/;
 
 
 interface WorkHeaderDoc {
