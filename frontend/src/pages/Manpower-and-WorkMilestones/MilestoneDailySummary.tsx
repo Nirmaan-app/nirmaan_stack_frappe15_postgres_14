@@ -590,188 +590,233 @@ export const MilestoneDailySummary = () => {
 
 
               {/* Work Progress Sections (Ducting, FA PA & ACS etc.) */}
-              {dailyReportDetails.milestones && dailyReportDetails.milestones.length > 0 && (
-                <div className="mb-6">
-                  {/* Expand/Collapse All Button */}
-                  <h3 className="text-lg md:text-xl font-bold mb-6 border-b">Work Milestones</h3>
-                  <div className="flex justify-end mb-3">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={toggleAllSections}
-                      className="flex items-center gap-1 text-xs md:text-sm"
-                    >
-                      {areAllSectionsExpanded() ? (
-                        <>
-                          <ChevronUp className="h-4 w-4" />
-                          Collapse All
-                        </>
-                      ) : (
-                        <>
-                          <ChevronDown className="h-4 w-4" />
-                          Expand All
-                        </>
-                      )}
-                    </Button>
-                  </div>
-
-                  {Object.entries(
-                    dailyReportDetails.milestones.reduce((acc: any, milestone: any) => {
-                      (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
-                      return acc;
-                    }, {})
-                  ).map(([header, milestones], groupIdx) => (
-                    <div key={groupIdx} className="mb-4 last:mb-0 border rounded-md overflow-hidden">
-                      {/* Collapsible Header */}
-                      <div
-                        className="flex items-center justify-between p-3 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors"
-                        onClick={() => toggleSection(header)}
-                      >
-                        <h3 className="text-base md:text-lg font-bold">{header} - {(milestones as any[]).length.toString().padStart(2, '0')}</h3>
-                        <div className="flex items-center">
-                          <span className="text-xs md:text-sm text-gray-500 mr-2">
-                            {(milestones as any[]).length} milestone{(milestones as any[]).length !== 1 ? 's' : ''}
-                          </span>
-                          {expandedSections[header] ? (
-                            <ChevronUp className="h-5 w-5 text-gray-600" />
-                          ) : (
-                            <ChevronDown className="h-5 w-5 text-gray-600" />
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Collapsible Content */}
-                      {expandedSections[header] && (
-                        <div className="p-3">
-                          {/* Desktop Table View */}
-                          <div className="hidden md:block">
-                            <Table className="w-full">
-                              <TableHeader>
-                                <TableRow className="bg-gray-100">
-                                  <TableHead className="w-[40%] font-semibold text-gray-700 text-sm py-2">Work</TableHead>
-                                  <TableHead className="w-[20%] text-center font-semibold text-gray-700 text-sm py-2">Status</TableHead>
-                                  <TableHead className="w-[20%] text-center font-semibold text-gray-700 text-sm py-2">Progress</TableHead>
-                                  <TableHead className="w-[20%] text-center font-semibold text-gray-700 text-sm py-2">Excepted Starting/completion Date</TableHead>
-
-                                </TableRow>
-
-                              </TableHeader>
-                              <TableBody>
-                                {(milestones as any[]).map((milestone: any, idx: number) => (
-                                  <TableRow key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                                    <TableCell className="py-3 px-4 text-sm">{milestone.work_milestone_name}
-                                      {milestone.remarks && (
-                                        <div className="mt-1">
-                                          <p className="flex items-center gap-2 p-1 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs">
-                                            <MessagesSquare className="h-4 w-4 flex-shrink-0" />
-                                            <span className="flex-grow">
-                                              {milestone.remarks}
-                                            </span>
-                                          </p>
-                                        </div>
-                                      )}
-                                    </TableCell>
-                                    <TableCell className="text-center py-3 px-4">
-                                      <Badge
-                                        variant="secondary"
-                                        className={`${getStatusBadgeClasses(milestone.status)} text-xs`}
-                                      >
-                                        {milestone.status}
-                                      </Badge>
-                                    </TableCell>
-
-                                    <TableCell className="text-center py-3 px-4 font-medium">
-                                      <MilestoneProgress
-                                        milestoneStatus={milestone.status}
-                                        value={milestone.progress}
-                                        sizeClassName="size-[60px]"
-                                        textSizeClassName="text-md"
-                                      />
-
-                                    </TableCell>
-                                    <TableCell className="text-center py-3 px-4 text-sm">
-                                      {milestone.status === "Not Started" ? (
-                                        <span className="text-red-600 font-medium">
-                                          {milestone.expected_starting_date ? formatDate(milestone.expected_starting_date) : 'N/A'}
-                                        </span>
-                                      ) : (
-                                        <span className="text-green-500 font-medium">{milestone.expected_completion_date ? formatDate(milestone.expected_completion_date) : 'N/A'}</span>
-
-                                      )}
-                                    </TableCell>
-                                  </TableRow>
-                                ))}
-                              </TableBody>
-                            </Table>
-                          </div>
-
-                          {/* Mobile Card View */}
-                          <div className="md:hidden space-y-3">
-                            {(milestones as any[]).map((milestone: any, idx: number) => (
-                              <div key={idx} className="border rounded-lg p-3 bg-white shadow-sm">
-                                <div className="mb-2">
-                                  <h4 className="font-medium text-sm text-gray-800">{milestone.work_milestone_name}</h4>
-
-                                </div>
-                                <div className="grid grid-cols-2 gap-3">
-                                  <div>
-                                    <p className="text-xs text-gray-500 mb-1">Status</p>
-                                    <Badge
-                                      variant="secondary"
-                                      className={`${getStatusBadgeClasses(milestone.status)} text-xs`}
-                                    >
-                                      {milestone.status}
-                                    </Badge>
-                                  </div>
-                                  <div>
-                                    {milestone.status === "Not Started" ? (
-                                      <>
-                                        <p className="text-xs text-gray-500 mb-1">Expected Start</p>
-                                        <p className="text-sm font-medium text-red-600">
-                                          {milestone.expected_starting_date ? formatDate(milestone.expected_starting_date) : 'N/A'}
-                                        </p>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <p className="text-xs text-gray-500 mb-1">Expected Date</p>
-                                        <p className="text-sm font-medium">
-                                          {milestone.expected_completion_date ? formatDate(milestone.expected_completion_date) : 'N/A'}
-                                        </p>
-                                      </>
-                                    )}
-                                  </div>
-                                </div>
-                                <div className="mt-3">
-                                  <div className="flex justify-between items-center mb-1">
-                                    <p className="text-xs text-gray-500">Progress</p>
-                                    <span className="text-sm font-semibold">{milestone.progress}%</span>
-                                  </div>
-                                  <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                                    <div
-                                      className="h-full bg-blue-500 rounded-full"
-                                      style={{ width: `${milestone.progress}%` }}
-                                    ></div>
-                                  </div>
-                                </div>
-                                {/* Milestone Remarks for Mobile */}
-                                {milestone.remarks && (
-                                  <div className="mt-3">
-                                    <p className="text-xs text-gray-500 mb-1">Remarks</p>
-                                    <p className="p-2 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs">
-                                      {milestone.remarks}
-                                    </p>
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-
+             
+                               {/* Work Progress Sections (Ducting, FA PA & ACS etc.) */}
+                               {dailyReportDetails.milestones && dailyReportDetails.milestones.length > 0 && (
+                                 <div className="mb-6">
+                                   {/* Expand/Collapse All Button */}
+                                   <h3 className="text-lg md:text-xl font-bold mb-6 border-b">Work Milestones</h3>
+                                   <div className="flex justify-end mb-3">
+                                     <Button
+                                       variant="outline"
+                                       size="sm"
+                                       onClick={toggleAllSections}
+                                       className="flex items-center gap-1 text-xs md:text-sm"
+                                     >
+                                       {areAllSectionsExpanded() ? (
+                                         <>
+                                           <ChevronUp className="h-4 w-4" />
+                                           Collapse All
+                                         </>
+                                       ) : (
+                                         <>
+                                           <ChevronDown className="h-4 w-4" />
+                                           Expand All
+                                         </>
+                                       )}
+                                     </Button>
+                                   </div>
+             
+                                   {Object.entries(
+                                     dailyReportDetails.milestones.filter((milestone: any) => milestone.status !== "Not Applicable").reduce((acc, milestone) => {
+                                       (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
+                                       return acc;
+                                     }, {})
+                                   ).sort(([headerA], [headerB]) => headerA.localeCompare(headerB)).map(([header, milestones], groupIdx) => { 
+                                     const totalProgress = (milestones as any[]).reduce((sum, m) => sum + (Number(m.progress) || 0), 0);
+                 const averageProgress = (milestones as any[]).length > 0 
+                     ? Math.round(totalProgress / (milestones as any[]).length) 
+                     : 0;
+                                     return(
+                                     <div key={groupIdx} className="mb-4 last:mb-0 border rounded-md overflow-hidden">
+                                       {/* Collapsible Header */}
+                                       <div
+                                         className="flex items-center justify-between p-3 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors"
+                                         onClick={() => toggleSection(header)}
+                                       >
+                                        <div className="flex items-center  gap-4">
+                                               <h3 className="text-base md:text-lg font-bold">
+                                                 {header} - {milestones.length.toString().padStart(2, '0')}
+                                               </h3>
+                                         </div>
+                                         <div className="flex items-center">
+                                           {milestones.length > 0 && (
+                                                 <div className="flex items-center text-end gap-2">
+                                                   <span className="text-xs text-gray-500 font-medium hidden sm:inline">Overall:</span>
+                                                   <MilestoneProgress
+                                                     milestoneStatus="Completed"
+                                                     value={averageProgress}
+                                                     sizeClassName="size-[40px]"
+                                                     textSizeClassName="text-[10px]"
+                                                   />
+                                                 </div>
+                                               )}
+                                           <span className="text-xs md:text-sm text-gray-500 mx-2">
+                                             {milestones.length} milestone{milestones.length !== 1 ? 's' : ''}
+                                           </span>
+                                           {expandedSections[header] ? (
+                                             <ChevronUp className="h-5 w-5 text-gray-600" />
+                                           ) : (
+                                             <ChevronDown className="h-5 w-5 text-gray-600" />
+                                           )}
+                                         </div>
+                                       </div>
+             
+                                       {/* Collapsible Content */}
+                                       {expandedSections[header] && (
+                                         <div className="p-3">
+                                           {/* Desktop Table View */}
+                                           <div className="hidden md:block">
+                                             <Table className="w-full">
+                                               <TableHeader>
+                                                 <TableRow className="bg-gray-100">
+                                                   <TableHead className="w-[40%] font-semibold text-gray-700 text-sm py-2">Work</TableHead>
+                                                   <TableHead className="w-[20%] text-center font-semibold text-gray-700 text-sm py-2">Status</TableHead>
+                                                   <TableHead className="w-[20%] text-center font-semibold text-gray-700 text-sm py-2">Progress</TableHead>
+                                                   <TableHead className="w-[20%] text-center font-semibold text-gray-700 text-sm py-2">Excepted Starting/completion Date</TableHead>
+             
+                                                 </TableRow>
+             
+                                               </TableHeader>
+                                               <TableBody>
+                                                 {milestones.map((milestone, idx) => (
+                                                   <TableRow key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                                                     <TableCell className="py-3 px-4 text-sm">{milestone.work_milestone_name}
+                                                       {milestone.remarks && (
+                                                         <div className="mt-1">
+                                                           <p className="flex items-center gap-2 p-1 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs">
+                                                             {/* Icon: Added classes to control size and ensure it's vertically centered */}
+                                                             <MessagesSquare className="h-4 w-4 flex-shrink-0" />
+             
+                                                             {/* Remarks text */}
+                                                             <span className="flex-grow">
+                                                               {milestone.remarks}
+                                                             </span>
+                                                           </p>
+                                                         </div>
+                                                       )}
+                                                     </TableCell>
+                                                     <TableCell className="text-center py-3 px-4">
+                                                       <Badge
+                                                         variant="secondary"
+                                                         className={`${getStatusBadgeClasses(milestone.status)} text-xs`}
+                                                       >
+                                                         {milestone.status}
+                                                       </Badge>
+                                                     </TableCell>
+             
+                                                     <TableCell className="text-center py-3 px-4 font-medium">
+                                                       {/* {milestone.status !== "Not Applicable" ? (
+                                                         <div className="flex flex-col items-center">
+                                                           <span className="text-sm font-semibold mb-1">{milestone.progress}%</span>
+                                                           <div className="w-full max-w-[120px] h-2 bg-gray-200 rounded-full overflow-hidden">
+                                                             <div
+                                                               className="h-full bg-blue-500 rounded-full"
+                                                               style={{ width: `${milestone.progress}%` }}
+                                                             ></div>
+                                                           </div>
+                                                         </div>
+                                                       ) : (
+                                                         <span className="text-sm font-semibold mb-1">{"N/A"}</span>
+                                                       )} */}
+                                                       <MilestoneProgress
+                                                         // 1. Pass the status for the N/A check
+                                                         milestoneStatus={milestone.status}
+             
+                                                         // 2. Pass the progress value for the circle and color logic
+                                                         value={milestone.progress}
+             
+                                                         // 3. Set the desired size and text size
+                                                         sizeClassName="size-[60px]"
+                                                         textSizeClassName="text-md"
+                                                       />
+             
+                                                     </TableCell>
+                                                     <TableCell className="text-center py-3 px-4 text-sm">
+                                                       {milestone.status === "Not Started" ? (
+                                                         <span className="text-red-600 font-medium">
+                                                           {milestone.expected_starting_date ? formatDate(milestone.expected_starting_date) : 'N/A'}
+                                                         </span>
+                                                       ) : (
+                                                         <span className="text-green-500 font-medium">{ milestone.expected_completion_date ? formatDate(milestone.expected_completion_date) : 'N/A'}</span>
+                                                        
+                                                       )}
+                                                     </TableCell>
+                                                     {/* New Remarks Table Cell */}
+             
+                                                   </TableRow>
+                                                 ))}
+                                               </TableBody>
+                                             </Table>
+                                           </div>
+             
+                                           {/* Mobile Card View */}
+                                           <div className="md:hidden space-y-3">
+                                             {milestones.map((milestone, idx) => (
+                                               <div key={idx} className="border rounded-lg p-3 bg-white shadow-sm">
+                                                 <div className="mb-2">
+                                                   <h4 className="font-medium text-sm text-gray-800">{milestone.work_milestone_name}</h4>
+             
+                                                 </div>
+                                                 <div className="grid grid-cols-2 gap-3">
+                                                   <div>
+                                                     <p className="text-xs text-gray-500 mb-1">Status</p>
+                                                     <Badge
+                                                       variant="secondary"
+                                                       className={`${getStatusBadgeClasses(milestone.status)} text-xs`}
+                                                     >
+                                                       {milestone.status}
+                                                     </Badge>
+                                                   </div>
+                                                   <div>
+                                                     {milestone.status === "Not Started" ? (
+                                                       <>
+                                                         <p className="text-xs text-gray-500 mb-1">Expected Start</p>
+                                                         <p className="text-sm font-medium text-red-600">
+                                                           {milestone.expected_starting_date ? formatDate(milestone.expected_starting_date) : 'N/A'}
+                                                         </p>
+                                                       </>
+                                                     ) : (
+                                                       <>
+                                                         <p className="text-xs text-gray-500 mb-1">Expected Date</p>
+                                                         <p className="text-sm font-medium">
+                                                           {milestone.expected_completion_date ? formatDate(milestone.expected_completion_date) : 'N/A'}
+                                                         </p>
+                                                       </>
+                                                     )}
+                                                   </div>
+                                                 </div>
+                                                 <div className="mt-3">
+                                                   <div className="flex justify-between items-center mb-1">
+                                                     <p className="text-xs text-gray-500">Progress</p>
+                                                     <span className="text-sm font-semibold">{milestone.progress}%</span>
+                                                   </div>
+                                                   <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                                                     <div
+                                                       className="h-full bg-blue-500 rounded-full"
+                                                       style={{ width: `${milestone.progress}%` }}
+                                                     ></div>
+                                                   </div>
+                                                 </div>
+                                                 {/* Milestone Remarks for Mobile */}
+                                                 {milestone.remarks && (
+                                                   <div className="mt-3">
+                                                     <p className="text-xs text-gray-500 mb-1">Remarks</p>
+                                                     <p className="p-2 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs">
+                                                       {milestone.remarks}
+                                                     </p>
+                                                   </div>
+                                                 )}
+                                               </div>
+                                             ))}
+                                           </div>
+                                         </div>
+                                       )}
+                                     </div>
+             
+                                   )})}
+                                 </div>
+                               )}
               {/* Work Images Section */}
               <div className="mt-6">
                 <h3 className="text-base md:text-lg font-bold mb-3">Work Images</h3>

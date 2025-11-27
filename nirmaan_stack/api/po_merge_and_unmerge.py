@@ -67,6 +67,7 @@ def handle_merge_pos(po_id: str, merged_items: list, order_data: list, payment_t
 
 
         # --- STEP 3: Build the payment terms child table using the manually calculated total ---
+        new_po_doc.payment_type=payment_terms[0].get("payment_type") if payment_terms else None
         for term_dict in payment_terms:
             today = getdate(nowdate())
 

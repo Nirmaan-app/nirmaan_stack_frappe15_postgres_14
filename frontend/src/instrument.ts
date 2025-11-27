@@ -11,10 +11,16 @@ Sentry.init({
     // We recommend adjusting this value in production
     tracesSampleRate: 0.2,
     // Set `tracePropagationTargets` to control for which URLs distributed tracing should be enabled
+    //Live--
     tracePropagationTargets: [
         "stack.nirmaan.app",
         /^https:\/\/stack\.nirmaan\.app/,
-    ],//["localhost", /^https:\/\/yourserver\.io\/api/],
+    ],
+    // ---
+
+    // tracePropagationTargets:["localhost", /^https:\/\/yourserver\.io\/api/],
+    //["localhost", /^https:\/\/yourserver\.io\/api/],
+
     sendDefaultPii: true,
     // Enable logs to be sent to Sentry
     enableLogs: true,
