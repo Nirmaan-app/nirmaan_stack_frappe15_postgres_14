@@ -70,6 +70,11 @@ import { WorkHeaderMilestones } from "@/components/workHeaderMilestones";
 import MilestoneDailySummary from "@/pages/Manpower-and-WorkMilestones/MilestoneDailySummary";
 // --- End component imports ---
 
+
+//Design Tracker 
+import DesignTrackerList from "@/pages/ProjectDesignTracker/design-tracker-list";
+import ProjectDesignTrackerDetail from "@/pages/ProjectDesignTracker/project-design-tracker-details";
+
 export const appRoutes: RouteObject[] = [
   // --- Public Routes ---
   { path: "/login", element: <Login /> },
@@ -251,7 +256,25 @@ export const appRoutes: RouteObject[] = [
             path: "project-expenses",
             element: <AllProjectExpensesPage />
           },
-
+         // ======================================================
+          // --- START: NEW DESIGN TRACKER SECTION ---
+          // ======================================================
+          {
+            path: "design-tracker",
+            children: [
+              // 1. List View (e.g., /design-tracker)
+              { index: true, element: <DesignTrackerList /> },
+              
+              // 2. Detail View (e.g., /design-tracker/DT-2024-0001)
+              { 
+                path: ":id", 
+                element: <ProjectDesignTrackerDetail /> 
+              },
+            ],
+          },
+          // ======================================================
+          // --- END: NEW DESIGN TRACKER SECTION ---
+          // ======================================================
 
           // --- Projects Section ---
           {
@@ -277,6 +300,7 @@ export const appRoutes: RouteObject[] = [
               }
             ],
           },
+
 
           // --- Reports Section ---
 

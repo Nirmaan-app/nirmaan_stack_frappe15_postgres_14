@@ -1,0 +1,75 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-12-02 13:31:40.991194",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "project_details_section",
+  "project",
+  "project_name",
+  "overall_deadline",
+  "status",
+  "design_tracker_task"
+ ],
+ "fields": [
+  {
+   "fieldname": "project_details_section",
+   "fieldtype": "Section Break",
+   "label": "Project Details"
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Projects"
+  },
+  {
+   "fieldname": "project_name",
+   "fieldtype": "Data",
+   "label": "Project Name"
+  },
+  {
+   "fieldname": "overall_deadline",
+   "fieldtype": "Date",
+   "label": "Overall Deadline"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Data",
+   "label": "Status"
+  },
+  {
+   "fieldname": "design_tracker_task",
+   "fieldtype": "Table",
+   "label": "Design Tracker Task",
+   "options": "Design Tracker Task Child Table"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-12-02 13:37:44.031310",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Project Design Tracker",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
