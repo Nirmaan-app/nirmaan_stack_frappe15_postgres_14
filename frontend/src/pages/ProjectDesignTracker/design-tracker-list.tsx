@@ -568,7 +568,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { ChevronDown, ChevronUp, Search, Filter, Plus, Link as LinkIcon, MessageCircle, Edit } from "lucide-react";
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
-
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel } from "@/components/ui/alert-dialog";
 import { TailSpin } from "react-loader-spinner";
 import { toast } from "@/components/ui/use-toast";
@@ -634,7 +635,7 @@ const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categ
         );
     };
 
-    const handleConfirm = async () => {
+ const handleConfirm = async () => {
         if (!selectedProjectId || selectedCategories.length === 0) {
             toast({ title: "Error", description: "Select project and at least one category.", variant: "destructive" });
             return;
@@ -647,15 +648,28 @@ const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categ
        
         selectedCategories.forEach(catName => {
             const categoryDef = categoryData.find(c => c.category_name === catName);
-            const taskItems = (categoryDef && categoryDef.tasks.length > 0) ? categoryDef.tasks : [{ task_name: `${catName} Tasks` }];
+            
+            // 1. Determine task items robustly
+            let taskItems: { task_name: string }[];
+            if (categoryDef && Array.isArray(categoryDef.tasks) && categoryDef.tasks.length > 0) {
+                taskItems = categoryDef.tasks;
+            } else {
+                taskItems = [{ task_name: `${catName} Tasks` }];
+            }
 
             taskItems.forEach(taskDef => {
+                
+                // Ensure task_name is a string before pushing
+                const taskName = (typeof taskDef?.task_name === 'string') 
+                                ? taskDef.task_name 
+                                : `${catName} Default Task`;
+                                
                 tasksToGenerate.push({
-                    task_name: taskDef.task_name,
-                    design_category: catName, 
+                    task_name: taskName,
+                    design_category: catName, // This MUST be the string catName
                     task_status: 'Todo',      
                     deadline: undefined,
-                    // assigned_designers: "[]"
+                    // assigned_designers: "[]", // Ensure this JSON field is initialized
                 });
             });
         });
@@ -688,7 +702,7 @@ const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categ
                 <div className="space-y-6 py-4">
                     {/* Project Selection */}
                     <div>
-                        <select 
+                        {/* <select 
                             className="w-full p-2 border rounded-md"
                             value={selectedProjectId || ""}
                             onChange={(e) => setSelectedProjectId(e.target.value)}
@@ -697,8 +711,27 @@ const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categ
                             {projectOptions.map(p => (
                                 <option key={p.value} value={p.value}>{p.label}</option>
                             ))}
-                        </select>
+                        </select> */}
+                        <Label htmlFor="Projects">Select Project *</Label>
+                                            <Select 
+                                               value={selectedProjectId || ""} 
+                                               onValueChange={(val) => setSelectedProjectId(val)}
+                                            >
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="Select Project    " />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {projectOptions.map(p=> (
+                                                        <SelectItem key={p.value} value={p.value}>
+                                                            {p.label}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
                     </div>
+                   
+                                            
+                   
 
                     {/* Task Categories Selection */}
                     <div className="space-y-3">
@@ -706,7 +739,7 @@ const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categ
                         <div className="grid grid-cols-3 gap-3">
                             {categoryData.map(cat => (
                                 <Button
-                                    key={cat.category_name}
+                                    key={cat}
                                     variant={selectedCategories.includes(cat.category_name) ? "default" : "outline"}
                                     onClick={() => handleCategoryToggle(cat.category_name)}
                                 >
@@ -930,8 +963,9 @@ export const DesignTrackerList: React.FC = () => {
     );
     
     // Fetch master data (we only need project options for creation modal here)
-    const { projectOptions } = useDesignMasters();
-    const categoryData = DESIGN_CATEGORIES;
+    const { projectOptions,categories ,categoryData} = useDesignMasters();
+
+    console.log("useDesignMasters",categoryData,categories);
 
     const filteredDocs = useMemo(() => {
         if (!trackerDocs) return [];

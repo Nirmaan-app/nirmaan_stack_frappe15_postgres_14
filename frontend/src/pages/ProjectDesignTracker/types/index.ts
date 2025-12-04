@@ -53,3 +53,10 @@ export interface ProjectDesignTracker {
     owner: string;
     design_tracker_task: DesignTrackerTask[];
 }
+
+export interface MasterDataResponse {
+    projects: Project[];
+    users: User[];
+    categories: RawCategoryData[];
+    // phases: DesignPhase[]; <-- REMOVED
+}

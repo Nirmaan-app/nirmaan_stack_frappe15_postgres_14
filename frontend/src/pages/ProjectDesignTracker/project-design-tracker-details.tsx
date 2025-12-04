@@ -1,6 +1,5 @@
 
 
-
 // // frontend/src/pages/DesignTracker/project-design-tracker-details.tsx
 
 // import React, { useCallback, useMemo, useState } from 'react';
@@ -20,6 +19,7 @@
 // import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 // import { Label } from '@/components/ui/label';
 // import { useDesignTrackerLogic } from './hooks/useDesignTrackerLogic';
+// import { DESIGN_CATEGORIES } from "./hooks/useDesignMasters"; // <-- ADDED IMPORT
 
 // const DOCTYPE = 'Project Design Tracker';
 // const FE_TASK_STATUS_OPTIONS = ["Todo", "In Progress", "Done", "Blocked", "On Hold", "Submitted"]; 
@@ -99,16 +99,21 @@
 //         usersList.map(u => ({ label: u.full_name || u.name, value: u.name, email: u.email || '' }))
 //     , [usersList]);
 
-//     const getInitialDesigners = useCallback((designerField: AssignedDesignerDetail[] | string | undefined): DesignerOption[] => {
+//     // FIX: Updated getInitialDesigners to handle both stringified JSON (from get_doc)
+//     // and already parsed object/array (from TaskWiseTable/get_list).
+//     const getInitialDesigners = useCallback((designerField: AssignedDesignerDetail[] | string | any): DesignerOption[] => {
 //         let designerDetails: AssignedDesignerDetail[] = [];
-
-//          if (designerField && typeof designerField === 'object' && Array.isArray(designerField.list)) {
-//         designerDetails = designerField.list;
-//     } 
         
-//         if (Array.isArray(designerField)) {
+//         // 1. Handle already parsed object structure (common when fetching via child table server-side)
+//         if (designerField && typeof designerField === 'object' && Array.isArray(designerField.list)) {
+//             designerDetails = designerField.list;
+//         } 
+//         // 2. Handle standard array structure
+//         else if (Array.isArray(designerField)) {
 //             designerDetails = designerField;
-//         } else if (typeof designerField === 'string' && designerField.trim() !== '') {
+//         } 
+//         // 3. Handle stringified JSON structure (common when fetching via parent doc)
+//         else if (typeof designerField === 'string' && designerField.trim() !== '') {
 //             try { 
 //                 const parsed = JSON.parse(designerField); 
                 
@@ -126,14 +131,13 @@
 
 //         return designerDetails.map(stored => 
 //             designerOptions.find(opt => opt.value === stored.userId) || 
-//             { label: stored.userName, value: stored.userId, email: stored.userEmail } 
+//             { label: stored.userName, value: stored.userId, email: stored.userEmail || '' } 
 //         ).filter((d): d is DesignerOption => !!d);
 
 //     }, [designerOptions]);
 
 //     React.useEffect(() => {
 //         if (isOpen) {
-//             console.log("Opening modal for task:", task.assigened_designers);
 //             const initialDesigners = getInitialDesigners(task.assigned_designers);
 //             setSelectedDesigners(initialDesigners);
             
@@ -244,17 +248,201 @@
 // };
 
 
+// // --- New Task Modal Component ---
+// interface NewTaskModalProps {
+//     isOpen: boolean;
+//     onOpenChange: (open: boolean) => void;
+//     onSave: (newTask: Partial<DesignTrackerTask>) => Promise<void>;
+//     usersList: User[];
+//     categories: typeof DESIGN_CATEGORIES;
+// }
+
+// const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onSave, usersList, categories }) => {
+//     console.log("catergoriress",categories)
+//     const [taskState, setTaskState] = useState<Partial<DesignTrackerTask>>({
+//         task_name: '',
+//         design_category:'',
+//         deadline: '',
+//         task_status: 'Todo',
+//         file_link: '',
+//         comments: ''
+//     });
+//     const [selectedDesigners, setSelectedDesigners] = useState<DesignerOption[]>([]);
+//     const [isSaving, setIsSaving] = useState(false);
+
+//     const designerOptions: DesignerOption[] = useMemo(() => 
+//         usersList.map(u => ({ label: u.full_name || u.name, value: u.name, email: u.email || '' }))
+//     , [usersList]);
+
+//     React.useEffect(() => {
+//         if (!isOpen) {
+//             // Reset state upon close
+//             setTaskState({
+//                 task_name: '',
+//                 design_category:'',
+//                 deadline: '',
+//                 task_status: 'Todo',
+//             });
+//             setSelectedDesigners([]);
+//         }
+//     }, [isOpen, categories]);
+
+
+//     const handleSave = async () => {
+//         if (!taskState.task_name || !taskState.design_category) {
+//             toast({ title: "Error", description: "Task Name and Category are required.", variant: "destructive" });
+//             return;
+//         }
+
+//         setIsSaving(true);
+        
+//         const assignedDesignerDetails: AssignedDesignerDetail[] = selectedDesigners.map(d => ({
+//             userId: d.value,
+//             userName: d.label,
+//             userEmail: d.email,
+//         }));
+
+//         // Serialize designers list into the required JSON string format
+//         const structuredDataForServer = { list: assignedDesignerDetails };
+//         const assigned_designers_string = JSON.stringify(structuredDataForServer); 
+
+//         const newTaskPayload: Partial<DesignTrackerTask> = {
+//             ...taskState,
+//             assigned_designers: assigned_designers_string,
+//         };
+        
+//         try {
+//             await onSave(newTaskPayload);
+//             onOpenChange(false);
+//             toast({ title: "Success", description: `Task '${taskState.task_name}' created successfully.`, variant: "success" });
+//         } catch (error) {
+//             toast({ title: "Creation Failed", description: "Failed to create task.", variant: "destructive" });
+//         } finally {
+//             setIsSaving(false);
+//         }
+//     };
+
+//     return (
+//         <Dialog open={isOpen} onOpenChange={onOpenChange}>
+//             <DialogContent className="sm:max-w-xl">
+//                 <DialogHeader>
+//                     <DialogTitle>Create Custom Task</DialogTitle>
+//                 </DialogHeader>
+//                 <div className="grid gap-4 py-4">
+//                      {/* Category */}
+//                     <div className="space-y-1">
+//                         <Label htmlFor="category">Design Category *</Label>
+//                         <Select 
+//                            value={taskState.design_category || ''} 
+//                            onValueChange={(val) => setTaskState(prev => ({ ...prev, design_category: val }))}
+//                         >
+//                             <SelectTrigger>
+//                                 <SelectValue placeholder="Select Category" />
+//                             </SelectTrigger>
+//                             <SelectContent>
+//                                 {categories.map(cat => (
+//                                     <SelectItem key={cat.category_name} value={cat.category_name}>
+//                                         {cat.category_name}
+//                                     </SelectItem>
+//                                 ))}
+//                                 <SelectItem key={"Others"} value={"Others"}>
+//                                         Others
+//                                     </SelectItem>
+//                             </SelectContent>
+//                         </Select>
+//                     </div>
+//                     {/* Task Name */}
+                    
+//                     <div className="space-y-1">
+//                         <Label htmlFor="task_name">Task Name *</Label>
+//                         <Input id="task_name" value={taskState.task_name} onChange={(e) => setTaskState(prev => ({ ...prev, task_name: e.target.value }))} required />
+//                     </div>
+
+                   
+
+//                     {/* Assigned Designer (Multi-Select) */}
+//                     <div className="space-y-1">
+//                         <Label htmlFor="designer">Assign Designer(s)</Label>
+//                         <ReactSelect
+//                             isMulti
+//                             value={selectedDesigners}
+//                             options={designerOptions}
+//                             onChange={(newValue) => setSelectedDesigners(newValue as DesignerOption[])}
+//                             placeholder="Select designers..."
+//                             classNamePrefix="react-select"
+//                         />
+//                     </div>
+
+//                     {/* Deadline */}
+//                     <div className="space-y-1">
+//                         <Label htmlFor="deadline">Deadline</Label>
+//                         <Input id="deadline" type="date" value={taskState.deadline || ''} onChange={(e) => setTaskState(prev => ({ ...prev, deadline: e.target.value }))} />
+//                     </div>
+                    
+//                     {/* Status (Default to Todo) */}
+//                      <div className="space-y-1">
+//                         <Label htmlFor="status">Status</Label>
+//                         <Select 
+//                            value={taskState.task_status || 'Todo'} 
+//                            onValueChange={(val) => setTaskState(prev => ({ ...prev, task_status: val as any }))}
+//                         >
+//                             <SelectTrigger>
+//                                 <SelectValue placeholder="Select Status" />
+//                             </SelectTrigger>
+//                             <SelectContent>
+//                                 {FE_TASK_STATUS_OPTIONS.map(opt => <SelectItem key={opt} value={opt}>{opt}</SelectItem>)}
+//                             </SelectContent>
+//                         </Select>
+//                     </div>
+
+//                     {/* File Link */}
+//                     <div className="space-y-1">
+//                         <Label htmlFor="file_link">Design File Link</Label>
+//                         <Input id="file_link" type="url" value={taskState.file_link || ''} onChange={(e) => setTaskState(prev => ({ ...prev, file_link: e.target.value }))} placeholder="https://figma.com/..." />
+//                     </div>
+
+//                 </div>
+//                 <DialogFooter>
+//                     <DialogClose asChild><Button variant="outline" disabled={isSaving}>Cancel</Button></DialogClose>
+//                     <Button onClick={handleSave} disabled={isSaving || !taskState.task_name || !taskState.design_category}>
+//                         <Save className="h-4 w-4 mr-2" /> Create Task
+//                     </Button>
+//                 </DialogFooter>
+//             </DialogContent>
+//         </Dialog>
+//     );
+// }
+
+
 // // --- Main Detail Component ---
 // export const ProjectDesignTrackerDetail: React.FC = () => {
 //     const { id: trackerId } = useParams<{ id: string }>();
     
 //     const {
-//         trackerDoc, groupedTasks, isLoading, error, getDesignerName, handleTaskSave, editingTask, setEditingTask, usersList,handleParentDocSave
+//         trackerDoc, groupedTasks,categoryData, isLoading, error, getDesignerName, handleTaskSave, editingTask, setEditingTask, usersList,handleParentDocSave,
+//         handleNewTaskCreation // <-- Destructure new action
 //     } = useDesignTrackerLogic({ trackerId: trackerId! });
+
+//      // --- NEW: Calculate the categories currently active in this tracker ---
+//     const activeCategoriesInTracker = useMemo(() => {
+//         if (!trackerDoc?.design_tracker_task) return [];
+        
+//         const uniqueCategoryNames = Array.from(
+//             new Set(trackerDoc.design_tracker_task.map(t => t.design_category))
+//         );
+        
+//         // Now, map these names back to the structured category objects 
+//         // using the full master category data (categoryData)
+//         return categoryData.filter(masterCat => 
+//             uniqueCategoryNames.includes(masterCat.category_name)
+//         );
+//     }, [trackerDoc?.design_tracker_task, categoryData]);
+
 
 //     const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
 //      // Initialize overallDeadline state from doc
 //     const [overallDeadline, setOverallDeadline] = useState(trackerDoc?.overall_deadline || '');
+//     const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState(false); // <-- New State
     
 //     React.useEffect(() => {
 //         if (trackerDoc?.overall_deadline) {
@@ -309,7 +497,10 @@
 //         let designers: AssignedDesignerDetail[] = [];
         
 //         if (designerField) {
-//             if (Array.isArray(designerField)) {
+//             // Check if already an object (from useDesignTrackerLogic state)
+//             if (designerField && typeof designerField === 'object' && Array.isArray(designerField.list)) {
+//                 designers = designerField.list;
+//             } else if (Array.isArray(designerField)) {
 //                  designers = designerField;
 //              } else if (typeof designerField === 'string' && designerField.trim() !== '') {
 //                  try { 
@@ -403,7 +594,11 @@
 //             {/* --- ON-BOARDING SECTION --- */}
 //             <div className="flex justify-between items-center pt-4 border-t">
 //                 <h2 className="text-2xl font-bold text-gray-800">On-Boarding</h2> 
-//                 <Button variant="outline" className="text-red-700 border-red-700 hover:bg-red-50/50">
+//                 <Button 
+//                     variant="outline" 
+//                     className="text-red-700 border-red-700 hover:bg-red-50/50"
+//                     onClick={() => setIsNewTaskModalOpen(true)} // <-- Open New Task Modal
+//                 >
 //                     Create Custom Task
 //                 </Button>
 //             </div>
@@ -508,6 +703,14 @@
 //                     usersList={usersList || []}
 //                 />
 //             )}
+            
+//             <NewTaskModal
+//                 isOpen={isNewTaskModalOpen}
+//                 onOpenChange={setIsNewTaskModalOpen}
+//                 onSave={handleNewTaskCreation} 
+//                 usersList={usersList || []}
+//                 categories={activeCategoriesInTracker} 
+//             />
 //         </div>
 //     );
 // };
@@ -526,7 +729,7 @@ import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from "@/components/ui/badge"; 
-import { Edit, Save, Link as LinkIcon, MessageCircle, ChevronUp, ChevronDown, Download } from 'lucide-react';
+import { Edit, Save, Link as LinkIcon, MessageCircle, ChevronUp, ChevronDown, Download, Plus } from 'lucide-react';
 import { toast } from '@/components/ui/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -534,10 +737,18 @@ import ReactSelect from 'react-select';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { useDesignTrackerLogic } from './hooks/useDesignTrackerLogic';
-import { DESIGN_CATEGORIES } from "./hooks/useDesignMasters"; // <-- ADDED IMPORT
+import { DESIGN_CATEGORIES } from "./hooks/useDesignMasters"; // Kept for type reference
+import { TailSpin } from 'react-loader-spinner'; // Required for loading states in modals
 
 const DOCTYPE = 'Project Design Tracker';
 const FE_TASK_STATUS_OPTIONS = ["Todo", "In Progress", "Done", "Blocked", "On Hold", "Submitted"]; 
+
+// --- TYPE DEFINITION for Category Items ---
+interface CategoryItem { 
+    category_name: string; 
+    tasks: { task_name: string }[]; 
+    // Add other fields if needed, but keeping it minimal for UI/Task generation
+}
 
 // --- DATE & STYLE HELPERS ---
 const getOrdinalNum = (n: number) => {
@@ -604,7 +815,6 @@ interface TaskEditModalProps {
     onOpenChange: (open: boolean) => void;
 }
 
-// NOTE: This modal definition is exported (conceptually) for reuse in design-tracker-list.tsx
 export const TaskEditModal: React.FC<TaskEditModalProps> = ({ task, onSave, usersList, isOpen, onOpenChange }) => {
     const [selectedDesigners, setSelectedDesigners] = useState<DesignerOption[]>([]);
     const [editState, setEditState] = useState<Partial<DesignTrackerTask>>({});
@@ -614,20 +824,15 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({ task, onSave, user
         usersList.map(u => ({ label: u.full_name || u.name, value: u.name, email: u.email || '' }))
     , [usersList]);
 
-    // FIX: Updated getInitialDesigners to handle both stringified JSON (from get_doc)
-    // and already parsed object/array (from TaskWiseTable/get_list).
     const getInitialDesigners = useCallback((designerField: AssignedDesignerDetail[] | string | any): DesignerOption[] => {
         let designerDetails: AssignedDesignerDetail[] = [];
         
-        // 1. Handle already parsed object structure (common when fetching via child table server-side)
         if (designerField && typeof designerField === 'object' && Array.isArray(designerField.list)) {
             designerDetails = designerField.list;
         } 
-        // 2. Handle standard array structure
         else if (Array.isArray(designerField)) {
             designerDetails = designerField;
         } 
-        // 3. Handle stringified JSON structure (common when fetching via parent doc)
         else if (typeof designerField === 'string' && designerField.trim() !== '') {
             try { 
                 const parsed = JSON.parse(designerField); 
@@ -769,13 +974,15 @@ interface NewTaskModalProps {
     onOpenChange: (open: boolean) => void;
     onSave: (newTask: Partial<DesignTrackerTask>) => Promise<void>;
     usersList: User[];
-    categories: typeof DESIGN_CATEGORIES;
+    categories: CategoryItem[]; // Now using the filtered list
 }
 
 const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onSave, usersList, categories }) => {
+    const initialCategoryName = categories[0]?.category_name || '';
+    
     const [taskState, setTaskState] = useState<Partial<DesignTrackerTask>>({
         task_name: '',
-        design_category: categories[0]?.category_name || '',
+        design_category: initialCategoryName,
         deadline: '',
         task_status: 'Todo',
         file_link: '',
@@ -793,13 +1000,18 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onSav
             // Reset state upon close
             setTaskState({
                 task_name: '',
-                design_category: categories[0]?.category_name || '',
+                design_category: initialCategoryName,
                 deadline: '',
                 task_status: 'Todo',
             });
             setSelectedDesigners([]);
+        } else {
+             // Reset category selection if the initial one disappears (or update based on new filtered list)
+             if (!taskState.design_category || !categories.some(c => c.category_name === taskState.design_category)) {
+                 setTaskState(prev => ({ ...prev, design_category: initialCategoryName }));
+             }
         }
-    }, [isOpen, categories]);
+    }, [isOpen, categories, initialCategoryName]);
 
 
     const handleSave = async () => {
@@ -843,13 +1055,8 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onSav
                     <DialogTitle>Create Custom Task</DialogTitle>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
-                    {/* Task Name */}
-                    <div className="space-y-1">
-                        <Label htmlFor="task_name">Task Name *</Label>
-                        <Input id="task_name" value={taskState.task_name} onChange={(e) => setTaskState(prev => ({ ...prev, task_name: e.target.value }))} required />
-                    </div>
-
                     {/* Category */}
+                     
                     <div className="space-y-1">
                         <Label htmlFor="category">Design Category *</Label>
                         <Select 
@@ -865,10 +1072,20 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onSav
                                         {cat.category_name}
                                     </SelectItem>
                                 ))}
+                                <SelectItem key={"Others"} value={"Others"}>
+                                        {"Others"}
+                                    </SelectItem>
                             </SelectContent>
                         </Select>
                     </div>
 
+                    {/* Task Name */}
+                    <div className="space-y-1">
+                        <Label htmlFor="task_name">Task Name *</Label>
+                        <Input id="task_name" value={taskState.task_name} onChange={(e) => setTaskState(prev => ({ ...prev, task_name: e.target.value }))} required />
+                    </div>
+
+                    
                     {/* Assigned Designer (Multi-Select) */}
                     <div className="space-y-1">
                         <Label htmlFor="designer">Assign Designer(s)</Label>
@@ -922,24 +1139,194 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onSav
     );
 }
 
+// --- NEW: Add Category Modal Component ---
+interface AddCategoryModalProps {
+    isOpen: boolean;
+    onOpenChange: (open: boolean) => void;
+    availableCategories: CategoryItem[]; // Categories NOT currently in the tracker
+    onAdd: (newTasks: Partial<DesignTrackerTask>[]) => Promise<void>;
+}
+
+const AddCategoryModal: React.FC<AddCategoryModalProps> = ({ 
+    isOpen, onOpenChange, availableCategories, onAdd 
+}) => {
+    const [selectedCategories, setSelectedCategories] = useState<CategoryItem[]>([]);
+    const [isSaving, setIsSaving] = useState(false);
+
+    React.useEffect(() => {
+        if (!isOpen) {
+            setSelectedCategories([]);
+        }
+    }, [isOpen]);
+
+    const handleCategoryToggle = (category: CategoryItem) => {
+        setSelectedCategories(prev =>
+            prev.find(c => c.category_name === category.category_name)
+                ? prev.filter(c => c.category_name !== category.category_name)
+                : [...prev, category]
+        );
+    };
+
+    const handleConfirm = async () => {
+        if (selectedCategories.length === 0) {
+            toast({ title: "Error", description: "Select at least one new category.", variant: "destructive" });
+            return;
+        }
+
+        setIsSaving(true);
+
+        const tasksToGenerate: Partial<DesignTrackerTask>[] = [];
+        
+            selectedCategories.forEach(cat => {
+            // Since validation passed, we know cat.tasks is an array with length > 0
+            const taskItems = cat.tasks; 
+
+            if(taskItems.length===0){
+               toast({title:"This Caterorgy Skipped",description:`category ${cat.category_name} has no default tasks defined in master data.`,variant:"destructive"});
+            }
+
+            taskItems.forEach(taskDef => {
+                tasksToGenerate.push({
+                    task_name: taskDef.task_name || `${cat.category_name} Default Task`,
+                    design_category: cat.category_name, 
+                    task_status: 'Todo',      
+                    deadline: undefined,
+                });
+            });
+        });
+       
+        try {
+            await onAdd(tasksToGenerate); // Call the parent handler to append and save
+
+            toast({ title: "Success", description: `${selectedCategories.length} categories added.`, variant: "success" });
+            onOpenChange(false);
+        } catch (error) {
+            toast({ title: "Creation Failed", description: "Failed to add categories.", variant: "destructive" });
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+
+    return (
+        <Dialog open={isOpen} onOpenChange={onOpenChange}>
+            <DialogContent className="sm:max-w-lg">
+                <DialogHeader>
+                    <DialogTitle>Select New Categories to Add</DialogTitle>
+                    <div className="text-sm text-gray-500">
+                        Choose categories not currently tracked for this project. Default tasks will be generated.
+                    </div>
+                </DialogHeader>
+                
+                <div className="space-y-4 py-4">
+                    <div className="grid grid-cols-3 gap-3 max-h-80 overflow-y-auto p-2 border rounded-lg">
+                        {availableCategories.length === 0 ? (
+                            <p className="col-span-3 text-center text-gray-500 py-4">
+                                All available master categories are already active.
+                            </p>
+                        ) : (
+                            availableCategories.map(cat => (
+                                <Button
+                                    key={cat.category_name}
+                                    variant={selectedCategories.find(c => c.category_name === cat.category_name) ? "default" : "outline"}
+                                    onClick={() => handleCategoryToggle(cat)}
+                                    disabled={isSaving}
+                                >
+                                    {cat.category_name}
+                                </Button>
+                            ))
+                        )}
+                    </div>
+                </div>
+
+                <DialogFooter>
+                    <DialogClose asChild><Button variant="outline" disabled={isSaving}>Cancel</Button></DialogClose>
+                    <Button 
+                        onClick={handleConfirm} 
+                        disabled={selectedCategories.length === 0 || isSaving}
+                    >
+                        {isSaving ? <TailSpin width={20} height={20} color="white" /> : `Add ${selectedCategories.length} Categories`}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
 
 // --- Main Detail Component ---
 export const ProjectDesignTrackerDetail: React.FC = () => {
     const { id: trackerId } = useParams<{ id: string }>();
     
     const {
-        trackerDoc, groupedTasks, isLoading, error, getDesignerName, handleTaskSave, editingTask, setEditingTask, usersList,handleParentDocSave,
-        handleNewTaskCreation // <-- Destructure new action
+        trackerDoc, groupedTasks, categoryData, isLoading, error, getDesignerName, handleTaskSave, editingTask, setEditingTask, usersList,handleParentDocSave,
+        handleNewTaskCreation 
     } = useDesignTrackerLogic({ trackerId: trackerId! });
 
     const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
-     // Initialize overallDeadline state from doc
     const [overallDeadline, setOverallDeadline] = useState(trackerDoc?.overall_deadline || '');
-    const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState(false); // <-- New State
+    const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState(false); 
+    const [isAddCategoryModalOpen, setIsAddCategoryModalOpen] = useState(false); // NEW STATE
     
+    // --- Master Category Calculation ---
+    
+    // 1. Categories currently active in this tracker + 'Others' fallback
+    const activeCategoriesInTracker: CategoryItem[] = useMemo(() => {
+        if (!trackerDoc?.design_tracker_task || !categoryData) return [];
+        
+        const uniqueCategoryNames = new Set(
+            trackerDoc.design_tracker_task.map(t => t.design_category)
+        );
+        
+        // Filter master categories to include only those currently active in the tracker
+        const filteredCategories = categoryData.filter(masterCat => 
+            uniqueCategoryNames.has(masterCat.category_name)
+        );
+        
+        const othersCategory: CategoryItem = {
+            category_name: "Others",
+            tasks: [], 
+        };
+        
+        // If 'Others' category is not already in the list (meaning it wasn't fetched from the DB, 
+        // OR it's a separate custom type), append the fabricated structure for custom tasks.
+        if (!uniqueCategoryNames.has("Others")) {
+            return [...filteredCategories, othersCategory];
+        } 
+        
+        return filteredCategories; 
+
+    }, [trackerDoc?.design_tracker_task, categoryData]);
+    
+    // 2. Categories available to be ADDED (Master list minus categories already in tracker)
+    const availableNewCategories: CategoryItem[] = useMemo(() => {
+        if (!trackerDoc?.design_tracker_task || !categoryData) return [];
+
+        const activeCategoryNames = new Set(
+            trackerDoc.design_tracker_task.map(t => t.design_category)
+        );
+
+        // Filter master list to include only those NOT currently in the tracker AND NOT the manually added 'Others'
+        return categoryData.filter(masterCat => 
+            !activeCategoryNames.has(masterCat.category_name) && masterCat.category_name !== "Others"
+        );
+
+    }, [trackerDoc?.design_tracker_task, categoryData]);
+
+    // --- Action: Handle adding NEW categories (batch task creation) ---
+    // This action appends the newly generated tasks to the existing document array.
+    const handleAddCategories = async (newTasks: Partial<DesignTrackerTask>[]) => {
+        if (!trackerDoc) return;
+        
+        // Append new tasks to the existing array and save the whole doc
+        const updatedTasks = [...(trackerDoc.design_tracker_task || []), ...newTasks];
+        
+        // We use handleParentDocSave which safely calls updateDoc and refetches the tracker
+        await handleParentDocSave({ design_tracker_task: updatedTasks });
+    }
+
     React.useEffect(() => {
         if (trackerDoc?.overall_deadline) {
-            // Update state when doc data loads/changes
             setOverallDeadline(trackerDoc.overall_deadline);
         }
     }, [trackerDoc?.overall_deadline]);
@@ -1025,15 +1412,26 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
     return (
         <div className="flex-1 space-y-6 p-6">
             
-            {/* --- TOP HEADER --- */}
+            {/* --- TOP HEADER (Adding Add Categories button) --- */}
             <div className="flex justify-between items-start">
                 <header>
                     <h1 className="text-3xl font-bold text-red-700">{trackerDoc.project_name}</h1>
                     <p className="text-sm text-gray-500">ID: {trackerDoc.project}</p>
                 </header>
-                <Button variant="destructive" className="flex items-center gap-2">
-                    <Download className="h-4 w-4" /> Export
-                </Button>
+                
+                <div className="flex space-x-3">
+                    <Button 
+                        variant="outline" 
+                        className="flex items-center gap-1 text-red-700 border-red-700 hover:bg-red-50/50"
+                        onClick={() => setIsAddCategoryModalOpen(true)}
+                        disabled={availableNewCategories.length === 0}
+                    >
+                        <Plus className="h-4 w-4" /> Add Categories
+                    </Button>
+                    <Button variant="destructive" className="flex items-center gap-2">
+                        <Download className="h-4 w-4" /> Export
+                    </Button>
+                </div>
             </div>
 
             {/* --- PROJECT OVERVIEW CARD --- */}
@@ -1090,7 +1488,17 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
                 <Button 
                     variant="outline" 
                     className="text-red-700 border-red-700 hover:bg-red-50/50"
-                    onClick={() => setIsNewTaskModalOpen(true)} // <-- Open New Task Modal
+                    onClick={() => {
+                        if (activeCategoriesInTracker.length === 0) {
+                            toast({
+                                title: "Cannot Add Task",
+                                description: "Failed to load active categories for this project.",
+                                variant: "destructive"
+                            });
+                        } else {
+                            setIsNewTaskModalOpen(true);
+                        }
+                    }} 
                 >
                     Create Custom Task
                 </Button>
@@ -1197,12 +1605,23 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
                 />
             )}
             
-            <NewTaskModal
-                isOpen={isNewTaskModalOpen}
-                onOpenChange={setIsNewTaskModalOpen}
-                onSave={handleNewTaskCreation} 
-                usersList={usersList || []}
-                categories={DESIGN_CATEGORIES}
+            {/* New Task Modal */}
+            {activeCategoriesInTracker.length > 0 && (
+                <NewTaskModal
+                    isOpen={isNewTaskModalOpen}
+                    onOpenChange={setIsNewTaskModalOpen}
+                    onSave={handleNewTaskCreation} 
+                    usersList={usersList || []}
+                    categories={activeCategoriesInTracker} 
+                />
+            )}
+            
+            {/* Add Category Modal */}
+            <AddCategoryModal
+                isOpen={isAddCategoryModalOpen}
+                onOpenChange={setIsAddCategoryModalOpen}
+                availableCategories={availableNewCategories}
+                onAdd={handleAddCategories}
             />
         </div>
     );

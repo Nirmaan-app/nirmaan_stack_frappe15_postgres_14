@@ -237,7 +237,7 @@ export const useDesignTrackerLogic = ({ trackerId }: UseDesignTrackerLogicProps)
     );
 
     // Fetch Master Data (Users)
-    const { usersList: rawUsersList, isLoading: mastersLoading, error: mastersError } = useDesignMasters();
+    const { usersList: rawUsersList, categoryData, isLoading: mastersLoading, error: mastersError } = useDesignMasters();
     const usersList = rawUsersList || [];
     
     // Hook for updating the parent document
@@ -385,6 +385,7 @@ export const useDesignTrackerLogic = ({ trackerId }: UseDesignTrackerLogicProps)
         trackerDoc,
         groupedTasks,
         isLoading,
+        categoryData,
         error: error instanceof Error ? error : null,
         getDesignerName,
         handleTaskSave,
