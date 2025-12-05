@@ -24,6 +24,9 @@ import { useFrappeUpdateDoc } from "frappe-react-sdk";
 const PARENT_DOCTYPE = 'Project Design Tracker';
 const CHILD_DOCTYPE = 'Design Tracker Task Child Table';
 
+export const TASK_DATE_COLUMNS = ["deadline"];
+// --- FACET FILTER OPTIONS STRUCTURE --- // <-- 🎯 INSERT THIS BLOCK
+
 // --- HELPER FUNCTIONS ---
 const getOrdinalNum = (n: number) => n + (n > 0 ? ['th', 'st', 'nd', 'rd'][(n > 3 && n < 21) || n % 10 > 3 ? 0 : n % 10] : '');
 
@@ -80,11 +83,11 @@ const getTaskWiseColumns = (handleEditClick: (task: FlattenedTask) => void): Col
     
     return [
         {
-            accessorKey: "project_name", 
+            accessorKey: "project", 
             header: ({ column }) => <DataTableColumnHeader column={column} title="Project Name" />,
             cell: ({ row }) => (
                 <Link 
-                    to={`/design-tracker/${row.original.parent_docname}`} 
+                    to={`/design-tracker/${row.original.prjname}`} 
                     className="text-red-700 underline-offset-2 hover:underline font-medium"
                 >
                     {row.original.project_name}
@@ -105,7 +108,7 @@ const getTaskWiseColumns = (handleEditClick: (task: FlattenedTask) => void): Col
             accessorKey: "deadline",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Deadlines" />,
             cell: ({ row }) => (
-                <div className="whitespace-nowrap">
+                <div className="whitespace-nowrap text-center">
                     {row.original.deadline ? formatDeadlineShort(row.original.deadline) : '...'}
                 </div>
             ),
@@ -134,7 +137,7 @@ const getTaskWiseColumns = (handleEditClick: (task: FlattenedTask) => void): Col
             id: "file_link",
             header: () => <div className="text-center">Link</div>,
             cell: ({ row }) => (
-                <div className="flex justify-center">
+                <div className="flex justify-start">
                     {row.original.file_link ? (
                         <a href={row.original.file_link} target="_blank" rel="noopener noreferrer">
                             <LinkIcon className="w-4 h-4 text-blue-500" />
@@ -150,7 +153,7 @@ const getTaskWiseColumns = (handleEditClick: (task: FlattenedTask) => void): Col
             id: "comments",
             header: () => <div className="text-center">Comments</div>,
             cell: ({ row }) => (
-                <div className="flex justify-center">
+                <div className="flex justify-start">
                     {row.original.comments ? (
                         <MessageCircle className="w-4 h-4 text-gray-600" title={row.original.comments} />
                     ) : (
@@ -164,7 +167,7 @@ const getTaskWiseColumns = (handleEditClick: (task: FlattenedTask) => void): Col
             id: "actions",
             header: () => <div className="text-center">Actions</div>,
             cell: ({ row }) => (
-                <div className="text-center">
+                <div className="text-left">
                     <Button 
                         variant="outline" 
                         size="sm" 
@@ -185,11 +188,36 @@ const getTaskWiseColumns = (handleEditClick: (task: FlattenedTask) => void): Col
 // --- MAIN COMPONENT ---
 export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => {
     
-    const { usersList } = useDesignMasters();
+    const { usersList,statusOptions, subStatusOptions, categoryData,categories,FacetProjectsOptions } = useDesignMasters();
     const [editingTask, setEditingTask] = useState<FlattenedTask | null>(null);
 
+    console.log("categoryData",categoryData,categories,FacetProjectsOptions)
     // Hook for updating tasks
     const { updateDoc: updateTask } = useFrappeUpdateDoc();
+
+   const TASK_FACET_FILTER_OPTIONS = {
+    // 1. Project Name (uses parent doc field)
+    "project": {
+        title: "Project",
+        options: FacetProjectsOptions, // Dynamic: Will be populated with distinct project names
+    },
+    // 2. Task Category (uses child doc field)
+    "design_category": {
+        title: "Category",
+        options: categoryData.map(cat => ({ label: cat.category_name, value: cat.category_name })), // Dynamic/Static: Populate with master categories
+    },
+    // 3. Task Status (uses child doc field - known enum values)
+    "task_status": {
+        title: "Status",
+        options:statusOptions,
+    },
+    // 4. Task Sub-Status (uses child doc field)
+    "task_sub_status": {
+        title: "Sub-Status",
+        options: subStatusOptions,
+    },
+};
+
 
     // Fetch fields from child table with parent reference
     // Following Frappe's child table field naming convention
@@ -199,7 +227,9 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => 
         { value: "design_category", label: "Category" },
     ];
     const FETCH_FIELDS = [
+        "name as prjname",
         "project_name",
+        "project",
         "status",
         // Child table fields (Design Tracker Task)
         '`tabDesign Tracker Task Child Table`.name',                              // Child row DocName
@@ -275,7 +305,7 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => 
             {serverDataTable.isLoading && !serverDataTable.data?.length ? (
                 <TableSkeleton />
             ) : (
-                <div className="overflow-x-auto border rounded-lg shadow-sm bg-white">
+                <div className="overflow-x-auto  rounded-lg shadow-sm bg-white">
                     <DataTable<FlattenedTask>
                         table={serverDataTable.table}
                         columns={serverDataTable.table.options.columns}
@@ -285,6 +315,8 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => 
                         searchFieldOptions={SearchFieldOptions}
                         selectedSearchField={serverDataTable.selectedSearchField}
                         onSelectedSearchFieldChange={serverDataTable.setSelectedSearchField}
+                        facetFilterOptions= {TASK_FACET_FILTER_OPTIONS}
+                        dateFilterColumns={TASK_DATE_COLUMNS}
                         searchTerm={serverDataTable.searchTerm}
                         onSearchTermChange={serverDataTable.setSearchTerm}
                         showExportButton={true}
@@ -302,6 +334,8 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => 
                     task={editingTask}
                     onSave={handleTaskSave} 
                     usersList={usersList || []}
+                    statusOptions={statusOptions}       // <-- Pass status options
+                    subStatusOptions={subStatusOptions}
                 />
             )}
         </>

@@ -11,7 +11,7 @@ def get_all_master_data():
     """
     tracked_projects = frappe.get_list(
         "Project Design Tracker",
-        fields=["project"],
+        fields=["project","project_name"],
         as_list=True # Fetch as a list of lists/tuples for easier exclusion
     )
     # Flatten the list of IDs: ['PROJ-001', 'PROJ-002', ...]
@@ -76,6 +76,7 @@ def get_all_master_data():
     
     # --- Return the consolidated dictionary (Phases are omitted) ---
     return {
+        "facetProjects":tracked_projects,
         "projects": projects,
         "users": users,
         "categories": categories,
