@@ -19,8 +19,8 @@ def new_custom_pr(project_id: str, order: list, categories: list, comment: str =
         # Populate the 'order_list' child table
         for fe_item in order:
             pr_doc.append("order_list", {
-                "item_id": fe_item.get("name"),
-                "item_name": fe_item.get("item"),
+                "item_id": fe_item.get("item_id"),
+                "item_name": fe_item.get("item_name"),
                 "unit": fe_item.get("unit"),
                 "quantity": fe_item.get("quantity"),
                 "category": fe_item.get("category"),
@@ -102,8 +102,8 @@ def resolve_custom_pr(project_id: str, pr_id: str, order: list, categories: list
 
         for fe_item in order:
             pr_doc.append("order_list", {
-                "item_id": fe_item.get("name"),
-                "item_name": fe_item.get("item"),
+                "item_id": fe_item.get("item_id"),
+                "item_name": fe_item.get("item_name"),
                 "unit": fe_item.get("unit"),
                 "quantity": fe_item.get("quantity"),
                 "category": fe_item.get("category"),
