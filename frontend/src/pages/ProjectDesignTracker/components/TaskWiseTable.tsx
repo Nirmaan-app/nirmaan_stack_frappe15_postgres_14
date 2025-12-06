@@ -19,7 +19,7 @@ import { DesignTrackerTask, AssignedDesignerDetail } from "../types";
 import { useDesignMasters } from "../hooks/useDesignMasters"; 
 import { TaskEditModal } from '../project-design-tracker-details';
 import { useFrappeUpdateDoc } from "frappe-react-sdk";
-
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 // --- CONSTANTS ---
 const PARENT_DOCTYPE = 'Project Design Tracker';
 const CHILD_DOCTYPE = 'Design Tracker Task Child Table';
@@ -78,11 +78,152 @@ interface TaskWiseTableProps {
     refetchList: () => void;
 }
 
+// // --- COLUMN DEFINITION ---
+// const getTaskWiseColumns = (handleEditClick: (task: FlattenedTask) => void): ColumnDef<FlattenedTask>[] => {
+    
+//     return [
+//         {
+//             accessorKey: "project", 
+//             header: ({ column }) => <DataTableColumnHeader column={column} title="Project Name" />,
+//             cell: ({ row }) => (
+//                 <Link 
+//                     to={`/design-tracker/${row.original.prjname}`} 
+//                     className="text-red-700 underline-offset-2 hover:underline font-medium"
+//                 >
+//                     {row.original.project_name}
+//                 </Link>
+//             ),
+//             enableColumnFilter: true,
+//         },
+//         {
+//             accessorKey: "design_category",
+//             header: ({ column }) => <DataTableColumnHeader column={column} title="Task Category" />,
+//             enableColumnFilter: true,
+//         },
+//         {
+//             accessorKey: "task_name",
+//             header: ({ column }) => <DataTableColumnHeader column={column} title="Task Name" />,
+//         },
+//         {
+//             accessorKey: "deadline",
+//             header: ({ column }) => <DataTableColumnHeader column={column} title="Deadlines" />,
+//             cell: ({ row }) => (
+//                 <div className="whitespace-nowrap text-center">
+//                     {row.original.deadline ? formatDeadlineShort(row.original.deadline) : '...'}
+//                 </div>
+//             ),
+//         },
+//         {
+//             accessorKey: "task_status",
+//             header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+//             cell: ({ row }) => (
+//                 <Badge className={`h-7 px-3 justify-center ${getStatusBadgeStyle(row.original.task_status || '...')}`}>
+//                     {row.original.task_status || '...'}
+//                 </Badge>
+//             ),
+//             enableColumnFilter: true,
+//         },
+//         {
+//             accessorKey: "task_sub_status",
+//             header: ({ column }) => <DataTableColumnHeader column={column} title="Sub-Status" />,
+//             cell: ({ row }) => (
+//                 <Badge className={`h-7 px-3 justify-center ${getSubStatusBadgeStyle(row.original.task_sub_status)}`}>
+//                     {row.original.task_sub_status || '...'}
+//                 </Badge>
+//             ),
+//             enableColumnFilter: true,
+//         },
+//         {
+//             id: "file_link",
+//             header: ({ column }) => <DataTableColumnHeader column={column} title="Link" />,
+//             cell: ({ row }) => (
+//                 <div className="text-left">
+                   
+//                 {row.original.file_link ? (
+//                                                                                            <TooltipProvider>
+//                                                                                                <Tooltip delayDuration={300}>
+//                                                                                                    <TooltipTrigger asChild>
+//                                                                                                        <a 
+//                                                                                                            href={row.original.file_link} 
+//                                                                                                            target="_blank" 
+//                                                                                                            rel="noopener noreferrer" 
+//                                                                                                            className="block w-full h-full cursor-pointer hover:scale-110 transition-transform"
+//                                                                                                        >
+//                                                                                                            <LinkIcon className="h-4 w-4 text-blue-500 mx-auto" />
+//                                                                                                        </a>
+//                                                                                                    </TooltipTrigger>
+//                                                                                                    <TooltipContent className="p-2 bg-gray-900 text-white shadow-lg">
+//                                                                                                       <a 
+//                                                                                                            href={row.original.file_link} 
+//                                                                                                            target="_blank" 
+//                                                                                                            rel="noopener noreferrer" 
+//                                                                                                            className="block w-full h-full cursor-pointer hover:scale-110 transition-transform"
+//                                                                                                        >
+//                                                                                                            {row.original.file_link.substring(0, 30)}...
+//                                                                                                        </a>
+//                                                                                                    </TooltipContent>
+//                                                                                                </Tooltip>
+//                                                                                            </TooltipProvider>
+//                                                                                        ) : (
+//                                                                                            <LinkIcon className="h-4 w-4 text-gray-300 mx-auto" />
+//                                                                                        )}
+//                 </div>
+//             ),
+//             meta: { excludeFromExport: true },
+//         },
+//         {
+//             id: "comments",
+//             header: () => <div className="text-center">Comments</div>,
+//             cell: ({ row }) => (
+//                 <div className="text-left">
+//                      <TooltipProvider>
+//                                                                                            <Tooltip delayDuration={300}>
+//                                                                                                <TooltipTrigger asChild>
+//                                                                                                    {/* We use cursor-default here as the trigger handles the hover interaction */}
+//                                                                                                    <MessageCircle 
+//                                                                                                        className={`h-4 w-4 mx-auto cursor-default ${row.original.comments ? 'text-gray-600' : 'text-gray-300'}`} 
+//                                                                                                    />
+//                                                                                                </TooltipTrigger>
+//                                                                                                {row.original.comments && (
+//                                                                                                    <TooltipContent className="max-w-xs p-3 bg-white text-gray-900 border shadow-lg">
+//                                                                                                        {/* <p className="font-semibold text-xs mb-1">Comments:</p> */}
+//                                                                                                        <p className="text-sm">{row.original.comments}</p>
+//                                                                                                    </TooltipContent>
+//                                                                                                )}
+//                                                                                            </Tooltip>
+//                                                                                        </TooltipProvider>
+//                 </div>
+//             ),
+//             meta: { excludeFromExport: true },
+//         },
+//         {
+//             id: "actions",
+//             header: () => <div className="text-center">Actions</div>,
+//             cell: ({ row }) => (
+//                 <div className="text-left">
+//                     <Button 
+//                         variant="outline" 
+//                         size="sm" 
+//                         onClick={() => {
+//                           console.log("Edit clicked for task:", row.original);
+//                           handleEditClick(row.original)}} 
+//                         className="h-8"
+//                     >
+//                         <Edit className="h-3 w-3 mr-1" /> Edit
+//                     </Button>
+//                 </div>
+//             ),
+//             meta: { excludeFromExport: true },
+//         },
+//     ];
+// };
+
 // --- COLUMN DEFINITION ---
 const getTaskWiseColumns = (handleEditClick: (task: FlattenedTask) => void): ColumnDef<FlattenedTask>[] => {
     
     return [
         {
+            // Project Name
             accessorKey: "project", 
             header: ({ column }) => <DataTableColumnHeader column={column} title="Project Name" />,
             cell: ({ row }) => (
@@ -96,24 +237,29 @@ const getTaskWiseColumns = (handleEditClick: (task: FlattenedTask) => void): Col
             enableColumnFilter: true,
         },
         {
+            // Task Category
             accessorKey: "design_category",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Task Category" />,
             enableColumnFilter: true,
         },
         {
+            // Task Name
             accessorKey: "task_name",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Task Name" />,
         },
         {
+            // Deadlines
             accessorKey: "deadline",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Deadlines" />,
             cell: ({ row }) => (
+                // Deadlines should be centered for visual consistency with the screenshot style
                 <div className="whitespace-nowrap text-center">
                     {row.original.deadline ? formatDeadlineShort(row.original.deadline) : '...'}
                 </div>
             ),
         },
         {
+            // Status
             accessorKey: "task_status",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
             cell: ({ row }) => (
@@ -124,24 +270,48 @@ const getTaskWiseColumns = (handleEditClick: (task: FlattenedTask) => void): Col
             enableColumnFilter: true,
         },
         {
+            // Sub-Status
             accessorKey: "task_sub_status",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Sub-Status" />,
+             header: ({ column }) => <DataTableColumnHeader column={column} title="Sub-Status" />,
             cell: ({ row }) => (
-                <Badge className={`h-7 px-3 justify-center ${getSubStatusBadgeStyle(row.original.task_sub_status)}`}>
-                    {row.original.task_sub_status || '...'}
-                </Badge>
+                <div className="whitespace-wrap text-center">
+                   {row.original.task_sub_status?(<Badge className={`h-7 px-3 ${getSubStatusBadgeStyle(row.original.task_sub_status)}`}>
+                    {row.original.task_sub_status}
+                </Badge>):(
+                    "--"
+                )}
+                </div>
+               
+                
             ),
             enableColumnFilter: true,
         },
         {
+            // Link Column
             id: "file_link",
-            header: () => <div className="text-center">Link</div>,
+            // Header centered to match cell content
+            header: ({ column }) => <div className="text-center">Link</div>,
             cell: ({ row }) => (
-                <div className="flex justify-start">
+                // Cell content explicitly centered
+                <div className="flex justify-start items-center">
                     {row.original.file_link ? (
-                        <a href={row.original.file_link} target="_blank" rel="noopener noreferrer">
-                            <LinkIcon className="w-4 h-4 text-blue-500" />
-                        </a>
+                        <TooltipProvider>
+                            <Tooltip delayDuration={300}>
+                                <TooltipTrigger asChild>
+                                    <a 
+                                        href={row.original.file_link} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer" 
+                                        className="cursor-pointer hover:scale-110 transition-transform"
+                                    >
+                                        <LinkIcon className="h-4 w-4 text-blue-500" />
+                                    </a>
+                                </TooltipTrigger>
+                                <TooltipContent className="p-2 bg-gray-900 text-white shadow-lg">
+                                    Go to Link: {row.original.file_link.substring(0, 30)}...
+                                </TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
                     ) : (
                         <LinkIcon className="w-4 h-4 text-gray-300" />
                     )}
@@ -150,24 +320,38 @@ const getTaskWiseColumns = (handleEditClick: (task: FlattenedTask) => void): Col
             meta: { excludeFromExport: true },
         },
         {
+            // Comments Column
             id: "comments",
+            // Header centered to match cell content
             header: () => <div className="text-center">Comments</div>,
             cell: ({ row }) => (
-                <div className="flex justify-start">
-                    {row.original.comments ? (
-                        <MessageCircle className="w-4 h-4 text-gray-600" title={row.original.comments} />
-                    ) : (
-                        <MessageCircle className="w-4 h-4 text-gray-300" />
-                    )}
+                // Cell content explicitly centered
+                <div className="flex justify-start items-center">
+                    <TooltipProvider>
+                        <Tooltip delayDuration={300}>
+                            <TooltipTrigger asChild>
+                                <MessageCircle 
+                                    className={`h-4 w-4 cursor-default ${row.original.comments ? 'text-gray-600' : 'text-gray-300'}`} 
+                                />
+                            </TooltipTrigger>
+                            {row.original.comments && (
+                                <TooltipContent className="max-w-xs p-3 bg-white text-gray-900 border shadow-lg">
+                                    <p className="text-sm">{row.original.comments}</p>
+                                </TooltipContent>
+                            )}
+                        </Tooltip>
+                    </TooltipProvider>
                 </div>
             ),
             meta: { excludeFromExport: true },
         },
         {
+            // Actions Column
             id: "actions",
             header: () => <div className="text-center">Actions</div>,
             cell: ({ row }) => (
-                <div className="text-left">
+                // Cell content explicitly centered
+                <div className="flex justify-center">
                     <Button 
                         variant="outline" 
                         size="sm" 
@@ -185,6 +369,7 @@ const getTaskWiseColumns = (handleEditClick: (task: FlattenedTask) => void): Col
     ];
 };
 
+
 // --- MAIN COMPONENT ---
 export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => {
     
@@ -199,22 +384,22 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => 
     // 1. Project Name (uses parent doc field)
     "project": {
         title: "Project",
-        options: FacetProjectsOptions, // Dynamic: Will be populated with distinct project names
+        options: FacetProjectsOptions||[], // Dynamic: Will be populated with distinct project names
     },
     // 2. Task Category (uses child doc field)
     "design_category": {
         title: "Category",
-        options: categoryData.map(cat => ({ label: cat.category_name, value: cat.category_name })), // Dynamic/Static: Populate with master categories
+        options: categoryData?.map(cat => ({ label: cat.category_name, value: cat.category_name }))||[], // Dynamic/Static: Populate with master categories
     },
     // 3. Task Status (uses child doc field - known enum values)
     "task_status": {
         title: "Status",
-        options:statusOptions,
+        options:statusOptions ||[],
     },
     // 4. Task Sub-Status (uses child doc field)
     "task_sub_status": {
         title: "Sub-Status",
-        options: subStatusOptions,
+        options: subStatusOptions||[],
     },
 };
 
@@ -265,6 +450,7 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => 
         urlSyncKey: 'dt_task_wise',
     });
 
+    console.log("TaskWiseTable - serverDataTable", serverDataTable);
     // Task Save Handler
     const handleTaskSave = async (updatedFields: { [key: string]: any }) => {
         if (!editingTask) return;
@@ -311,7 +497,7 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => 
                         columns={serverDataTable.table.options.columns}
                         isLoading={serverDataTable.isLoading}
                         error={serverDataTable.error}
-                        totalCount={serverDataTable.totalCount}
+                        totalCount={serverDataTable?.data?.length}
                         searchFieldOptions={SearchFieldOptions}
                         selectedSearchField={serverDataTable.selectedSearchField}
                         onSelectedSearchFieldChange={serverDataTable.setSelectedSearchField}
@@ -322,10 +508,11 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => 
                         showExportButton={true}
                         exportFileName="Design_Tasks_Wise"
                         onExport="default"
+                        tableHeight="60vh"
                     />
                 </div>
             )}
-            
+             
             {/* Task Edit Modal */}
             {editingTask && (
                 <TaskEditModal

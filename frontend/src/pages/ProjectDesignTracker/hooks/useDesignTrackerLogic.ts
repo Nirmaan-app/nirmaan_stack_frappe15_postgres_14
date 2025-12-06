@@ -54,7 +54,8 @@ export const useDesignTrackerLogic = ({ trackerId }: UseDesignTrackerLogicProps)
     );
 
     // Fetch Master Data (Users)
-    const { usersList: rawUsersList, categoryData, isLoading: mastersLoading, error: mastersError } = useDesignMasters();
+    const { usersList: rawUsersList, categoryData, statusOptions,
+            subStatusOptions, isLoading: mastersLoading, error: mastersError } = useDesignMasters();
     const usersList = rawUsersList || [];
     
     // Hook for updating the parent document
@@ -211,5 +212,7 @@ export const useDesignTrackerLogic = ({ trackerId }: UseDesignTrackerLogicProps)
         editingTask,
         setEditingTask,
         usersList,
+        statusOptions,
+        subStatusOptions,
     };
 };
