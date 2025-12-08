@@ -80,7 +80,7 @@ export const useDesignTrackerLogic = ({ trackerId }: UseDesignTrackerLogicProps)
 
     // 2. Lookup function to get full name
     const getDesignerName = useCallback((userId?: string): string => {
-        if (!userId) return '--';
+        if (!userId) return '--'
         return usersList.find(u => u.name === userId)?.full_name || userId;
     }, [usersList]);
 

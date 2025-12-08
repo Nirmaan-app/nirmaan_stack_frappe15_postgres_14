@@ -58,7 +58,7 @@
 
 // const getStatusBadgeStyle = (status: string) => {
 //     const lowerStatus = status.toLowerCase();
-    
+
 //     if (lowerStatus.includes('pending')) {
 //         return 'bg-red-100 text-red-700 border border-red-500 font-medium rounded-full';
 //     }
@@ -94,19 +94,19 @@
 //             toast({ title: "Error", description: "Select project and at least one category.", variant: "destructive" });
 //             return;
 //         }
-        
+
 //         const projectLabel = projectOptions.find(p => p.value === selectedProjectId)?.label;
 //         if (!projectLabel) return;
 
 //        const tasksToGenerate: Partial<DesignTrackerTask>[] = [];
-       
+
 //         selectedCategories.forEach(catName => {
 //         const categoryDef = categoryData.find(c => c.category_name === catName);
 
 //         // 1. Check for Category Definition and Tasks (The Core Change)
 //         // Only proceed if categoryDef exists AND categoryDef.tasks is a non-empty array
 //         if (categoryDef && Array.isArray(categoryDef.tasks) && categoryDef.tasks.length > 0) {
-            
+
 //             const taskItems = categoryDef.tasks;
 
 //             // 2. Iterate and generate tasks from the defined task list
@@ -114,7 +114,7 @@
 
 //                 // Ensure task_name is a string before pushing
 //                 const taskName =taskDef.task_name
-                   
+
 
 //                 tasksToGenerate.push({
 //                     task_name: taskName,
@@ -124,7 +124,7 @@
 //                     // assigned_designers: "[]", // Ensure this JSON field is initialized
 //                 });
 //             });
-            
+
 //         } else {
 //             // Optional: Show a toast notification for skipped categories
 //             toast({
@@ -158,7 +158,7 @@
 //                     <AlertDialogTitle className="text-center">Select Project</AlertDialogTitle>
 //                     <AlertDialogDescription className="text-center">Step 1: Select a project that you want to add to the design tracker</AlertDialogDescription>
 //                 </AlertDialogHeader>
-                
+
 //                 <div className="space-y-6 py-4">
 //                     {/* Project Selection */}
 //                     <div>
@@ -189,9 +189,9 @@
 //                                                 </SelectContent>
 //                                             </Select>
 //                     </div>
-                   
-                                            
-                   
+
+
+
 
 //                     {/* Task Categories Selection */}
 //                     <div className="space-y-3">
@@ -230,7 +230,7 @@
 // }
 
 // const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, refetchList }) => {
-    
+
 //     // 1. Use the centralized hook for data and actions related to this specific trackerId
 //     const {
 //         groupedTasks, isLoading, error, getDesignerName,
@@ -251,7 +251,7 @@
 //     // 3. Task Save Handler (Wrapper for serialization before passing to handleTaskSave)
 //     const inlineTaskSaveHandler = async (updatedFields: { [key: string]: any }) => {
 //         if (!editingTask) return;
-        
+
 //         let fieldsToSend: { [key: string]: any } = { ...updatedFields };
 
 //         // Serialization logic (matching the Detail Page)
@@ -261,7 +261,7 @@
 //             };
 //             fieldsToSend.assigned_designers = JSON.stringify(structuredDataForServer); 
 //         }
-        
+
 //         try {
 //             await handleTaskSave(editingTask.name, fieldsToSend);
 //             // After successful save, refresh the parent list view (in case status changed)
@@ -270,12 +270,12 @@
 //             // Error handling is inside handleTaskSave, but we catch here to prevent further component failure.
 //         }
 //     };
-    
+
 //     // Helper function to render designer name (Bulleted list)
 //     const getAssignedNameForDisplay = (task: DesignTrackerTask): React.ReactNode => {
 //         const designerField = task.assigned_designers;
 //         let designers: AssignedDesignerDetail[] = [];
-        
+
 //         if (designerField) {
 //             // Check if already parsed object (which happens in useDesignTrackerLogic state)
 //             if (designerField && typeof designerField === 'object' && Array.isArray(designerField.list)) {
@@ -293,7 +293,7 @@
 //                  } catch (e) { /* silent fail */ }
 //              }
 //         }
-        
+
 //        if (designers.length > 0) {
 //             return (
 //                 <ul className="list-disc ml-4 p-0 m-0 space-y-0.5 text-xs"> 
@@ -307,7 +307,7 @@
 //         }
 //         return getDesignerName(undefined);
 //     };
-    
+
 //     const getDeadlineDisplay = (task: DesignTrackerTask) => {
 //         return task.deadline ? new Date(task.deadline).toLocaleDateString('en-GB').replace(/20(\d{2})$/, '$1') : '...';
 //     }
@@ -315,12 +315,12 @@
 
 //     if (isLoading) return <LoadingFallback />;
 //     if (error) return <AlertDestructive error={error} />;
-    
+
 //     return (
 //         <div className="space-y-4 px-1 py-2">
 //             {Object.entries(groupedTasks).map(([categoryName, tasks]) => {
 //                 const isCategoryExpanded = expandedCategories[categoryName] ?? true;
-                
+
 //                 return (
 //                     <div key={categoryName} className="border rounded-lg bg-white shadow-sm">
 //                         {/* Category Header (Clickable for toggle) */}
@@ -355,27 +355,27 @@
 //                                                 <td className="px-4 py-3 font-medium">{task.task_name}</td>
 //                                                 <td className="px-4 py-3">{getAssignedNameForDisplay(task)}</td>
 //                                                 <td className="px-4 py-3 whitespace-nowrap">{getDeadlineDisplay(task)}</td>
-                                                
+
 //                                                 <td className="px-4 py-3">
 //                                                     <Badge variant="outline" className="w-full justify-center bg-gray-100 text-gray-700 border-gray-300 rounded-full h-8">
 //                                                         {task.task_status || '...'}
 //                                                     </Badge>
 //                                                 </td>
-                                                
+
 //                                                 <td className="px-4 py-3">
 //                                                     <Badge variant="outline" className="w-full justify-center bg-gray-100 text-gray-700 border-gray-300 rounded-full h-8">
 //                                                         {task.task_sub_status || '...'}
 //                                                     </Badge>
 //                                                 </td>
-                                                
+
 //                                                 <td className="px-4 py-3 text-center">
 //                                                     {task.comments ? <MessageCircle className="h-4 w-4 text-gray-500 mx-auto" title={task.comments} /> : <MessageCircle className="h-4 w-4 text-gray-300 mx-auto" />}
 //                                                 </td>
-                                                
+
 //                                                 <td className="px-4 py-3 text-center">
 //                                                     {task.file_link ? <a href={task.file_link} target="_blank" rel="noopener noreferrer"><LinkIcon className="h-4 w-4 text-blue-500 mx-auto" /></a> : <LinkIcon className="h-4 w-4 text-gray-300 mx-auto" />}
 //                                                 </td>
-                                                
+
 //                                                 {/* Actions: Triggers Modal */}
 //                                                 <td className="px-4 py-3 text-center">
 //                                                     <Button variant="outline" size="sm" className="h-8" onClick={() => setEditingTask(task)}>
@@ -391,7 +391,7 @@
 //                     </div>
 //                 );
 //             })}
-            
+
 //             {/* Task Edit Modal (Visible only if editingTask is set) */}
 //             {editingTask && (
 //                 <TaskEditModal
@@ -413,7 +413,7 @@
 //     const [isModalOpen, setIsModalOpen] = useState(false);
 //     const [searchTerm, setSearchTerm] = useState('');
 //     const [activeTab, setActiveTab] = useState<'project' | 'task'>('project');
-    
+
 //     const [expandedProject, setExpandedProject] = useState<string | null>(null);
 
 //     // Fetch Design Tracker List
@@ -421,7 +421,7 @@
 //         DOCTYPE, 
 //         { fields: ["name", "project", "project_name", "status", "creation", "modified", "overall_deadline"], orderBy: { field: "creation", order: "desc" }, limit: 100 }
 //     );
-    
+
 //     // Fetch master data (we only need project options for creation modal here)
 //     const { projectOptions,categories ,categoryData} = useDesignMasters();
 
@@ -429,16 +429,16 @@
 
 //     const filteredDocs = useMemo(() => {
 //         if (!trackerDocs) return [];
-        
+
 //         const lowerCaseSearch = searchTerm.toLowerCase();
-        
+
 //         return trackerDocs
 //             .filter(doc => 
 //                 doc.project_name.toLowerCase().includes(lowerCaseSearch) ||
 //                 doc.name.toLowerCase().includes(lowerCaseSearch)
 //             );
 //     }, [trackerDocs, searchTerm]);
-    
+
 //     const handleToggleCollapse = useCallback((docName: string) => {
 //         setExpandedProject(prev => prev === docName ? null : docName);
 //     }, []);
@@ -509,7 +509,7 @@
 //                                             onClick={() => handleToggleCollapse(doc.name)} 
 //                                         >
 //                                             <CardContent className="p-0 flex flex-wrap justify-between items-center text-sm md:text-base relative">
-                                                
+
 //                                                 {/* Row 1: Project Name (Link) */}
 //                                                 <div className="w-full md:w-1/4  pr-4 order- mb-2 md:mb-0">
 //                                                     <Link 
@@ -521,10 +521,10 @@
 //                                                         {doc.project_name}
 //                                                     </Link>
 //                                                 </div>
-                                                
+
 //                                                 {/* Row 2: Date & Status */}
-                                             
-                                                    
+
+
 //                                                     {/* Date Section */}
 //                                                     <div className="text-gray-600 flex flex-col items-start md:items-center w-1/2 md:w-auto">
 //                                                         <div className="text-xs text-gray-500 capitalize font-medium">Task Created On:</div>
@@ -542,7 +542,7 @@
 //                                                             {doc.status}
 //                                                         </Badge>
 //                                                     </div>
-                                               
+
 
 //                                                 {/* Row 3: Action Icon */}
 //                                                 <div className="absolute right-0 top-0 md:static md:order-3 md:ml-4">
@@ -552,7 +552,7 @@
 //                                                 </div>
 //                                             </CardContent>
 //                                         </Card>
-                                        
+
 //                                         {/* Expanded Content */}
 //                                         {isExpanded && (
 //                                             <div 
@@ -625,6 +625,7 @@ import { urlStateManager } from '@/utils/urlStateManager';
 import { useDesignTrackerLogic } from "./hooks/useDesignTrackerLogic";
 import { TaskEditModal } from './project-design-tracker-details';
 import { TaskWiseTable } from "./components/TaskWiseTable";
+import { getTaskStatusStyle, getSubStatusStyle } from "./project-design-tracker-details";
 
 const DOCTYPE = 'Project Design Tracker';
 const FE_TASK_STATUS_OPTIONS = ["Todo", "In Progress", "Done", "Blocked", "On Hold", "Submitted"];
@@ -646,7 +647,7 @@ const formatDate = (dateString: string): string => {
     }
 };
 
-const getStatusBadgeStyle = (status: string) => {
+export const getStatusBadgeStyle = (status: string) => {
     const lowerStatus = status.toLowerCase();
     if (lowerStatus.includes('pending') || lowerStatus.includes('assign pending')) {
         return 'bg-red-100 text-red-700 border border-red-500 font-medium rounded-full'
@@ -695,7 +696,7 @@ const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categ
                     tasksToGenerate.push({
                         task_name: taskName,
                         design_category: catName,
-                        task_status: 'Todo',
+                        task_status: 'Not Applicable',
                         deadline: undefined,
                     })
                 });
@@ -793,7 +794,7 @@ interface ExpandedProjectTasksProps {
 const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, refetchList }) => {
     const {
         groupedTasks, isLoading, error, getDesignerName,
-        handleTaskSave, editingTask, setEditingTask, usersList,statusOptions,
+        handleTaskSave, editingTask, setEditingTask, usersList, statusOptions,
         subStatusOptions,
     } = useDesignTrackerLogic({ trackerId });
 
@@ -855,14 +856,18 @@ const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, 
 
         if (designers.length > 0) {
             return (
-                <ul className="list-disc ml-4 p-0 m-0 space-y-0.5 text-xs">
+                <p className="text-center">
+                {/* <ul className="list-disc ml-0 p-0 m-0 space-y-0.5 text-xs"> */}
                     {designers.map((d, index) => (
-                        <li key={index}>
+                        <span className="text-xs block text-center" key={index}>
                             {d.userName || d.userId}
-                        </li>
+                        </span>
                     ))}
-                </ul>
+                {/* </ul> */}
+                </p>
             )
+        }else{
+            return <p className="text-xs text-center text-gray-500">--</p>;
         }
         return getDesignerName(undefined); // Fallback or handle null case
     };
@@ -885,29 +890,37 @@ const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, 
                 const isCategoryExpanded = expandedCategories[categoryName] ?? false;
 
                 return (
-                    <div key={categoryName} className="border rounded-lg bg-white shadow-sm">
-                        {/* Category Header */}
-                        <div
+                <>
+                       {/* <div
                             className={`flex justify-between items-center px-4 py-3 cursor-pointer
                                 ${isCategoryExpanded ? 'border-b bg-white rounded-t-lg' : 'bg-gray-50 rounded-lg'}`}
                             onClick={() => toggleCategory(categoryName)}
+                        > */}
+                        <div
+                            className={`flex justify-between items-center px-2 py-3 cursor-pointer 
+                                ${isCategoryExpanded ? 'border-none bg-white rounded-t-lg' : 'border bg-[#f2f2fb] rounded-lg'}`}
+                            onClick={() => toggleCategory(categoryName)}
                         >
-                            <h4 className="font-semibold text-gray-800">{categoryName} ({tasks.length} Tasks)</h4>
-                            {isCategoryExpanded ? <ChevronUp className="h-4 w-4 text-gray-600" /> : <ChevronDown />}
+                            <h2 className="font-semibold text-gray-800">{categoryName} ({tasks.length} Tasks)</h2>
+                            {isCategoryExpanded ? <ChevronUp className="text-gray-600" /> : < ChevronDown />}
                         </div>
+
+                    <div key={categoryName} className="mx-4 rounded-lg bg-white shadow-sm">
+                        {/* Category Header */}
+                       
 
                         {/* Task Table */}
                         {isCategoryExpanded && (
-                            <div className="overflow-x-auto">
-                               <table className="min-w-full divide-y divide-gray-200 table-fixed"> {/* Added table-fixed */}
-                                    <thead className="bg-gray-100 text-xs text-gray-500 uppercase">
+                            <div className=" overflow-x-auto rounded-lg border border-gray-300">
+                                <table className="min-w-full divide-y divide-gray-300 table-fixed"> {/* Added table-fixed */}
+                                    <thead className="bg-gray-100 text-xs text-gray-500 uppercase" style={{ backgroundColor: '#f2f2fb' }}>
                                         <tr>
                                             {/* Fixed widths applied to ensure alignment across all tables */}
-                                            <th className="px-4 py-3 text-left w-[18%]">Task Name</th> 
-                                            <th className="px-4 py-3 text-left w-[14%]">Assigned Designer</th>
+                                            <th className="px-4 py-3 text-left w-[18%]">Task Name</th>
+                                            <th className="px-4 py-3 text-center w-[18%]">Assigned Designer</th>
                                             <th className="px-4 py-3 text-left w-[10%]">Deadline</th>
-                                            <th className="px-4 py-3 text-left w-[12%]">Status</th>
-                                            <th className="px-4 py-3 text-left w-[16%]">Sub-Status</th>
+                                            <th className="px-4 py-3 text-center w-[12%]">Status</th>
+                                            <th className="px-4 py-3 text-center w-[16%]">Sub-Status</th>
                                             <th className="px-4 py-3 text-center w-[8%]">Comments</th>
                                             <th className="px-4 py-3 text-center w-[8%]">Link</th>
                                             <th className="px-4 py-3 text-center w-[14%]">Actions</th>
@@ -917,70 +930,83 @@ const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, 
                                         {tasks.map((task) => (
                                             <tr key={task.name} className="text-sm text-gray-800">
                                                 <td className="px-4 py-3 font-medium truncate">{task.task_name}</td>
-                                                <td className="px-4 py-3">{getAssignedNameForDisplay(task)}</td>
-                                                <td className="px-4 py-3 whitespace-nowrap">{getDeadlineDisplay(task)}</td>
-                                                
-                                                <td className="px-4 py-3">
-                                                    <Badge variant="outline" className="w-full justify-center bg-gray-100 text-gray-700 border-gray-300 rounded-full h-8">
-                                                        {task.task_status || '...'}
-                                                    </Badge>
+                                                <td className="px-4 py-3 text-center">{getAssignedNameForDisplay(task)}</td>
+                                                {/* <td className="px-4 py-3 whitespace-nowrap">{getDeadlineDisplay(task)}</td> */}
+                                                   <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{formatDate(task.deadline)?.replace(/20(\d{2})$/, '$1') || '...'}</td>
+
+                                                {/* Task Status */}
+                                                {/* Task Status */}
+                                                <td className="px-4 py-3 text-sm">
+                                                    <div className="flex justify-center">
+                                                        <Badge
+                                                            variant="outline"
+                                                            className={`w-[120px] min-h-[28px] h-auto py-1 px-2 justify-center capitalize whitespace-normal break-words text-center leading-tight ${getTaskStatusStyle(task.task_status || '...')} rounded-full`}
+                                                        >
+                                                            {task.task_status || '...'}
+                                                        </Badge>
+                                                    </div>
                                                 </td>
-                                                
-                                                <td className="px-4 py-3">
-                                                    <Badge variant="outline" className="w-full justify-center bg-gray-100 text-gray-700 border-gray-300 rounded-full h-8">
-                                                        {task.task_sub_status || '...'}
-                                                    </Badge>
+
+                                                {/* Sub-Status Badge */}
+                                                <td className="px-4 py-3 text-sm">
+                                                    <div className="flex justify-center">
+                                                         <Badge 
+                                                                    variant="outline" 
+                                                                    className={`w-[120px] min-h-[28px] h-auto py-1 px-2 justify-center whitespace-normal break-words text-center leading-tight ${getSubStatusStyle(task.task_sub_status || '...')} rounded-full`}
+                                                                >
+                                                            {task.task_sub_status || '...'}
+                                                        </Badge>
+                                                    </div>
                                                 </td>
-        <td className="px-4 py-3 text-center">
-            <TooltipProvider>
-                <Tooltip delayDuration={300}>
-                    <TooltipTrigger asChild>
-                        {/* We use cursor-default here as the trigger handles the hover interaction */}
-                        <MessageCircle 
-                            className={`h-4 w-4 mx-auto cursor-default ${task.comments ? 'text-gray-600' : 'text-gray-300'}`} 
-                        />
-                    </TooltipTrigger>
-                    {task.comments && (
-                        <TooltipContent className="max-w-xs p-3 bg-white text-gray-900 border shadow-lg">
-                            {/* <p className="font-semibold text-xs mb-1">Comments:</p> */}
-                            <p className="text-sm">{task.comments}</p>
-                        </TooltipContent>
-                    )}
-                </Tooltip>
-            </TooltipProvider>
-        </td>
-        
-        {/* 2. Link Column (Using Tooltip) */}
-        <td className="px-4 py-3 text-center">
-            {task.file_link ? (
-                <TooltipProvider>
-                    <Tooltip delayDuration={300}>
-                        <TooltipTrigger asChild>
-                            <a 
-                                href={task.file_link} 
-                                target="_blank" 
-                                rel="noopener noreferrer" 
-                                className="block w-full h-full cursor-pointer hover:scale-110 transition-transform"
-                            >
-                                <LinkIcon className="h-4 w-4 text-blue-500 mx-auto" />
-                            </a>
-                        </TooltipTrigger>
-                        <TooltipContent className="p-2 bg-gray-900 text-white shadow-lg">
-                           <a 
-                                href={task.file_link} 
-                                target="_blank" 
-                                rel="noopener noreferrer" 
-                                className="block w-full h-full cursor-pointer hover:scale-110 transition-transform"
-                            >
-                                {task.file_link.substring(0, 30)}...
-                            </a>
-                        </TooltipContent>
-                    </Tooltip>
-                </TooltipProvider>
-            ) : (
-                <LinkIcon className="h-4 w-4 text-gray-300 mx-auto" />
-            )}
-        </td> 
+                                                <td className="px-4 py-3 text-center">
+                                                    <TooltipProvider>
+                                                        <Tooltip delayDuration={300}>
+                                                            <TooltipTrigger asChild>
+                                                                {/* We use cursor-default here as the trigger handles the hover interaction */}
+                                                                <MessageCircle
+                                                                    className={`h-6 w-6 p-1 bg-gray-100 rounded-md mx-auto  ${task.comments ? 'cursor-pointer text-gray-600 hover:scale-110 transition-transform ' : 'text-gray-300'}`}
+                                                                />
+                                                            </TooltipTrigger>
+                                                            {task.comments && (
+                                                                <TooltipContent className="max-w-xs p-2 bg-white text-gray-900 border shadow-lg">
+                                                                    {/* <p className="font-semibold text-xs mb-1">Comments:</p> */}
+                                                                    <p className="text-xs">{task.comments}</p>
+                                                                </TooltipContent>
+                                                            )}
+                                                        </Tooltip>
+                                                    </TooltipProvider>
+                                                </td>
+
+                                                {/* 2. Link Column (Using Tooltip) */}
+                                                <td className="px-4 py-3 text-center">
+                                                   
+                                                        <TooltipProvider>
+                                                            <Tooltip delayDuration={300}>
+                                                                <TooltipTrigger asChild>
+                                                                    <a
+                                                                        href={task.file_link}
+                                                                        target="_blank"
+                                                                        rel="noopener noreferrer"
+                                                                        className="block w-full h-full cursor-pointer hover:scale-110 transition-transform"
+                                                                    >
+                                                                        <LinkIcon className={`h-6 w-6 p-1 bg-gray-100 rounded-md ${task.file_link ? 'cursor-pointer text-blue-500' : 'text-gray-300'}`} />
+                                                                    </a>
+                                                                </TooltipTrigger>
+                                                                {task.file_link && (<TooltipContent className="p-2 bg-gray-900 text-white shadow-lg">
+                                                                    <a
+                                                                        href={task.file_link}
+                                                                        target="_blank"
+                                                                        rel="noopener noreferrer"
+                                                                        className="block w-full h-full cursor-pointer hover:scale-110 transition-transform"
+                                                                    >
+                                                                        {task.file_link.substring(0, 30)}...
+                                                                    </a>
+                                                                </TooltipContent>)}
+                                                                
+                                                            </Tooltip>
+                                                        </TooltipProvider>
+                                                    
+                                                </td>
                                                 {/* Actions: Triggers Modal */}
                                                 <td className="px-4 py-3 text-center">
                                                     <Button variant="outline" size="sm" className="h-8" onClick={() => setEditingTask(task)}>
@@ -994,6 +1020,7 @@ const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, 
                             </div>
                         )}
                     </div>
+                    </>
                 )
             })}
             {/* Task Edit Modal */}
@@ -1051,7 +1078,7 @@ export const DesignTrackerList: React.FC = () => {
     });
 
     const { projectOptions, categories, categoryData, statusOptions,
-            subStatusOptions, } = useDesignMasters();
+        subStatusOptions, } = useDesignMasters();
 
     const filteredDocs = useMemo(() => {
         if (!trackerDocs) return [];
@@ -1073,11 +1100,11 @@ export const DesignTrackerList: React.FC = () => {
         <div className="flex-1 space-y-6 p-2 md:p-2">
             <header className="flex justify-between items-center">
                 {/* <h1 className="text-2xl font-bold text-red-700">Design Tracker</h1> */}
-                 <div className="flex space-x-0 border border-gray-300 rounded-md overflow-hidden w-fit">
-    
-    <Button
-        onClick={() => onClick(DESIGN_TABS.PROJECT_WISE)}
-        className={`px-4 py-2 text-sm font-medium h-auto shadow-none 
+                <div className="flex space-x-0 border border-gray-300 rounded-md overflow-hidden w-fit">
+
+                    <Button
+                        onClick={() => onClick(DESIGN_TABS.PROJECT_WISE)}
+                        className={`px-4 py-2 text-sm font-medium h-auto shadow-none 
             ${activeTab === DESIGN_TABS.PROJECT_WISE ? 'bg-primary text-white hover:bg-primary-dark' : 'bg-white text-gray-700 '}
             
             /* Apply border-right to create the visual divider */
@@ -1086,51 +1113,51 @@ export const DesignTrackerList: React.FC = () => {
             /* Ensure right side is square, left side gets rounding from parent div */
             rounded-r-none 
         `}
-    >
-        Project Wise
-    </Button>
-    
-    <Button
-        onClick={() => onClick(DESIGN_TABS.TASK_WISE)}
-        className={`px-4 py-2 text-sm font-medium h-auto shadow-none 
+                    >
+                        Project Wise
+                    </Button>
+
+                    <Button
+                        onClick={() => onClick(DESIGN_TABS.TASK_WISE)}
+                        className={`px-4 py-2 text-sm font-medium h-auto shadow-none 
             ${activeTab === DESIGN_TABS.TASK_WISE ? 'bg-primary text-white hover:bg-primary-dark' : 'bg-white text-gray-800 '}
             
             /* Ensure left side is square, right side gets rounding from parent div */
             rounded-l-none 
         `}
-    >
-        Task Wise
-    </Button>
-</div>
-           {activeTab !== DESIGN_TABS.TASK_WISE && (
-                <Button onClick={() => setIsModalOpen(true)} className="">
-                    <CirclePlus className="h-5 w-5 pr-1" /> Track New Project
-                </Button>
-            )}
-                
+                    >
+                        Task Wise
+                    </Button>
+                </div>
+                {activeTab !== DESIGN_TABS.TASK_WISE && (
+                    <Button onClick={() => setIsModalOpen(true)} className="">
+                        <CirclePlus className="h-5 w-5 pr-1" /> Track New Project
+                    </Button>
+                )}
+
             </header>
 
-        
+
             {/* Search and Filter */}
             {
-                activeTab !==DESIGN_TABS.TASK_WISE &&(
- <div className="flex items-center space-x-3">
-                <div className="relative flex-grow">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
-                    <Input
-                        placeholder="Search Projects"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="pl-10 h-10 border-gray-300"
-                    />
-                </div>
-                <Button variant="outline" className="flex items-center gap-2 h-10 border-gray-300 text-gray-700">
-                    <Filter className="h-4 w-4" /> Filter
-                </Button>
-            </div>
+                activeTab !== DESIGN_TABS.TASK_WISE && (
+                    <div className="flex items-center space-x-3">
+                        <div className="relative flex-grow">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
+                            <Input
+                                placeholder="Search Projects"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="pl-10 h-10 border-gray-300"
+                            />
+                        </div>
+                        <Button variant="outline" className="flex items-center gap-2 h-10 border-gray-300 text-gray-700">
+                            <Filter className="h-4 w-4" /> Filter
+                        </Button>
+                    </div>
                 )
             }
-           
+
 
             {/* Content based on Active Tab */}
             {activeTab === DESIGN_TABS.PROJECT_WISE && (
@@ -1146,7 +1173,7 @@ export const DesignTrackerList: React.FC = () => {
                                 <div key={doc.name}>
                                     <Card
                                         className={`p-4 transition-all duration-200 cursor-pointer
-                                                ${isPending ? 'border-destructive border-2' : 'border-gray-200 borde-2'}
+                                                ${isPending ? 'border-destructive border' : 'border-gray-200 borde'}
                                                 ${isExpanded ? 'rounded-b-none border-b-0' : 'rounded-lg hover:shadow-md'}`}
                                         onClick={() => handleToggleCollapse(doc.name)}
                                     >
@@ -1165,36 +1192,37 @@ export const DesignTrackerList: React.FC = () => {
 
                                             {/* Details */}
                                             {/* Date Section */}
-                                                    <div className="text-gray-600 flex flex-col items-start md:items-center w-1/2 md:w-auto">
-                                                        <div className="text-xs text-gray-500 capitalize font-medium">Task Created On:</div>
-                                                        <div className="text-sm font-medium text-gray-900">
-                                                            {formatDate(doc.creation)}
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Status Section */}
-                                                    <div className="text-right flex flex-col items-end md:items-center w-1/2 md:w-auto">
-                                                        <div className="text-xs text-gray-500 capitalize font-medium">Status</div>
-                                                        <Badge 
-                                                            className={`capitalize text-sm ${getStatusBadgeStyle(doc.status)}`}
-                                                        >
-                                                            {doc.status}
-                                                        </Badge>
-                                                    </div>
-
-                                             {/* Row 3: Action Icon */}
-                                                <div className="absolute right-0 top-0 md:static md:order-3 md:ml-4">
-                                                    <Button variant="outline" size="icon" className="h-8 w-8 bg-gray-100  hover:bg-gray-200">
-                                                        {isExpanded ? <ChevronUp className="h-5 w-5 " /> : <ChevronDown className="h-5 w-5 " />}
-                                                    </Button>
+                                            <div className="text-gray-600 flex flex-col items-start md:items-center w-1/2 md:w-auto">
+                                                <div className="text-xs text-gray-500 capitalize font-medium">Task Created On:</div>
+                                                <div className="text-sm font-medium text-gray-900">
+                                                    {formatDate(doc.creation)}
                                                 </div>
+                                            </div>
+
+                                            {/* Status Section */}
+                                            <div className="text-right flex flex-col items-end md:items-center w-1/2 md:w-auto">
+                                                <div className="text-xs text-gray-500 capitalize font-medium">Status</div>
+                                                <Badge
+                                                    variant="outline" 
+                                                        className={`w-[120px] min-h-[28px] h-auto py-1 px-2 justify-center whitespace-normal break-words text-center leading-tight ${getStatusBadgeStyle(doc.status || '...')} rounded-full`}
+                                                >
+                                                    {doc.status}
+                                                </Badge>
+                                            </div>
+
+                                            {/* Row 3: Action Icon */}
+                                            <div className="absolute right-0 top-0 md:static md:order-3 md:ml-4">
+                                                <Button variant="outline" size="icon" className="h-8 w-8 bg-gray-100  hover:bg-gray-200">
+                                                    {isExpanded ? <ChevronUp className="h-5 w-5 " /> : <ChevronDown className="h-5 w-5 " />}
+                                                </Button>
+                                            </div>
                                         </CardContent>
                                     </Card>
 
                                     {/* Expanded Task List */}
                                     {isExpanded && (
-                                        <div className={`bg-white border-2 rounded-b-lg p-0
-                                                ${isPending ? 'border-destructive border-t-2' : 'border-gray-200 border-t-2'}`}>
+                                        <div className={`bg-white border rounded-b-lg p-0
+                                                ${isPending ? 'border-destructive border-t' : 'border-gray-200 border-t'}`}>
                                             <ExpandedProjectTasks trackerId={doc.name} refetchList={refetchList} />
                                         </div>
                                     )}

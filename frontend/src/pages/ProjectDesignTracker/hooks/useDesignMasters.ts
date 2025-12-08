@@ -24,11 +24,23 @@ export const TASK_STATUS_OPTIONS = [
 
 // Define the hierarchy/list for sub-statuses
 export const SUB_STATUS_OPTIONS = [
+    //  { label: "-- None --", value: "" },
     { label: "Sub-Status 1", value: "Sub-Status 1" },
     { label: "Sub-Status 2", value: "Sub-Status 2" },
     { label: "Clarification from client", value: "Clarification from client" },
-    { label: "Clarification from team", value: "Clarification from team" },
+    { label: "Clarification from Shanu", value: "Clarification from Shanu" },
 ];
+
+export const SUB_STATUS_MAP = {
+    "Completed": [
+        "Sub-Status 1", 
+        "Sub-Status 2"
+    ],
+    "On Hold": [
+        "Clarification from client", 
+        "Clarification from Shanu"
+    ],
+};
 
 export const useDesignMasters = () => {
     

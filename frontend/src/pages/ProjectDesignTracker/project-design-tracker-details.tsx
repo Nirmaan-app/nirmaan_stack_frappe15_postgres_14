@@ -17,6 +17,9 @@ import { Label } from '@/components/ui/label';
 import { useDesignTrackerLogic } from './hooks/useDesignTrackerLogic';
 import { TailSpin } from 'react-loader-spinner'; // Required for loading states in modals
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { SUB_STATUS_MAP } from './hooks/useDesignMasters';
+import {getStatusBadgeStyle} from './design-tracker-list';
+
 
 const DOCTYPE = 'Project Design Tracker';
 
@@ -53,7 +56,7 @@ const formatDate = (dateString?: string): string => {
     }
 };
 
-const getTaskStatusStyle = (status: string) => {
+export const getTaskStatusStyle = (status: string) => {
     const lowerStatus = status.toLowerCase();
     
     if (lowerStatus.includes('in progress')) {
@@ -74,7 +77,7 @@ const getTaskStatusStyle = (status: string) => {
     return 'bg-gray-100 text-gray-700 border border-gray-300';
 };
 
-const getSubStatusStyle = (subStatus?: string) => {
+export const getSubStatusStyle = (subStatus?: string) => {
     if (!subStatus || subStatus === '...') return 'bg-gray-100 text-gray-700 border border-gray-300';
     
     const lowerSubStatus = subStatus.toLowerCase();
@@ -196,6 +199,34 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({ task, onSave, user
         usersList.map(u => ({ label: u.full_name || u.name, value: u.name, email: u.email || '' }))
     , [usersList]);
 
+     const allowedSubStatuses = useMemo(() => {
+        const currentStatus = editState.task_status;
+        // Lookup the array of allowed string values for the current status
+        const allowedValues = SUB_STATUS_MAP[currentStatus as keyof typeof SUB_STATUS_MAP];
+        
+        if (!allowedValues || allowedValues.length === 0) {
+            // If the status is not mapped (e.g., Todo, In Progress), return only the empty option
+            return subStatusOptions.filter(opt => opt.value === ""); 
+        }
+
+        // Filter the full subStatusOptions list based on allowedValues
+        return subStatusOptions.filter(opt => 
+        opt.value === "" || allowedValues.includes(opt.value)
+    );
+    }, [editState.task_status, subStatusOptions]);
+    console.log("Allowed Sub Statuses:", allowedSubStatuses);
+    // Cleanup sub-status when main status changes to an invalid state
+     React.useEffect(() => {
+        const isStatusMapped = !!SUB_STATUS_MAP[editState.task_status as keyof typeof SUB_STATUS_MAP];
+        
+        // If the status changes to one that shouldn't have sub-status OR the current sub-status isn't in the allowed list
+        if (!isStatusMapped && editState.task_sub_status) {
+             setEditState(prev => ({ ...prev, task_sub_status: "" }));
+        }
+    }, [editState.task_status]); // Only re-run when main status changes
+
+
+
     const getInitialDesigners = useCallback((designerField: AssignedDesignerDetail[] | string | any): DesignerOption[] => {
         let designerDetails: AssignedDesignerDetail[] = [];
         
@@ -251,6 +282,11 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({ task, onSave, user
             userName: d.label,
             userEmail: d.email,
         }));
+
+         let finalEditState = { ...editState };
+        if (editState.task_status && !SUB_STATUS_MAP[editState.task_status as keyof typeof SUB_STATUS_MAP]) {
+             finalEditState.task_sub_status = "";
+        }
         
         const payloadForServer: { [key: string]: any } = { 
             ...editState,
@@ -304,7 +340,7 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({ task, onSave, user
                     </div>
                     
                     {/* Sub Status */}
-                   <div className="space-y-1">
+                   {/* <div className="space-y-1">
                         <Label htmlFor="sub_status">Sub Status</Label>
                         <Select 
                            value={editState.task_sub_status || ''} 
@@ -314,11 +350,28 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({ task, onSave, user
                                 <SelectValue placeholder="Select Sub Status" />
                             </SelectTrigger>
                             <SelectContent>
-                                {/* IMPORTANT: You need to define subStatusOptions for this to work */}
                                 {subStatusOptions.map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}
                             </SelectContent>
                         </Select>
-                    </div>
+                    </div> */}
+
+                     {(allowedSubStatuses.length > 1) && ( // Show only if more than the default empty option is available
+                       <div className="space-y-1">
+                            <Label htmlFor="sub_status">Sub Status</Label>
+                            <Select 
+                               value={editState.task_sub_status || ''} 
+                               onValueChange={(val) => setEditState(prev => ({ ...prev, task_sub_status: val as any }))}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select Sub Status" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {/* Use the dynamically filtered list */}
+                                    {allowedSubStatuses.map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
 
                     {/* Deadline */}
                     <div className="space-y-1">
@@ -367,7 +420,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onSav
         task_name: '',
         design_category: initialCategoryName,
         deadline: '',
-        task_status: 'Todo',
+        task_status: 'Not Applicable',
         file_link: '',
         comments: ''
     });
@@ -385,7 +438,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onSav
                 task_name: '',
                 design_category: initialCategoryName,
                 deadline: '',
-                task_status: 'Todo',
+                task_status: 'Not Applicable',
             });
             setSelectedDesigners([]);
         } else {
@@ -488,11 +541,11 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onSav
                         <Input id="deadline" type="date" value={taskState.deadline || ''} onChange={(e) => setTaskState(prev => ({ ...prev, deadline: e.target.value }))} />
                     </div>
                     
-                    {/* Status (Default to Todo) */}
-                     <div className="space-y-1">
+                    {/* Status (Default to Not Applicable) */}
+                    <div className="space-y-1">
                         <Label htmlFor="status">Status</Label>
                         <Select 
-                           value={taskState.task_status || 'Todo'} 
+                           value={taskState.task_status || 'Not Applicable'} 
                            onValueChange={(val) => setTaskState(prev => ({ ...prev, task_status: val as any }))}
                         >
                             <SelectTrigger>
@@ -503,6 +556,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onSav
                             </SelectContent>
                         </Select>
                     </div>
+                    
 
                     {/* File Link */}
                     <div className="space-y-1">
@@ -781,14 +835,18 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
         
        if (designers.length > 0) {
             return (
-                <ul className="list-disc ml-4 p-0 m-0 space-y-0.5 text-xs"> 
+                <p className="text-center">
+                {/* <ul className="list-disc ml-0 p-0 m-0 space-y-0.5 text-xs"> */}
                     {designers.map((d, index) => (
-                        <li key={index}>
+                        <span className="text-xs block text-center" key={index}>
                             {d.userName || d.userId}
-                        </li>
+                        </span>
                     ))}
-                </ul>
-            );
+                {/* </ul> */}
+                </p>
+            )
+        }else{
+            return <p className="text-xs text-center text-gray-500">--</p>;
         }
         return getDesignerName(undefined);
     };
@@ -828,7 +886,7 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
                          onClick={() => setIsProjectOverviewModalOpen(true)}
                          className="h-8"
                      >
-                         <Edit className="h-3 w-3 mr-1" /> Edit Overview
+                         <Edit className="h-3 w-3 mr-1" /> Edit
                      </Button>
                  </div>
                 <CardTitle className="text-xl font-semibold mb-4">Project Overview</CardTitle>
@@ -855,16 +913,22 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
                     {/* Project Status */}
                     <div className="space-y-1">
                         <Label className="uppercase text-xs font-medium text-gray-500">Project Status</Label>
-                        <p><Badge variant="outline" className={`h-8 px-4 justify-center ${getTaskStatusStyle(trackerDoc.status)}`}>
-                            {trackerDoc.status}
-                        </Badge></p>
+                        <p>
+                        <Badge
+                                                                            variant="outline" 
+                                                                                className={`w-[120px] min-h-[28px] h-auto py-1 px-2 justify-center whitespace-normal break-words text-center leading-tight ${getStatusBadgeStyle(trackerDoc.status || '...')} rounded-full`}
+                                                                        >
+                                                                            {trackerDoc.status}
+                                                                        </Badge>
+                        </p>
                         
                     </div>
                     
                     {/* Overall Deadline (Editable Input) */}
                     <div className="space-y-1">
                         <Label className="uppercase text-xs font-medium text-gray-500">Overall Deadline</Label>
-                        <div className="relative">
+                         <p className="font-semibold text-center">{formatDate(trackerDoc.overall_deadline)}</p>
+                        {/* <div className="relative">
                             <Input
                                 type="date"
                                 value={overallDeadline}
@@ -872,7 +936,7 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
                                 onBlur={(e) => handleDeadlineUpdate(e.target.value)}
                                 className="pr-2" 
                             />
-                        </div>
+                        </div> */}
                     </div>
                 </div>
             </Card>
@@ -901,36 +965,37 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
             
             {/* --- TASK LIST (ACCORDION STYLE) --- */}
             
-            <div className="space-y-4">
+            <div className="space-y-4 bg-white border rounded-lg p-4">
                 {Object.entries(groupedTasks).map(([categoryName, tasks]) => {
                     const isExpanded = expandedCategories[categoryName] ?? true; 
 
                     return (
-                        <Card key={categoryName} className="shadow-lg">
+                        <div key={categoryName} className="">
                             
                             {/* Category Header */}
-                            <CardHeader 
-                                className="bg-gray-50 flex flex-row justify-between items-center py-3 cursor-pointer"
+                            <div
+                            className={`flex justify-between items-center px-2 py-3 cursor-pointer 
+                                ${isExpanded ? 'border-none bg-white rounded-t-lg' : 'border bg-[#f2f2fb] rounded-lg'}`}
                                 onClick={() => toggleCategory(categoryName)}
                             >
-                                <CardTitle className="text-lg font-semibold text-gray-800">
+                                <h2 className="text-lg font-semibold text-gray-800">
                                     {categoryName} ({tasks.length} Tasks)
-                                </CardTitle>
-                                {isExpanded ? <ChevronUp className="h-5 w-5 text-gray-600" /> : <ChevronDown className="h-5 w-5 text-gray-600" />}
-                            </CardHeader>
+                                </h2>
+                                {isExpanded ? <ChevronUp className="text-gray-600" /> : < ChevronDown />}
+                            </div>
 
                             {/* Task Table Content */}
                             {isExpanded && (
-                                <CardContent className="p-0">
+                                <div className=" overflow-x-auto rounded-lg border border-gray-300">
                                     <div className="overflow-x-auto">
                                         <table className="min-w-full divide-y divide-gray-200">
-                                            <thead className="bg-gray-100">
+                                            <thead className="bg-gray-100 text-xs text-gray-500 uppercase" style={{ backgroundColor: '#f2f2fb' }}>
                                                 <tr className='text-xs text-gray-500 uppercase font-medium'>
                                                     <th className="px-4 py-3 text-left w-[15%]">Task Name</th>
-                                                    <th className="px-4 py-3 text-left w-[15%]">Assigned Designer</th>
+                                                    <th className="px-4 py-3 text-center w-[18%]">Assigned Designer</th>
                                                     <th className="px-4 py-3 text-left w-[10%]">Deadline</th>
-                                                    <th className="px-4 py-3 text-left w-[10%]">Status</th>
-                                                    <th className="px-4 py-3 text-left w-[15%]">Sub-Status</th>
+                                                    <th className="px-4 py-3 text-center w-[10%]">Status</th>
+                                                    <th className="px-4 py-3 text-center w-[15%]">Sub-Status</th>
                                                     <th className="px-4 py-3 text-center w-[10%]">Comments</th>
                                                     <th className="px-4 py-3 text-center w-[10%]">Link</th>
                                                     <th className="px-4 py-3 text-center w-[15%]">Actions</th>
@@ -939,79 +1004,82 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
                                             <tbody className="bg-white divide-y divide-gray-100">
                                                 {tasks.map((task) => (
                                                     <tr key={task.name}>
-                                                        <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">{task.task_name}</td>
-                                                        <td className="px-4 py-3 text-sm text-gray-500">{getAssignedNameForDisplay(task)}</td>
+                                                        <td className="px-4 py-3 w-[15%] whitespace-wrap text-sm font-medium text-gray-900">{task.task_name}</td>
+                                                        <td className="px-4 py-3 text-sm text-gray-500 text-center ">{getAssignedNameForDisplay(task)}</td>
                                                         <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{formatDate(task.deadline)?.replace(/20(\d{2})$/, '$1') || '...'}</td>
                                                         
                                                         {/* Status Badge */}
                                                         <td className="px-4 py-3 text-sm">
-                                                            <Badge 
-                                                                variant="outline" 
-                                                                className={`h-7 w-full justify-center capitalize ${getTaskStatusStyle(task.task_status || '...')} rounded-full`}
-                                                            >
-                                                                {task.task_status || '...'}
-                                                            </Badge>
-                                                        </td>
+    <div className="flex justify-center">
+        <Badge 
+            variant="outline" 
+            className={`w-[120px] min-h-[28px] h-auto py-1 px-2 justify-center capitalize whitespace-normal break-words text-center leading-tight ${getTaskStatusStyle(task.task_status || '...')} rounded-full`}
+        >
+            {task.task_status || '...'}
+        </Badge>
+    </div>
+</td>
 
-                                                        {/* Sub-Status Badge */}
-                                                        <td className="px-4 py-3 text-sm">
-                                                            <Badge 
-                                                                variant="outline" 
-                                                                className={`h-7 w-full justify-center text-center ${getSubStatusStyle(task.task_sub_status || '...')} rounded-full`}
-                                                            >
-                                                                {task.task_sub_status || '...'}
-                                                            </Badge>
-                                                        </td>
-                                                       <td className="px-4 py-3 text-center">
-                                                                   <TooltipProvider>
-                                                                       <Tooltip delayDuration={300}>
-                                                                           <TooltipTrigger asChild>
-                                                                               {/* We use cursor-default here as the trigger handles the hover interaction */}
-                                                                               <MessageCircle 
-                                                                                   className={`h-4 w-4 mx-auto cursor-default ${task.comments ? 'text-gray-600' : 'text-gray-300'}`} 
-                                                                               />
-                                                                           </TooltipTrigger>
-                                                                           {task.comments && (
-                                                                               <TooltipContent className="max-w-xs p-3 bg-white text-gray-900 border shadow-lg">
-                                                                                   {/* <p className="font-semibold text-xs mb-1">Comments:</p> */}
-                                                                                   <p className="text-sm">{task.comments}</p>
-                                                                               </TooltipContent>
-                                                                           )}
-                                                                       </Tooltip>
-                                                                   </TooltipProvider>
-                                                               </td>
+{/* Sub-Status Badge */}
+<td className="px-4 py-3 text-sm">
+    <div className="flex justify-center">
+        <Badge 
+            variant="outline" 
+            className={`w-[120px] min-h-[28px] h-auto py-1 px-2 justify-center whitespace-normal break-words text-center leading-tight ${getSubStatusStyle(task.task_sub_status || '...')} rounded-full`}
+        >
+            {task.task_sub_status || '...'}
+        </Badge>
+    </div>
+</td>
+                                                        <td className="px-4 py-3 text-center">
+                                                                                                           <TooltipProvider>
+                                                                                                               <Tooltip delayDuration={300}>
+                                                                                                                   <TooltipTrigger asChild>
+                                                                                                                       {/* We use cursor-default here as the trigger handles the hover interaction */}
+                                                                                                                       <MessageCircle
+                                                                                                                           className={`h-6 w-6 p-1 bg-gray-100 rounded-md mx-auto  ${task.comments ? 'cursor-pointer text-gray-600 hover:scale-110 transition-transform ' : 'text-gray-300'}`}
+                                                                                                                       />
+                                                                                                                   </TooltipTrigger>
+                                                                                                                   {task.comments && (
+                                                                                                                       <TooltipContent className="max-w-xs p-2 bg-white text-gray-900 border shadow-lg">
+                                                                                                                           {/* <p className="font-semibold text-xs mb-1">Comments:</p> */}
+                                                                                                                           <p className="text-xs">{task.comments}</p>
+                                                                                                                       </TooltipContent>
+                                                                                                                   )}
+                                                                                                               </Tooltip>
+                                                                                                           </TooltipProvider>
+                                                                                                       </td>
                                                                
                                                                {/* 2. Link Column (Using Tooltip) */}
                                                                <td className="px-4 py-3 text-center">
-                                                                   {task.file_link ? (
-                                                                       <TooltipProvider>
-                                                                           <Tooltip delayDuration={300}>
-                                                                               <TooltipTrigger asChild>
-                                                                                   <a 
-                                                                                       href={task.file_link} 
-                                                                                       target="_blank" 
-                                                                                       rel="noopener noreferrer" 
-                                                                                       className="block w-full h-full cursor-pointer hover:scale-110 transition-transform"
-                                                                                   >
-                                                                                       <LinkIcon className="h-4 w-4 text-blue-500 mx-auto" />
-                                                                                   </a>
-                                                                               </TooltipTrigger>
-                                                                               <TooltipContent className="p-2 bg-gray-900 text-white shadow-lg">
-                                                                                  <a 
-                                                                                       href={task.file_link} 
-                                                                                       target="_blank" 
-                                                                                       rel="noopener noreferrer" 
-                                                                                       className="block w-full h-full cursor-pointer hover:scale-110 transition-transform"
-                                                                                   >
-                                                                                       {task.file_link.substring(0, 30)}...
-                                                                                   </a>
-                                                                               </TooltipContent>
-                                                                           </Tooltip>
-                                                                       </TooltipProvider>
-                                                                   ) : (
-                                                                       <LinkIcon className="h-4 w-4 text-gray-300 mx-auto" />
-                                                                   )}
-                                                               </td> 
+                                                                                                                 
+                                                                                                                      <TooltipProvider>
+                                                                                                                          <Tooltip delayDuration={300}>
+                                                                                                                              <TooltipTrigger asChild>
+                                                                                                                                  <a
+                                                                                                                                      href={task.file_link}
+                                                                                                                                      target="_blank"
+                                                                                                                                      rel="noopener noreferrer"
+                                                                                                                                      className="block w-full h-full cursor-pointer hover:scale-110 transition-transform"
+                                                                                                                                  >
+                                                                                                                                      <LinkIcon className={`h-6 w-6 p-1 bg-gray-100 rounded-md ${task.file_link ? 'cursor-pointer text-blue-500' : 'text-gray-300'}`} />
+                                                                                                                                  </a>
+                                                                                                                              </TooltipTrigger>
+                                                                                                                              {task.file_link && (<TooltipContent className="p-2 bg-gray-900 text-white shadow-lg">
+                                                                                                                                  <a
+                                                                                                                                      href={task.file_link}
+                                                                                                                                      target="_blank"
+                                                                                                                                      rel="noopener noreferrer"
+                                                                                                                                      className="block w-full h-full cursor-pointer hover:scale-110 transition-transform"
+                                                                                                                                  >
+                                                                                                                                      {task.file_link.substring(0, 30)}...
+                                                                                                                                  </a>
+                                                                                                                              </TooltipContent>)}
+                                                                                                                              
+                                                                                                                          </Tooltip>
+                                                                                                                      </TooltipProvider>
+                                                                                                                  
+                                                                                                              </td>
                                                         
                                                         {/* Actions */}
                                                         <td className="px-4 py-3 text-center">
@@ -1024,9 +1092,9 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
                                             </tbody>
                                         </table>
                                     </div>
-                                </CardContent>
+                                </div>
                             )}
-                        </Card>
+                        </div>
                     );
                 })}
             </div>
@@ -1076,11 +1144,6 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
 };
 
 export default ProjectDesignTrackerDetail;
-
-
-
-
-
 
 
 

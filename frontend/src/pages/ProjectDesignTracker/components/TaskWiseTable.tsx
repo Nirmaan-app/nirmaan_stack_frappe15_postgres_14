@@ -259,99 +259,113 @@ const getTaskWiseColumns = (handleEditClick: (task: FlattenedTask) => void): Col
             ),
         },
         {
-            // Status
-            accessorKey: "task_status",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
-            cell: ({ row }) => (
-                <Badge className={`h-7 px-3 justify-center ${getStatusBadgeStyle(row.original.task_status || '...')}`}>
-                    {row.original.task_status || '...'}
-                </Badge>
-            ),
-            enableColumnFilter: true,
-        },
-        {
-            // Sub-Status
-            accessorKey: "task_sub_status",
-             header: ({ column }) => <DataTableColumnHeader column={column} title="Sub-Status" />,
-            cell: ({ row }) => (
-                <div className="whitespace-wrap text-center">
-                   {row.original.task_sub_status?(<Badge className={`h-7 px-3 ${getSubStatusBadgeStyle(row.original.task_sub_status)}`}>
+    // Status
+    accessorKey: "task_status",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+    cell: ({ row }) => (
+        <div className="flex justify-center">
+            <Badge 
+                className={`w-[120px] min-h-[28px] h-auto py-1 px-2 justify-center whitespace-normal break-words text-center leading-tight ${getStatusBadgeStyle(row.original.task_status || '...')}`}
+            >
+                {row.original.task_status || '...'}
+            </Badge>
+        </div>
+    ),
+    enableColumnFilter: true,
+},
+{
+    // Sub-Status
+    accessorKey: "task_sub_status",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Sub-Status" />,
+    cell: ({ row }) => (
+        <div className="flex justify-center">
+            {row.original.task_sub_status ? (
+                <Badge 
+                    className={`w-[120px] min-h-[28px] h-auto py-1 px-2 justify-center whitespace-normal break-words text-center leading-tight ${getSubStatusBadgeStyle(row.original.task_sub_status)}`}
+                >
                     {row.original.task_sub_status}
-                </Badge>):(
-                    "--"
-                )}
-                </div>
-               
-                
-            ),
-            enableColumnFilter: true,
-        },
-        {
-            // Link Column
-            id: "file_link",
-            // Header centered to match cell content
-            header: ({ column }) => <div className="text-center">Link</div>,
-            cell: ({ row }) => (
-                // Cell content explicitly centered
-                <div className="flex justify-start items-center">
-                    {row.original.file_link ? (
-                        <TooltipProvider>
-                            <Tooltip delayDuration={300}>
-                                <TooltipTrigger asChild>
-                                    <a 
-                                        href={row.original.file_link} 
-                                        target="_blank" 
-                                        rel="noopener noreferrer" 
-                                        className="cursor-pointer hover:scale-110 transition-transform"
-                                    >
-                                        <LinkIcon className="h-4 w-4 text-blue-500" />
-                                    </a>
-                                </TooltipTrigger>
-                                <TooltipContent className="p-2 bg-gray-900 text-white shadow-lg">
-                                    Go to Link: {row.original.file_link.substring(0, 30)}...
-                                </TooltipContent>
-                            </Tooltip>
-                        </TooltipProvider>
-                    ) : (
-                        <LinkIcon className="w-4 h-4 text-gray-300" />
+                </Badge>
+            ) : (
+                "--"
+            )}
+        </div>
+    ),
+    enableColumnFilter: true,
+},
+       {
+    // Link Column
+    accessorKey: "file_link",
+    header: () => <div className="text-center">Link</div>,
+    cell: ({ row }) => (
+        <div className="flex justify-start items-center">
+        
+                <TooltipProvider>
+                    <Tooltip delayDuration={300}>
+                        <TooltipTrigger asChild>
+                            <a 
+                                href={row.original.file_link} 
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                className="hover:scale-110 transition-transform"
+
+                            >
+                                <LinkIcon className={`h-6 w-6 p-1 bg-gray-100  rounded-md  ${row.original.file_link ? 'cursor-pointer text-blue-500' : 'text-gray-300'}`} />
+                            </a>
+                        </TooltipTrigger>
+                        {row.original.file_link && (
+                        <TooltipContent className="max-w-xs p-2 bg-white text-gray-900 border shadow-lg">
+                            <a 
+                                href={row.original.file_link} 
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                className="cursor-pointer hover:scale-110 transition-transform"
+                            >
+                                {row.original.file_link.substring(0, 30)}...
+                            </a>
+                        </TooltipContent>
+                        )}
+                    </Tooltip>
+                </TooltipProvider>
+            
+        </div>
+    ),
+    size: 80, // Add this - restricts column width
+    maxSize: 80, // Add this - maximum width
+    meta: { excludeFromExport: true },
+},
+{
+    // Comments Column
+    accessorKey: "comments",
+    header: () => <div className="text-center">Comments</div>,
+    cell: ({ row }) => (
+        <div className="flex justify-center items-center ">
+            <TooltipProvider>
+                <Tooltip delayDuration={300}>
+                    <TooltipTrigger asChild>
+                        <MessageCircle 
+                            className={`h-6 w-6  p-1 bg-gray-100  rounded-md ${row.original.comments ? 'cursor-pointer text-gray-600 hover:scale-110 transition-transform' : 'text-gray-300'}`} 
+                        />
+                    </TooltipTrigger>
+                    {row.original.comments && (
+                        <TooltipContent className="max-w-xs p-2 bg-white text-gray-900 border shadow-lg">
+                            <p className="text-xs">{row.original.comments}</p>
+                        </TooltipContent>
                     )}
-                </div>
-            ),
-            meta: { excludeFromExport: true },
-        },
-        {
-            // Comments Column
-            id: "comments",
-            // Header centered to match cell content
-            header: () => <div className="text-center">Comments</div>,
-            cell: ({ row }) => (
-                // Cell content explicitly centered
-                <div className="flex justify-start items-center">
-                    <TooltipProvider>
-                        <Tooltip delayDuration={300}>
-                            <TooltipTrigger asChild>
-                                <MessageCircle 
-                                    className={`h-4 w-4 cursor-default ${row.original.comments ? 'text-gray-600' : 'text-gray-300'}`} 
-                                />
-                            </TooltipTrigger>
-                            {row.original.comments && (
-                                <TooltipContent className="max-w-xs p-3 bg-white text-gray-900 border shadow-lg">
-                                    <p className="text-sm">{row.original.comments}</p>
-                                </TooltipContent>
-                            )}
-                        </Tooltip>
-                    </TooltipProvider>
-                </div>
-            ),
-            meta: { excludeFromExport: true },
-        },
+                </Tooltip>
+            </TooltipProvider>
+        </div>
+    ),
+    size: 100, // Add this - restricts column width
+    maxSize: 100, // Add this - maximum width
+    meta: { excludeFromExport: true },
+},
         {
             // Actions Column
             id: "actions",
             header: () => <div className="text-center">Actions</div>,
             cell: ({ row }) => (
                 // Cell content explicitly centered
-                <div className="flex justify-center">
+                <div className="flex justify-start">
                     <Button 
                         variant="outline" 
                         size="sm" 
