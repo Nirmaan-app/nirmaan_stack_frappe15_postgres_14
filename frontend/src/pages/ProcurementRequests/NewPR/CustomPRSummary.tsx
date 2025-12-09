@@ -147,7 +147,7 @@ export const CustomPRSummary: React.FC<CustomPRSummaryProps> = ({
               <ul className="list-disc space-y-2 text-gray-800">
                 {approvalSummary.items.map((item) => (
                   <li key={item.name} className="text-sm">
-                    {item.item}
+                    {item.item_name}
                     <span className="mx-1">-</span> {item.quantity} x{" "}
                     {formatToIndianRupee(item.quote)}
                     <span className="mx-1 text-gray-500">+</span> {item.tax}%
