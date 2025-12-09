@@ -462,11 +462,11 @@ export function NewSidebar() {
         },
       ]
       : []),
-      ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile"].includes(role)
+      ...(user_id == "Administrator" || ["Nirmaan Design Lead Profile", "Nirmaan Admin Profile", "Nirmaan Design Executive Profile","Nirmaan Project Lead Profile"].includes(role)
       ? [
         {
           key: '/design-tracker',
-          icon: ClipboardMinus,
+          icon: Dices,
           label: 'Design Tracker',
         },
       ]

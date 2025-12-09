@@ -113,3 +113,9 @@ export const getAssignedNameForDisplay = (task: DesignTrackerTask): React.ReactN
         // return getDesignerName(undefined);
     };
 
+
+    
+export const getExistingTaskNames = (trackerDoc?: ProjectDesignTracker): string[] => {
+    if (!trackerDoc?.design_tracker_task) return [];
+    return trackerDoc.design_tracker_task.map(t => t.task_name);
+};

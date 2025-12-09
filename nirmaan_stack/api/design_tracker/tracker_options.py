@@ -42,9 +42,18 @@ def get_all_master_data():
     # )
     
     # 2. Fetch Users
+    allowed_profiles = [
+        "Administrator", 
+        "Nirmaan Design Lead Profile", 
+        "Nirmaan Admin Profile", 
+        "Nirmaan Design Executive Profile", 
+        "Nirmaan Project Lead Profile"
+    ]
+
     users = frappe.get_list(
         "Nirmaan Users", 
-        fields=["name", "full_name", "email"], 
+        fields=["name", "full_name", "email", "role_profile"], 
+        filters={"role_profile": ["in", allowed_profiles]}, # Filter by list of profiles
         limit=0, 
         as_list=False
     )
