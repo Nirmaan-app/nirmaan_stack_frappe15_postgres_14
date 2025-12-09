@@ -111,8 +111,8 @@ export const useApproveRejectLogic = ({ prId, initialPrData, vendorList = [], us
  const KEY_DELIMITER = "::"; 
  
  // Helper function (optional, but good practice)
- const getTargetRateKey = (itemId: string, unit: string): string => {
-     return `${itemId}${KEY_DELIMITER}${unit}`;
+ const getTargetRateKey = (itemId: string, unit: string,make:string): string => {
+     return `${itemId}${KEY_DELIMITER}${unit}${KEY_DELIMITER}${make}`;
  };
  
  const targetRatesDataMap = useMemo(() => {
@@ -122,9 +122,9 @@ export const useApproveRejectLogic = ({ prId, initialPrData, vendorList = [], us
      if (targetRatesApiResponse?.message && Array.isArray(targetRatesApiResponse.message)) {
          targetRatesApiResponse.message.forEach(tr => {
              // Check for valid item_id and unit before creating the key
-             if (tr.item_id && tr.unit) {
+             if (tr.item_id && tr.unit && tr.make) {
                  // 1. Create the unique, composite key
-                 const key = getTargetRateKey(tr.item_id, tr.unit);
+                 const key = getTargetRateKey(tr.item_id, tr.unit,tr.make);
                  
                  // 2. Set the data using the composite key
                  map.set(key, tr);
@@ -163,7 +163,7 @@ export const useApproveRejectLogic = ({ prId, initialPrData, vendorList = [], us
         const isAdditionalChargeItem = prItem.category === 'Additional Charges';
         
          // --- FIX APPLIED HERE: Create the composite key for the lookup ---
-        const lookupKey = getTargetRateKey(prItem.item_id, prItem.unit);
+        const lookupKey = getTargetRateKey(prItem.item_id, prItem.unit,prItem.make);
 
         const targetRateDetail = targetRatesDataMap.get(lookupKey); // item.
         const lowestRateInRfqContext = getLowestRateFromOriginalRfq(actualItemId);
@@ -174,15 +174,51 @@ export const useApproveRejectLogic = ({ prId, initialPrData, vendorList = [], us
         // An item is considered custom if we couldn't find a lowest rate from any RFQ.
         const isCustomItem = lowestRateInRfqContext === 0;
         // console.log("DEBUGRFQ: isCustomItem", isCustomItem);
-        // --------------------------------------------------------------------------
+            // =================================================================================
+            // ✨ NEW LOGIC START: Calculate Target Rate from Lowest Historical Quote
+            // =================================================================================
 
-        // Calculate Target Amount
-        let targetRateValue: number | undefined;
-        if (targetRateDetail?.rate) {
-            const parsedTargetRate = parseNumber(targetRateDetail.rate);
-            if (parsedTargetRate > 0) targetRateValue = parsedTargetRate;
-        }
-        const calculatedTargetAmount = (targetRateValue !== undefined) ? targetRateValue * quantity * 0.98 : undefined;
+            // 1. Extract the historical quotes list first
+            const contributingHistoricalQuotes = targetRateDetail 
+                ? mapApiQuotesToApprovedQuotations(targetRateDetail.selected_quotations_items || []) as ApprovedQuotationForHoverCard[] 
+                : [];
+
+            // 2. Determine the Target Rate Value
+            let targetRateValue: number | undefined;
+
+            // Priority A: Find the lowest rate among the historical quotes
+            if (contributingHistoricalQuotes.length > 0) {
+                let minHistoricalRate = Infinity;
+                
+                contributingHistoricalQuotes.forEach(quote => {
+                    // Parse the rate from the quote object (handle both 'quote' and 'rate' fields)
+                    const rate = parseNumber(quote.quote || quote.rate);
+                    
+                    // If valid rate and lower than current min, update min
+                    if (rate > 0 && rate < minHistoricalRate) {
+                        minHistoricalRate = rate;
+                    }
+                });
+
+                // If we found a valid minimum, use it
+                if (minHistoricalRate !== Infinity) {
+                    targetRateValue = minHistoricalRate;
+                }
+            }
+
+            // Priority B: Fallback to the generic rate from API if no valid historical quotes found
+            if ((targetRateValue === undefined || targetRateValue === 0) && targetRateDetail?.rate) {
+                const parsedTargetRate = parseNumber(targetRateDetail.rate);
+                if (parsedTargetRate > 0) targetRateValue = parsedTargetRate;
+            }
+
+            // 3. Calculate Target Amount using the determined targetRateValue
+            const calculatedTargetAmount = (targetRateValue !== undefined) ? targetRateValue * quantity * 0.98 : undefined;
+
+            // =================================================================================
+            // ✨ NEW LOGIC END
+            // =================================================================================
+
 
         // Calculate Lowest Quoted Amount (it's already calculated)
         const calculatedLowestQuotedAmountInRfq = (lowestRateInRfqContext !== undefined) ? lowestRateInRfqContext * quantity : undefined;
@@ -197,7 +233,8 @@ export const useApproveRejectLogic = ({ prId, initialPrData, vendorList = [], us
             lowestQuotedAmountForItem: calculatedLowestQuotedAmountInRfq,
             targetRate: targetRateValue,
             targetAmount: calculatedTargetAmount,
-            contributingHistoricalQuotes: targetRateDetail ? mapApiQuotesToApprovedQuotations(targetRateDetail.selected_quotations_items || []) as ApprovedQuotationForHoverCard[] : [],
+            // contributingHistoricalQuotes: targetRateDetail ? mapApiQuotesToApprovedQuotations(targetRateDetail.selected_quotations_items || []) as ApprovedQuotationForHoverCard[] : [],
+            contributingHistoricalQuotes: contributingHistoricalQuotes,
             savingLoss: undefined,
         };
         

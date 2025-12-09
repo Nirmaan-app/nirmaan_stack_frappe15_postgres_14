@@ -1065,7 +1065,7 @@ export default function ApprovedQuotationsTable({
         cell: ({ row }) => (
           row.original.item_id ? (<Link
             className="text-blue-600 hover:underline font-medium"
-            to={`/products/${row.original.item_id}?unit=${row.original.unit}`}
+            to={`/products/${row.original.item_id}?unit=${row.original.unit}?make=${row.original.make}`}
           >
             {row.getValue("item_name")}
           </Link>):(<div className="font-medium truncate">

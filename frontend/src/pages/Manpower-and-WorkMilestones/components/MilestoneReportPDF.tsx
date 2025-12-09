@@ -22,7 +22,7 @@ interface MilestoneReportPDFProps {
 const ReportPageHeader = ({ projectData, dailyReportDetails,showHeader }: any) =>{ 
   if (!showHeader) return null;
   return(
-  <thead className="border-b border-black">
+  <thead className="border-b border-black ">
     <tr>
       <th colSpan={4}>
         {/* Company Info/Header Content */}
@@ -310,205 +310,239 @@ const milestoneGroups = useMemo(() => {
 
           {/* --- 2. SUBSEQUENT WORK PLAN PAGES (Index > 0) --- */}
           {/* Start from index 1 for all remaining work plan pages */}
- {/* --- 2. WORK PLAN --- */}
+{/* --- 2. WORK PLAN --- */}
 {Object.keys(workPlanGroupedMilestones).length > 0 && (
-  <div className="page page-break-before ">
-    <ReportPageHeader
-      projectData={projectData}
-      dailyReportDetails={dailyReportDetails}
-     showHeader={showHeaderOnPrint}
-    />
+  <div className="page page-break-before">
+    {/* Wrapper Table to ensure Header works correctly */}
+    <table className="w-full">
+      <ReportPageHeader
+        projectData={projectData}
+        dailyReportDetails={dailyReportDetails}
+        showHeader={showHeaderOnPrint}
+      />
 
-    <div className="overflow-x-auto">
-      <h3 className="text-lg font-bold mb-4 text-gray-800 border-b">
-        WORK PLAN
-      </h3>
+      <tbody>
+        {/* 1. Title Row */}
+        <tr>
+          <td>
+            <h3 className="text-lg font-bold text-gray-800 mb-3">
+              WORK PLAN
+            </h3>
+          </td>
+        </tr>
 
-      {Object.entries(workPlanGroupedMilestones).map(
-        ([header, milestones]: [string, any[]], groupIdx: number) => (
-          <div key={groupIdx} className="mb-6 ">
-            {/* Group Header */}
-            <div className="mb-3 p-2">
-              <h4 className="text-md font-bold">
-                {header} - {milestones.length.toString().padStart(2, "0")}
-              </h4>
-            </div>
-
-            {/* Work Plan List */}
-            <div className="space-y-2 pl-2">
-              {milestones.map((milestone: any, idx: number) => (
-                <div
-                  key={idx}
-                  className="avoid-page-break-inside"
-                >
-                  <div className="mb-2 ml-2">
-                    <h5 className="font-medium text-sm">
-                      {milestone.work_milestone_name} - (<span className='text-red-500'>{milestone.status}</span>)
-                    </h5>
+        {/* 2. Group Rows: Create a separate TR for each group to allow pagination */}
+        {Object.entries(workPlanGroupedMilestones).map(
+          ([header, milestones]: [string, any[]], groupIdx: number) => (
+            <tr key={groupIdx}>
+              <td className="p-2">
+                <div className="mb-6">
+                  {/* Group Header */}
+                  <div className="mb-3">
+                    <h4 className="text-md font-bold">
+                      {header} - {milestones.length.toString().padStart(2, "0")}
+                    </h4>
                   </div>
 
-                  <div className="mt-2">
-                    <div className="">
-                      <ul className="list-disc list-inside text-xs  space-y-1 ml-4">
-                        {parseWorkPlan(milestone.work_plan).map(
-                          (point: string, i: number) =>
-                            point.trim() === "" ? (
-                              <div
-                                key={i}
-                                className="bg-red-50 border border-red-200 rounded-md text-center"
-                              >
-                                <span className="text-sm font-semibold text-red-700">
-                                  No Activity Plan
-                                </span>
-                              </div>
-                            ) : (
-                              <li
-                                key={i}
-                                className="break-words whitespace-pre-wrap"
-                              >
-                                {point}
-                              </li>
+                  {/* Work Plan List */}
+                  <div className="space-y-2 pl-2">
+                    {milestones.map((milestone: any, idx: number) => (
+                      <div key={idx} className="avoid-page-break-inside">
+                        <div className="mb-2 ml-2">
+                          <h5 className="font-medium text-sm">
+                            {milestone.work_milestone_name} - (
+                            <span className="text-red-500">
+                              {milestone.status}
+                            </span>
                             )
-                        )}
-                      </ul>
-                    </div>
+                          </h5>
+                        </div>
+
+                        <div className="mt-2">
+                          <div className="">
+                            <ul className="list-disc list-inside text-xs space-y-1 ml-4">
+                              {parseWorkPlan(milestone.work_plan).map(
+                                (point: string, i: number) =>
+                                  point.trim() === "" ? (
+                                    <div
+                                      key={i}
+                                      className="bg-red-50 border border-red-200 rounded-md text-center"
+                                    >
+                                      <span className="text-sm font-semibold text-red-700">
+                                        No Activity Plan
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <li
+                                      key={i}
+                                      className="break-words whitespace-pre-wrap"
+                                    >
+                                      {point}
+                                    </li>
+                                  )
+                              )}
+                            </ul>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
-        )
-      )}
-    </div>
+              </td>
+            </tr>
+          )
+        )}
+      </tbody>
+    </table>
   </div>
 )}
 
           {/* --- 3. WORK PROGRESS PAGES (Paginated) --- */}
-
-   {/* --- 3. WORK PROGRESS --- */}
+{/* --- 3. WORK PROGRESS --- */}
 {Object.keys(milestoneGroups).length > 0 && (
-  <div className="page page-break-before ">
-    <ReportPageHeader
-      projectData={projectData}
-      dailyReportDetails={dailyReportDetails}
-      showHeader={showHeaderOnPrint}
-    />
+  <div className="page page-break-before">
+    {/* Outer Table: Controls Page Header and Layout Flow */}
+    <table className="w-full">
+      <ReportPageHeader
+        projectData={projectData}
+        dailyReportDetails={dailyReportDetails}
+        showHeader={showHeaderOnPrint}
+      />
+      <tbody>
+        {/* Title Row */}
+        <tr>
+          <td>
+            <h3 className="text-lg font-bold mb-3 text-gray-800">
+              WORK PROGRESS
+            </h3>
+          </td>
+        </tr>
 
-    <div className="overflow-x-auto">
-      <h3 className="text-lg font-bold mb-4 text-gray-800 border-b">
-        WORK PROGRESS
-      </h3>
+        {/* Content Rows */}
+        {Object.entries(milestoneGroups).map(
+          ([header, data]: [string, { milestones: any[]; averageProgress: number }], groupIdx: number) => (
+            <tr key={groupIdx}>
+              <td className="p-2">
+                <div className="mb-6">
+                  {/* Group Header */}
+                  <div className="flex justify-between items-center mb-4 p-3 bg-gray-100 rounded-lg border-l-4 border-red-600 avoid-page-break-inside">
+                    <h4 className="text-md font-bold mx-5">
+                      {header} ({data?.milestones.length})
+                    </h4>
 
-      {Object.entries(milestoneGroups).map(
-        ([header, data]: [string, { milestones: any[], averageProgress: number }], groupIdx: number) => (
-          <div key={groupIdx} className="mb-6 ">
-            {/* Group Header */}
-            <div className=" flex justify-between items-center mb-4 p-3 bg-gray-100 rounded-lg border-l-4 border-red-600">
-              <h4 className="text-md font-bold mx-5">
-                {header} ({data?.milestones.length})
-                {/* --- START CHANGE 2: Displaying Average Progress --- */}
-                      
-                {/* <span className="text-base font-extrabold text-green-700">
-                   {data.averageProgress}% 
-                </span> */}
-                {/* --- END CHANGE 2 --- */}
-              </h4>
-
-              <div className="flex items-center">
-                <span className="mr-4 font-semibold">Overall Progress:</span>
-                <MilestoneProgress
-                  milestoneStatus={"Completed"}
-                  value={data.averageProgress}
-                  sizeClassName="size-[40px]"
-                  textSizeClassName="text-sm"
-                />
-              </div>
-                     
-            </div>
-
-            {/* Milestone Progress Table */}
-            <table className="w-full border-collapse mb-6">
-              <thead>
-                <tr className="bg-gray-100">
-                  <th className="border p-2 text-center w-[45%] font-semibold">
-                    WORK
-                  </th>
-                  <th className="border p-2 text-center w-[15%] font-semibold">
-                    STATUS
-                  </th>
-                  <th className="border p-2 text-center w-[20%] font-semibold">
-                    PROGRESS
-                  </th>
-                  <th className="border p-2 text-center w-[20%] font-semibold">
-                    Expected Starting/Completion Date
-                  </th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {data.milestones.map((milestone: any, idx: number) => (
-                  <tr key={idx} className="avoid-page-break-inside">
-                    <td className="border text-center p-2 align-center ">
-                      {milestone.work_milestone_name}
-                      {milestone.remarks && (
-                        <p className="flex items-start gap-2 p-1 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs">
-                                                                        {/* Icon: Added classes to control size and ensure it's vertically centered */}
-                                                                        <MessagesSquare className="h-4 w-4 flex-shrink-0" />
-                        
-                                                                        {/* Remarks text */}
-                                                                        <span className="flex-grow">
-                                                                          {milestone.remarks}
-                                                                        </span>
-                                                                      </p>
-                      )}
-                    </td>
-
-                    <td className="border p-2 text-center">
-                      <span
-                        className="px-2 py-1 rounded text-xs font-medium inline-block"
-                        style={{
-                          backgroundColor: `${getStatusColor(
-                            milestone.status
-                          )}20`,
-                          color: getStatusColor(milestone.status),
-                        }}
-                      >
-                        {milestone.status}
+                    <div className="flex items-center">
+                      <span className="mr-4 font-semibold">
+                        Overall Progress:
                       </span>
-                    </td>
-
-                    <td className="border p-2 text-center">
                       <MilestoneProgress
-                        milestoneStatus={milestone.status}
-                        value={milestone.progress}
+                        milestoneStatus={"Completed"}
+                        value={data.averageProgress}
                         sizeClassName="size-[40px]"
                         textSizeClassName="text-sm"
                       />
-                    </td>
+                    </div>
+                  </div>
 
-                    <td className="border p-2 text-center">
-                      {milestone.status === "Not Started" ? (
-                        <span className="text-red-600 font-medium">
-                          {milestone.expected_starting_date
-                            ? formatDate(milestone.expected_starting_date)
-                            : "N/A"}
-                        </span>
-                      ) : (
-                        <span className="text-green-500 font-medium">
-                          {milestone.expected_completion_date
-                            ? formatDate(milestone.expected_completion_date)
-                            : "N/A"}
-                        </span>
+                  {/* 
+                      INNER DATA TABLE 
+                      Added 'table-fixed': This ensures your width percentages (45%, 15%, etc.) work 
+                  */}
+                  <table className="w-full border-collapse table-fixed">
+                    <thead>
+                      <tr className="bg-gray-100">
+                        <th className="border p-2 text-center w-[45%] font-semibold">
+                          WORK
+                        </th>
+                        <th className="border p-2 text-center w-[15%] font-semibold">
+                          STATUS
+                        </th>
+                        <th className="border p-2 text-center w-[20%] font-semibold">
+                          PROGRESS
+                        </th>
+                        <th className="border p-2 text-center w-[20%] font-semibold">
+                          Expected Date
+                        </th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {data.milestones.map(
+                        (milestone: any, idx: number) => (
+                          <tr key={idx} className="avoid-page-break-inside">
+                            {/* Work Name */}
+                            <td className="border text-center p-2 align-center">
+                              <span className="block break-words">
+                                {milestone.work_milestone_name}
+                              </span>
+                              {milestone.remarks && (
+                                <p className="flex items-start gap-2 p-1 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs mt-1 text-left">
+                                  <MessagesSquare className="h-4 w-4 flex-shrink-0" />
+                                  <span className="flex-grow">
+                                    {milestone.remarks}
+                                  </span>
+                                </p>
+                              )}
+                            </td>
+
+                            {/* Status */}
+                            <td className="border p-2 text-center">
+                              <span
+                                className="px-2 py-1 rounded text-xs font-medium inline-block"
+                                style={{
+                                  backgroundColor: `${getStatusColor(
+                                    milestone.status
+                                  )}20`,
+                                  color: getStatusColor(milestone.status),
+                                }}
+                              >
+                                {milestone.status}
+                              </span>
+                            </td>
+
+                            {/* Progress */}
+                            <td className="border p-2 text-center">
+                              <div className="flex justify-center">
+                                <MilestoneProgress
+                                  milestoneStatus={milestone.status}
+                                  value={milestone.progress}
+                                  sizeClassName="size-[40px]"
+                                  textSizeClassName="text-sm"
+                                />
+                              </div>
+                            </td>
+
+                            {/* Date */}
+                            <td className="border p-2 text-center">
+                              {milestone.status === "Not Started" ? (
+                                <span className="text-red-600 font-medium text-sm">
+                                  {milestone.expected_starting_date
+                                    ? formatDate(
+                                        milestone.expected_starting_date
+                                      )
+                                    : "N/A"}
+                                </span>
+                              ) : (
+                                <span className="text-green-500 font-medium text-sm">
+                                  {milestone.expected_completion_date
+                                    ? formatDate(
+                                        milestone.expected_completion_date
+                                      )
+                                    : "N/A"}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        )
                       )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )
-      )}
-    </div>
+                    </tbody>
+                  </table>
+                </div>
+              </td>
+            </tr>
+          )
+        )}
+      </tbody>
+    </table>
   </div>
 )}
 
@@ -540,87 +574,70 @@ const milestoneGroups = useMemo(() => {
       </div>
 
       {/* Global Print Styles (Crucial for Pagination) */}
-      <style jsx global>{`
-        @media print {
-          @page {
-            size: A4;
-            margin:0;
-            padding:0.5cm;
-          }
-          
-          .page {
-            /* Apply the desired margin as padding on the content container */
-            padding: 0.5cm; 
-            
-            /* Ensure the padding doesn't cause overflow on a div with fixed height */
-            box-sizing: border-box; 
-            
-            page-break-after: always;
-          }
-          
-          .page:last-child {
-            page-break-after: auto;
-          }
-          
-          .page-break-before {
-            page-break-before: always;
-          }
-          
-          /* Ensure consistent table formatting */
-          table {
-            table-layout: fixed;
-            width: 100%;
-            border-collapse: collapse;
-          }
-          
-          th, td {
-            word-wrap: break-word;
-            overflow-wrap: break-word;
-          }
-          
-          /* Header styling for every page where a new table section starts */
-          thead {
-            display: table-header-group !important;
-          }
+    <style jsx global>{`
+  @media print {
+    @page {
+      size: A4;
+      margin: 0;
+      padding: 0.5cm;
+    }
+    
+    .page {
+      padding: 0.5cm;
+      box-sizing: border-box;
+      page-break-after: always;
+    }
+    
+    .page:last-child {
+      page-break-after: auto;
+    }
+    
+    .page-break-before {
+      page-break-before: always;
+    }
+    
+    /* UPDATED: Removed 'table-layout: fixed' so outer tables flow naturally */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    
+    th, td {
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+    }
+    
+    thead {
+      display: table-header-group !important;
+    }
 
-          /* Prevent work group (header + table) from splitting across pages */
-          .avoid-page-break-inside {
-            page-break-inside: avoid !important;
-          }
-          
-          /* Also try to avoid breaking individual table rows */
-          table tr {
-            page-break-inside: avoid !important;
-          }
+    .avoid-page-break-inside {
+      page-break-inside: avoid !important;
+    }
+    
+    table tr {
+      page-break-inside: avoid !important;
+    }
 
-          /* Ensure h3 and h4 headings stay with their content */
-          h3, h4 {
-            page-break-after: avoid;
-            page-break-inside: avoid;
-          }
+    h3, h4 {
+      page-break-after: avoid;
+      page-break-inside: avoid;
+    }
 
-          /* Image rendering optimization for PDF */
-          img {
-            max-width: 100%;
-            height: auto;
-            display: block;
-            image-rendering: -webkit-optimize-contrast;
-            image-rendering: crisp-edges;
-          }
+    img {
+      max-width: 100%;
+      height: auto;
+      display: block;
+      image-rendering: -webkit-optimize-contrast;
+    }
 
-          /* Ensure grid items don't break across pages */
-          .grid > * {
-            page-break-inside: avoid !important;
-          }
-
-          /* Force color printing for images */
-          * {
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-            color-adjust: exact !important;
-          }
-        }
-      `}</style>
+    * {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+      color-adjust: exact !important;
+    }
+  }
+`}</style>
     </>
   );
 };

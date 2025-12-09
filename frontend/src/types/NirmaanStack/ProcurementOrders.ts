@@ -96,6 +96,7 @@ export interface ProcurementOrder {
 	category?: string
 	/**	Merged : Data	*/
 	merged?: string
+	payment_type?: string
 	/**	Attachment : Data	*/
 	attachment?: string
 	payment_terms?: PaymentTerm[]
