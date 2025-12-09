@@ -181,27 +181,43 @@ def _process_filters_for_query(filters_list: list, doctype: str) -> list:
         else:
             try: # Try getting meta
                 field_meta = frappe.get_meta(original_filter_doctype).get_field(field)
-                print(f"field type:{field_meta.fieldtype}:{value}")
+
+                # If field not found on parent doctype, check child tables
+                if not field_meta:
+                    parent_meta = frappe.get_meta(original_filter_doctype)
+                    for df in parent_meta.get_table_fields():
+                        child_meta = frappe.get_meta(df.options)
+                        field_meta = child_meta.get_field(field)
+                        if field_meta:
+                            print(f"DEBUG: Found field '{field}' in child table '{df.options}'")
+                            break
+
+                print(f"field type:{field_meta.fieldtype if field_meta else 'NOT_FOUND'}:{value}")
                 if field_meta:
                     is_date_type = field_meta.fieldtype == "Date"
                     is_datetime_type = field_meta.fieldtype == "Datetime"
                     # --- START CUSTOM CHECK (AS REQUESTED) ---
-                    if field_meta.fieldtype == "Data":
-                        try:
-                            # Attempt to parse the value as a date
-                            getdate(value) 
-                            # If successful, treat it as a date for the purpose of this processing block
-                            is_date_type = True
-                            print(f"DEBUG: Setting is_date_type=True for Data field '{field}' as value '{value}' is a valid date.")
-                        except Exception:
-                            # If it fails (e.g., value is "" or "N/A"), keep is_date_type = False
-                            is_date_type = False
-                            is_datetime_type=False
-                            print(f"DEBUG: Keeping is_date_type=False for Data field '{field}' as value '{value}' is NOT a valid date.")
-                            pass
+                    # Only try to detect date in Data field if we're using date-specific operators
+                    if field_meta.fieldtype == "Data" and operator in ["Timespan", "Is", "IsNot", "Between", "<=", ">="]:
+                        # Only attempt date parsing if value looks date-like (not empty and not obviously non-date)
+                        if isinstance(value, str) and value.strip() and not value.strip() == "":
+                            try:
+                                # Attempt to parse the value as a date
+                                getdate(value)
+                                # If successful, treat it as a date for the purpose of this processing block
+                                is_date_type = True
+                                print(f"DEBUG: Setting is_date_type=True for Data field '{field}' as value '{value}' is a valid date.")
+                            except Exception:
+                                # If it fails (e.g., value is "Credit" or "N/A"), keep is_date_type = False
+                                is_date_type = False
+                                is_datetime_type = False
+                                # Silently skip - this is expected for non-date strings in Data fields
+                                pass
                     # --- END CUSTOM CHECK ---
-                
-            except Exception: pass # Ignore meta errors
+
+            except Exception as e:
+                print(f"DEBUG: Error getting field meta for '{field}': {e}")
+                pass # Ignore meta errors
 
         sql_date_format = "%Y-%m-%d" # Use standard ISO format for DB
         if is_date_type or is_datetime_type:
@@ -218,29 +234,43 @@ def _process_filters_for_query(filters_list: list, doctype: str) -> list:
                 except Exception as e: print(f"ERROR: Processing Timespan '{value}' for '{field}': {e}")
 
             elif operator == "Is" and isinstance(value, str):
-                try:
-                    target_date = getdate(value)
-                    target_date_str = target_date.strftime(sql_date_format)
-                    if is_datetime_type:
-                        start_dt_str = target_date_str + " 00:00:00.000000"
-                        end_dt_str = target_date_str + " 23:59:59.999999"
-                        processed_filters.append([original_filter_doctype, field, "Between", [start_dt_str, end_dt_str]])
-                    else: processed_filters.append([original_filter_doctype, field, "=", target_date_str])
+                # Handle "Is Empty" case for date fields
+                if value.strip() == "":
+                    # Empty string means "IS NULL" for date fields
+                    processed_filters.append([original_filter_doctype, field, "is", "not set"])
                     filter_processed_correctly = True
-                except Exception as e: 
-                    print(f"ERROR: Processing 'Is' date value '{value}' for '{field}': {e}")
+                    print(f"DEBUG: Converting 'Is' with empty value to IS NULL for date field '{field}'")
+                else:
+                    try:
+                        target_date = getdate(value)
+                        target_date_str = target_date.strftime(sql_date_format)
+                        if is_datetime_type:
+                            start_dt_str = target_date_str + " 00:00:00.000000"
+                            end_dt_str = target_date_str + " 23:59:59.999999"
+                            processed_filters.append([original_filter_doctype, field, "Between", [start_dt_str, end_dt_str]])
+                        else: processed_filters.append([original_filter_doctype, field, "=", target_date_str])
+                        filter_processed_correctly = True
+                    except Exception as e:
+                        print(f"ERROR: Processing 'Is' date value '{value}' for '{field}': {e}")
 
             elif operator == "IsNot" and isinstance(value, str):
-                 try:
-                    target_date = getdate(value)
-                    target_date_str = target_date.strftime(sql_date_format) # Use YYYY-MM-DD
-                    # ***** CORRECTED: Use != with YYYY-MM-DD for both Date and DateTime *****
-                    # This is imprecise for DateTime but avoids the DataError / ValidationError
-                    processed_filters.append([original_filter_doctype, field, "!=", target_date_str])
-                    print(f"DEBUG: Using '!=' for Date/DateTime '{field}' != '{target_date_str}' (Note: Imprecise for DateTime)")
+                # Handle "IsNot Empty" case for date fields
+                if value.strip() == "":
+                    # Empty string means "IS NOT NULL" for date fields
+                    processed_filters.append([original_filter_doctype, field, "is", "set"])
                     filter_processed_correctly = True
-                 except Exception as e:
-                     print(f"ERROR: Processing 'IsNot' date value '{value}' for '{field}': {e}")
+                    print(f"DEBUG: Converting 'IsNot' with empty value to IS NOT NULL for date field '{field}'")
+                else:
+                    try:
+                        target_date = getdate(value)
+                        target_date_str = target_date.strftime(sql_date_format) # Use YYYY-MM-DD
+                        # ***** CORRECTED: Use != with YYYY-MM-DD for both Date and DateTime *****
+                        # This is imprecise for DateTime but avoids the DataError / ValidationError
+                        processed_filters.append([original_filter_doctype, field, "!=", target_date_str])
+                        print(f"DEBUG: Using '!=' for Date/DateTime '{field}' != '{target_date_str}' (Note: Imprecise for DateTime)")
+                        filter_processed_correctly = True
+                    except Exception as e:
+                        print(f"ERROR: Processing 'IsNot' date value '{value}' for '{field}': {e}")
 
             elif operator == "Between" and isinstance(value, list) and len(value)==2:
                 try: # Ensure values are YYYY-MM-DD strings
