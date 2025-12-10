@@ -6,7 +6,7 @@ import {
   useFrappeGetDocList,
   useFrappeUpdateDoc
 } from "frappe-react-sdk";
-import { MapPin, ChevronDown, ChevronUp, MessagesSquare } from "lucide-react";
+import { MapPin, ChevronDown, ChevronUp, MessagesSquare, Printer } from "lucide-react";
 import { useContext, useEffect, useState,useMemo } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate } from "react-router-dom";
@@ -23,7 +23,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "@/components/ui/use-toast";
-import MilestoneReportPDF from "./components/MilestoneReportPDF";
+// import MilestoneReportPDF from "./components/MilestoneReportPDF";
 import OverallMilestonesReport from "./components/OverallMilestonesReport"
 import { useUserData } from "@/hooks/useUserData";
 import { ProgressCircle } from "@/components/ui/ProgressCircle";
@@ -1006,29 +1006,20 @@ console.log("Selected Zone:", selectedZone);
                       forPdf={false}
                     />
                   </div>
-                  {/* Download PDF Button */}
                   <div className="mt-8 flex justify-end">
                     {dailyReportDetails && projectData && (
-                      <MilestoneReportPDF
-                        dailyReportDetails={dailyReportDetails}
-                        projectData={projectData}
-                        selectedZone={selectedZone}
-                      />
+                      <Button
+                        onClick={() => {
+                            if (!dailyReportDetails?.name) return;
+                            const printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Project%20Progress%20Reports&name=${dailyReportDetails.name}&format=Milestone%20Report&no_letterhead=0`;
+                            window.open(printUrl, '_blank');
+                        }}
+                        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+                      >
+                        <Printer className="w-4 h-4" />
+                        Print Report
+                      </Button>
                     )}
-                    {/* {dailyReportDetails && projectData && (
-        <MilestoneReportPDF
-            // MAP 1: dailyReportDetails (your main doc) maps to 'milestone'
-            milestone={{
-                name: dailyReportDetails.name, 
-                creation: dailyReportDetails.creation, 
-                milestone_date: dailyReportDetails.report_date // Use report_date as the key date
-            }} 
-            
-            // MAP 2: projectData maps to 'contextName'
-            contextName={projectData.name || projectData.project_name} // Use the unique ID first, then the name
-        />
-    )}
-        */}
                   </div>
                 </div>
               ) : (
