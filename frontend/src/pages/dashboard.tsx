@@ -6,6 +6,7 @@ import { ProjectLead } from "@/components/layout/dashboards/dashboard-pl";
 import { ProjectManager } from "@/components/layout/dashboards/dashboard-pm";
 import { EstimatesExecutive } from "@/components/layout/dashboards/estimates-executive-dashboard";
 import ProcurementDashboard from "@/components/layout/dashboards/procurement-dashboard";
+import { DesignDashboard } from "@/components/layout/dashboards/design-dashboard";
 import {
     Alert,
     AlertDescription,
@@ -52,7 +53,7 @@ export default function Dashboard() {
         <>
 
             {(role === 'Nirmaan Admin Profile') && <DefaultDashboard />}
-            {(has_project === "false" && !["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(role)) ?
+            {(has_project === "false" && !["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Design Lead Profile", "Nirmaan Design Executive Profile"].includes(role)) ?
                 <Alert className="flex flex-col max-md:w-[80%] max-lg:w-[60%] w-[50%] mx-auto justify-center max-md:mt-[40%] mt-[20%]">
                     <div className="flex gap-2 items-center">
                         <RocketIcon className="h-4 w-4" />
@@ -70,6 +71,7 @@ export default function Dashboard() {
                     {role === 'Nirmaan Procurement Executive Profile' && <ProcurementDashboard />}
                     {role === 'Nirmaan Estimates Executive Profile' && <EstimatesExecutive />}
                     {role === 'Nirmaan Accountant Profile' && <Accountant />}
+                    {(role === "Nirmaan Design Lead Profile" || role === "Nirmaan Design Executive Profile") && <DesignDashboard />}
                 </>
             }
         </>
