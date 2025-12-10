@@ -35,6 +35,7 @@ import { TaskEditModal } from './components/TaskEditModal';
 import { TaskWiseTable } from "./components/TaskWiseTable";
 import {formatDeadlineShort, getStatusBadgeStyle,getTaskStatusStyle, getTaskSubStatusStyle,getAssignedNameForDisplay ,getExistingTaskNames} from "./utils";
 import { DesignPackagesMaster } from "./components/DesignPackagesmaster";
+import {useUserData} from "@/hooks/useUserData";
 
 const DOCTYPE = 'Project Design Tracker';
 const FE_TASK_STATUS_OPTIONS = ["Todo", "In Progress", "Done", "Blocked", "On Hold", "Submitted"];
@@ -180,9 +181,11 @@ const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categ
 interface ExpandedProjectTasksProps {
     trackerId: string;
     refetchList: () => void;
+    user_id: string; // Recieve from parent
+    isDesignExecutive: boolean; // Receive from parent
 }
 
-const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, refetchList }) => {
+const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, refetchList, user_id, isDesignExecutive }) => {
     const {
         groupedTasks,trackerDoc, isLoading, error, getDesignerName,
         handleTaskSave, editingTask, setEditingTask, usersList, statusOptions,
@@ -274,6 +277,33 @@ const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, 
 
     if (isLoading) return <LoadingFallback />;
     if (error) return <AlertDestructive error={error} />;
+
+    // REMOVED: const { role, user_id } = useUserData();
+    // REMOVED: const isDesignExecutive = role === "Nirmaan Design Executive Profile";
+
+    const checkIfUserAssigned = (task: DesignTrackerTask) => {
+        const designerField = task.assigned_designers;
+        if (!designerField) return false;
+        
+        let designers: AssignedDesignerDetail[] = [];
+         if (designerField && typeof designerField === 'object' && Array.isArray(designerField.list)) {
+            designers = designerField.list;
+        } else if (Array.isArray(designerField)) {
+            designers = designerField;
+        } else if (typeof designerField === 'string' && designerField.trim() !== '') {
+            try {
+                const parsed = JSON.parse(designerField);
+                if (parsed && typeof parsed === 'object' && Array.isArray(parsed.list)) {
+                    designers = parsed.list;
+                } else if (Array.isArray(parsed)) {
+                    designers = parsed;
+                }
+            } catch (e) {
+                // JSON parsing failed
+            }
+        }
+        return designers.some(d => d.userId === user_id);
+    };
 
     return (
         <div className="space-y-4 px-1 py-2">
@@ -400,9 +430,15 @@ const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, 
                                                 </td>
                                                 {/* Actions: Triggers Modal */}
                                                 <td className="px-4 py-3 text-center">
-                                                    <Button variant="outline" size="sm" className="h-8" onClick={() => setEditingTask(task)}>
-                                                        <Edit className="h-3 w-3 mr-1" /> Edit
-                                                    </Button>
+                                                    {(!isDesignExecutive || (isDesignExecutive && checkIfUserAssigned(task))) ? (
+                                                        <Button variant="outline" size="sm" className="h-8" onClick={() => setEditingTask(task)}>
+                                                            <Edit className="h-3 w-3 mr-1" /> Edit
+                                                        </Button>
+                                                    ) : (
+                                                         <Button variant="outline" size="sm" className="h-8 opacity-50 cursor-not-allowed" disabled>
+                                                            <Edit className="h-3 w-3 mr-1" /> Edit
+                                                        </Button>
+                                                    )}
                                                 </td>
                                             </tr>
                                         ))}
@@ -425,6 +461,7 @@ const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, 
                     statusOptions={statusOptions}
                     subStatusOptions={subStatusOptions}
                     existingTaskNames={getExistingTaskNames(trackerDoc)}
+                    isRestrictedMode={isDesignExecutive}
                 />
             )}
         </div>
@@ -433,6 +470,10 @@ const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, 
 
 export const DesignTrackerList: React.FC = () => {
     const navigate = useNavigate();
+    const { role,user_id } = useUserData();
+    // console.log("role-Nirmaan Design Executive Profile",role,user_id)
+    const isDesignExecutive = role === "Nirmaan Design Executive Profile";
+    
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
 
@@ -493,6 +534,7 @@ export const DesignTrackerList: React.FC = () => {
             <header className="flex justify-between items-center">
                 {/* <h1 className="text-2xl font-bold text-red-700">Design Tracker</h1> */}
                 <div className="flex space-x-0 border border-gray-300 rounded-md overflow-hidden w-fit">
+                    {!isDesignExecutive && (
                     <Button
                         variant="primary"
                         onClick={() => onClick(DESIGN_TABS.DESIGN_PACKAGES)}
@@ -502,6 +544,7 @@ export const DesignTrackerList: React.FC = () => {
                     >
                         Design Packages
                     </Button>
+                    )}
 
 
                     <Button
@@ -534,7 +577,7 @@ export const DesignTrackerList: React.FC = () => {
                         Task Wise
                     </Button>
                 </div>
-                {activeTab === DESIGN_TABS.PROJECT_WISE && (
+                {activeTab === DESIGN_TABS.PROJECT_WISE && !isDesignExecutive && (
                     <Button onClick={() => setIsModalOpen(true)} className="">
                         <CirclePlus className="h-5 w-5 pr-1" /> Track New Project
                     </Button>
@@ -645,7 +688,12 @@ export const DesignTrackerList: React.FC = () => {
                                     {isExpanded && (
                                         <div className={`bg-white border rounded-b-lg p-0
                                                 ${isPending ? 'border-destructive border-t' : 'border-gray-200 border-t'}`}>
-                                            <ExpandedProjectTasks trackerId={doc.name} refetchList={refetchList}    />
+                                            <ExpandedProjectTasks 
+                                                trackerId={doc.name} 
+                                                refetchList={refetchList}    
+                                                user_id={user_id}
+                                                isDesignExecutive={isDesignExecutive}
+                                            />
                                         </div>
                                     )}
                                 </div>
@@ -656,7 +704,13 @@ export const DesignTrackerList: React.FC = () => {
             )}
 
             {activeTab === DESIGN_TABS.TASK_WISE && (
-                <TaskWiseTable refetchList={refetchList} searchTerm={searchTerm} onSearchTermChange={setSearchTerm} />
+                <TaskWiseTable 
+                    refetchList={refetchList} 
+                    searchTerm={searchTerm} 
+                    onSearchTermChange={setSearchTerm}
+                    user_id={user_id}
+                    isDesignExecutive={isDesignExecutive}
+                />
             )}
 
             {/* Modal for New Tracker */}

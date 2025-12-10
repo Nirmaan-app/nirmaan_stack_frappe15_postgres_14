@@ -25,7 +25,7 @@ import {
   CreditCard,
   BanknoteIcon,
   Dices,
-  Landmark
+  Landmark,PencilRuler
 } from "lucide-react";
 
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
@@ -466,7 +466,7 @@ export function NewSidebar() {
       ? [
         {
           key: '/design-tracker',
-          icon: Dices,
+          icon: PencilRuler,
           label: 'Design Tracker',
         },
       ]

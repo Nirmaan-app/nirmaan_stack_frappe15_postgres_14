@@ -20,6 +20,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { SUB_STATUS_MAP } from './hooks/useDesignMasters';
 import { getStatusBadgeStyle, getTaskStatusStyle, getTaskSubStatusStyle, formatDeadlineShort ,getAssignedNameForDisplay,getExistingTaskNames} from './utils';
 import { TaskEditModal } from './components/TaskEditModal';
+import { useUserData } from "@/hooks/useUserData";
 
 
 const DOCTYPE = 'Project Design Tracker';
@@ -468,6 +469,33 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
 
 // --- Main Detail Component ---
 export const ProjectDesignTrackerDetail: React.FC = () => {
+    const { role, user_id } = useUserData();
+    const isDesignExecutive = role === "Nirmaan Design Executive Profile";
+
+    const checkIfUserAssigned = (task: DesignTrackerTask) => {
+        const designerField = task.assigned_designers;
+        if (!designerField) return false;
+        
+        let designers: AssignedDesignerDetail[] = [];
+         if (designerField && typeof designerField === 'object' && Array.isArray(designerField.list)) {
+            designers = designerField.list;
+        } else if (Array.isArray(designerField)) {
+            designers = designerField;
+        } else if (typeof designerField === 'string' && designerField.trim() !== '') {
+            try {
+                const parsed = JSON.parse(designerField);
+                if (parsed && typeof parsed === 'object' && Array.isArray(parsed.list)) {
+                    designers = parsed.list;
+                } else if (Array.isArray(parsed)) {
+                    designers = parsed;
+                }
+            } catch (e) {
+                // JSON parsing failed
+            }
+        }
+        return designers.some(d => d.userId === user_id);
+    };
+
     const { id: trackerId } = useParams<{ id: string }>();
 
     const {
@@ -654,6 +682,7 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
                 </header>
 
                 <div className="flex space-x-3">
+                    {!isDesignExecutive && (
                     <Button
                         variant="outline"
                         className="flex items-center gap-1 text-red-700 border-red-700 hover:bg-red-50/50"
@@ -662,6 +691,7 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
                     >
                         <Plus className="h-4 w-4" /> Add Categories
                     </Button>
+                    )}
                     <Button variant="destructive" className="flex items-center gap-2">
                         <Download className="h-4 w-4" /> Export
                     </Button>
@@ -671,6 +701,7 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
             {/* --- PROJECT OVERVIEW CARD --- */}
             <Card className="shadow-lg p-6 bg-white relative">
                 <div className="absolute top-4 right-4">
+                    {!isDesignExecutive && (
                     <Button
                         variant="outline"
                         size="sm"
@@ -679,6 +710,7 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
                     >
                         <Edit className="h-3 w-3 mr-1" /> Edit
                     </Button>
+                    )}
                 </div>
                 <CardTitle className="text-xl font-semibold mb-4">Project Overview</CardTitle>
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-6 text-sm text-gray-700 border p-4 rounded-lg">
@@ -727,6 +759,7 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
             {/* --- ON-BOARDING SECTION --- */}
             <div className="flex justify-between items-center pt-4">
                 <h2 className="text-2xl font-bold text-gray-800">On-Boarding</h2>
+                {!isDesignExecutive && (
                 <Button
                     variant="outline"
                     className="text-red-700 border-red-700 hover:bg-red-50/50"
@@ -744,6 +777,7 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
                 >
                     Create Custom Task
                 </Button>
+                )}
             </div>
 
             {/* --- TASK LIST (ACCORDION STYLE) --- */}
@@ -866,9 +900,15 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
 
                                                         {/* Actions */}
                                                         <td className="px-4 py-3 text-center">
-                                                            <Button variant="outline" size="sm" onClick={() => setEditingTask(task)} className="h-8">
-                                                                <Edit className="h-3 w-3 mr-1" /> Edit
-                                                            </Button>
+                                                            {(!isDesignExecutive || (isDesignExecutive && checkIfUserAssigned(task))) ? (
+                                                                <Button variant="outline" size="sm" onClick={() => setEditingTask(task)} className="h-8">
+                                                                    <Edit className="h-3 w-3 mr-1" /> Edit
+                                                                </Button>
+                                                            ) : (
+                                                                <Button variant="outline" size="sm" className="h-8 opacity-50 cursor-not-allowed" disabled>
+                                                                    <Edit className="h-3 w-3 mr-1" /> Edit
+                                                                </Button>
+                                                            )}
                                                         </td>
                                                     </tr>
                                                 ))}
@@ -892,7 +932,7 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
                     statusOptions={statusOptions}
                     subStatusOptions={subStatusOptions}
                     existingTaskNames={getExistingTaskNames(trackerDoc)} 
-
+                    isRestrictedMode={isDesignExecutive}
                 />
             )}
 

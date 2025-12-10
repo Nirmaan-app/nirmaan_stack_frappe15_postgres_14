@@ -299,7 +299,8 @@ interface TaskEditModalProps {
     statusOptions: StatusOption[];
     subStatusOptions: StatusOption[];
     existingTaskNames: string[];
-    disableTaskNameEdit?: boolean; // <--- 1. NEW OPTIONAL PROP
+    disableTaskNameEdit?: boolean;
+    isRestrictedMode?: boolean; // New prop for RBAC
 }
 
 export const TaskEditModal: React.FC<TaskEditModalProps> = ({ 
@@ -311,7 +312,8 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
     statusOptions, 
     subStatusOptions,
     existingTaskNames,
-    disableTaskNameEdit = false // <--- 2. Default to false (editable)
+    disableTaskNameEdit = false,
+    isRestrictedMode = false // Default to false
 }) => {
     
     const [selectedDesigners, setSelectedDesigners] = useState<DesignerOption[]>([]);
@@ -398,7 +400,7 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
         }
 
         // Only check duplicates if name editing is allowed
-        if (!disableTaskNameEdit) {
+        if (!disableTaskNameEdit && !isRestrictedMode) {
             const normalizedNewName = newTaskName.toLowerCase();
             const normalizedCurrentName = task.task_name.toLowerCase();
 
@@ -463,8 +465,8 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
                             id="task_name" 
                             value={editState.task_name || ''} 
                             onChange={(e) => setEditState(prev => ({ ...prev, task_name: e.target.value }))} 
-                            disabled={disableTaskNameEdit} // <--- 3. APPLY DISABLE PROP HERE
-                            className={disableTaskNameEdit ? "bg-gray-100 text-gray-500 cursor-not-allowed" : ""}
+                            disabled={disableTaskNameEdit || isRestrictedMode} 
+                            className={(disableTaskNameEdit || isRestrictedMode) ? "bg-gray-100 text-gray-500 cursor-not-allowed" : ""}
                         />
                     </div>
 
@@ -478,7 +480,7 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
                             onChange={(newValue) => setSelectedDesigners(newValue as DesignerOption[])}
                             placeholder="Select designers..."
                             classNamePrefix="react-select"
-                           
+                            isDisabled={isRestrictedMode} 
                         />
                     </div>
 
@@ -512,19 +514,37 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
                     {/* Deadline */}
                     <div className="space-y-1">
                         <Label htmlFor="deadline">Deadline</Label>
-                        <Input id="deadline" type="date" value={editState.deadline || ''} onChange={(e) => setEditState(prev => ({ ...prev, deadline: e.target.value }))} />
+                        <Input 
+                            id="deadline" 
+                            type="date" 
+                            value={editState.deadline || ''} 
+                            onChange={(e) => setEditState(prev => ({ ...prev, deadline: e.target.value }))} 
+                            disabled={isRestrictedMode} 
+                        />
                     </div>
 
                     {/* File Link */}
                     <div className="space-y-1">
                         <Label htmlFor="file_link">Design File Link</Label>
-                        <Input id="file_link" type="url" value={editState.file_link || ''} onChange={(e) => setEditState(prev => ({ ...prev, file_link: e.target.value }))} placeholder="https://figma.com/..." />
+                        <Input 
+                            id="file_link" 
+                            type="url" 
+                            value={editState.file_link || ''} 
+                            onChange={(e) => setEditState(prev => ({ ...prev, file_link: e.target.value }))} 
+                            placeholder="https://figma.com/..." 
+                        />
                     </div>
 
                     {/* Remarks */}
                     <div className="space-y-1">
                         <Label htmlFor="comments">Comments</Label>
-                        <textarea id="comments" rows={3} value={editState.comments || ''} onChange={(e) => setEditState(prev => ({ ...prev, comments: e.target.value }))} className="w-full p-2 border rounded" />
+                        <textarea 
+                            id="comments" 
+                            rows={3} 
+                            value={editState.comments || ''} 
+                            onChange={(e) => setEditState(prev => ({ ...prev, comments: e.target.value }))} 
+                            className="w-full p-2 border rounded" 
+                        />
                     </div>
 
                 </div>

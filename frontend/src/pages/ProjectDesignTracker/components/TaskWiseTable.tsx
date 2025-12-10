@@ -37,10 +37,18 @@ interface FlattenedTask extends DesignTrackerTask {
 // --- PROPS INTERFACE ---
 interface TaskWiseTableProps {
     refetchList: () => void;
+    searchTerm?: string;
+    onSearchTermChange?: (term: string) => void;
+    user_id: string; // Recieve from parent
+    isDesignExecutive: boolean; // Receive from parent
 }
 
 // --- COLUMN DEFINITION ---
-const getTaskWiseColumns = (handleEditClick: (task: FlattenedTask) => void): ColumnDef<FlattenedTask>[] => {
+const getTaskWiseColumns = (
+    handleEditClick: (task: FlattenedTask) => void,
+    isDesignExecutive: boolean,
+    checkIfUserAssigned: (task: FlattenedTask) => boolean
+): ColumnDef<FlattenedTask>[] => {
     
     return [
         {
@@ -223,16 +231,22 @@ const getTaskWiseColumns = (handleEditClick: (task: FlattenedTask) => void): Col
             cell: ({ row }) => (
                 // Cell content explicitly centered
                 <div className="flex justify-start">
-                    <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={() => {
-                          console.log("Edit clicked for task:", row.original);
-                          handleEditClick(row.original)}} 
-                        className="h-8"
-                    >
-                        <Edit className="h-3 w-3 mr-1" /> Edit
-                    </Button>
+                    {(!isDesignExecutive || (isDesignExecutive && checkIfUserAssigned(row.original))) ? (
+                        <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={() => {
+                              console.log("Edit clicked for task:", row.original);
+                              handleEditClick(row.original)}} 
+                            className="h-8"
+                        >
+                            <Edit className="h-3 w-3 mr-1" /> Edit
+                        </Button>
+                    ) : (
+                         <Button variant="outline" size="sm" className="h-8 opacity-50 cursor-not-allowed" disabled>
+                            <Edit className="h-3 w-3 mr-1" /> Edit
+                        </Button>
+                    )}
                 </div>
             ),
             meta: { excludeFromExport: true },
@@ -242,12 +256,38 @@ const getTaskWiseColumns = (handleEditClick: (task: FlattenedTask) => void): Col
 
 
 // --- MAIN COMPONENT ---
-export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => {
+export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_id, isDesignExecutive }) => {
     
     const { usersList,statusOptions, subStatusOptions, categoryData,categories,FacetProjectsOptions } = useDesignMasters();
     const [editingTask, setEditingTask] = useState<FlattenedTask | null>(null);
+    
+    const checkIfUserAssigned = (task: FlattenedTask) => {
+        const designerField = task.assigned_designers;
+        if (!designerField) return false;
+        
+        let designers: AssignedDesignerDetail[] = [];
+         if (designerField && typeof designerField === 'object' && Array.isArray((designerField as any).list)) {
+            designers = (designerField as any).list;
+        } else if (Array.isArray(designerField)) {
+            designers = designerField;
+        } else if (typeof designerField === 'string' && designerField.trim() !== '') {
+            try {
+                const parsed = JSON.parse(designerField);
+                if (parsed && typeof parsed === 'object' && Array.isArray(parsed.list)) {
+                    designers = parsed.list;
+                } else if (Array.isArray(parsed)) {
+                    designers = parsed;
+                }
+            } catch (e) {
+                // JSON parsing failed
+            }
+        }
+        return designers.some(d => d.userId === user_id);
+    };
 
-    console.log("categoryData",categoryData,categories,FacetProjectsOptions)
+    // REMOVED: const { role, user_id } = useUserData();
+    // REMOVED: const isDesignExecutive = role === "Nirmaan Design Executive Profile";
+
     // Hook for updating tasks
     const { updateDoc: updateTask } = useFrappeUpdateDoc();
 
@@ -325,7 +365,7 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => 
     // Use the server data table hook
     const serverDataTable = useServerDataTable<FlattenedTask>({
         doctype: PARENT_DOCTYPE, 
-        columns: useMemo(() => getTaskWiseColumns(setEditingTask), []), 
+        columns: useMemo(() => getTaskWiseColumns(setEditingTask, isDesignExecutive, checkIfUserAssigned), [isDesignExecutive, user_id]), 
         fetchFields: FETCH_FIELDS,
         searchableFields: [
             { value: "task_name", label: "Task Name", default: true },
@@ -414,8 +454,8 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => 
                     statusOptions={statusOptions}       // <-- Pass status options
                     subStatusOptions={subStatusOptions}
                     existingTaskNames={[]} // Not needed when editing is disabled
-                    disableTaskNameEdit={true} // <--- 4. PASS TRUE HERE
-
+                    disableTaskNameEdit={true} 
+                    isRestrictedMode={isDesignExecutive}
                 />
             )}
         </>
