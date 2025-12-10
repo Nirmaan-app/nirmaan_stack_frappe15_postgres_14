@@ -12,6 +12,9 @@ import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import ReactSelect from 'react-select';
+import { ArrowUpRight } from "lucide-react";
+
 import {
     AlertDialog,
     AlertDialogContent,
@@ -30,17 +33,29 @@ import { urlStateManager } from '@/utils/urlStateManager';
 import { useDesignTrackerLogic } from "./hooks/useDesignTrackerLogic";
 import { TaskEditModal } from './components/TaskEditModal';
 import { TaskWiseTable } from "./components/TaskWiseTable";
-import {formatDeadlineShort, getStatusBadgeStyle,getTaskStatusStyle, getTaskSubStatusStyle } from "./utils";
+import {formatDeadlineShort, getStatusBadgeStyle,getTaskStatusStyle, getTaskSubStatusStyle,getAssignedNameForDisplay ,getExistingTaskNames} from "./utils";
+import { DesignPackagesMaster } from "./components/DesignPackagesmaster";
+import {useUserData} from "@/hooks/useUserData";
 
 const DOCTYPE = 'Project Design Tracker';
 const FE_TASK_STATUS_OPTIONS = ["Todo", "In Progress", "Done", "Blocked", "On Hold", "Submitted"];
-const DESIGN_TABS = { PROJECT_WISE: 'project', TASK_WISE: 'task' };
+
+const DESIGN_TABS = { 
+    DESIGN_PACKAGES: 'packages', 
+    PROJECT_WISE: 'project', 
+    TASK_WISE: 'task' 
+};
 
 
 const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categoryData, onSuccess }) => {
     const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
     const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
     const { createDoc, loading: createLoading } = useFrappeCreateDoc();
+
+    const visibleCategories = useMemo(() => {
+        if (!categoryData) return [];
+        return categoryData.filter((cat: any) => Array.isArray(cat.tasks) && cat.tasks.length > 0);
+    }, [categoryData]);
 
     const handleCategoryToggle = (categoryName: string) => {
         setSelectedCategories(prev => prev.includes(categoryName) ? prev.filter(c => c !== categoryName) : [...prev, categoryName])
@@ -113,38 +128,42 @@ const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categ
                 </AlertDialogHeader>
                 <div className="space-y-6 py-4">
                     {/* Project Selection */}
-                    <div>
+                     <div className="flex flex-col gap-2">
                         <Label htmlFor="Projects">Select Project *</Label>
-                        <Select value={selectedProjectId || ""} onValueChange={(val) => setSelectedProjectId(val)}>
-                            <SelectTrigger>
-                                <SelectValue placeholder="Select Project" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {projectOptions.map(p => (
-                                    <SelectItem key={p.value} value={p.value}>
-                                        {p.label}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                        <ReactSelect
+                            options={projectOptions}
+                            value={projectOptions.find((p: any) => p.value === selectedProjectId) || null}
+                            onChange={(option: any) => setSelectedProjectId(option ? option.value : null)}
+                            classNamePrefix="react-select"
+                            menuPosition={'auto'}
+                        
+                        />
                     </div>
 
                     {/* Category Selection */}
-                    <div className="space-y-3">
+                          <div className="space-y-3">
                         <AlertDialogDescription>Step 2: Choose one or more categories for this project</AlertDialogDescription>
-                        <div className="grid grid-cols-3 gap-3">
-                            {categoryData.map(cat => (
-                                <Button
-                                    key={cat.category_name}
-                                    variant={selectedCategories.includes(cat.category_name) ? "default" : "outline"}
-                                    onClick={() => handleCategoryToggle(cat.category_name)}
-                                >
-                                    {cat.category_name}
-                                </Button>
-                            ))}
-                        </div>
+                        
+                        {visibleCategories.length > 0 ? (
+                            <div className="grid grid-cols-3 gap-3">
+                                {visibleCategories.map((cat: any) => (
+                                    <Button
+                                        key={cat.category_name}
+                                        variant={selectedCategories.includes(cat.category_name) ? "default" : "outline"}
+                                        onClick={() => handleCategoryToggle(cat.category_name)}
+                                    >
+                                        {cat.category_name}
+                                    </Button>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="p-4 text-center text-sm text-gray-500 bg-gray-50 rounded-md">
+                                No categories available with defined tasks.
+                            </div>
+                        )}
                     </div>
                 </div>
+
                 <AlertDialogFooter>
                     <AlertDialogCancel disabled={createLoading} onClick={onClose}> Cancel</AlertDialogCancel>
                     <Button
@@ -162,11 +181,13 @@ const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categ
 interface ExpandedProjectTasksProps {
     trackerId: string;
     refetchList: () => void;
+    user_id: string; // Recieve from parent
+    isDesignExecutive: boolean; // Receive from parent
 }
 
-const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, refetchList }) => {
+const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, refetchList, user_id, isDesignExecutive }) => {
     const {
-        groupedTasks, isLoading, error, getDesignerName,
+        groupedTasks,trackerDoc, isLoading, error, getDesignerName,
         handleTaskSave, editingTask, setEditingTask, usersList, statusOptions,
         subStatusOptions,
     } = useDesignTrackerLogic({ trackerId });
@@ -204,46 +225,46 @@ const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, 
         }
     };
 
-    const getAssignedNameForDisplay = (task: DesignTrackerTask): React.ReactNode => {
-        const designerField = task.assigned_designers;
-        let designers: AssignedDesignerDetail[] = [];
+    // const getAssignedNameForDisplay = (task: DesignTrackerTask): React.ReactNode => {
+    //     const designerField = task.assigned_designers;
+    //     let designers: AssignedDesignerDetail[] = [];
 
-        if (designerField) {
-            if (designerField && typeof designerField === 'object' && Array.isArray(designerField.list)) {
-                designers = designerField.list
-            } else if (Array.isArray(designerField)) {
-                designers = designerField
-            } else if (typeof designerField === 'string' && designerField.trim() !== '') {
-                try {
-                    const parsed = JSON.parse(designerField);
-                    if (parsed && typeof parsed === 'object' && Array.isArray(parsed.list)) {
-                        designers = parsed.list
-                    } else if (Array.isArray(parsed)) {
-                        designers = parsed
-                    }
-                } catch (e) {
-                    // JSON parsing failed
-                }
-            }
-        }
+    //     if (designerField) {
+    //         if (designerField && typeof designerField === 'object' && Array.isArray(designerField.list)) {
+    //             designers = designerField.list
+    //         } else if (Array.isArray(designerField)) {
+    //             designers = designerField
+    //         } else if (typeof designerField === 'string' && designerField.trim() !== '') {
+    //             try {
+    //                 const parsed = JSON.parse(designerField);
+    //                 if (parsed && typeof parsed === 'object' && Array.isArray(parsed.list)) {
+    //                     designers = parsed.list
+    //                 } else if (Array.isArray(parsed)) {
+    //                     designers = parsed
+    //                 }
+    //             } catch (e) {
+    //                 // JSON parsing failed
+    //             }
+    //         }
+    //     }
 
-        if (designers.length > 0) {
-            return (
-                <p className="text-center">
-                {/* <ul className="list-disc ml-0 p-0 m-0 space-y-0.5 text-xs"> */}
-                    {designers.map((d, index) => (
-                        <span className="text-xs block text-center" key={index}>
-                            {d.userName || d.userId}
-                        </span>
-                    ))}
-                {/* </ul> */}
-                </p>
-            )
-        }else{
-            return <p className="text-xs text-center text-gray-500">--</p>;
-        }
-        return getDesignerName(undefined); // Fallback or handle null case
-    };
+    //     if (designers.length > 0) {
+    //         return (
+    //             <p className="text-center">
+    //             {/* <ul className="list-disc ml-0 p-0 m-0 space-y-0.5 text-xs"> */}
+    //                 {designers.map((d, index) => (
+    //                     <span className="text-xs block text-center" key={index}>
+    //                         {d.userName || d.userId}
+    //                     </span>
+    //                 ))}
+    //             {/* </ul> */}
+    //             </p>
+    //         )
+    //     }else{
+    //         return <p className="text-xs text-center text-gray-500">--</p>;
+    //     }
+    //     return getDesignerName(undefined); // Fallback or handle null case
+    // };
 
     // const getDeadlineDisplay = (task: DesignTrackerTask) => {
     //     if (!task.deadline) return '...';
@@ -256,6 +277,33 @@ const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, 
 
     if (isLoading) return <LoadingFallback />;
     if (error) return <AlertDestructive error={error} />;
+
+    // REMOVED: const { role, user_id } = useUserData();
+    // REMOVED: const isDesignExecutive = role === "Nirmaan Design Executive Profile";
+
+    const checkIfUserAssigned = (task: DesignTrackerTask) => {
+        const designerField = task.assigned_designers;
+        if (!designerField) return false;
+        
+        let designers: AssignedDesignerDetail[] = [];
+         if (designerField && typeof designerField === 'object' && Array.isArray(designerField.list)) {
+            designers = designerField.list;
+        } else if (Array.isArray(designerField)) {
+            designers = designerField;
+        } else if (typeof designerField === 'string' && designerField.trim() !== '') {
+            try {
+                const parsed = JSON.parse(designerField);
+                if (parsed && typeof parsed === 'object' && Array.isArray(parsed.list)) {
+                    designers = parsed.list;
+                } else if (Array.isArray(parsed)) {
+                    designers = parsed;
+                }
+            } catch (e) {
+                // JSON parsing failed
+            }
+        }
+        return designers.some(d => d.userId === user_id);
+    };
 
     return (
         <div className="space-y-4 px-1 py-2">
@@ -382,9 +430,15 @@ const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, 
                                                 </td>
                                                 {/* Actions: Triggers Modal */}
                                                 <td className="px-4 py-3 text-center">
-                                                    <Button variant="outline" size="sm" className="h-8" onClick={() => setEditingTask(task)}>
-                                                        <Edit className="h-3 w-3 mr-1" /> Edit
-                                                    </Button>
+                                                    {(!isDesignExecutive || (isDesignExecutive && checkIfUserAssigned(task))) ? (
+                                                        <Button variant="outline" size="sm" className="h-8" onClick={() => setEditingTask(task)}>
+                                                            <Edit className="h-3 w-3 mr-1" /> Edit
+                                                        </Button>
+                                                    ) : (
+                                                         <Button variant="outline" size="sm" className="h-8 opacity-50 cursor-not-allowed" disabled>
+                                                            <Edit className="h-3 w-3 mr-1" /> Edit
+                                                        </Button>
+                                                    )}
                                                 </td>
                                             </tr>
                                         ))}
@@ -406,6 +460,8 @@ const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, 
                     usersList={usersList || []}
                     statusOptions={statusOptions}
                     subStatusOptions={subStatusOptions}
+                    existingTaskNames={getExistingTaskNames(trackerDoc)}
+                    isRestrictedMode={isDesignExecutive}
                 />
             )}
         </div>
@@ -414,6 +470,10 @@ const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, 
 
 export const DesignTrackerList: React.FC = () => {
     const navigate = useNavigate();
+    const { role,user_id } = useUserData();
+    // console.log("role-Nirmaan Design Executive Profile",role,user_id)
+    const isDesignExecutive = role === "Nirmaan Design Executive Profile";
+    
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
 
@@ -474,26 +534,41 @@ export const DesignTrackerList: React.FC = () => {
             <header className="flex justify-between items-center">
                 {/* <h1 className="text-2xl font-bold text-red-700">Design Tracker</h1> */}
                 <div className="flex space-x-0 border border-gray-300 rounded-md overflow-hidden w-fit">
+                    {!isDesignExecutive && (
+                    <Button
+                        variant="primary"
+                        onClick={() => onClick(DESIGN_TABS.DESIGN_PACKAGES)}
+                        className={`px-4 py-2 text-sm font-medium h-auto shadow-none 
+                        ${activeTab === DESIGN_TABS.DESIGN_PACKAGES ? 'bg-primary text-white' : 'bg-white text-gray-700 '}
+                        border-r border-gray-300 rounded-r-none`}
+                    >
+                        Design Packages
+                    </Button>
+                    )}
+
 
                     <Button
+                    variant="primary"
                         onClick={() => onClick(DESIGN_TABS.PROJECT_WISE)}
                         className={`px-4 py-2 text-sm font-medium h-auto shadow-none 
-            ${activeTab === DESIGN_TABS.PROJECT_WISE ? 'bg-primary text-white hover:bg-primary-dark' : 'bg-white text-gray-700 '}
+            ${activeTab === DESIGN_TABS.PROJECT_WISE ? 'bg-primary text-white' : 'bg-white text-gray-700 '}
             
             /* Apply border-right to create the visual divider */
             border-r border-gray-300 
             
             /* Ensure right side is square, left side gets rounding from parent div */
-            rounded-r-none 
+            rounded-none 
         `}
                     >
                         Project Wise
                     </Button>
 
                     <Button
+                    variant="primary"
+
                         onClick={() => onClick(DESIGN_TABS.TASK_WISE)}
                         className={`px-4 py-2 text-sm font-medium h-auto shadow-none 
-            ${activeTab === DESIGN_TABS.TASK_WISE ? 'bg-primary text-white hover:bg-primary-dark' : 'bg-white text-gray-800 '}
+            ${activeTab === DESIGN_TABS.TASK_WISE ? 'bg-primary text-white' : 'bg-white text-gray-800 '}
             
             /* Ensure left side is square, right side gets rounding from parent div */
             rounded-l-none 
@@ -502,7 +577,7 @@ export const DesignTrackerList: React.FC = () => {
                         Task Wise
                     </Button>
                 </div>
-                {activeTab !== DESIGN_TABS.TASK_WISE && (
+                {activeTab === DESIGN_TABS.PROJECT_WISE && !isDesignExecutive && (
                     <Button onClick={() => setIsModalOpen(true)} className="">
                         <CirclePlus className="h-5 w-5 pr-1" /> Track New Project
                     </Button>
@@ -513,7 +588,7 @@ export const DesignTrackerList: React.FC = () => {
 
             {/* Search and Filter */}
             {
-                activeTab !== DESIGN_TABS.TASK_WISE && (
+                activeTab === DESIGN_TABS.PROJECT_WISE && (
                     <div className="flex items-center space-x-3">
                         <div className="relative flex-grow">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
@@ -531,6 +606,9 @@ export const DesignTrackerList: React.FC = () => {
                 )
             }
 
+             {activeTab === DESIGN_TABS.DESIGN_PACKAGES && (
+                <DesignPackagesMaster />
+            )}
 
             {/* Content based on Active Tab */}
             {activeTab === DESIGN_TABS.PROJECT_WISE && (
@@ -554,15 +632,27 @@ export const DesignTrackerList: React.FC = () => {
                                     >
                                         <CardContent className="p-0 flex flex-wrap justify-between items-center text-sm md:text-base relative">
                                             {/* Project Name */}
-                                            <div className="w-full md:w-1/4 min-w-[150px] pr-4 order1 mb-2 md:mb-0">
-                                                <Link
+                                            <div className="w-full md:w-2/4 min-w-[150px] pr-4 order1 mb-2 md:mb-0">
+                                                {/* <Link
                                                     to={`/design-tracker/${doc.name}`}
-                                                    className={`text-lg font-extrabold underline-offset-2 hover:underline
+                                                    className={`text-lg font-extrabold underline hover:underline
                                                             ${isPending ? 'text-destructive' : 'text-Black'}`}
                                                     onClick={(e) => e.stopPropagation()}
                                                 >
                                                     {doc.project_name}
-                                                </Link>
+                                                </Link> */}
+                                                <Link
+    to={`/design-tracker/${doc.name}`}
+    className={`group flex items-center gap-2 text-lg font-bold w-fit
+        ${isPending ? 'text-destructive' : 'text-gray-900 hover:text-blue-600'}`}
+    onClick={(e) => e.stopPropagation()}
+>
+    <span className="underline underline-offset-4 group-hover:underline underline-offset-4">
+        {doc.project_name}
+    </span>
+    {/* Icon appears/moves slightly on hover */}
+    <ArrowUpRight className="h-4 w-4 opacity-90 group-hover:opacity-100 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 transition-all" />
+</Link>
                                             </div>
 
                                             {/* Details */}
@@ -598,7 +688,12 @@ export const DesignTrackerList: React.FC = () => {
                                     {isExpanded && (
                                         <div className={`bg-white border rounded-b-lg p-0
                                                 ${isPending ? 'border-destructive border-t' : 'border-gray-200 border-t'}`}>
-                                            <ExpandedProjectTasks trackerId={doc.name} refetchList={refetchList} />
+                                            <ExpandedProjectTasks 
+                                                trackerId={doc.name} 
+                                                refetchList={refetchList}    
+                                                user_id={user_id}
+                                                isDesignExecutive={isDesignExecutive}
+                                            />
                                         </div>
                                     )}
                                 </div>
@@ -609,7 +704,13 @@ export const DesignTrackerList: React.FC = () => {
             )}
 
             {activeTab === DESIGN_TABS.TASK_WISE && (
-                <TaskWiseTable refetchList={refetchList} searchTerm={searchTerm} onSearchTermChange={setSearchTerm} />
+                <TaskWiseTable 
+                    refetchList={refetchList} 
+                    searchTerm={searchTerm} 
+                    onSearchTermChange={setSearchTerm}
+                    user_id={user_id}
+                    isDesignExecutive={isDesignExecutive}
+                />
             )}
 
             {/* Modal for New Tracker */}

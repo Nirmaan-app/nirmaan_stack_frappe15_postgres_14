@@ -37,10 +37,18 @@ interface FlattenedTask extends DesignTrackerTask {
 // --- PROPS INTERFACE ---
 interface TaskWiseTableProps {
     refetchList: () => void;
+    searchTerm?: string;
+    onSearchTermChange?: (term: string) => void;
+    user_id: string; // Recieve from parent
+    isDesignExecutive: boolean; // Receive from parent
 }
 
 // --- COLUMN DEFINITION ---
-const getTaskWiseColumns = (handleEditClick: (task: FlattenedTask) => void): ColumnDef<FlattenedTask>[] => {
+const getTaskWiseColumns = (
+    handleEditClick: (task: FlattenedTask) => void,
+    isDesignExecutive: boolean,
+    checkIfUserAssigned: (task: FlattenedTask) => boolean
+): ColumnDef<FlattenedTask>[] => {
     
     return [
         {
@@ -223,16 +231,22 @@ const getTaskWiseColumns = (handleEditClick: (task: FlattenedTask) => void): Col
             cell: ({ row }) => (
                 // Cell content explicitly centered
                 <div className="flex justify-start">
-                    <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={() => {
-                          console.log("Edit clicked for task:", row.original);
-                          handleEditClick(row.original)}} 
-                        className="h-8"
-                    >
-                        <Edit className="h-3 w-3 mr-1" /> Edit
-                    </Button>
+                    {(!isDesignExecutive || (isDesignExecutive && checkIfUserAssigned(row.original))) ? (
+                        <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={() => {
+                              console.log("Edit clicked for task:", row.original);
+                              handleEditClick(row.original)}} 
+                            className="h-8"
+                        >
+                            <Edit className="h-3 w-3 mr-1" /> Edit
+                        </Button>
+                    ) : (
+                         <Button variant="outline" size="sm" className="h-8 opacity-50 cursor-not-allowed" disabled>
+                            <Edit className="h-3 w-3 mr-1" /> Edit
+                        </Button>
+                    )}
                 </div>
             ),
             meta: { excludeFromExport: true },
@@ -242,12 +256,38 @@ const getTaskWiseColumns = (handleEditClick: (task: FlattenedTask) => void): Col
 
 
 // --- MAIN COMPONENT ---
-export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => {
+export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_id, isDesignExecutive }) => {
     
     const { usersList,statusOptions, subStatusOptions, categoryData,categories,FacetProjectsOptions } = useDesignMasters();
     const [editingTask, setEditingTask] = useState<FlattenedTask | null>(null);
+    
+    const checkIfUserAssigned = (task: FlattenedTask) => {
+        const designerField = task.assigned_designers;
+        if (!designerField) return false;
+        
+        let designers: AssignedDesignerDetail[] = [];
+         if (designerField && typeof designerField === 'object' && Array.isArray((designerField as any).list)) {
+            designers = (designerField as any).list;
+        } else if (Array.isArray(designerField)) {
+            designers = designerField;
+        } else if (typeof designerField === 'string' && designerField.trim() !== '') {
+            try {
+                const parsed = JSON.parse(designerField);
+                if (parsed && typeof parsed === 'object' && Array.isArray(parsed.list)) {
+                    designers = parsed.list;
+                } else if (Array.isArray(parsed)) {
+                    designers = parsed;
+                }
+            } catch (e) {
+                // JSON parsing failed
+            }
+        }
+        return designers.some(d => d.userId === user_id);
+    };
 
-    console.log("categoryData",categoryData,categories,FacetProjectsOptions)
+    // REMOVED: const { role, user_id } = useUserData();
+    // REMOVED: const isDesignExecutive = role === "Nirmaan Design Executive Profile";
+
     // Hook for updating tasks
     const { updateDoc: updateTask } = useFrappeUpdateDoc();
 
@@ -291,7 +331,7 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => 
 
     ];
     const FETCH_FIELDS = [
-        "name as prjname",
+        'name as prjname',
         "project_name",
         "project",
         "status",
@@ -312,11 +352,20 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => 
         // Parent table fields (Project Design Tracker) - using backticks
        
     ];
+ const additionalFilters = useMemo(() => {
 
+    const filters = [['Design Tracker Task Child Table', 'task_name', '!=', undefined]];
+
+    
+    // --- NEW LOGIC ---
+    // Translate TanStack column filters into Frappe API filters
+    // console.log()
+    return filters;
+  }, []);
     // Use the server data table hook
     const serverDataTable = useServerDataTable<FlattenedTask>({
         doctype: PARENT_DOCTYPE, 
-        columns: useMemo(() => getTaskWiseColumns(setEditingTask), []), 
+        columns: useMemo(() => getTaskWiseColumns(setEditingTask, isDesignExecutive, checkIfUserAssigned), [isDesignExecutive, user_id]), 
         fetchFields: FETCH_FIELDS,
         searchableFields: [
             { value: "task_name", label: "Task Name", default: true },
@@ -327,6 +376,7 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => 
         defaultSort: '`tabDesign Tracker Task Child Table`.modified desc',
 
         urlSyncKey: 'dt_task_wise',
+        additionalFilters: additionalFilters,
     });
 
     console.log("TaskWiseTable - serverDataTable", serverDataTable);
@@ -403,6 +453,9 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => 
                     usersList={usersList || []}
                     statusOptions={statusOptions}       // <-- Pass status options
                     subStatusOptions={subStatusOptions}
+                    existingTaskNames={[]} // Not needed when editing is disabled
+                    disableTaskNameEdit={true} 
+                    isRestrictedMode={isDesignExecutive}
                 />
             )}
         </>
@@ -410,7 +463,11 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => 
 };
 
 
-// // frontend/src/pages/ProjectDesignTracker/components/TaskWiseTable.tsx
+
+
+
+
+// frontend/src/pages/ProjectDesignTracker/components/TaskWiseTable.tsx
 
 // import React, { useMemo, useState } from "react";
 // import { Link } from "react-router-dom";
@@ -432,8 +489,8 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => 
 // import { TaskEditModal } from './TaskEditModal';
 // import { useFrappeUpdateDoc } from "frappe-react-sdk";
 // import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-// import { getTaskStatusStyle, getTaskSubStatusStyle ,formatDeadlineShort,getAssignedNameForDisplay} from "../utils";
-// import { dateFilterFn } from "@/utils/tableFilters"
+// import { getTaskStatusStyle, getTaskSubStatusStyle, formatDeadlineShort, getAssignedNameForDisplay } from "../utils";
+// import { dateFilterFn } from "@/utils/tableFilters";
 
 // // --- CONSTANTS ---
 // const PARENT_DOCTYPE = 'Project Design Tracker';
@@ -444,8 +501,9 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => 
 // // --- FLATTENED TASK TYPE ---
 // interface FlattenedTask extends DesignTrackerTask {
 //     project_name: string;
-//     prjname: string; // Added this to match usage in columns
-//     parent: string;
+//     prjname: string;
+//     project: string;
+//     tracker_status?: string;
 // }
 
 // // --- PROPS INTERFACE ---
@@ -463,7 +521,6 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => 
 //             header: ({ column }) => <DataTableColumnHeader column={column} title="Project Name" />,
 //             cell: ({ row }) => (
 //                 <Link 
-//                     // We mapped 'parent' to 'prjname' in fetchFields
 //                     to={`/design-tracker/${row.original.prjname}`} 
 //                     className="text-red-700 underline-offset-2 hover:underline font-medium"
 //                 >
@@ -485,7 +542,7 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => 
 //         },
 //         {
 //             // Deadlines
-//             id:"deadline",
+//             id: "deadline",
 //             accessorFn: (row) => row.deadline,
 //             header: ({ column }) => <DataTableColumnHeader column={column} title="Deadlines" />,
 //             cell: ({ row }) => (
@@ -575,8 +632,8 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => 
 //                     </TooltipProvider>
 //                 </div>
 //             ),
-//             size: 80, 
-//             maxSize: 80, 
+//             size: 80,
+//             maxSize: 80,
 //             meta: { excludeFromExport: true },
 //         },
 //         {
@@ -584,7 +641,7 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => 
 //             accessorKey: "comments",
 //             header: () => <div className="text-center">Comments</div>,
 //             cell: ({ row }) => (
-//                 <div className="flex justify-center items-center ">
+//                 <div className="flex justify-center items-center">
 //                     <TooltipProvider>
 //                         <Tooltip delayDuration={300}>
 //                             <TooltipTrigger asChild>
@@ -601,7 +658,7 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => 
 //                     </TooltipProvider>
 //                 </div>
 //             ),
-//             size: 100, 
+//             size: 100,
 //             maxSize: 100,
 //             meta: { excludeFromExport: true },
 //         },
@@ -615,7 +672,8 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => 
 //                         variant="outline" 
 //                         size="sm" 
 //                         onClick={() => {
-//                           handleEditClick(row.original)
+//                             console.log("Edit clicked for task:", row.original);
+//                             handleEditClick(row.original);
 //                         }} 
 //                         className="h-8"
 //                     >
@@ -628,21 +686,22 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => 
 //     ];
 // };
 
-
 // // --- MAIN COMPONENT ---
 // export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => {
     
-//     const { usersList, statusOptions, subStatusOptions, categoryData, FacetProjectsOptions } = useDesignMasters();
+//     const { usersList, statusOptions, subStatusOptions, categoryData, categories, FacetProjectsOptions } = useDesignMasters();
 //     const [editingTask, setEditingTask] = useState<FlattenedTask | null>(null);
 
+//     console.log("categoryData", categoryData, categories, FacetProjectsOptions);
+    
 //     // Hook for updating tasks
 //     const { updateDoc: updateTask } = useFrappeUpdateDoc();
 
 //     const TASK_FACET_FILTER_OPTIONS = {
-//         // 1. Project Name - mapped to 'parent' field in child table
+//         // 1. Project Name - now using parent field from child table
 //         "project_name": {
 //             title: "Project",
-//             options: FacetProjectsOptions || [], 
+//             options: FacetProjectsOptions || [],
 //         },
 //         // 2. Task Category
 //         "design_category": {
@@ -669,52 +728,49 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => 
 //         },
 //     };
 
-//     // --- UPDATED SEARCH OPTIONS ---
-//     // Note: Standard 'get_list' on Child Tables cannot join Parent fields easily for searching (like parent.project_name).
-//     // We search by 'parent' (Project ID) or internal child fields.
+//     // Search options - now searching child table fields
 //     const SearchFieldOptions = [
 //         { value: "task_name", label: "Task Name", default: true },
-//         { value: "parent", label: "Project ID" }, 
 //         { value: "design_category", label: "Category" },
+//         { value: "parent", label: "Project ID" },
 //     ];
 
-//     // --- UPDATED FETCH FIELDS FOR CHILD TABLE ---
+//     // ✅ FIXED: Fetch fields from CHILD table with parent references
 //     const FETCH_FIELDS = [
-//         "name",                  // Unique Task ID (e.g., 'row-id' or 'DT-TASK-001')
-//         "task_name",
-//         "design_category",
-//         "task_type",
-//         "deadline",
-//         "assigned_designers",
-//         "task_status",
-//         "task_sub_status",
-//         "file_link",
-//         "comments",
-//         "modified",
+//         'name',                     // Child row unique ID
+//         'task_name',
+//         'design_category',
+//         'task_type',
+//         'deadline',
+//         'assigned_designers',
+//         'task_status',
+//         'task_sub_status',
+//         'file_link',
+//         'comments',
+//         'modified',
         
-//         // PARENT MAPPING:
-//         // In a Child Table, 'parent' holds the DocName of the Parent Doc (Project Design Tracker)
-//         "parent", 
-//         "parent as project",      // Map for accessorKey: 'project' (if used)
-//         "parent as project_name", // Map for accessorKey: 'project_name'
-//         "parent as prjname"       // Map for Link URL
+//         // Map parent field to multiple aliases for convenience
+//         'parent as prjname',        // For URL navigation
+//         'parent as project',        // For filters/reference
+        
+//         // Get parent table fields using backticks (Frappe convention)
+//         // '`tabProject Design Tracker`.project_name',
+//         // '`tabProject Design Tracker`.status as tracker_status',
 //     ];
 
-//     // Use the server data table hook with CHILD_DOCTYPE
+   
+//     // ✅ FIXED: Use CHILD_DOCTYPE to get correct count (tasks, not projects)
 //     const serverDataTable = useServerDataTable<FlattenedTask>({
-//         // ✅ Switch to Child Doctype to get correct count (56 tasks instead of 9 projects)
-//         doctype: CHILD_DOCTYPE, 
-        
+//         doctype: CHILD_DOCTYPE,  // ✅ Changed from PARENT_DOCTYPE to CHILD_DOCTYPE
 //         columns: useMemo(() => getTaskWiseColumns(setEditingTask), []), 
 //         fetchFields: FETCH_FIELDS,
-        
 //         searchableFields: SearchFieldOptions,
-        
-//         // ✅ Sort by the child table's modified date
-//         defaultSort: 'modified desc',
-
+//         dateFilterColumns: TASK_DATE_COLUMNS,
+//         defaultSort: 'modified desc',  // ✅ Sorting by child table's modified field
 //         urlSyncKey: 'dt_task_wise',
 //     });
+
+//     console.log("TaskWiseTable - serverDataTable", serverDataTable);
 
 //     // Task Save Handler
 //     const handleTaskSave = async (updatedFields: { [key: string]: any }) => {
@@ -729,8 +785,8 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => 
 //         }
 
 //         try {
-//             // Update the child document directly.
-//             // editingTask.name is now the Child Row Name (because we queried the Child Table)
+//             // Update the child document directly
+//             // editingTask.name is now the child row ID
 //             await updateTask(CHILD_DOCTYPE, editingTask.name, fieldsToSend);
             
 //             toast({ 
@@ -763,10 +819,7 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => 
 //                         columns={serverDataTable.table.options.columns}
 //                         isLoading={serverDataTable.isLoading}
 //                         error={serverDataTable.error}
-                        
-//                         // ✅ Use the total count from the server response (e.g., 56)
-//                         totalCount={serverDataTable.totalCount}
-                        
+//                         totalCount={serverDataTable.totalCount}  // ✅ Now shows correct child count (e.g., 56 tasks)
 //                         searchFieldOptions={SearchFieldOptions}
 //                         selectedSearchField={serverDataTable.selectedSearchField}
 //                         onSelectedSearchFieldChange={serverDataTable.setSelectedSearchField}

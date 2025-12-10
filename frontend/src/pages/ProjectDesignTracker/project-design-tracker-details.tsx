@@ -18,8 +18,9 @@ import { useDesignTrackerLogic } from './hooks/useDesignTrackerLogic';
 import { TailSpin } from 'react-loader-spinner'; // Required for loading states in modals
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { SUB_STATUS_MAP } from './hooks/useDesignMasters';
-import { getStatusBadgeStyle, getTaskStatusStyle, getTaskSubStatusStyle, formatDeadlineShort } from './utils';
+import { getStatusBadgeStyle, getTaskStatusStyle, getTaskSubStatusStyle, formatDeadlineShort ,getAssignedNameForDisplay,getExistingTaskNames} from './utils';
 import { TaskEditModal } from './components/TaskEditModal';
+import { useUserData } from "@/hooks/useUserData";
 
 
 const DOCTYPE = 'Project Design Tracker';
@@ -86,19 +87,16 @@ const ProjectOverviewEditModal: React.FC<ProjectOverviewEditModalProps> = ({ isO
                     {/* Status */}
                     <div className="space-y-1">
                         <Label htmlFor="status">Project Status</Label>
-                        <Select
-                            value={editState.status}
-                            onValueChange={(val) => setEditState(prev => ({ ...prev, status: val as any }))}
-                        >
-                            <SelectTrigger>
-                                <SelectValue placeholder="Select Status" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {PROJECT_STATUS_OPTIONS.map(opt => (
-                                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                        <ReactSelect
+                            options={PROJECT_STATUS_OPTIONS}
+                            value={PROJECT_STATUS_OPTIONS.find(opt => opt.value === editState.status) || null}
+                            onChange={(option) => setEditState(prev => ({ ...prev, status: option?.value || '' }))}
+                            placeholder="Select Status"
+                            classNamePrefix="react-select"
+                            menuPosition={'auto'}
+                                                    
+                           
+                        />
                     </div>
 
                     {/* Overall Deadline */}
@@ -148,10 +146,13 @@ interface NewTaskModalProps {
     onOpenChange: (open: boolean) => void;
     onSave: (newTask: Partial<DesignTrackerTask>) => Promise<void>;
     usersList: User[];
-    categories: CategoryItem[]; // Now using the filtered list
+    categories: CategoryItem[]; // Now using the filtered list,
+     existingTaskNames: string[];
+
+    
 }
 
-const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onSave, usersList, categories, statusOptions }) => {
+const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onSave, usersList, categories, statusOptions,existingTaskNames }) => {
     const initialCategoryName = categories[0]?.category_name || '';
 
     const [taskState, setTaskState] = useState<Partial<DesignTrackerTask>>({
@@ -193,6 +194,24 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onSav
             toast({ title: "Error", description: "Task Name and Category are required.", variant: "destructive" });
             return;
         }
+        const normalizedCurrentName = taskState.task_name.toLowerCase().trim();
+
+        const isDuplicate = existingTaskNames.some(existingName => {
+                   const normalizedExisting = existingName.toLowerCase().trim();
+    
+                   const isNotSelf = normalizedExisting !== normalizedCurrentName;
+       
+                   return isNotSelf;
+               });
+       
+               if (isDuplicate) {
+                   toast({ 
+                       title: "Duplicate Task Name", 
+                       description: `The task name "${normalizedCurrentName}" is already used by another task in this project.`, 
+                       variant: "destructive" 
+                   });
+                   return;
+               }
 
         setIsSaving(true);
 
@@ -231,7 +250,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onSav
                 <div className="grid gap-4 py-4">
                     {/* Category */}
 
-                    <div className="space-y-1">
+                    {/* <div className="space-y-1">
                         <Label htmlFor="category">Design Category *</Label>
                         <Select
                             value={taskState.design_category || ''}
@@ -246,11 +265,19 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onSav
                                         {cat.category_name}
                                     </SelectItem>
                                 ))}
-                                {/* <SelectItem key={"Others"} value={"Others"}>
-                                        {"Others"}
-                                    </SelectItem> */}
+                                
                             </SelectContent>
                         </Select>
+                    </div> */}
+                    <div className="space-y-1">
+                        <Label htmlFor="category">Design Category *</Label>
+                        <ReactSelect
+                            options={categories}
+                            value={categories.find((c: any) => c.value === taskState.design_category) || null}
+                            onChange={(option: any) => setTaskState(prev => ({ ...prev, design_category: option ? option.value : '' }))}
+                            classNamePrefix="react-select"
+                           
+                        />
                     </div>
 
                     {/* Task Name */}
@@ -280,7 +307,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onSav
                     </div>
 
                     {/* Status (Default to Not Applicable) */}
-                    <div className="space-y-1">
+                    {/* <div className="space-y-1">
                         <Label htmlFor="status">Status</Label>
                         <Select
                             value={taskState.task_status || 'Not Applicable'}
@@ -293,7 +320,18 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onSav
                                 {statusOptions.map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}
                             </SelectContent>
                         </Select>
-                    </div>
+                    </div> */}
+
+                    {/* <div className="space-y-1">
+                        <Label htmlFor="category">Status</Label>
+                        <ReactSelect
+                            options={statusOptions}
+                            value={statusOptions.find((c: any) => c.value === taskState.task_status) || null}
+                            onChange={(option: any) => setTaskState(prev => ({ ...prev, design_category: option ? option.value : '' }))}
+                            classNamePrefix="react-select"
+                           
+                        />
+                    </div> */}
 
 
                     {/* File Link */}
@@ -431,6 +469,33 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
 
 // --- Main Detail Component ---
 export const ProjectDesignTrackerDetail: React.FC = () => {
+    const { role, user_id } = useUserData();
+    const isDesignExecutive = role === "Nirmaan Design Executive Profile";
+
+    const checkIfUserAssigned = (task: DesignTrackerTask) => {
+        const designerField = task.assigned_designers;
+        if (!designerField) return false;
+        
+        let designers: AssignedDesignerDetail[] = [];
+         if (designerField && typeof designerField === 'object' && Array.isArray(designerField.list)) {
+            designers = designerField.list;
+        } else if (Array.isArray(designerField)) {
+            designers = designerField;
+        } else if (typeof designerField === 'string' && designerField.trim() !== '') {
+            try {
+                const parsed = JSON.parse(designerField);
+                if (parsed && typeof parsed === 'object' && Array.isArray(parsed.list)) {
+                    designers = parsed.list;
+                } else if (Array.isArray(parsed)) {
+                    designers = parsed;
+                }
+            } catch (e) {
+                // JSON parsing failed
+            }
+        }
+        return designers.some(d => d.userId === user_id);
+    };
+
     const { id: trackerId } = useParams<{ id: string }>();
 
     const {
@@ -448,7 +513,8 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
     // --- Master Category Calculation ---
 
     // 1. Categories currently active in this tracker + 'Others' fallback
-    const activeCategoriesInTracker: CategoryItem[] = useMemo(() => {
+   // 1. Categories currently active in this tracker + 'Others' fallback
+    const activeCategoriesInTracker = useMemo(() => {
         if (!trackerDoc?.design_tracker_task || !categoryData) return [];
 
         const uniqueCategoryNames = new Set(
@@ -465,15 +531,22 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
             tasks: [],
         };
 
-        // If 'Others' category is not already in the list (meaning it wasn't fetched from the DB, 
-        // OR it's a separate custom type), append the fabricated structure for custom tasks.
+        let resultList = filteredCategories;
+
+        // If 'Others' category is not already in the list, append it
         if (!uniqueCategoryNames.has("Others")) {
-            return [...filteredCategories, othersCategory];
+            resultList = [...filteredCategories, othersCategory];
         }
 
-        return filteredCategories;
+        // Map to Label/Value format for React Select
+        return resultList.map(cat => ({
+            label: cat.category_name,
+            value: cat.category_name,
+            ...cat // Keep original fields (tasks, category_name)
+        }));
 
     }, [trackerDoc?.design_tracker_task, categoryData]);
+    console.log("Active Categories in Tracker:", activeCategoriesInTracker);
 
     // 2. Categories available to be ADDED (Master list minus categories already in tracker)
     const availableNewCategories: CategoryItem[] = useMemo(() => {
@@ -483,9 +556,15 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
             trackerDoc.design_tracker_task.map(t => t.design_category)
         );
 
-        // Filter master list to include only those NOT currently in the tracker AND NOT the manually added 'Others'
+        // Filter master list:
+        // 1. Not currently in the tracker
+        // 2. Not "Others"
+        // 3. Must have at least one task defined
         return categoryData.filter(masterCat =>
-            !activeCategoryNames.has(masterCat.category_name) && masterCat.category_name !== "Others"
+            !activeCategoryNames.has(masterCat.category_name) && 
+            masterCat.category_name !== "Others" &&
+            Array.isArray(masterCat.tasks) && 
+            masterCat.tasks.length > 0
         );
 
     }, [trackerDoc?.design_tracker_task, categoryData]);
@@ -549,46 +628,48 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
     };
 
     // Helper function to render designer name from the complex field (for table display)
-    const getAssignedNameForDisplay = (task: DesignTrackerTask): React.ReactNode => {
-        const designerField = task.assigned_designers;
-        let designers: AssignedDesignerDetail[] = [];
+    // const getAssignedNameForDisplay = (task: DesignTrackerTask): React.ReactNode => {
+    //     const designerField = task.assigned_designers;
+    //     let designers: AssignedDesignerDetail[] = [];
 
-        if (designerField) {
-            // Check if already an object (from useDesignTrackerLogic state)
-            if (designerField && typeof designerField === 'object' && Array.isArray(designerField.list)) {
-                designers = designerField.list;
-            } else if (Array.isArray(designerField)) {
-                designers = designerField;
-            } else if (typeof designerField === 'string' && designerField.trim() !== '') {
-                try {
-                    const parsed = JSON.parse(designerField);
-                    if (parsed && typeof parsed === 'object' && Array.isArray(parsed.list)) {
-                        designers = parsed.list;
-                    } else if (Array.isArray(parsed)) {
-                        designers = parsed;
-                    }
-                } catch (e) { /* silent fail */ }
-            }
-        }
+    //     if (designerField) {
+    //         // Check if already an object (from useDesignTrackerLogic state)
+    //         if (designerField && typeof designerField === 'object' && Array.isArray(designerField.list)) {
+    //             designers = designerField.list;
+    //         } else if (Array.isArray(designerField)) {
+    //             designers = designerField;
+    //         } else if (typeof designerField === 'string' && designerField.trim() !== '') {
+    //             try {
+    //                 const parsed = JSON.parse(designerField);
+    //                 if (parsed && typeof parsed === 'object' && Array.isArray(parsed.list)) {
+    //                     designers = parsed.list;
+    //                 } else if (Array.isArray(parsed)) {
+    //                     designers = parsed;
+    //                 }
+    //             } catch (e) { /* silent fail */ }
+    //         }
+    //     }
 
-        if (designers.length > 0) {
-            return (
-                <p className="text-center">
-                    {/* <ul className="list-disc ml-0 p-0 m-0 space-y-0.5 text-xs"> */}
-                    {designers.map((d, index) => (
-                        <span className="text-xs block text-center" key={index}>
-                            {d.userName || d.userId}
-                        </span>
-                    ))}
-                    {/* </ul> */}
-                </p>
-            )
-        } else {
-            return <p className="text-xs text-center text-gray-500">--</p>;
-        }
-        return getDesignerName(undefined);
-    };
+    //     if (designers.length > 0) {
+    //         return (
+    //             <p className="text-center">
+    //                 {/* <ul className="list-disc ml-0 p-0 m-0 space-y-0.5 text-xs"> */}
+    //                 {designers.map((d, index) => (
+    //                     <span className="text-xs block text-center" key={index}>
+    //                         {d.userName || d.userId}
+    //                     </span>
+    //                 ))}
+    //                 {/* </ul> */}
+    //             </p>
+    //         )
+    //     } else {
+    //         return <p className="text-xs text-center text-gray-500">--</p>;
+    //     }
+    //     return getDesignerName(undefined);
+    // };
 
+  
+     
 
     return (
         <div className="flex-1 space-y-6 p-6">
@@ -601,6 +682,7 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
                 </header>
 
                 <div className="flex space-x-3">
+                    {!isDesignExecutive && (
                     <Button
                         variant="outline"
                         className="flex items-center gap-1 text-red-700 border-red-700 hover:bg-red-50/50"
@@ -609,6 +691,7 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
                     >
                         <Plus className="h-4 w-4" /> Add Categories
                     </Button>
+                    )}
                     <Button variant="destructive" className="flex items-center gap-2">
                         <Download className="h-4 w-4" /> Export
                     </Button>
@@ -618,6 +701,7 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
             {/* --- PROJECT OVERVIEW CARD --- */}
             <Card className="shadow-lg p-6 bg-white relative">
                 <div className="absolute top-4 right-4">
+                    {!isDesignExecutive && (
                     <Button
                         variant="outline"
                         size="sm"
@@ -626,6 +710,7 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
                     >
                         <Edit className="h-3 w-3 mr-1" /> Edit
                     </Button>
+                    )}
                 </div>
                 <CardTitle className="text-xl font-semibold mb-4">Project Overview</CardTitle>
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-6 text-sm text-gray-700 border p-4 rounded-lg">
@@ -674,6 +759,7 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
             {/* --- ON-BOARDING SECTION --- */}
             <div className="flex justify-between items-center pt-4">
                 <h2 className="text-2xl font-bold text-gray-800">On-Boarding</h2>
+                {!isDesignExecutive && (
                 <Button
                     variant="outline"
                     className="text-red-700 border-red-700 hover:bg-red-50/50"
@@ -691,6 +777,7 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
                 >
                     Create Custom Task
                 </Button>
+                )}
             </div>
 
             {/* --- TASK LIST (ACCORDION STYLE) --- */}
@@ -813,9 +900,15 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
 
                                                         {/* Actions */}
                                                         <td className="px-4 py-3 text-center">
-                                                            <Button variant="outline" size="sm" onClick={() => setEditingTask(task)} className="h-8">
-                                                                <Edit className="h-3 w-3 mr-1" /> Edit
-                                                            </Button>
+                                                            {(!isDesignExecutive || (isDesignExecutive && checkIfUserAssigned(task))) ? (
+                                                                <Button variant="outline" size="sm" onClick={() => setEditingTask(task)} className="h-8">
+                                                                    <Edit className="h-3 w-3 mr-1" /> Edit
+                                                                </Button>
+                                                            ) : (
+                                                                <Button variant="outline" size="sm" className="h-8 opacity-50 cursor-not-allowed" disabled>
+                                                                    <Edit className="h-3 w-3 mr-1" /> Edit
+                                                                </Button>
+                                                            )}
                                                         </td>
                                                     </tr>
                                                 ))}
@@ -838,6 +931,8 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
                     usersList={usersList || []}
                     statusOptions={statusOptions}
                     subStatusOptions={subStatusOptions}
+                    existingTaskNames={getExistingTaskNames(trackerDoc)} 
+                    isRestrictedMode={isDesignExecutive}
                 />
             )}
 
@@ -850,6 +945,7 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
                     usersList={usersList || []}
                     statusOptions={statusOptions}
                     categories={activeCategoriesInTracker}
+                    existingTaskNames={getExistingTaskNames(trackerDoc)} 
                 />
             )}
 
