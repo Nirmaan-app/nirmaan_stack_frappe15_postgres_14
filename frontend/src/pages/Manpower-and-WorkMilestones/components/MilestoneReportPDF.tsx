@@ -10,6 +10,8 @@ import { DELIMITER, parseWorkPlan, serializeWorkPlan } from '../MilestoneTab';
 import { PDFImageGrid } from '@/components/ui/PDFImageGrid';
 import { Button } from '@/components/ui/button'; // Ensure Button is imported
 import { Label } from '@/components/ui/label'; // Ensure Label is imported
+import { useWorkHeaderOrder } from '@/hooks/useWorkHeaderOrder';
+
 
 
 // --- Type Definitions (Assuming these are correct based on usage) ---
@@ -65,6 +67,7 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData,selectedZone }: Mi
   });
 
   const { data: ownerData } = useFrappeGetDoc<{ full_name: string }>('Nirmaan Users', dailyReportDetails?.owner || '');
+  const { workHeaderOrderMap } = useWorkHeaderOrder();
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -123,14 +126,18 @@ const MilestoneReportPDF = ({ dailyReportDetails, projectData,selectedZone }: Mi
 
     // --- SORTING ADDED HERE ---
     return Object.entries(grouped)
-      .sort(([headerA], [headerB]) => headerA.localeCompare(headerB))
+        .sort(([headerA], [headerB]) => {
+            const orderA = workHeaderOrderMap[headerA] ?? 9999;
+            const orderB = workHeaderOrderMap[headerB] ?? 9999;
+            return orderA - orderB;
+        })
       .reduce((acc, [header, milestones]) => {
         acc[header] = milestones;
         return acc;
       }, {});
       // --- END SORTING ---
 
-  }, [dailyReportDetails]);
+  }, [dailyReportDetails, workHeaderOrderMap]);
 
 
 
@@ -202,13 +209,17 @@ const milestoneGroups = useMemo(() => {
 
   // Step 3: Sort and return the final structure
   return groupsWithAverage
-    .sort(([headerA], [headerB]) => headerA.localeCompare(headerB))
+      .sort(([headerA], [headerB]) => {
+          const orderA = workHeaderOrderMap[headerA] ?? 9999;
+          const orderB = workHeaderOrderMap[headerB] ?? 9999;
+          return orderA - orderB;
+      })
     .reduce((acc: Record<string, GroupedMilestoneData>, [header, data]) => {
       acc[header] = data;
       return acc;
     }, {});
 
-}, [dailyReportDetails]); // Dependency array
+}, [dailyReportDetails, workHeaderOrderMap]); // Dependency array
   return (
     <>
      <div className="flex items-center space-x-4"> 

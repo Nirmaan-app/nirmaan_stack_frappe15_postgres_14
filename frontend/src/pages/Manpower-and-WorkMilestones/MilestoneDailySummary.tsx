@@ -29,6 +29,8 @@ import MilestoneReportPDF from "./components/MilestoneReportPDF";
 import OverallMilestonesReport from "./components/OverallMilestonesReport"
 import { ProgressCircle } from '@/components/ui/ProgressCircle';
 import { ImageBentoGrid } from '@/components/ui/ImageBentoGrid';
+import { useWorkHeaderOrder } from "@/hooks/useWorkHeaderOrder";
+
 
 // --- Shared Types ---
 interface ProjectZoneEntry {
@@ -175,6 +177,8 @@ export const MilestoneDailySummary = () => {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   const [allExpanded, setAllExpanded] = useState(false);
 
+  const { workHeaderOrderMap } = useWorkHeaderOrder();
+
   // Fetch project data
   const {
     data: projectData,
@@ -314,7 +318,7 @@ export const MilestoneDailySummary = () => {
   const workPlanGroupedMilestones = useMemo(() => {
     if (!dailyReportDetails?.milestones || reportType !== 'Daily') return {};
 
-    return dailyReportDetails.milestones.reduce((acc: any, milestone: any) => {
+    const grouped = dailyReportDetails.milestones.reduce((acc: any, milestone: any) => {
       const isRelevantStatus = milestone.status === "WIP" || milestone.status === "Not Started";
       const hasWorkPlanContent = milestone.work_plan && parseWorkPlan(milestone.work_plan).length > 0;
 
@@ -323,7 +327,19 @@ export const MilestoneDailySummary = () => {
       }
       return acc;
     }, {});
-  }, [dailyReportDetails, reportType]);
+
+    return Object.entries(grouped)
+        .sort(([headerA], [headerB]) => {
+            const orderA = workHeaderOrderMap[headerA] ?? 9999;
+            const orderB = workHeaderOrderMap[headerB] ?? 9999;
+            return orderA - orderB;
+        })
+        .reduce((acc: any, [header, milestones]) => {
+            acc[header] = milestones;
+            return acc;
+        }, {});
+
+  }, [dailyReportDetails, reportType, workHeaderOrderMap]);
   // --- End Work Plan Grouping ---
  // --- NEW: Zone Progress Validation/Status Calculation ---
   const validationZoneProgress = useMemo(() => {
@@ -617,12 +633,16 @@ export const MilestoneDailySummary = () => {
                                      </Button>
                                    </div>
              
-                                   {Object.entries(
-                                     dailyReportDetails.milestones.filter((milestone: any) => milestone.status !== "Not Applicable").reduce((acc, milestone) => {
-                                       (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
-                                       return acc;
-                                     }, {})
-                                   ).sort(([headerA], [headerB]) => headerA.localeCompare(headerB)).map(([header, milestones], groupIdx) => { 
+                                    {Object.entries(
+                                      dailyReportDetails.milestones.filter((milestone: any) => milestone.status !== "Not Applicable").reduce((acc: any, milestone: any) => {
+                                        (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
+                                        return acc;
+                                      }, {})
+                                    ).sort(([headerA], [headerB]) => {
+                                        const orderA = workHeaderOrderMap[headerA] ?? 9999;
+                                        const orderB = workHeaderOrderMap[headerB] ?? 9999;
+                                        return orderA - orderB;
+                                    }).map(([header, milestones], groupIdx) => { 
                                      const totalProgress = (milestones as any[]).reduce((sum, m) => sum + (Number(m.progress) || 0), 0);
                  const averageProgress = (milestones as any[]).length > 0 
                      ? Math.round(totalProgress / (milestones as any[]).length) 

@@ -27,6 +27,7 @@ import MilestoneReportPDF from "./components/MilestoneReportPDF";
 import OverallMilestonesReport from "./components/OverallMilestonesReport"
 import { useUserData } from "@/hooks/useUserData";
 import { ProgressCircle } from "@/components/ui/ProgressCircle";
+import { useWorkHeaderOrder } from "@/hooks/useWorkHeaderOrder";
 import { cn } from '@/lib/utils' // Assuming you have this utility
 import {DELIMITER,parseWorkPlan,serializeWorkPlan} from "./MilestoneTab"
 import { OrientationAwareImage } from "@/components/ui/OrientationAwareImage";
@@ -221,6 +222,54 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport, 
     reportForDisplayDateName, // Fetch using the determined report name
     reportForDisplayDateName && reportType === 'Daily' ? undefined : null // Only fetch if a name exists and reportType is Daily
   );
+  // Fetch Work Headers to get the order
+  const { workHeaderOrderMap } = useWorkHeaderOrder();
+
+  // --- MEMOIZED DATA PREPARATION ---
+
+  // 1. Prepare Work Plan Groups
+  // Logic: Filter for WIP/Not Started OR messages with content, group by header, sort by Order.
+  const workPlanGroups = useMemo(() => {
+    if (!dailyReportDetails?.milestones) return [];
+
+    const grouped = dailyReportDetails.milestones.reduce((acc: any, milestone: any) => {
+      const isWIPOrNotStarted = milestone.status === "WIP" || milestone.status === "Not Started";
+      const hasWorkPlanContent = milestone.work_plan && parseWorkPlan(milestone.work_plan).length > 0;
+
+      if (hasWorkPlanContent || isWIPOrNotStarted) {
+        (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
+      }
+      return acc;
+    }, {});
+
+    return Object.entries(grouped)
+      .filter(([header, milestones]) => (milestones as any[]).length > 0)
+      .sort(([headerA], [headerB]) => {
+        const orderA = workHeaderOrderMap[headerA] ?? 9999;
+        const orderB = workHeaderOrderMap[headerB] ?? 9999;
+        return orderA - orderB;
+      });
+  }, [dailyReportDetails, workHeaderOrderMap]);
+
+  // 2. Prepare Work Milestones Groups
+  // Logic: Filter out "Not Applicable", group by header, sort by Order.
+  const milestoneGroups = useMemo(() => {
+    if (!dailyReportDetails?.milestones) return [];
+
+    const grouped = dailyReportDetails.milestones
+      .filter((milestone: any) => milestone.status !== "Not Applicable")
+      .reduce((acc: any, milestone: any) => {
+        (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
+        return acc;
+      }, {});
+
+    return Object.entries(grouped)
+      .sort(([headerA], [headerB]) => {
+        const orderA = workHeaderOrderMap[headerA] ?? 9999;
+        const orderB = workHeaderOrderMap[headerB] ?? 9999;
+        return orderA - orderB;
+      });
+  }, [dailyReportDetails, workHeaderOrderMap]);
 // Effect to initialize selectedZone (updated to handle tabs and parent control)
 useEffect(() => {
     // A. PREREQUISITE CHECK
@@ -667,39 +716,12 @@ console.log("Selected Zone:", selectedZone);
 
 
 {/* --- UPDATED SECTION: Upcoming Work Plan Summary (Grouped by Header) --- */}
-{dailyReportDetails.milestones && dailyReportDetails.milestones.length > 0 && (() => {
-  // Group milestones by header and filter
- const groupedMilestones = dailyReportDetails.milestones.reduce((acc: any, milestone: any) => {
-    // Determine if the milestone is relevant for the Work Plan section
-    const isWIPOrNotStarted = milestone.status === "WIP" || milestone.status === "Not Started";
-    const hasWorkPlanContent = milestone.work_plan && parseWorkPlan(milestone.work_plan).length > 0;
-
-    // Include the milestone if it has content OR if it has a relevant status
-    if (hasWorkPlanContent || isWIPOrNotStarted) {
-      (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
-    }
-    return acc;
-  }, {});
-
-  // Filter out headers that have no milestones
-  let filteredGroups = Object.entries(groupedMilestones).filter(
-    ([header, milestones]) => (milestones as any[]).length > 0
-  );
-  // Filter out headers that have no milestones (this should generally not happen with the new logic, but is good for safety)
- filteredGroups = filteredGroups.sort(([headerA], [headerB]) => {
-    // Perform a locale-sensitive, case-insensitive string comparison
-    return headerA.localeCompare(headerB, undefined, { sensitivity: 'base' });
-  });
-
-  // Only render the entire Work Plan section if there are any valid groups
-  if (filteredGroups.length === 0) return null;
-
-
-  return (
+{/* --- UPDATED SECTION: Upcoming Work Plan Summary (Grouped by Header) --- */}
+{workPlanGroups.length > 0 && (
     <div className="mb-6">
       <h3 className="text-lg md:text-xl font-bold mb-6 border-b">Work Plan</h3>
       
-      {filteredGroups.map(([header, milestones], groupIdx) => (
+      {workPlanGroups.map(([header, milestones]: any, groupIdx: number) => (
         <div key={groupIdx} className="mb-4 last:mb-0 rounded-md overflow-hidden">
           {/* Header */}
           <div className="p-3 bg-gray-50">
@@ -763,8 +785,7 @@ console.log("Selected Zone:", selectedZone);
         </div>
       ))}
     </div>
-  );
-})()}
+)}
 {/* --- END UPDATED SECTION --- */}
 
 
@@ -797,12 +818,7 @@ console.log("Selected Zone:", selectedZone);
                         </Button>
                       </div>
 
-                      {Object.entries(
-                        dailyReportDetails.milestones.filter((milestone: any) => milestone.status !== "Not Applicable").reduce((acc, milestone) => {
-                          (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
-                          return acc;
-                        }, {})
-                      ).sort(([headerA], [headerB]) => headerA.localeCompare(headerB)).map(([header, milestones], groupIdx) => { 
+                      {milestoneGroups.map(([header, milestones]: any, groupIdx: number) => { 
                         const totalProgress = (milestones as any[]).reduce((sum, m) => sum + (Number(m.progress) || 0), 0);
     const averageProgress = (milestones as any[]).length > 0 
         ? Math.round(totalProgress / (milestones as any[]).length) 

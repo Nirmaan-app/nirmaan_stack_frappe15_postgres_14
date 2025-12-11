@@ -11,6 +11,9 @@ import OverallMilestonesReportPDF from './OverallMilestonesReportPDF';
 import { MilestoneProgress } from '../MilestonesSummary';
 import { ImageBentoGrid } from '@/components/ui/ImageBentoGrid';
 
+// import { useWorkHeaderOrder } from '@/hooks/useWorkHeaderOrder'; // Removed as backend sorts now
+
+
 // Define types
 interface MilestoneSnapshot {
   work_milestone_name: string;
@@ -65,6 +68,8 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
     selectedProject ? undefined : null
   );
 
+  // const { workHeaderOrderMap } = useWorkHeaderOrder(); // Removed
+
   const [latestReport, setLatestReport] = useState<ReportDoc | null>(null);
   const [report7DaysAgo, setReport7DaysAgo] = useState<ReportDoc | null>(null);
   const [report14DaysAgo, setReport14DaysAgo] = useState<ReportDoc | null>(null);
@@ -116,6 +121,12 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
       return acc;
     }, {} as Record<string, MilestoneSnapshot[]>);
   }, [latestReport]);
+
+
+
+  // Removed sortedGroupedMilestones as backend provides sorted data and Object.keys/entries preserves insertion order for non-integer keys (mostly)
+
+
 
   // ---------------------------------------------------------------------------
   // Memoized grouped manpower (Logic: Exclude if all 0)
@@ -570,6 +581,8 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
         />
       </div>
 
+
+
       {Object.keys(groupedMilestones).length === 0 ? (
         <Card className="bg-white p-6 rounded-lg shadow-sm border border-gray-300 mt-4">
           <CardContent className="flex flex-col items-center justify-center py-8">
@@ -583,14 +596,10 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
       ) : null}
     </div>
   );
+
 };
 
 export default OverallMilestonesReport;
-
-
-
-
-
 // import React, { useState, useEffect, useMemo } from 'react';
 // import { useFrappeGetCall } from 'frappe-react-sdk';
 // import { formatDate } from '@/utils/FormatDate';
