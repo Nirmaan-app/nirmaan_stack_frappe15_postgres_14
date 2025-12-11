@@ -85,20 +85,18 @@ const getTaskWiseColumns = (
             accessorKey: "task_name",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Task Name" />,
         },
-        {
-            // Deadlines
-            id:"deadline",
-            accessorFn: (row) => row.original.deadline,
-            // accessorKey: "deadline",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Deadlines" />,
-            cell: ({ row }) => (
-                // Deadlines should be centered for visual consistency with the screenshot style
-                <div className="whitespace-nowrap text-center">
-                    {row.original.deadline ? formatDeadlineShort(row.original.deadline) : '...'}
-                </div>
-            ),
-            filterFn: dateFilterFn,
-        },
+      {
+    // Deadlines
+    id: "deadline",
+    accessorKey: "deadline",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Deadlines"/>,
+    cell: ({ row }) => (
+        <div className={row.original.deadline ? "px-4" : "text-center"}>
+            {row.original.deadline ? formatDeadlineShort(row.original.deadline) : '--'}
+        </div>
+    ),
+    // filterFn: dateFilterFn,
+},
 //         {
 //     // Assigned Designer - with filtering support
 //     id: "assigned_designers",
@@ -134,7 +132,7 @@ const getTaskWiseColumns = (
     accessorKey: "task_status",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
     cell: ({ row }) => (
-        <div className="flex justify-center">
+        <div className="">
             <Badge 
             variant="outline"
                 className={`w-[120px] min-h-[28px] h-auto py-1 px-2 justify-center whitespace-normal break-words text-center leading-tight ${getTaskStatusStyle(row.original.task_status || '...')}`}
@@ -150,18 +148,13 @@ const getTaskWiseColumns = (
     accessorKey: "task_sub_status",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Sub-Status" />,
     cell: ({ row }) => (
-        <div className="flex justify-center">
-            {row.original.task_sub_status ? (
-                <Badge 
-            variant="outline"
-
-                    className={`w-[120px] min-h-[28px] h-auto py-1 px-2 justify-center whitespace-normal break-words text-center leading-tight ${getTaskSubStatusStyle(row.original.task_sub_status)}`}
-                >
-                    {row.original.task_sub_status}
-                </Badge>
-            ) : (
-                "--"
-            )}
+        <div className="">
+            <Badge 
+                variant="outline"
+                className={`w-[120px] min-h-[28px] h-auto py-1 px-2 justify-center whitespace-normal break-words text-center leading-tight ${getTaskSubStatusStyle(row.original.task_sub_status)}`}
+            >
+                {row.original.task_sub_status || '--'}
+            </Badge>
         </div>
     ),
     enableColumnFilter: true,
