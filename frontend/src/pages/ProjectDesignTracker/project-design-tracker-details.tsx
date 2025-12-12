@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
+import { format } from "date-fns";
 import { useParams } from 'react-router-dom';
 import { ProjectDesignTracker, DesignTrackerTask, User, AssignedDesignerDetail } from './types';
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
@@ -672,7 +673,7 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
      
 
     // --- PDF DOWNLOAD HANDLER ---
-    const handleDownloadPdf = async () => {
+    const handleDownloadReport = async () => {
         const printFormatName = "Project Design Tracker"; 
         const params = new URLSearchParams({
             doctype: DOCTYPE,
@@ -694,9 +695,8 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
             const blob = await response.blob();
             
             // Custom Filename Logic
-            // Using a simple date format to avoid 'date-fns' import if not already present, or straightforward JS
             const now = new Date();
-            const dateStr = now.toISOString().slice(0,10).replace(/-/g, ""); // YYYYMMDD
+            const dateStr = format(now, "dd-MM-yyyy");
             const projectNameClean = (trackerDoc.project_name || "Project").replace(/[^a-zA-Z0-9-_]/g, "_");
             const filename = `${projectNameClean}_DesignTracker_${dateStr}.pdf`;
 
@@ -740,7 +740,7 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
                     <Button 
                         variant="destructive" 
                         className="flex items-center gap-2"
-                        onClick={handleDownloadPdf}
+                        onClick={handleDownloadReport}
                     >
                         <Download className="h-4 w-4" /> Export
                     </Button>
