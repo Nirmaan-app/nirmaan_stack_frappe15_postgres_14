@@ -83,6 +83,7 @@ const ProjectSpendsTab = React.lazy(() => import("./ProjectSpendsTab"));
 const ProjectEstimates = React.lazy(() => import("./add-project-estimates"));
 const ProjectPOSummaryTable = React.lazy(() => import("./components/ProjectPOSummaryTable"));
 const ProjectMaterialUsageTab = React.lazy(() => import("./components/ProjectMaterialUsageTab"));
+const ProjectDesignTrackerDetail = React.lazy(() => import("@/pages/ProjectDesignTracker/project-design-tracker-details").then(module => ({ default: module.ProjectDesignTrackerDetail })));
 import { ProjectExpensesTab } from "./components/ProjectExpenseTab"; // NEW
 import { ProjectWorkReportTab } from "./ProjectWorkReportTab";
 
@@ -234,6 +235,7 @@ export const Component = Project;
 export const PROJECT_PAGE_TABS = {
   OVERVIEW: 'overview',
   WORK_REPORT: 'workreport', // ADD THIS NEW KEY
+  DESIGN_TRACKER: 'designtracker',
   PR_SUMMARY: 'prsummary',
   SR_SUMMARY: 'srsummary',
   PO_SUMMARY: 'posummary',
@@ -249,6 +251,13 @@ type ProjectPageTabValue = typeof PROJECT_PAGE_TABS[keyof typeof PROJECT_PAGE_TA
 
 
 const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item_data }: ProjectViewProps) => {
+
+  const { data: designTrackerList } = useFrappeGetDocList("Project Design Tracker", {
+    fields: ["name"],
+    filters: [["project", "=", projectId]],
+    limit: 1
+  });
+  const designTrackerId = designTrackerList?.[0]?.name;
 
   // console.log("modified-call", po_item_data)
 
@@ -324,6 +333,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     { // ADD THIS NEW MENU ITEM
       label: "Work Report", // This is the displayed text
       key: PROJECT_PAGE_TABS.WORK_REPORT, // This is the unique key
+    },
+    {
+      label: "Design Tracker",
+      key: PROJECT_PAGE_TABS.DESIGN_TRACKER,
     },
     // role === "Nirmaan Admin Profile"
     //   ? {
@@ -963,6 +976,8 @@ const advanceAgainstPO = useMemo(() => {
         return <ProjectOverviewTab projectData={data} estimatesTotal={estimatesTotal} projectCustomer={projectCustomer} totalPOAmountWithGST={totalPOAmountWithGST} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getTotalAmountPaid={getTotalAmountPaid} />;
       case PROJECT_PAGE_TABS.WORK_REPORT: // ADD THIS NEW CASE
             return <ProjectWorkReportTab projectData={data} project_mutate={project_mutate} current_role={role}/>;
+      case PROJECT_PAGE_TABS.DESIGN_TRACKER:
+            return designTrackerId ? <ProjectDesignTrackerDetail trackerId={designTrackerId} /> : <div className="p-4">No Design Tracker found for this project.</div>;
       case PROJECT_PAGE_TABS.PR_SUMMARY:
         return <ProjectPRSummaryTable projectId={projectId} />;
       case PROJECT_PAGE_TABS.SR_SUMMARY:

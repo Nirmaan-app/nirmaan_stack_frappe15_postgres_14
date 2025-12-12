@@ -469,7 +469,11 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
 
 
 // --- Main Detail Component ---
-export const ProjectDesignTrackerDetail: React.FC = () => {
+interface ProjectDesignTrackerDetailProps {
+    trackerId?: string;
+}
+
+export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProps> = ({ trackerId: propTrackerId }) => {
     const { role, user_id } = useUserData();
     const isDesignExecutive = role === "Nirmaan Design Executive Profile";
 
@@ -497,7 +501,8 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
         return designers.some(d => d.userId === user_id);
     };
 
-    const { id: trackerId } = useParams<{ id: string }>();
+    const { id: paramTrackerId } = useParams<{ id: string }>();
+    const trackerId = propTrackerId || paramTrackerId;
 
     const {
         trackerDoc, groupedTasks, categoryData, isLoading, error, getDesignerName, handleTaskSave, editingTask, setEditingTask, usersList, handleParentDocSave, statusOptions,
