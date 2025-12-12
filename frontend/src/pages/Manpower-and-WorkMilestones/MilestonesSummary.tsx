@@ -1,4 +1,5 @@
 import { UserContext } from "@/utils/auth/UserProvider";
+import { format } from "date-fns";
 import { formatDate } from "@/utils/FormatDate";
 import {
   useFrappeCreateDoc,
@@ -6,8 +7,8 @@ import {
   useFrappeGetDocList,
   useFrappeUpdateDoc
 } from "frappe-react-sdk";
-import { MapPin, ChevronDown, ChevronUp, MessagesSquare } from "lucide-react";
-import { useContext, useEffect, useState,useMemo } from "react";
+import { MapPin, ChevronDown, ChevronUp, MessagesSquare, Printer, Eye, EyeOff,Download } from "lucide-react";
+import { useContext, useEffect, useState, useMemo } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate } from "react-router-dom";
 // import ProjectSelect from "@/components/custom-select/project-select";
@@ -23,7 +24,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "@/components/ui/use-toast";
-import MilestoneReportPDF from "./components/MilestoneReportPDF";
+// import MilestoneReportPDF from "./components/MilestoneReportPDF";
 import OverallMilestonesReport from "./components/OverallMilestonesReport"
 import { useUserData } from "@/hooks/useUserData";
 import { ProgressCircle } from "@/components/ui/ProgressCircle";
@@ -270,6 +271,11 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport, 
         return orderA - orderB;
       });
   }, [dailyReportDetails, workHeaderOrderMap]);
+  
+  // Print Header Toggle State
+  const [showPrintHeader, setShowPrintHeader] = useState(true);
+
+
 // Effect to initialize selectedZone (updated to handle tabs and parent control)
 useEffect(() => {
     // A. PREREQUISITE CHECK
@@ -1022,29 +1028,71 @@ console.log("Selected Zone:", selectedZone);
                       forPdf={false}
                     />
                   </div>
-                  {/* Download PDF Button */}
-                  <div className="mt-8 flex justify-end">
+                  <div className="mt-8 flex justify-end gap-2">
                     {dailyReportDetails && projectData && (
-                      <MilestoneReportPDF
-                        dailyReportDetails={dailyReportDetails}
-                        projectData={projectData}
-                        selectedZone={selectedZone}
-                      />
+                      <>
+                      <div> <span className="mr-3"> {showPrintHeader ?"Header Visible" : "Header Invisible"}:</span>
+                         <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => setShowPrintHeader(!showPrintHeader)}
+                          title={showPrintHeader ? "Header will be printed" : "Header will be hidden"}
+                        >
+                         
+                          {showPrintHeader ? <Eye className="w-4 h-4" />  : <EyeOff className="w-4 h-4 text-gray-400" />}
+                        </Button>
+                      </div>
+                       
+                        <Button
+                          onClick={async () => {
+                              if (!dailyReportDetails?.name) return;
+                              
+                              try {
+                                toast({ title: "Generating PDF...", description: "Please wait while we prepare your report." });
+
+                                // 1. Construct URL
+                                const headerParam = showPrintHeader ? '1' : '0';
+                                const printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Project%20Progress%20Reports&name=${dailyReportDetails.name}&format=Milestone%20Report&no_letterhead=0&show_header=${headerParam}`;
+                                
+                                // 2. Fetch Blob
+                                const response = await fetch(printUrl);
+                                if (!response.ok) throw new Error("Failed to generate PDF");
+                                const blob = await response.blob();
+                                
+                                // 3. Construct Filename: ProjectName_Date_Zone.pdf
+                                const pName = (projectData.project_name || "Project").replace(/\s+/g, '_');
+                                // Ensure valid date conversion
+                                const rDate = dailyReportDetails.report_date ? new Date(dailyReportDetails.report_date) : new Date();
+                                const dStr = format(rDate, "dd-MM-yyyy");
+                                const zoneSuffix = selectedZone ? `_${selectedZone.replace(/\s+/g, '_')}` : "";
+                                
+                                const fileName = `${pName}_${zoneSuffix}_${dStr}_DPR.pdf`;
+
+                                // 4. Trigger Download
+                                const url = window.URL.createObjectURL(blob);
+                                const link = document.createElement('a');
+                                link.href = url;
+                                link.setAttribute('download', fileName);
+                                document.body.appendChild(link);
+                                link.click();
+                                
+                                // 5. Cleanup
+                                link.remove();
+                                window.URL.revokeObjectURL(url);
+                                toast({ title: "Success", description: "Report downloaded successfully.", variant: "success" });
+
+                              } catch (e) {
+                                console.error("PDF Download Error:", e);
+                                toast({ title: "Error", description: "Failed to download report.", variant: "destructive" });
+                              }
+                          }}
+                          className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white"
+                        >
+                          <Download className="w-4 h-4" />
+                          Download Report
+                        </Button>
+                      </>
                     )}
-                    {/* {dailyReportDetails && projectData && (
-        <MilestoneReportPDF
-            // MAP 1: dailyReportDetails (your main doc) maps to 'milestone'
-            milestone={{
-                name: dailyReportDetails.name, 
-                creation: dailyReportDetails.creation, 
-                milestone_date: dailyReportDetails.report_date // Use report_date as the key date
-            }} 
-            
-            // MAP 2: projectData maps to 'contextName'
-            contextName={projectData.name || projectData.project_name} // Use the unique ID first, then the name
-        />
-    )}
-        */}
                   </div>
                 </div>
               ) : (

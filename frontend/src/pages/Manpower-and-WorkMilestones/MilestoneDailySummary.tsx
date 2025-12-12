@@ -1,8 +1,8 @@
 import React, { useRef, useMemo, useState, useContext, useEffect,useCallback } from 'react';
 import { useLocation,useNavigate } from 'react-router-dom'; // Import to read URL parameters
-import { useReactToPrint } from 'react-to-print';
+
 import { formatDate } from '@/utils/FormatDate';
-import { MapPin, MessagesSquare, ChevronDown, ChevronUp,CheckCircle2,Clock,XCircle } from 'lucide-react';
+import { MapPin, MessagesSquare, ChevronDown, ChevronUp,CheckCircle2,Clock,XCircle, Printer } from 'lucide-react';
 
 // --- Frappe and Context Imports ---
 import { useFrappeGetDoc, useFrappeGetDocList } from 'frappe-react-sdk';
@@ -25,7 +25,8 @@ import { cn } from '@/lib/utils'
 
 // --- Utility Imports (Ensure these exist in your project structure) ---
 import { DELIMITER, parseWorkPlan, serializeWorkPlan } from "./MilestoneTab"
-import MilestoneReportPDF from "./components/MilestoneReportPDF";
+// import MilestoneReportPDF from "./components/MilestoneReportPDF"; // Deprecated
+
 import OverallMilestonesReport from "./components/OverallMilestonesReport"
 import { ProgressCircle } from '@/components/ui/ProgressCircle';
 import { ImageBentoGrid } from '@/components/ui/ImageBentoGrid';
@@ -363,6 +364,14 @@ export const MilestoneDailySummary = () => {
   const totalWorkHeaders = dailyReportDetails?.milestones?.length || 0;
   const completedWorksOnReport = dailyReportDetails?.milestones?.filter((m: any) => m.status === "Completed").length || 0;
   const totalManpowerInReport = dailyReportDetails?.manpower?.reduce((sum: number, mp: any) => sum + Number(mp.count || 0), 0) || 0;
+
+  // --- NEW: Print Handler ---
+  const handlePrintReport = () => {
+    if (!dailyReportDetails?.name) return;
+    const printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Project%20Progress%20Reports&name=${dailyReportDetails.name}&format=Milestone%20Report&no_letterhead=0`;
+    window.open(printUrl, '_blank');
+  };
+
 
   // --- Loading and Error States ---
   if (!selectedProject) return <h1>No Project ID found in URL.</h1>;
@@ -846,14 +855,16 @@ export const MilestoneDailySummary = () => {
                 />
               </div>
               
-              {/* Download PDF Button */}
+              {/* Download PDF Button (Server-Side) */}
               <div className="mt-8 flex justify-end">
                 {dailyReportDetails && projectData && (
-                  <MilestoneReportPDF
-                    dailyReportDetails={dailyReportDetails}
-                    projectData={projectData}
-                     selectedZone={selectedZone}
-                  />
+                    <Button 
+                        onClick={handlePrintReport}
+                        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                        <Printer className="w-4 h-4" />
+                        Print Report
+                    </Button>
                 )}
               </div>
             </div>
