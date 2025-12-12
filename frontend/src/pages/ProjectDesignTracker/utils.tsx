@@ -40,7 +40,7 @@ export const getTaskStatusStyle = (status: string) => {
 };
 
 export const getTaskSubStatusStyle = (subStatus?: string) => {
-    if (!subStatus || subStatus === '...') return 'bg-gray-100 text-gray-700 border border-gray-300';
+    if (!subStatus || subStatus === '...') return 'bg-gray-100 text-gray-700 border border-gray-300 font-medium rounded-full ';
     
     const lowerSubStatus = subStatus.toLowerCase();
     if (lowerSubStatus.includes('clarification') || lowerSubStatus.includes('rework') || lowerSubStatus.includes('sub-status 1')) {
@@ -97,15 +97,15 @@ export const getAssignedNameForDisplay = (task: DesignTrackerTask): React.ReactN
 
         if (designers.length > 0) {
             return (
-                <p className="text-center">
-                    {/* <ul className="list-disc ml-0 p-0 m-0 space-y-0.5 text-xs"> */}
+                <div className="flex justify-start">
+                <ul className="list-disc list-inside text-xs text-left">
                     {designers.map((d, index) => (
-                        <span className="text-xs block text-center" key={index}>
+                        <li key={index}>
                             {d.userName || d.userId}
-                        </span>
+                        </li>
                     ))}
-                    {/* </ul> */}
-                </p>
+                </ul>
+            </div>
             )
         } else {
             return <p className="text-xs text-center text-gray-500">--</p>;

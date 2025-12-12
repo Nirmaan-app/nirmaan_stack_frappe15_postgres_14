@@ -356,6 +356,8 @@ import { formatDate } from "@/utils/FormatDate";
 import CameraCapture from "@/components/CameraCapture";
 import PhotoPermissionChecker from "./PhotoPermissionChecker"; // Adjust path if needed
 import { useFrappeGetDoc as useFrappeGetDocForMap } from "frappe-react-sdk"; // Aliased to avoid conflict if needed
+import { useWorkHeaderOrder } from "@/hooks/useWorkHeaderOrder";
+
 
 // --- Interface for Photos ---
 interface ProjectProgressAttachment {
@@ -433,6 +435,8 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
   const hasTodayReport = todayReportList && todayReportList.length > 0;
   const canCopy = !hasTodayReport && !!yesterdayReportName;
 
+  const { workHeaderOrderMap } = useWorkHeaderOrder();
+
   const { data: fullYesterdayReport, isLoading: isLoadingReport } = useFrappeGetDoc(
     "Project Progress Reports",
     yesterdayReportName,
@@ -446,11 +450,18 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
         (acc[header] = acc[header] || []).push(milestone);
         return acc;
       }, {});
-    return Object.keys(groups).sort().reduce((obj: any, key) => {
+    
+    // Sort keys based on workHeaderOrderMap, then alphabetically as fallback
+    return Object.keys(groups).sort((a, b) => {
+        const orderA = workHeaderOrderMap[a] ?? 9999;
+        const orderB = workHeaderOrderMap[b] ?? 9999;
+        if (orderA !== orderB) return orderA - orderB;
+        return a.localeCompare(b);
+    }).reduce((obj: any, key) => {
       obj[key] = groups[key];
       return obj;
     }, {});
-  }, [fullYesterdayReport]);
+  }, [fullYesterdayReport, workHeaderOrderMap]);
 
   // --- 2. CAMERA HANDLERS ---
   const handlePhotoCaptureSuccess = (photoData: ProjectProgressAttachment) => {

@@ -10,6 +10,7 @@ import { MilestoneProgress } from '../MilestonesSummary';
 import { useFrappeGetDoc } from 'frappe-react-sdk';
 import { PDFImageGrid } from '@/components/ui/PDFImageGrid';
 import { Label } from '@/components/ui/label'; 
+// import { useWorkHeaderOrder } from '@/hooks/useWorkHeaderOrder'; // Removed as backend sorts now
 
 // --- Types ---
 interface MilestoneSnapshot {
@@ -96,7 +97,10 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
     pageStyle: `@page { size: A4 landscape; margin: 0.5cm; }`
   });
 
+
   const { data: ownerData } = useFrappeGetDoc<{ full_name: string }>('Nirmaan Users', latestReport?.owner || '')
+  
+  // const { workHeaderOrderMap } = useWorkHeaderOrder(); // Removed
 
   // --- 1. SMART GROUPING AND CALCULATION LOGIC (Milestones) ---
   const groupedMilestones = useMemo(() => {
@@ -110,8 +114,11 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
     }, {} as Record<string, MilestoneSnapshot[]>);
 
     const result: Record<string, GroupedHeaderData> = {};
-    const sortedHeaders = Object.keys(rawGroups).sort((a, b) => a.localeCompare(b));
+    const sortedHeaders = Object.keys(rawGroups); 
 
+    // We trust backend sorting, but if we wanted to be super safe we'd iterate the original array.
+    // However, JS object keys traverse in insertion order for non-integer strings, which 'Work Headers' usually are.
+    
     sortedHeaders.forEach(header => {
       const milestones = rawGroups[header];
 
@@ -131,7 +138,11 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
             totalProgress += val;
             count++;
           } else {
-            count++; 
+             // If milestone existed in past but not found now (edge case), or didn't exist
+             // For accurate "progress of THIS group", we should only count if it existed? 
+             // Or count as 0? Let's count as 0 if it's "work plan" logic. 
+             // But here we are comparing snapshots. If it's not in the report, it's 0.
+             count++; 
           }
         });
 

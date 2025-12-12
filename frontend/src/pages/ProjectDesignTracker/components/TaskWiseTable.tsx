@@ -12,7 +12,16 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { DataTable } from "@/components/data-table/new-data-table"; 
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header"; 
 import { useServerDataTable } from "@/hooks/useServerDataTable"; 
-import { ColumnDef } from "@tanstack/react-table";
+import { 
+    ColumnDef,
+    useReactTable,
+    getCoreRowModel,
+    getFilteredRowModel,
+    getPaginationRowModel,
+    getSortedRowModel,
+    getFacetedRowModel,
+    getFacetedUniqueValues
+} from "@tanstack/react-table";
 
 // Type and Hook imports
 import { DesignTrackerTask, AssignedDesignerDetail } from "../types"; 
@@ -76,20 +85,18 @@ const getTaskWiseColumns = (
             accessorKey: "task_name",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Task Name" />,
         },
-        {
-            // Deadlines
-            id:"deadline",
-            accessorFn: (row) => row.original.deadline,
-            // accessorKey: "deadline",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Deadlines" />,
-            cell: ({ row }) => (
-                // Deadlines should be centered for visual consistency with the screenshot style
-                <div className="whitespace-nowrap text-center">
-                    {row.original.deadline ? formatDeadlineShort(row.original.deadline) : '...'}
-                </div>
-            ),
-            filterFn: dateFilterFn,
-        },
+      {
+    // Deadlines
+    id: "deadline",
+    accessorKey: "deadline",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Deadlines"/>,
+    cell: ({ row }) => (
+        <div className={row.original.deadline ? "px-4" : "text-center"}>
+            {row.original.deadline ? formatDeadlineShort(row.original.deadline) : '--'}
+        </div>
+    ),
+    // filterFn: dateFilterFn,
+},
 //         {
 //     // Assigned Designer - with filtering support
 //     id: "assigned_designers",
@@ -109,23 +116,23 @@ const getTaskWiseColumns = (
 //     ),
 //     enableColumnFilter: true, // This will enable text-based filtering on the formatted value
 // },
-       {
-                // Assigned Designer
-                id: "assigned_designers",
-                header: ({ column }) => <DataTableColumnHeader column={column} title="Assigned Designer" />,
-                cell: ({ row }) => (
-                    <div className="text-left py-2">
-                        {getAssignedNameForDisplay(row.original)}
-                    </div>
-                ),
-            },
+        ...(isDesignExecutive ? [] : [{
+            // Assigned Designer
+            id: "assigned_designers",
+            header: ({ column }: { column: any }) => <DataTableColumnHeader column={column} title="Assigned Designer" />,
+            cell: ({ row }: { row: any }) => (
+                <div className="text-left py-2">
+                    {getAssignedNameForDisplay(row.original)}
+                </div>
+            ),
+        }]),
         
      {
     // Status
     accessorKey: "task_status",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
     cell: ({ row }) => (
-        <div className="flex justify-center">
+        <div className="">
             <Badge 
             variant="outline"
                 className={`w-[120px] min-h-[28px] h-auto py-1 px-2 justify-center whitespace-normal break-words text-center leading-tight ${getTaskStatusStyle(row.original.task_status || '...')}`}
@@ -141,18 +148,13 @@ const getTaskWiseColumns = (
     accessorKey: "task_sub_status",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Sub-Status" />,
     cell: ({ row }) => (
-        <div className="flex justify-center">
-            {row.original.task_sub_status ? (
-                <Badge 
-            variant="outline"
-
-                    className={`w-[120px] min-h-[28px] h-auto py-1 px-2 justify-center whitespace-normal break-words text-center leading-tight ${getTaskSubStatusStyle(row.original.task_sub_status)}`}
-                >
-                    {row.original.task_sub_status}
-                </Badge>
-            ) : (
-                "--"
-            )}
+        <div className="">
+            <Badge 
+                variant="outline"
+                className={`w-[120px] min-h-[28px] h-auto py-1 px-2 justify-center whitespace-normal break-words text-center leading-tight ${getTaskSubStatusStyle(row.original.task_sub_status)}`}
+            >
+                {row.original.task_sub_status || '--'}
+            </Badge>
         </div>
     ),
     enableColumnFilter: true,
@@ -312,13 +314,13 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_
         title: "Sub-Status",
         options: subStatusOptions||[],
     },
-    "assigned_designers": {
-        title: "Assigned Designer",
-        options: usersList?.map(user => ({ 
-            label: user.full_name || user.name, 
-            value: user.name 
-        })) || [],
-    },
+    // "assigned_designers": {
+    //     title: "Assigned Designer",
+    //     options: usersList?.map(user => ({ 
+    //         label: user.full_name || user.name, 
+    //         value: user.name 
+    //     })) || [],
+    // },
 };
 
 
@@ -379,6 +381,35 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_
         additionalFilters: additionalFilters,
     });
 
+    // --- CLIENT-SIDE FILTERING FOR DESIGN EXECUTIVE ---
+    const filteredData = useMemo(() => {
+        if (!serverDataTable.data) return [];
+        if (isDesignExecutive && user_id) {
+            return serverDataTable.data.filter(task => checkIfUserAssigned(task));
+        }
+        return serverDataTable.data;
+    }, [serverDataTable.data, isDesignExecutive, user_id]);
+
+    const table = useReactTable({
+        data: filteredData,
+        columns: serverDataTable.table.options.columns,
+        getCoreRowModel: getCoreRowModel(),
+        manualPagination: true, // Maintain manual pagination to sync with server
+        pageCount: serverDataTable.table.getPageCount(),
+        state: {
+            pagination: serverDataTable.pagination,
+            sorting: serverDataTable.sorting,
+            columnFilters: serverDataTable.columnFilters,
+            globalFilter: serverDataTable.searchTerm,
+        },
+        onPaginationChange: serverDataTable.setPagination,
+        onSortingChange: serverDataTable.setSorting,
+        onColumnFiltersChange: serverDataTable.setColumnFilters,
+        onGlobalFilterChange: serverDataTable.setSearchTerm,
+        getFacetedRowModel: getFacetedRowModel(),
+        getFacetedUniqueValues: getFacetedUniqueValues(),
+    });
+
     console.log("TaskWiseTable - serverDataTable", serverDataTable);
     // Task Save Handler
     const handleTaskSave = async (updatedFields: { [key: string]: any }) => {
@@ -422,12 +453,12 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_
             ) : (
                 <div className="overflow-x-auto  rounded-lg shadow-sm bg-white">
                     <DataTable<FlattenedTask>
-                        table={serverDataTable.table}
-                        columns={serverDataTable.table.options.columns}
+                        table={table}
+                        columns={table.options.columns}
                         isLoading={serverDataTable.isLoading}
                         error={serverDataTable.error}
                         // totalCount={serverDataTable?.data?.length}
-                        totalCount={serverDataTable.totalCount}
+                        totalCount={isDesignExecutive && user_id ? filteredData.length : serverDataTable.totalCount}
                         searchFieldOptions={SearchFieldOptions}
                         selectedSearchField={serverDataTable.selectedSearchField}
                         onSelectedSearchFieldChange={serverDataTable.setSelectedSearchField}

@@ -1,8 +1,8 @@
 import React, { useRef, useMemo, useState, useContext, useEffect,useCallback } from 'react';
 import { useLocation,useNavigate } from 'react-router-dom'; // Import to read URL parameters
-import { useReactToPrint } from 'react-to-print';
+
 import { formatDate } from '@/utils/FormatDate';
-import { MapPin, MessagesSquare, ChevronDown, ChevronUp,CheckCircle2,Clock,XCircle } from 'lucide-react';
+import { MapPin, MessagesSquare, ChevronDown, ChevronUp,CheckCircle2,Clock,XCircle, Printer } from 'lucide-react';
 
 // --- Frappe and Context Imports ---
 import { useFrappeGetDoc, useFrappeGetDocList } from 'frappe-react-sdk';
@@ -25,10 +25,13 @@ import { cn } from '@/lib/utils'
 
 // --- Utility Imports (Ensure these exist in your project structure) ---
 import { DELIMITER, parseWorkPlan, serializeWorkPlan } from "./MilestoneTab"
-import MilestoneReportPDF from "./components/MilestoneReportPDF";
+// import MilestoneReportPDF from "./components/MilestoneReportPDF"; // Deprecated
+
 import OverallMilestonesReport from "./components/OverallMilestonesReport"
 import { ProgressCircle } from '@/components/ui/ProgressCircle';
 import { ImageBentoGrid } from '@/components/ui/ImageBentoGrid';
+import { useWorkHeaderOrder } from "@/hooks/useWorkHeaderOrder";
+
 
 // --- Shared Types ---
 interface ProjectZoneEntry {
@@ -175,6 +178,8 @@ export const MilestoneDailySummary = () => {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   const [allExpanded, setAllExpanded] = useState(false);
 
+  const { workHeaderOrderMap } = useWorkHeaderOrder();
+
   // Fetch project data
   const {
     data: projectData,
@@ -314,7 +319,7 @@ export const MilestoneDailySummary = () => {
   const workPlanGroupedMilestones = useMemo(() => {
     if (!dailyReportDetails?.milestones || reportType !== 'Daily') return {};
 
-    return dailyReportDetails.milestones.reduce((acc: any, milestone: any) => {
+    const grouped = dailyReportDetails.milestones.reduce((acc: any, milestone: any) => {
       const isRelevantStatus = milestone.status === "WIP" || milestone.status === "Not Started";
       const hasWorkPlanContent = milestone.work_plan && parseWorkPlan(milestone.work_plan).length > 0;
 
@@ -323,7 +328,19 @@ export const MilestoneDailySummary = () => {
       }
       return acc;
     }, {});
-  }, [dailyReportDetails, reportType]);
+
+    return Object.entries(grouped)
+        .sort(([headerA], [headerB]) => {
+            const orderA = workHeaderOrderMap[headerA] ?? 9999;
+            const orderB = workHeaderOrderMap[headerB] ?? 9999;
+            return orderA - orderB;
+        })
+        .reduce((acc: any, [header, milestones]) => {
+            acc[header] = milestones;
+            return acc;
+        }, {});
+
+  }, [dailyReportDetails, reportType, workHeaderOrderMap]);
   // --- End Work Plan Grouping ---
  // --- NEW: Zone Progress Validation/Status Calculation ---
   const validationZoneProgress = useMemo(() => {
@@ -347,6 +364,14 @@ export const MilestoneDailySummary = () => {
   const totalWorkHeaders = dailyReportDetails?.milestones?.length || 0;
   const completedWorksOnReport = dailyReportDetails?.milestones?.filter((m: any) => m.status === "Completed").length || 0;
   const totalManpowerInReport = dailyReportDetails?.manpower?.reduce((sum: number, mp: any) => sum + Number(mp.count || 0), 0) || 0;
+
+  // --- NEW: Print Handler ---
+  const handlePrintReport = () => {
+    if (!dailyReportDetails?.name) return;
+    const printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Project%20Progress%20Reports&name=${dailyReportDetails.name}&format=Milestone%20Report&no_letterhead=0`;
+    window.open(printUrl, '_blank');
+  };
+
 
   // --- Loading and Error States ---
   if (!selectedProject) return <h1>No Project ID found in URL.</h1>;
@@ -617,12 +642,16 @@ export const MilestoneDailySummary = () => {
                                      </Button>
                                    </div>
              
-                                   {Object.entries(
-                                     dailyReportDetails.milestones.filter((milestone: any) => milestone.status !== "Not Applicable").reduce((acc, milestone) => {
-                                       (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
-                                       return acc;
-                                     }, {})
-                                   ).sort(([headerA], [headerB]) => headerA.localeCompare(headerB)).map(([header, milestones], groupIdx) => { 
+                                    {Object.entries(
+                                      dailyReportDetails.milestones.filter((milestone: any) => milestone.status !== "Not Applicable").reduce((acc: any, milestone: any) => {
+                                        (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
+                                        return acc;
+                                      }, {})
+                                    ).sort(([headerA], [headerB]) => {
+                                        const orderA = workHeaderOrderMap[headerA] ?? 9999;
+                                        const orderB = workHeaderOrderMap[headerB] ?? 9999;
+                                        return orderA - orderB;
+                                    }).map(([header, milestones], groupIdx) => { 
                                      const totalProgress = (milestones as any[]).reduce((sum, m) => sum + (Number(m.progress) || 0), 0);
                  const averageProgress = (milestones as any[]).length > 0 
                      ? Math.round(totalProgress / (milestones as any[]).length) 
@@ -826,14 +855,16 @@ export const MilestoneDailySummary = () => {
                 />
               </div>
               
-              {/* Download PDF Button */}
+              {/* Download PDF Button (Server-Side) */}
               <div className="mt-8 flex justify-end">
                 {dailyReportDetails && projectData && (
-                  <MilestoneReportPDF
-                    dailyReportDetails={dailyReportDetails}
-                    projectData={projectData}
-                     selectedZone={selectedZone}
-                  />
+                    <Button 
+                        onClick={handlePrintReport}
+                        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                        <Printer className="w-4 h-4" />
+                        Print Report
+                    </Button>
                 )}
               </div>
             </div>

@@ -1,11 +1,11 @@
 // src/pages/projects/WorkHeaderMilestones.tsx
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/use-toast";
 import { TailSpin } from "react-loader-spinner";
-import { Pencil, PlusCircle, Trash2, CheckCheck, X, FileEdit } from "lucide-react";
+import { Pencil, PlusCircle, Trash2, CheckCheck, X, FileEdit, GripVertical, Save, ArrowLeft } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -39,35 +39,27 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDocList, useFrappeUpdateDoc, useFrappePostCall } from "frappe-react-sdk"; // <-- ADDED useFrappePostCall
+import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDocList, useFrappeUpdateDoc, useFrappePostCall } from "frappe-react-sdk";
 
-// Assuming these types are correctly defined based on Frappe DocType structure
-// You MUST ensure these type definitions reflect the actual field names in Frappe
-// src/types/NirmaanStack/WorkHeaders.ts
 export interface WorkHeaders {
-    name: string; // Frappe ID
-    work_header_name: string; // Corrected field name
+    name: string;
+    work_header_name: string;
+    order?: number; // Added order field
     creation?: string;
     modified?: string;
     owner?: string;
     modified_by?: string;
 }
 
-// src/types/NirmaanStack/WorkMilestone.ts
 export interface WorkMilestone {
-    name: string; // Frappe ID
-    work_milestone_name: string; // Corrected field name
-    work_header: string; // Link to Work Headers (Frappe ID)
+    name: string;
+    work_milestone_name: string;
+    work_header: string;
     creation?: string;
     modified?: string;
     owner?: string;
     modified_by?: string;
 }
-
-
-// =========================================================================
-// 1. Zod Schemas for Form Validation
-// =========================================================================
 
 const workHeaderFormSchema = z.object({
   work_header_name: z.string().min(1, "Work Header Name is required."),
@@ -79,21 +71,113 @@ const workMilestoneFormSchema = z.object({
 });
 type WorkMilestoneFormValues = z.infer<typeof workMilestoneFormSchema>;
 
-
-// =========================================================================
-// 2. Main WorkHeaderMilestones Component
-// =========================================================================
-
 export const WorkHeaderMilestones: React.FC = () => {
-  const { data: workHeaders, isLoading: workHeadersLoading, error: workHeadersError, mutate: workHeadersMutate } = useFrappeGetDocList<WorkHeaders>(
-    "Work Headers",
-    { fields: ["name", "work_header_name"], limit: 0, orderBy: { field: "creation", order: "asc" } }
-  );
+    // 1. Fetch Work Headers with 'order' field, sorted by 'order'
+    const { 
+        data: workHeaders, 
+        isLoading: workHeadersLoading, 
+        error: workHeadersError, 
+        mutate: workHeadersMutate 
+    } = useFrappeGetDocList<WorkHeaders>(
+        "Work Headers",
+        { 
+            fields: ["name", "work_header_name", "order"], 
+            limit: 0, 
+            orderBy: { field: "`order`", order: "asc" } // Backticks for safety
+        }
+    );
 
-  const { data: workMilestones, isLoading: workMilestonesLoading, error: workMilestonesError, mutate: workMilestonesMutate } = useFrappeGetDocList<WorkMilestone>(
-    "Work Milestones", // Ensure this matches your DocType name exactly
-    { fields: ["name", "work_milestone_name", "work_header"], limit: 0, orderBy: { field: "creation", order: "asc" } }
-  );
+    const { 
+        data: workMilestones, 
+        isLoading: workMilestonesLoading, 
+        error: workMilestonesError, 
+        mutate: workMilestonesMutate 
+    } = useFrappeGetDocList<WorkMilestone>(
+        "Work Milestones",
+        { 
+            fields: ["name", "work_milestone_name", "work_header"], 
+            limit: 0, 
+            orderBy: { field: "creation", order: "asc" } 
+        }
+    );
+
+    // --- REORDERING STATE ---
+    const [isReordering, setIsReordering] = useState(false);
+    const [reorderedList, setReorderedList] = useState<WorkHeaders[]>([]);
+    const [isSavingOrder, setIsSavingOrder] = useState(false);
+    
+    // Drag and Drop Refs
+    const dragItem = useRef<number | null>(null);
+    const dragOverItem = useRef<number | null>(null);
+
+    // Initialize reordered list when entering reorder mode or when data changes
+    useEffect(() => {
+        if (workHeaders) {
+            // Sort client-side again just to be safe if backend sort fails or falls back
+            const sorted = [...workHeaders].sort((a, b) => (a.order || 9999) - (b.order || 9999));
+            setReorderedList(sorted);
+        }
+    }, [workHeaders]);
+
+
+    const { updateDoc } = useFrappeUpdateDoc();
+
+    // --- DRAG HANDLERS ---
+    const handleDragStart = (e: React.DragEvent<HTMLTableRowElement>, position: number) => {
+        dragItem.current = position;
+        // e.dataTransfer.effectAllowed = "move"; // Visual feedback
+    };
+
+    const handleDragEnter = (e: React.DragEvent<HTMLTableRowElement>, position: number) => {
+        dragOverItem.current = position;
+    };
+
+    const handleDragEnd = (e: React.DragEvent<HTMLTableRowElement>) => {
+        // e.preventDefault(); // Remove if causing issues
+        if (dragItem.current !== null && dragOverItem.current !== null) {
+            const copyListItems = [...reorderedList];
+            const dragItemContent = copyListItems[dragItem.current];
+            copyListItems.splice(dragItem.current, 1);
+            copyListItems.splice(dragOverItem.current, 0, dragItemContent);
+            dragItem.current = null;
+            dragOverItem.current = null;
+            setReorderedList(copyListItems);
+        }
+    };
+
+
+    const handleSaveOrder = async () => {
+        setIsSavingOrder(true);
+        try {
+            // Create a list of promises to update each header's order
+            const updatePromises = reorderedList.map((header, index) => {
+                // Only update if order has changed (optimization)
+                const newOrder = index + 1;
+                if (header.order !== newOrder) {
+                     return updateDoc("Work Headers", header.name, { order: newOrder });
+                }
+                return Promise.resolve();
+            });
+
+            await Promise.all(updatePromises);
+            
+            toast({ title: "Success", description: "Work Headers order updated!", variant: "success" });
+            await workHeadersMutate(); // Refresh data
+            setIsReordering(false);
+        } catch (error: any) {
+             console.error("Order Save Error", error);
+             toast({ title: "Error", description: "Failed to save order.", variant: "destructive" });
+        } finally {
+            setIsSavingOrder(false);
+        }
+    };
+
+    // Calculate Max Order for new items
+    const maxOrder = useMemo(() => {
+        if (!workHeaders || workHeaders.length === 0) return 0;
+        return Math.max(...workHeaders.map(h => h.order || 0));
+    }, [workHeaders]);
+
 
   if (workHeadersLoading || workMilestonesLoading) {
     return (
@@ -111,11 +195,82 @@ export const WorkHeaderMilestones: React.FC = () => {
     );
   }
 
+  // --- RENDER: REORDERING VIEW ---
+  if (isReordering) {
+      return (
+          <div className="flex-1 space-y-6 p-4 md:p-6 bg-white min-h-screen">
+               <div className="flex justify-between items-center mb-6">
+                    <div className="flex items-center gap-4">
+                        <Button variant="ghost" onClick={() => setIsReordering(false)}>
+                            <ArrowLeft className="w-5 h-5 mr-1"/> Back
+                        </Button>
+                        <h2 className="text-2xl font-bold tracking-tight">Reorder Work Headers</h2>
+                    </div>
+                    <div className="flex gap-2">
+                        <Button variant="outline" onClick={() => {
+                            if (workHeaders) {
+                                setReorderedList([...workHeaders].sort((a, b) => (a.order || 9999) - (b.order || 9999)));
+                            }
+                            setIsReordering(false);
+                        }} disabled={isSavingOrder}>
+                            Cancel
+                        </Button>
+                        <Button onClick={handleSaveOrder} disabled={isSavingOrder} className="bg-blue-600 hover:bg-blue-700">
+                             {isSavingOrder ? <TailSpin height={16} width={16} color="white" /> : <><Save className="w-4 h-4 mr-2"/> Save Order</>}
+                        </Button>
+                    </div>
+               </div>
+               
+               <div className="border rounded-md shadow-sm overflow-hidden">
+                   <Table>
+                       <TableHeader className="bg-gray-100">
+                           <TableRow>
+                               <TableHead className="w-[50px] text-center">#</TableHead>
+                               <TableHead>Work Header Name</TableHead>
+                               <TableHead className="w-[100px] text-center">Drag</TableHead>
+                           </TableRow>
+                       </TableHeader>
+                       <TableBody>
+                            {reorderedList.map((header, index) => (
+                                <TableRow 
+                                    key={header.name}
+                                    draggable
+                                    onDragStart={(e) => handleDragStart(e, index)}
+                                    onDragEnter={(e) => handleDragEnter(e, index)}
+                                    onDragEnd={handleDragEnd}
+                                    onDragOver={(e) => e.preventDefault()}
+                                    className="cursor-move hover:bg-gray-50 bg-white"
+                                >
+                                    <TableCell className="text-center font-mono text-gray-500">{index + 1}</TableCell>
+                                    <TableCell className="font-medium">{header.work_header_name}</TableCell>
+                                    <TableCell className="text-center">
+                                        <GripVertical className="w-5 h-5 text-gray-400 mx-auto" />
+                                    </TableCell>
+                                </TableRow>
+                            ))}
+                       </TableBody>
+                   </Table>
+               </div>
+               <p className="text-sm text-gray-500 text-center italic mt-4">
+                   Drag rows to reorder. Click 'Save Order' to apply changes.
+               </p>
+          </div>
+      )
+  }
+
+  // --- RENDER: MAIN VIEW ---
   return (
     <div className="flex-1 space-y-6 p-4 md:p-6">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold tracking-tight">Work Headers & Milestones</h2>
-        <CreateWorkHeaderDialog mutate={workHeadersMutate} />
+        <div className="flex gap-2">
+             {/* Reorder Button */}
+            <Button variant="outline" onClick={() => setIsReordering(true)}>
+                <GripVertical className="mr-2 h-4 w-4" /> Order Work Headers
+            </Button>
+            {/* Create Button with Max Order logic */}
+            <CreateWorkHeaderDialog mutate={workHeadersMutate} maxOrder={maxOrder} />
+        </div>
       </div>
 
       <Separator />
@@ -139,17 +294,14 @@ export const WorkHeaderMilestones: React.FC = () => {
   );
 };
 
+// ... (Sub-components)
 
-// =========================================================================
-// 3. Sub-components for Dialogs and Cards
-// =========================================================================
-
-// --- Dialog for Creating New Work Header ---
 interface CreateWorkHeaderDialogProps {
   mutate: () => Promise<any>;
+  maxOrder: number; // Added prop
 }
 
-const CreateWorkHeaderDialog: React.FC<CreateWorkHeaderDialogProps> = ({ mutate }) => {
+const CreateWorkHeaderDialog: React.FC<CreateWorkHeaderDialogProps> = ({ mutate, maxOrder }) => {
   const [open, setOpen] = useState(false);
   const { createDoc, loading } = useFrappeCreateDoc();
 
@@ -162,7 +314,14 @@ const CreateWorkHeaderDialog: React.FC<CreateWorkHeaderDialogProps> = ({ mutate 
 
   const onSubmit = async (values: WorkHeaderFormValues) => {
     try {
-      await createDoc("Work Headers", { work_header_name: values.work_header_name });
+      // Auto-assign order: maxOrder + 1
+      const newOrder = maxOrder + 1;
+      
+      await createDoc("Work Headers", { 
+          work_header_name: values.work_header_name,
+          order: newOrder
+      });
+      
       toast({ title: "Success", description: "Work Header created successfully.", variant: "success" });
       form.reset();
       await mutate();
@@ -171,6 +330,7 @@ const CreateWorkHeaderDialog: React.FC<CreateWorkHeaderDialogProps> = ({ mutate 
       toast({ title: "Error", description: `Failed to create Work Header: ${error.message}`, variant: "destructive" });
     }
   };
+
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>

@@ -306,7 +306,7 @@ const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, 
     };
 
     return (
-        <div className="space-y-4 px-1 py-2">
+        <div className="space-y-4 px-3 py-2">
             {Object.entries(groupedTasks).map(([categoryName, tasks]) => {
                 const isCategoryExpanded = expandedCategories[categoryName] ?? false;
 
@@ -617,8 +617,8 @@ export const DesignTrackerList: React.FC = () => {
                         <p className="text-center text-gray-500 p-10">No design trackers found matching your search criteria.</p>
                     ) : (
                         filteredDocs.map((doc) => {
-                            // const isPending = doc.status.toLowerCase().includes('assign pending');
-                            const isPending = true
+                            const isPending = doc.status.toLowerCase().includes('assign pending');
+                            // const isPending = true
                             
                             const isExpanded = expandedProject === doc.name;
 

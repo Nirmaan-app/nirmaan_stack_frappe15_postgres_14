@@ -8,7 +8,8 @@
  "field_order": [
   "details_section",
   "work_header_name",
-  "work_package_link"
+  "work_package_link",
+  "order"
  ],
  "fields": [
   {
@@ -27,12 +28,18 @@
    "fieldtype": "Link",
    "label": "Work Package Link",
    "options": "Work Packages"
+  },
+  {
+   "fieldname": "order",
+   "fieldtype": "Int",
+   "label": "Order",
+   "non_negative": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-10-09 13:52:56.200370",
+ "modified": "2025-12-11 16:14:53.619561",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Work Headers",

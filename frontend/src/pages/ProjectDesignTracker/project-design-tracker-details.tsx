@@ -671,6 +671,51 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
   
      
 
+    // --- PDF DOWNLOAD HANDLER ---
+    const handleDownloadPdf = async () => {
+        const printFormatName = "Project Design Tracker"; 
+        const params = new URLSearchParams({
+            doctype: DOCTYPE,
+            name: trackerId!,
+            format: printFormatName,
+            no_letterhead: "0", 
+            _lang: "en",
+        });
+
+        // Use the frappe.utils.print_format.download_pdf method which returns the PDF file directly
+        const downloadUrl = `/api/method/frappe.utils.print_format.download_pdf?${params.toString()}`;
+
+        try {
+            toast({ title: "Generating PDF...", description: "Please wait while we generate your report." });
+            
+            const response = await fetch(downloadUrl);
+            if (!response.ok) throw new Error('PDF generation failed.');
+            
+            const blob = await response.blob();
+            
+            // Custom Filename Logic
+            // Using a simple date format to avoid 'date-fns' import if not already present, or straightforward JS
+            const now = new Date();
+            const dateStr = now.toISOString().slice(0,10).replace(/-/g, ""); // YYYYMMDD
+            const projectNameClean = (trackerDoc.project_name || "Project").replace(/[^a-zA-Z0-9-_]/g, "_");
+            const filename = `${projectNameClean}_DesignTracker_${dateStr}.pdf`;
+
+            const url = window.URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', filename);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+
+            toast({ title: "Success", description: "Report downloaded successfully.", variant: "success" });
+        } catch (error) {
+            console.error("Download Error:", error);
+            toast({ title: "Error", description: "Failed to download PDF.", variant: "destructive" });
+        }
+    };
+
     return (
         <div className="flex-1 space-y-6 p-6">
 
@@ -692,7 +737,11 @@ export const ProjectDesignTrackerDetail: React.FC = () => {
                         <Plus className="h-4 w-4" /> Add Categories
                     </Button>
                     )}
-                    <Button variant="destructive" className="flex items-center gap-2">
+                    <Button 
+                        variant="destructive" 
+                        className="flex items-center gap-2"
+                        onClick={handleDownloadPdf}
+                    >
                         <Download className="h-4 w-4" /> Export
                     </Button>
                 </div>
