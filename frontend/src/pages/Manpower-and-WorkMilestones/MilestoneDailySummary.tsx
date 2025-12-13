@@ -2,7 +2,9 @@ import React, { useRef, useMemo, useState, useContext, useEffect,useCallback } f
 import { useLocation,useNavigate } from 'react-router-dom'; // Import to read URL parameters
 
 import { formatDate } from '@/utils/FormatDate';
-import { MapPin, MessagesSquare, ChevronDown, ChevronUp,CheckCircle2,Clock,XCircle, Printer } from 'lucide-react';
+import { MapPin, MessagesSquare, ChevronDown, ChevronUp,CheckCircle2,Clock,XCircle, Printer, Eye, EyeOff, Download } from 'lucide-react';
+import { toast } from "@/components/ui/use-toast";
+import { format } from "date-fns";
 
 // --- Frappe and Context Imports ---
 import { useFrappeGetDoc, useFrappeGetDocList } from 'frappe-react-sdk';
@@ -177,6 +179,7 @@ export const MilestoneDailySummary = () => {
   const [reportForDisplayDateName, setReportForDisplayDateName] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   const [allExpanded, setAllExpanded] = useState(false);
+  const [showPrintHeader, setShowPrintHeader] = useState(true);
 
   const { workHeaderOrderMap } = useWorkHeaderOrder();
 
@@ -365,12 +368,51 @@ export const MilestoneDailySummary = () => {
   const completedWorksOnReport = dailyReportDetails?.milestones?.filter((m: any) => m.status === "Completed").length || 0;
   const totalManpowerInReport = dailyReportDetails?.manpower?.reduce((sum: number, mp: any) => sum + Number(mp.count || 0), 0) || 0;
 
-  // --- NEW: Print Handler ---
-  const handlePrintReport = () => {
-    if (!dailyReportDetails?.name) return;
-    const printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Project%20Progress%20Reports&name=${dailyReportDetails.name}&format=Milestone%20Report&no_letterhead=0`;
-    window.open(printUrl, '_blank');
-  };
+    // --- NEW: Print Handler ---
+    const handleDownloadReport = async () => {
+      if (!dailyReportDetails?.name) return;
+  
+      try {
+        toast({ title: "Generating PDF...", description: "Please wait while we prepare your report." });
+  
+        // 1. Construct URL
+        const headerParam = showPrintHeader ? '1' : '0';
+        const printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Project%20Progress%20Reports&name=${dailyReportDetails.name}&format=Milestone%20Report&no_letterhead=0&show_header=${headerParam}`;
+  
+        // 2. Fetch Blob
+        const response = await fetch(printUrl);
+        if (!response.ok) throw new Error("Failed to generate PDF");
+        const blob = await response.blob();
+  
+        // 3. Construct Filename: ProjectName_Date_Zone.pdf
+        const pName = (projectData?.project_name || "Project").replace(/\s+/g, '_');
+        // Ensure valid date conversion
+        const rDate = dailyReportDetails.report_date ? new Date(dailyReportDetails.report_date) : new Date();
+        const dStr = format(rDate, "dd-MM-yyyy");
+        const zoneSuffix = selectedZone ? `_${selectedZone.replace(/\s+/g, '_')}` : "";
+  
+        const fileName = `${pName}_${zoneSuffix}_${dStr}_DPR.pdf`;
+  
+        // 4. Trigger Download
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', fileName);
+        document.body.appendChild(link);
+        link.click();
+  
+        // 5. Cleanup
+        link.remove();
+        window.URL.revokeObjectURL(url);
+        toast({ title: "Success", description: "Report downloaded successfully.", variant: "success" });
+  
+      } catch (e) {
+        console.error("PDF Download Error:", e);
+        toast({ title: "Error", description: "Failed to download report.", variant: "destructive" });
+      }
+    };
+
+
 
 
   // --- Loading and Error States ---
@@ -856,15 +898,29 @@ export const MilestoneDailySummary = () => {
               </div>
               
               {/* Download PDF Button (Server-Side) */}
-              <div className="mt-8 flex justify-end">
+              <div className="mt-8 flex justify-end gap-2">
                 {dailyReportDetails && projectData && (
-                    <Button 
-                        onClick={handlePrintReport}
-                        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+                  <>
+                  <div> <span className="mr-3"> {showPrintHeader ?"Header Visible" : "Header Invisible"}:</span>
+                     <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setShowPrintHeader(!showPrintHeader)}
+                      title={showPrintHeader ? "Header will be printed" : "Header will be hidden"}
                     >
-                        <Printer className="w-4 h-4" />
-                        Print Report
+                     
+                      {showPrintHeader ? <Eye className="w-4 h-4" />  : <EyeOff className="w-4 h-4 text-gray-400" />}
                     </Button>
+                  </div>
+                   
+                    <Button
+                      onClick={handleDownloadReport}
+                      className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white"
+                    >
+                      <Download className="w-4 h-4" />
+                      Download Report
+                    </Button>
+                  </>
                 )}
               </div>
             </div>
