@@ -324,20 +324,34 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
         usersList.map(u => ({ label: u.full_name || u.name, value: u.name, email: u.email || '' }))
     , [usersList]);
 
+    // Check if current status requires custom text input for substatus
+    const requiresCustomSubStatus = useMemo(() => {
+        const currentStatus = editState.task_status;
+        const allowedValues = SUB_STATUS_MAP[currentStatus as keyof typeof SUB_STATUS_MAP];
+        return allowedValues === "__CUSTOM_TEXT__";
+    }, [editState.task_status]);
+
      const allowedSubStatuses = useMemo(() => {
         const currentStatus = editState.task_status;
         const allowedValues = SUB_STATUS_MAP[currentStatus as keyof typeof SUB_STATUS_MAP];
-        
-        if (!allowedValues || allowedValues.length === 0) {
-            return subStatusOptions.filter(opt => opt.value === ""); 
+
+        // If custom text is required, return empty array (we'll show text input instead)
+        if (allowedValues === "__CUSTOM_TEXT__") {
+            return [];
         }
-        return subStatusOptions.filter(opt => 
+
+        if (!allowedValues || allowedValues.length === 0) {
+            return subStatusOptions.filter(opt => opt.value === "");
+        }
+        return subStatusOptions.filter(opt =>
             opt.value === "" || allowedValues.includes(opt.value)
         );
     }, [editState.task_status, subStatusOptions]);
     
      React.useEffect(() => {
         const isStatusMapped = !!SUB_STATUS_MAP[editState.task_status as keyof typeof SUB_STATUS_MAP];
+        // Only clear sub_status if status changes to one that doesn't support sub-status at all
+        // Preserve sub_status for custom text input statuses
         if (!isStatusMapped && editState.task_sub_status) {
              setEditState(prev => ({ ...prev, task_sub_status: "" }));
         }
@@ -430,7 +444,10 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
         }));
 
         let finalEditState = { ...editState };
-        if (editState.task_status && !SUB_STATUS_MAP[editState.task_status as keyof typeof SUB_STATUS_MAP]) {
+        // Only clear sub_status if the status doesn't support sub-status at all
+        // Preserve custom text sub-status for statuses that use "__CUSTOM_TEXT__"
+        const statusSubStatusConfig = SUB_STATUS_MAP[editState.task_status as keyof typeof SUB_STATUS_MAP];
+        if (editState.task_status && !statusSubStatusConfig) {
              finalEditState.task_sub_status = "";
         }
         
@@ -496,19 +513,34 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
                            
                         />
                     </div>
-                    
-                    {/* Sub Status */}
-                    {(allowedSubStatuses.length > 1) && (
-                      <div className="space-y-1">
-                            <Label htmlFor="sub_status">Sub Status</Label>
-                            <ReactSelect
-                                options={allowedSubStatuses}
-                                value={allowedSubStatuses.find((c: any) => c.value === editState.task_sub_status) || null}
-                                onChange={(option: any) => setEditState(prev => ({ ...prev, task_sub_status: option ? option.value : '' }))}
-                                classNamePrefix="react-select"
-                                
+
+                    {/* Sub Status - Conditional Rendering */}
+                    {requiresCustomSubStatus ? (
+                        // Custom text input for statuses like "Revision Pending"
+                        <div className="space-y-1">
+                            <Label htmlFor="sub_status_custom">Sub Status (Custom)</Label>
+                            <Input
+                                id="sub_status_custom"
+                                type="text"
+                                value={editState.task_sub_status || ''}
+                                onChange={(e) => setEditState(prev => ({ ...prev, task_sub_status: e.target.value }))}
+                                placeholder="Enter custom sub-status..."
+                                className="w-full"
                             />
                         </div>
+                    ) : (
+                        // Predefined dropdown for statuses with fixed options
+                        (allowedSubStatuses.length > 1) && (
+                            <div className="space-y-1">
+                                <Label htmlFor="sub_status">Sub Status</Label>
+                                <ReactSelect
+                                    options={allowedSubStatuses}
+                                    value={allowedSubStatuses.find((c: any) => c.value === editState.task_sub_status) || null}
+                                    onChange={(option: any) => setEditState(prev => ({ ...prev, task_sub_status: option ? option.value : '' }))}
+                                    classNamePrefix="react-select"
+                                />
+                            </div>
+                        )
                     )}
                        
                     {/* Deadline */}
