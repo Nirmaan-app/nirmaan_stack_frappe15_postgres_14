@@ -26,8 +26,8 @@ import {NonProjectExpensesPage} from "@/pages/NonProjectExpenses/NonProjectExpen
 import { ProjectProgressReports } from "./ProjectProgressReports";
 
 import { StandaloneDateFilter } from "@/components/ui/StandaloneDateFilter";
-import { urlStateManager } from "@/utils/urlStateManager"; 
-import { parse, formatISO, startOfDay, format } from 'date-fns'; 
+import { urlStateManager } from "@/utils/urlStateManager";
+import { parse, formatISO, startOfDay, endOfDay, format } from 'date-fns';
 import { DateRange } from "react-day-picker"; 
 
 
@@ -41,8 +41,8 @@ const projectReportListOptions = () => ({
 
 const URL_SYNC_KEY = "project_case_sheet"; // Use a specific key for URL state
 const getDefaultDateRange = (): DateRange => ({
-    from: new Date('2024-04-01'),
-    to: startOfDay(new Date()),
+    from: startOfDay(new Date('2024-04-01')),
+    to: endOfDay(new Date()),
 });
 
 // Component for the existing Cash Sheet report
@@ -54,8 +54,8 @@ function CashSheetReport() {
         if (fromParam && toParam) {
             try {
                 return {
-                    from: parse(fromParam, 'yyyy-MM-dd', new Date()),
-                    to: parse(toParam, 'yyyy-MM-dd', new Date()),
+                    from: startOfDay(parse(fromParam, 'yyyy-MM-dd', new Date())),
+                    to: endOfDay(parse(toParam, 'yyyy-MM-dd', new Date())),
                 };
             } catch (e) {
                 console.error("Error parsing date from URL:", e);

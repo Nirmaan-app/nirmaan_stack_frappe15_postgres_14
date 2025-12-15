@@ -1,7 +1,6 @@
 // File: frontend/src/pages/reports/hooks/useProjectReportCalculations.ts
 import { useFrappeGetDocList, FrappeDoc, GetDocListArgs } from 'frappe-react-sdk';
 import { useMemo, useCallback } from 'react';
-import memoize from 'lodash/memoize'; // Import lodash.memoize
 import { Projects } from '@/types/NirmaanStack/Projects';
 import { ProcurementOrder } from '@/types/NirmaanStack/ProcurementOrders';
 import { ServiceRequests } from '@/types/NirmaanStack/ServiceRequests';
@@ -104,7 +103,7 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
         }, 'AllProjectExpensesForReports');
 
     // --- KEY CHANGE: Calculate once in the hook scope ---
-    const shouldFilterByDate = useMemo(() => startDate && endDate, [startDate, endDate]);
+    const shouldFilterByDate = useMemo(() => !!(startDate && endDate), [startDate, endDate]);
     // ---------------------------------------------------
 
     const posByProject = useMemo(() => {
@@ -121,7 +120,7 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
             }
             return acc;
         }, new Map<string, ProcurementOrder[]>());
-    }, [purchaseOrders, startDate, endDate]); // <--- NEW DEPENDENCIES
+    }, [purchaseOrders, startDate, endDate, shouldFilterByDate]); // <--- ADDED shouldFilterByDate
 
 
     
@@ -151,16 +150,29 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
 
          const docsToProcess = shouldFilterByDate
             ? inflowsData.filter(inflow => {
-                return isDateInPeriod(inflow.payment_date, startDate, endDate); 
+                return isDateInPeriod(inflow.payment_date, startDate, endDate);
             })
             : inflowsData; // If no dates, use the full list
-        
-        return docsToProcess.reduce((acc, inflow) => {
+
+        const result = docsToProcess.reduce((acc, inflow) => {
             if (inflow.project) {
                 acc.set(inflow.project, (acc.get(inflow.project) || 0) + parseNumber(inflow.amount));
             }
             return acc;
         }, new Map<string, number>());
+
+        // Debug logging
+        console.log('[totalInflowByProject] Recalculated:', {
+            shouldFilterByDate,
+            startDate,
+            endDate,
+            totalDocs: inflowsData?.length,
+            filteredDocs: docsToProcess.length,
+            projectCount: result.size,
+            totalAmount: Array.from(result.values()).reduce((sum, val) => sum + val, 0)
+        });
+
+        return result;
     }, [inflowsData, startDate, endDate, shouldFilterByDate]); 
 
      // --- 4. Conditional Filtering: totalProjectInvoiceByProject ---
@@ -191,16 +203,29 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
         const docsToProcess = shouldFilterByDate
             ? paymentsData.filter(payment => {
                 // Payments should be filtered by 'payment_date'
-                return isDateInPeriod(payment.payment_date, startDate, endDate); 
+                return isDateInPeriod(payment.payment_date, startDate, endDate);
             })
             : paymentsData; // If no dates, use the full list
 
-        return docsToProcess.reduce((acc, payment) => {
+        const result = docsToProcess.reduce((acc, payment) => {
             if (payment.project) {
                 acc.set(payment.project, (acc.get(payment.project) || 0) + parseNumber(payment.amount));
             }
             return acc;
         }, new Map<string, number>());
+
+        // Debug logging
+        console.log('[totalOutflowByProject] Recalculated:', {
+            shouldFilterByDate,
+            startDate,
+            endDate,
+            totalDocs: paymentsData?.length,
+            filteredDocs: docsToProcess.length,
+            projectCount: result.size,
+            totalAmount: Array.from(result.values()).reduce((sum, val) => sum + val, 0)
+        });
+
+        return result;
     }, [paymentsData, startDate, endDate, shouldFilterByDate]); // <--- UPDATED DEPENDENCIES
 
     // --- 6. Conditional Filtering: totalProjectExpensesByProject ---
@@ -238,10 +263,9 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
             if (project && invoiceData) {
                 let invoiceSum = 0;
                 for (const dateStr in invoiceData) {
-                    // Filter the actual invoice date
-                    if (isDateInPeriod(dateStr, startDate, endDate)) { 
-                // console.log("dateStr",dateStr)
-                        
+                    // Filter the actual invoice date - only if we have a date range
+                    const shouldInclude = !shouldFilterByDate || isDateInPeriod(dateStr, startDate, endDate);
+                    if (shouldInclude) {
                         invoiceSum += parseNumber(invoiceData[dateStr].amount);
                     }
                 }
@@ -253,12 +277,12 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
         });
 
         return projectTotals;
-    }, [purchaseOrders, serviceRequests, startDate, endDate]); // <--- NEW DEPENDENCIES
+    }, [purchaseOrders, serviceRequests, startDate, endDate, shouldFilterByDate]); // <--- ADDED shouldFilterByDate
     
 
          // Note: getProjectCreditAndDue's memoization logic:
-    const getProjectCreditAndDue = useMemo(() => 
-        memoize((projId: string): { TotalPurchaseOverCredit: number; CreditPaidAmount: number } => {
+    const getProjectCreditAndDue = useCallback(
+        (projId: string): { TotalPurchaseOverCredit: number; CreditPaidAmount: number } => {
             if (!CreditData || !projId) {
                 return { TotalPurchaseOverCredit: 0, CreditPaidAmount: 0 };
             }
@@ -268,10 +292,10 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
                 (totals, term) => {
                     if (term.project === projId) {
                         const amount = parseNumber(term.amount);
-                        
+
                         // Check 1: TotalPurchaseOverCredit (Due Date)
                         const filterDue = !shouldFilterByDate || isDateInPeriod(term.due_date, startDate, endDate);
-                        if (filterDue && term.term_status) { 
+                        if (filterDue && term.term_status) {
                             totals.TotalPurchaseOverCredit += amount;
                         }
 
@@ -285,14 +309,15 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
                 },
                 { TotalPurchaseOverCredit: 0, CreditPaidAmount: 0 }
             );
-        }), 
-    // Include shouldFilterByDate in the dependency array
-    [CreditData, startDate, endDate, shouldFilterByDate]); 
+        },
+        // Include shouldFilterByDate in the dependency array
+        [CreditData, startDate, endDate, shouldFilterByDate]
+    ); 
 
     
     // --- Memoized Function for Per-Project Calculation ---
     const getProjectCalculatedFields = useCallback(
-        memoize((projectId: string): ProjectCalculatedFields | null => {
+        (projectId: string): ProjectCalculatedFields | null => {
             // Important: If any of the dependent global data is still loading,
             // we cannot reliably calculate. The component using this should check `isLoadingGlobalDeps`.
             if (isLoadingPOs || isLoadingSRs || isLoadingInflows || isLoadingProjectInvoice || isLoadingPayments || isLoadingProjectExpenses) {
@@ -332,13 +357,13 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
                 totalInflow: parseNumber(totalInflow),
                 totalOutflow: parseNumber(totalOutflow),
                 TotalPurchaseOverCredit: TotalPurchaseOverCredit, // ✨ Add the new value
-                CreditPaidAmount: CreditPaidAmount,     
+                CreditPaidAmount: CreditPaidAmount,
             };
-        }),
+        },
         [
             // Add the new map to the dependency array
             posByProject, srsByProject, totalInflowByProject, totalProjectInvoiceByProject, totalOutflowByProject, totalPoSrInvoicedByProject,
-            isLoadingPOs, isLoadingSRs, isLoadingInflows, isLoadingProjectInvoice, isLoadingPayments,getProjectCreditAndDue,CreditData,startDate,endDate,
+            isLoadingPOs, isLoadingSRs, isLoadingInflows, isLoadingProjectInvoice, isLoadingPayments, getProjectCreditAndDue, CreditData, startDate, endDate, totalProjectExpensesByProject,
         ]
     );
 
