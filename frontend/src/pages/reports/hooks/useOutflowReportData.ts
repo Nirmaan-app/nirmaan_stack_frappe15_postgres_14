@@ -70,7 +70,7 @@ export const useOutflowReportData = ({ startDate, endDate }: UseOutflowReportDat
         ],
         filters: dateFilters,
         limit: 0
-    }, 'outflow-project-payments');
+    }, `outflow-project-payments-${JSON.stringify(dateFilters)}`);
 
     const {getEffectiveGST} = useOrderTotals()
 
@@ -90,7 +90,7 @@ export const useOutflowReportData = ({ startDate, endDate }: UseOutflowReportDat
         ],
         filters: expenseFilters,
         limit: 0
-    }, 'outflow-project-expenses');
+    }, `outflow-project-expenses-${JSON.stringify(expenseFilters)}`);
 
     // 3. Combine and standardize the data once it's all fetched
     const reportData = useMemo<OutflowRowData[]>(() => {
