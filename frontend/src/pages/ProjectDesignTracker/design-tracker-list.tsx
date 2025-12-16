@@ -511,7 +511,13 @@ export const DesignTrackerList: React.FC = () => {
     });
 
     const { projectOptions, categories, categoryData, statusOptions,
-        subStatusOptions, } = useDesignMasters();
+        subStatusOptions, mutateMasters } = useDesignMasters();
+
+    useEffect(() => {
+        if (activeTab === DESIGN_TABS.PROJECT_WISE && mutateMasters) {
+            mutateMasters();
+        }
+    }, [activeTab, mutateMasters]);
 
     const filteredDocs = useMemo(() => {
         if (!trackerDocs) return [];
