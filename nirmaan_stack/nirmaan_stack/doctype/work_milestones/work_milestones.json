@@ -7,7 +7,8 @@
  "field_order": [
   "details_section",
   "work_milestone_name",
-  "work_header"
+  "work_header",
+  "work_milestone_order"
  ],
  "fields": [
   {
@@ -26,12 +27,17 @@
    "fieldtype": "Link",
    "label": "Work Header",
    "options": "Work Headers"
+  },
+  {
+   "fieldname": "work_milestone_order",
+   "fieldtype": "Int",
+   "label": "Work Milestone Order"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-12-16 08:14:33.659137",
+ "modified": "2025-12-16 12:11:59.242313",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Work Milestones",

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useFrappeGetCall } from 'frappe-react-sdk';
+import { useFrappeGetCall, useFrappeGetDocList } from 'frappe-react-sdk';
 import { formatDate } from '@/utils/FormatDate';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -68,6 +68,12 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
     selectedProject ? undefined : null
   );
 
+  // Fetch Work Milestones to get the order for milestones
+  const { data: workMilestonesList } = useFrappeGetDocList("Work Milestones", {
+      fields: ["work_milestone_name", "work_milestone_order", "work_header"],
+      limit: 0
+  });
+
   // const { workHeaderOrderMap } = useWorkHeaderOrder(); // Removed
 
   const [latestReport, setLatestReport] = useState<ReportDoc | null>(null);
@@ -116,11 +122,22 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
       milestone.status !== "Not Applicable" && milestone.status !== "N/A"
     );
 
-    return relevantMilestones.reduce((acc, milestone) => {
+    const grouped = relevantMilestones.reduce((acc, milestone) => {
       (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
       return acc;
     }, {} as Record<string, MilestoneSnapshot[]>);
-  }, [latestReport]);
+    
+    // Sort milestones
+    Object.keys(grouped).forEach(header => {
+        grouped[header].sort((a, b) => {
+             const orderA = workMilestonesList?.find(m => m.work_milestone_name === a.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
+             const orderB = workMilestonesList?.find(m => m.work_milestone_name === b.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
+             return orderA - orderB;
+        });
+    });
+
+    return grouped;
+  }, [latestReport, workMilestonesList]);
 
 
 

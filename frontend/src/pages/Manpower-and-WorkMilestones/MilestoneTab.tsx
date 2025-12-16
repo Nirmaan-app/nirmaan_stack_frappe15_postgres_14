@@ -257,7 +257,8 @@ const MilestoneTabInner = () => {
     error: frappeMilestonesError,
   } = useFrappeGetDocList<WorkMilestoneFromFrappe>("Work Milestones", {
     fields: ["*"],
-    limit:0,
+    limit: 0,
+    orderBy: { field: "work_milestone_order", order: "asc" },
     enabled: !!projectId,
   });
 

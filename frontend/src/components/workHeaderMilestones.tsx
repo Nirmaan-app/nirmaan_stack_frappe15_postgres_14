@@ -55,6 +55,7 @@ export interface WorkMilestone {
     name: string;
     work_milestone_name: string;
     work_header: string;
+    work_milestone_order?: number; // Renamed to work_milestone_order
     creation?: string;
     modified?: string;
     owner?: string;
@@ -95,9 +96,9 @@ export const WorkHeaderMilestones: React.FC = () => {
     } = useFrappeGetDocList<WorkMilestone>(
         "Work Milestones",
         { 
-            fields: ["name", "work_milestone_name", "work_header"], 
+            fields: ["name", "work_milestone_name", "work_header", "work_milestone_order"], 
             limit: 0, 
-            orderBy: { field: "creation", order: "asc" } 
+            orderBy: { field: "work_milestone_order", order: "asc" } 
         }
     );
 
@@ -478,9 +479,10 @@ const EditWorkHeaderDialog: React.FC<EditWorkHeaderDialogProps> = ({ header, mut
 interface CreateWorkMilestoneDialogProps {
   workHeaderId: string;
   mutate: () => Promise<any>;
+  nextOrder: number; // Added nextOrder prop
 }
 
-const CreateWorkMilestoneDialog: React.FC<CreateWorkMilestoneDialogProps> = ({ workHeaderId, mutate }) => {
+const CreateWorkMilestoneDialog: React.FC<CreateWorkMilestoneDialogProps> = ({ workHeaderId, mutate, nextOrder }) => {
   const [open, setOpen] = useState(false);
   const { createDoc, loading } = useFrappeCreateDoc();
 
@@ -496,6 +498,7 @@ const CreateWorkMilestoneDialog: React.FC<CreateWorkMilestoneDialogProps> = ({ w
       await createDoc("Work Milestones", { // Ensure DocType name is correct
         work_milestone_name: values.work_milestone_name,
         work_header: workHeaderId,
+        work_milestone_order: nextOrder // Automatically set order
       });
       toast({ title: "Success", description: "Work Milestone created successfully.", variant: "success" });
       form.reset();
@@ -678,35 +681,161 @@ interface WorkHeaderCardProps {
   workMilestonesMutate: () => Promise<any>;
 }
 
-const WorkHeaderCard: React.FC<WorkHeaderCardProps> = ({key, header, milestones, workHeadersMutate, workMilestonesMutate }) => {
+const WorkHeaderCard: React.FC<WorkHeaderCardProps> = ({ header, milestones, workHeadersMutate, workMilestonesMutate }) => {
+    // Local state for reordering milestones within this card
+    const [isReordering, setIsReordering] = useState(false);
+    const [milestoneList, setMilestoneList] = useState<WorkMilestone[]>([]);
+    const [isSaving, setIsSaving] = useState(false);
+
+    // Initial Sort & Sync
+    useEffect(() => {
+        // Sort by work_milestone_order field, fallback to huge number if null to put at end
+        const sorted = [...milestones].sort((a, b) => (a.work_milestone_order || 9999) - (b.work_milestone_order || 9999));
+        setMilestoneList(sorted);
+    }, [milestones]);
+    
+    // Calculate Max Order for new milestones in this specific header
+    const maxOrder = useMemo(() => {
+        if (!milestones || milestones.length === 0) return 0;
+        return Math.max(...milestones.map(m => m.work_milestone_order || 0));
+    }, [milestones]);
+
+    // Drag Refs
+    const dragItem = useRef<number | null>(null);
+    const dragOverItem = useRef<number | null>(null);
+    
+    const { updateDoc } = useFrappeUpdateDoc();
+
+    // Drag Handlers
+    const handleDragStart = (e: React.DragEvent<HTMLTableRowElement>, position: number) => {
+        dragItem.current = position;
+    };
+
+    const handleDragEnter = (e: React.DragEvent<HTMLTableRowElement>, position: number) => {
+        dragOverItem.current = position;
+    };
+
+    const handleDragEnd = (e: React.DragEvent<HTMLTableRowElement>) => {
+        if (dragItem.current !== null && dragOverItem.current !== null) {
+            const copyList = [...milestoneList];
+            const dragItemContent = copyList[dragItem.current];
+            copyList.splice(dragItem.current, 1);
+            copyList.splice(dragOverItem.current, 0, dragItemContent);
+            dragItem.current = null;
+            dragOverItem.current = null;
+            setMilestoneList(copyList);
+        }
+    };
+
+    const handleSaveOrder = async () => {
+        setIsSaving(true);
+        try {
+            // Update orders starting from 1 for THIS specific header
+            const updatePromises = milestoneList.map((m, index) => {
+                const newOrder = index + 1;
+                if (m.work_milestone_order !== newOrder) {
+                    return updateDoc("Work Milestones", m.name, { work_milestone_order: newOrder });
+                }
+                return Promise.resolve();
+            });
+
+            await Promise.all(updatePromises);
+            toast({ title: "Success", description: "Milestone order updated!", variant: "success" });
+            await workMilestonesMutate();
+            setIsReordering(false);
+        } catch (error: any) {
+            console.error("Failed to save milestone order", error);
+            toast({ title: "Error", description: "Failed to save order.", variant: "destructive" });
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleCancelReorder = () => {
+        // Revert to original props order
+        const sorted = [...milestones].sort((a, b) => (a.work_milestone_order || 9999) - (b.work_milestone_order || 9999));
+        setMilestoneList(sorted);
+        setIsReordering(false);
+    };
+
   return (
-    <Card className="hover:animate-shadow-drop-center">
+    <Card className="hover:animate-shadow-drop-center transition-all duration-300">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-xl font-semibold flex items-center gap-2">
-          {header.work_header_name}
-          <EditWorkHeaderDialog header={header} mutate={workHeadersMutate} milestoneMutate={workMilestonesMutate} />
-        </CardTitle>
-        <CreateWorkMilestoneDialog workHeaderId={header.name} mutate={workMilestonesMutate} />
+        <div className="flex items-center gap-2">
+            <CardTitle className="text-xl font-semibold flex items-center gap-2">
+            {header.work_header_name}
+            </CardTitle>
+            <EditWorkHeaderDialog header={header} mutate={workHeadersMutate} milestoneMutate={workMilestonesMutate} />
+        </div>
+        
+        <div className="flex items-center gap-2">
+            {isReordering ? (
+                <>
+                    <Button size="sm" variant="ghost" onClick={handleCancelReorder} disabled={isSaving}>
+                        Cancel
+                    </Button>
+                    <Button size="sm" onClick={handleSaveOrder} disabled={isSaving} className="bg-green-600 hover:bg-green-700 text-white">
+                        {isSaving ? <TailSpin height={14} width={14} color="white" /> : <Save className="w-4 h-4 mr-1" />}
+                        Save
+                    </Button>
+                </>
+            ) : (
+                <>
+                    <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => setIsReordering(true)}
+                        disabled={milestoneList.length <= 1} // No need to reorder 0 or 1 item
+                        title="Reorder Milestones"
+                    >
+                         <GripVertical className="h-4 w-4 mr-2" /> Order Milestones
+                    </Button>
+                    <CreateWorkMilestoneDialog workHeaderId={header.name} mutate={workMilestonesMutate} nextOrder={maxOrder + 1} />
+                </>
+            )}
+        </div>
       </CardHeader>
+      
       <CardContent className="overflow-auto pt-4">
-        {milestones.length === 0 ? (
+        {milestoneList.length === 0 ? (
           <p className="text-gray-500 text-sm">No milestones defined for this work header. Click "Add Milestone" to create one.</p>
         ) : (
           <Table>
             <TableHeader className="bg-gray-100">
               <TableRow>
-                <TableHead className="w-[80%]">Milestone</TableHead>
-                <TableHead className="w-[20%] text-right">Actions</TableHead>
+                {isReordering && <TableHead className="w-[50px] text-center">#</TableHead>}
+                <TableHead className="w-[60%]">Milestone</TableHead>
+                {isReordering && <TableHead className="w-[50px] text-center">Drag</TableHead>}
+                {!isReordering && <TableHead className="w-[20%] text-right">Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {milestones.map((milestone) => (
-                <TableRow key={milestone.name}>
+              {milestoneList.map((milestone, index) => (
+                <TableRow 
+                    key={milestone.name}
+                    draggable={isReordering}
+                    onDragStart={(e) => isReordering && handleDragStart(e, index)}
+                    onDragEnter={(e) => isReordering && handleDragEnter(e, index)}
+                    onDragEnd={isReordering ? handleDragEnd : undefined}
+                    onDragOver={(e) => isReordering && e.preventDefault()}
+                    className={isReordering ? "cursor-move hover:bg-gray-50 bg-white" : ""}
+                >
+                  {isReordering && (
+                      <TableCell className="text-center font-mono text-gray-500">{index + 1}</TableCell>
+                  )}
+                  
                   <TableCell>{milestone.work_milestone_name}</TableCell>
-                  <TableCell className="text-right flex items-center justify-end space-x-2">
-                    <EditWorkMilestoneDialog milestone={milestone} mutate={workMilestonesMutate} />
-                    <DeleteMilestoneAlertDialog milestone={milestone} mutate={workMilestonesMutate} />
-                  </TableCell>
+                  
+                  {isReordering ? (
+                       <TableCell className="text-center">
+                            <GripVertical className="w-5 h-5 text-gray-400 mx-auto" />
+                       </TableCell>
+                  ) : (
+                      <TableCell className="text-right flex items-center justify-end space-x-2">
+                        <EditWorkMilestoneDialog milestone={milestone} mutate={workMilestonesMutate} />
+                        <DeleteMilestoneAlertDialog milestone={milestone} mutate={workMilestonesMutate} />
+                      </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>

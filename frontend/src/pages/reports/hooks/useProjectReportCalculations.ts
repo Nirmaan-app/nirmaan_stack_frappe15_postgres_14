@@ -98,7 +98,7 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
     // --- (Indicator) NEW: Fetch all Project Expenses ---
     const { data: projectExpensesData, isLoading: isLoadingProjectExpenses, error: errorProjectExpenses, mutate: mutateProjectExpenses } =
         useFrappeGetDocList<ProjectExpenses>('Project Expenses', {
-            fields: ['projects', 'amount'], // Only fields needed for this calculation
+            fields: ['projects', 'amount', 'payment_date'], // Only fields needed for this calculation
             limit: 0,
         }, 'AllProjectExpensesForReports');
 
@@ -234,8 +234,10 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
 
         const docsToProcess = shouldFilterByDate
             ? projectExpensesData.filter(expense => {
-                // Project Expenses should be filtered by 'creation'
-                return isDateInPeriod(expense.creation, startDate, endDate); 
+                // Project Expenses should be filtered by 'payment_date' (Updated from 'creation' for consistency)
+                // Use payment_date if available, fallback to creation if null/undefined (though it should be there)
+                const dateToCheck = expense.payment_date || expense.creation;
+                return isDateInPeriod(dateToCheck, startDate, endDate); 
             })
             : projectExpensesData; // If no dates, use the full list
         
