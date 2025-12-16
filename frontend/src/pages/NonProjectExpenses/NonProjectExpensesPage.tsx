@@ -1,9 +1,10 @@
 // src/pages/non-project-expenses/NonProjectExpensesPage.tsx
 
-import React, { useMemo, useState, useCallback } from "react";
+import React, { useMemo, useState, useCallback, useEffect } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Download, Edit2, FileText, PlusCircle, MoreHorizontal, Trash2, DollarSign } from "lucide-react";
 import { TailSpin } from 'react-loader-spinner'; // Assuming this is your spinner
+import { DateRange } from "react-day-picker";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -25,6 +26,7 @@ import { useToast } from "@/components/ui/use-toast"; // For delete feedback
 
 // --- UI Components ---
 import { DataTable, SearchFieldOption } from '@/components/data-table/new-data-table'; // Assuming DataTable is correctly imported
+import { StandaloneDateFilter } from "@/components/ui/StandaloneDateFilter";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Button } from "@/components/ui/button";
 import { TableSkeleton } from "@/components/ui/skeleton"; // Assuming this exists
@@ -40,6 +42,8 @@ import { useServerDataTable, AggregationConfig, GroupByConfig } from '@/hooks/us
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { useDialogStore } from "@/zustand/useDialogStore";
+import { urlStateManager } from "@/utils/urlStateManager";
+import { parse, formatISO, startOfDay, endOfDay } from 'date-fns';
 
 // --- Types ---
 import { NonProjectExpenses as NonProjectExpensesType } from "@/types/NirmaanStack/NonProjectExpenses";
@@ -65,6 +69,12 @@ const DOCTYPE = 'Non Project Expenses';
 const NPE_AGGREGATES_CONFIG: AggregationConfig[] = [
     { field: 'amount', function: 'sum' }
 ];
+
+// Date range configuration
+const getDefaultDateRange = (): DateRange => ({
+    from: startOfDay(new Date('2024-04-01')),
+    to: endOfDay(new Date()),
+});
 
 // NEW: Configuration for the "Top 5" group by request
 const NPE_GROUP_BY_CONFIG: GroupByConfig = {
@@ -95,10 +105,10 @@ const AppliedFiltersDisplay = ({ filters, search }) => {
 
 interface NonProjectExpensesPageProps {
     urlContext?: string;
-    DisableAction?:boolean;
+    DisableAction?: boolean;
 }
 
-export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ urlContext = "npe_default",DisableAction=false }) => {
+export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ urlContext = "npe_default", DisableAction = false }) => {
     const {
         toggleNewNonProjectExpenseDialog,
         setEditNonProjectExpenseDialog, // NEW
@@ -110,6 +120,43 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
     const { deleteDoc, loading: deleteLoading } = useFrappeDeleteDoc(); // For delete operation
 
     const urlSyncKey = useMemo(() => `npe_${urlContext}`, [urlContext]);
+
+    // 1. Manage date range state, initialized from URL or with a default
+    const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
+        const fromParam = urlStateManager.getParam(`${urlSyncKey}_from`);
+        const toParam = urlStateManager.getParam(`${urlSyncKey}_to`);
+        if (fromParam && toParam) {
+            try {
+                return {
+                    from: startOfDay(parse(fromParam, 'yyyy-MM-dd', new Date())),
+                    to: endOfDay(parse(toParam, 'yyyy-MM-dd', new Date())),
+                };
+            } catch (e) {
+                console.error("Error parsing date from URL:", e);
+            }
+        }
+        return getDefaultDateRange();
+    });
+
+    // 2. Effect to sync state changes back to the URL
+    useEffect(() => {
+        const fromISO = dateRange?.from ? formatISO(dateRange.from, { representation: 'date' }) : null;
+        const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }) : null;
+
+        urlStateManager.updateParam(`${urlSyncKey}_from`, fromISO);
+        urlStateManager.updateParam(`${urlSyncKey}_to`, toISO);
+    }, [dateRange, urlSyncKey]);
+
+    // 3. Build additional filters based on date range
+    const dateFilters = useMemo(() => {
+        if (!dateRange?.from || !dateRange?.to) return [];
+        const fromISO = formatISO(dateRange.from, { representation: 'date' });
+        const toISO = formatISO(dateRange.to, { representation: 'date' });
+        return [
+            ['payment_date', '>=', fromISO],
+            ['payment_date', '<=', toISO]
+        ];
+    }, [dateRange]);
     // --- (2) NEW: Fetch data for the Expense Type filter ---
     const { data: expenseTypes, isLoading: expenseTypesLoading } = useFrappeGetDocList<ExpenseType>(
         'Expense Type',
@@ -373,7 +420,12 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
         enableRowSelection: false, // Or true if actions on rows are needed
         aggregatesConfig: NPE_AGGREGATES_CONFIG, // NEW: Pass the config
         groupByConfig: NPE_GROUP_BY_CONFIG, // NEW: Pass the group by config
+        additionalFilters: dateFilters, // NEW: Apply date filters
     });
+
+    const handleClearDateFilter = useCallback(() => {
+        setDateRange(getDefaultDateRange());
+    }, []);
 
 
     if (error && !data?.length) {
@@ -382,6 +434,12 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
 
     return (
         <div className="flex-1 space-y-4">
+            <StandaloneDateFilter
+                value={dateRange}
+                onChange={setDateRange}
+                onClear={handleClearDateFilter}
+            />
+            <span>(PAYMENT DATE)</span>
             <DataTable<NonProjectExpensesType>
                 table={table} // This table instance is now created with columns
                 columns={columnsDefinition} // Pass the same columns definition for export/etc.

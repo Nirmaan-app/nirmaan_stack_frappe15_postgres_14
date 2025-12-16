@@ -6,6 +6,7 @@ import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
 import { ProjectExpenses } from '@/types/NirmaanStack/ProjectExpenses';
 import { parseNumber } from '@/utils/parseNumber';
 import { useOrderTotals } from '@/hooks/useOrderTotals';
+import { formatISO } from 'date-fns';
 /**
  * A standardized interface for a single row in our Outflow Report.
  * This ensures that data from both ProjectPayments and ProjectExpenses
@@ -25,8 +26,36 @@ export interface OutflowRowData {
     originalDoc: ProjectPayments | ProjectExpenses; // Keep the original document
 }
 
-export const useOutflowReportData = () => {
-    // 1. Fetch all 'Paid' Project Payments
+interface UseOutflowReportDataParams {
+    startDate?: Date;
+    endDate?: Date;
+}
+
+export const useOutflowReportData = ({ startDate, endDate }: UseOutflowReportDataParams = {}) => {
+    // Build date filters if dates are provided
+    const dateFilters = useMemo(() => {
+        const filters: any[] = [['status', '=', 'Paid']];
+        if (startDate && endDate) {
+            const fromISO = formatISO(startDate, { representation: 'date' });
+            const toISO = formatISO(endDate, { representation: 'date' });
+            filters.push(['payment_date', '>=', fromISO]);
+            filters.push(['payment_date', '<=', toISO]);
+        }
+        return filters;
+    }, [startDate, endDate]);
+
+    const expenseFilters = useMemo(() => {
+        const filters: any[] = [];
+        if (startDate && endDate) {
+            const fromISO = formatISO(startDate, { representation: 'date' });
+            const toISO = formatISO(endDate, { representation: 'date' });
+            filters.push(['payment_date', '>=', fromISO]);
+            filters.push(['payment_date', '<=', toISO]);
+        }
+        return filters;
+    }, [startDate, endDate]);
+
+    // 1. Fetch all 'Paid' Project Payments (with optional date filters)
     const { data: projectPaymentsData, isLoading: isLoadingPayments, error: paymentsError } = useFrappeGetDocList<ProjectPayments>('Project Payments', {
         fields: [
             'name',
@@ -39,14 +68,14 @@ export const useOutflowReportData = () => {
             'document_name',
             'utr'
         ],
-        filters: [['status', '=', 'Paid']],
+        filters: dateFilters,
         limit: 0
     }, 'outflow-project-payments');
 
     const {getEffectiveGST} = useOrderTotals()
 
 
-    // 2. Fetch all Project Expenses
+    // 2. Fetch all Project Expenses (with optional date filters)
     const { data: projectExpensesData, isLoading: isLoadingExpenses, error: expensesError } = useFrappeGetDocList<ProjectExpenses>('Project Expenses', {
         fields: [
             'name',
@@ -59,6 +88,7 @@ export const useOutflowReportData = () => {
             'description',
             'comment'
         ],
+        filters: expenseFilters,
         limit: 0
     }, 'outflow-project-expenses');
 

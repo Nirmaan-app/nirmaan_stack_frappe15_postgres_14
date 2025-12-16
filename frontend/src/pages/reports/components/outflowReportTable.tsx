@@ -1,15 +1,16 @@
 // /workspace/development/frappe-bench/apps/nirmaan_stack/frontend/src/pages/reports/components/OutflowReportTable.tsx
 
-import React, { useCallback, useMemo,useEffect,useState } from "react";
+import React, { useCallback, useMemo, useEffect, useState } from "react";
 import { memoize } from "lodash";
 import { useFrappeGetDocList } from "frappe-react-sdk";
+import { DateRange } from "react-day-picker";
 
 // --- UI Components ---
 import { DataTable } from '@/components/data-table/new-data-table';
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-
+import { StandaloneDateFilter } from "@/components/ui/StandaloneDateFilter";
 
 import { TailSpin } from 'react-loader-spinner';
 
@@ -18,6 +19,8 @@ import { useServerDataTable, AggregationConfig } from "@/hooks/useServerDataTabl
 import { useOutflowReportData, OutflowRowData } from "../hooks/useOutflowReportData";
 import { getOutflowReportColumns } from "./columns/outflowColumns";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { urlStateManager } from "@/utils/urlStateManager";
+import { parse, formatISO, startOfDay, endOfDay } from 'date-fns';
 
 // --- Supporting Data Types & Config ---
 import { Projects } from "@/types/NirmaanStack/Projects";
@@ -29,6 +32,13 @@ import { OUTFLOW_SEARCHABLE_FIELDS, OUTFLOW_DATE_COLUMNS } from '../config/outfl
 const OUTFLOW_AGGREGATES_CONFIG: AggregationConfig[] = [
     { field: 'amount', function: 'sum' }
 ];
+
+// URL state management for date range
+const URL_SYNC_KEY = "outflow_project_report";
+const getDefaultDateRange = (): DateRange => ({
+    from: startOfDay(new Date('2024-04-01')),
+    to: endOfDay(new Date()),
+});
 
 // Helper to display active filters, same as in InflowReport
 const AppliedFiltersDisplay = ({ filters, search }) => {
@@ -52,8 +62,37 @@ const AppliedFiltersDisplay = ({ filters, search }) => {
 interface SelectOption { label: string; value: string; }
 
 export function OutflowReportTable() {
-    // 1. Fetch the combined & standardized outflow data
-    const { reportData, isLoading: isLoadingInitialData, error: initialDataError } = useOutflowReportData();
+    // 1. Manage date range state, initialized from URL or with a default
+    const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
+        const fromParam = urlStateManager.getParam(`${URL_SYNC_KEY}_from`);
+        const toParam = urlStateManager.getParam(`${URL_SYNC_KEY}_to`);
+        if (fromParam && toParam) {
+            try {
+                return {
+                    from: startOfDay(parse(fromParam, 'yyyy-MM-dd', new Date())),
+                    to: endOfDay(parse(toParam, 'yyyy-MM-dd', new Date())),
+                };
+            } catch (e) {
+                console.error("Error parsing date from URL:", e);
+            }
+        }
+        return getDefaultDateRange();
+    });
+
+    // 2. Effect to sync state changes back to the URL
+    useEffect(() => {
+        const fromISO = dateRange?.from ? formatISO(dateRange.from, { representation: 'date' }) : null;
+        const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }) : null;
+
+        urlStateManager.updateParam(`${URL_SYNC_KEY}_from`, fromISO);
+        urlStateManager.updateParam(`${URL_SYNC_KEY}_to`, toISO);
+    }, [dateRange]);
+
+    // 3. Fetch the combined & standardized outflow data (with date filtering)
+    const { reportData, isLoading: isLoadingInitialData, error: initialDataError } = useOutflowReportData({
+        startDate: dateRange?.from,
+        endDate: dateRange?.to
+    });
 
     // 2. Fetch supporting data for lookups and faceted filters
     const { data: projects, isLoading: projectsLoading } = useFrappeGetDocList<Projects>("Projects", { fields: ["name", "project_name"], limit: 0 });
@@ -95,7 +134,7 @@ export function OutflowReportTable() {
         expense_type: { title: "Expense Type", options: expenseTypeOptions }
     }), [projectOptions, vendorOptions, expenseTypeOptions]);
 
-   const [pagination, setPagination] = useState({
+    const [pagination, setPagination] = useState({
         pageIndex: 0,
         pageSize: 50, // Your default page size
     });
@@ -112,15 +151,15 @@ export function OutflowReportTable() {
         clientTotalCount: processedReportData.length,
         searchableFields: OUTFLOW_SEARCHABLE_FIELDS,
         urlSyncKey: 'outflow_report_table',
-        defaultSort: 'payment_date desc',        
+        defaultSort: 'payment_date desc',
         state: {
             pagination, // The table's pagination is now controlled by our state
         },
         onPaginationChange: setPagination, // When the table wants to change pages, it updates our state
         manualPagination: true,
         // pageCount can be set to -1 initially and controlled by useEffect
-        pageCount: -1, 
-   
+        pageCount: -1,
+
 
         // aggregatesConfig: OUTFLOW_AGGREGATES_CONFIG,
     });
@@ -131,7 +170,7 @@ export function OutflowReportTable() {
     // Get the dynamic count of rows *after* client-side filtering has been applied.
     const filteredRowCount = table.getFilteredRowModel().rows.length;
 
-   const correctPageCount = Math.ceil(filteredRowCount / pagination.pageSize) || 1; // Default to 1 page if 0 rows
+    const correctPageCount = Math.ceil(filteredRowCount / pagination.pageSize) || 1; // Default to 1 page if 0 rows
 
     // On every render, we forcefully update the table's options with the correct page count.
     // This is more direct than useEffect and avoids timing issues.
@@ -157,6 +196,10 @@ export function OutflowReportTable() {
 
     const isLoadingOverall = isLoadingInitialData || projectsLoading || vendorsLoading || expenseTypesLoading || isTableHookLoading;
     const combinedErrorOverall = initialDataError || tableHookError;
+
+    const handleClearDateFilter = useCallback(() => {
+        setDateRange(getDefaultDateRange());
+    }, []);
 
     if (combinedErrorOverall) {
         return <AlertDestructive error={combinedErrorOverall} />;
@@ -211,49 +254,57 @@ export function OutflowReportTable() {
 
 
     return (
-        <DataTable<OutflowRowData>
-            table={table}
-            columns={columns}
-            isLoading={isLoadingOverall}
-            error={tableHookError}
-            totalCount={filteredRowCount}
-            searchFieldOptions={OUTFLOW_SEARCHABLE_FIELDS}
-            selectedSearchField={selectedSearchField}
-            onSelectedSearchFieldChange={setSelectedSearchField}
-            searchTerm={searchTerm}
-            onSearchTermChange={setSearchTerm}
-            facetFilterOptions={facetFilterOptions}
-            dateFilterColumns={OUTFLOW_DATE_COLUMNS}
-            showExportButton={true}
-            // onExport={handleCustomExport} 
-            onExport={'default'}
-            exportFileName={'Project_Outflow_Report'}
-            summaryCard={
-                <Card>
-                    <CardHeader className="p-4">
-                        <CardTitle className="text-lg">Outflow Report Summary</CardTitle>
-                        <CardDescription>
-                            <AppliedFiltersDisplay filters={columnFilters} search={searchTerm} />
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent className="p-4 pt-0">
-                        <dl className="flex flex-col sm:flex-row sm:justify-between space-y-2 sm:space-y-0 sm:space-x-4">
-                            <div className="flex justify-between sm:block">
-                                <dt className="font-semibold text-gray-600">Total Outflow Amount</dt>
-                                <dd className="sm:text-right font-bold text-lg text-red-600">
-                                    {formatToRoundedIndianRupee(totalOutflowAmount || 0)}
-                                </dd>
-                            </div>
-                            <div className="flex justify-between sm:block">
-                                <dt className="font-semibold text-gray-600">Total Transactions</dt>
-                                <dd className="sm:text-right font-bold text-lg text-red-600">
-                                    {filteredRowCount}
-                                </dd>
-                            </div>
-                        </dl>
-                    </CardContent>
-                </Card>
-            }
-        />
+        <div className="space-y-4">
+            <StandaloneDateFilter
+                value={dateRange}
+                onChange={setDateRange}
+                onClear={handleClearDateFilter}
+            />
+            <span>(PAYMENT DATE)</span>
+            <DataTable<OutflowRowData>
+                table={table}
+                columns={columns}
+                isLoading={isLoadingOverall}
+                error={tableHookError}
+                totalCount={filteredRowCount}
+                searchFieldOptions={OUTFLOW_SEARCHABLE_FIELDS}
+                selectedSearchField={selectedSearchField}
+                onSelectedSearchFieldChange={setSelectedSearchField}
+                searchTerm={searchTerm}
+                onSearchTermChange={setSearchTerm}
+                facetFilterOptions={facetFilterOptions}
+                dateFilterColumns={OUTFLOW_DATE_COLUMNS}
+                showExportButton={true}
+                // onExport={handleCustomExport} 
+                onExport={'default'}
+                exportFileName={'Project_Outflow_Report'}
+                summaryCard={
+                    <Card>
+                        <CardHeader className="p-4">
+                            <CardTitle className="text-lg">Outflow Report Summary</CardTitle>
+                            <CardDescription>
+                                <AppliedFiltersDisplay filters={columnFilters} search={searchTerm} />
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="p-4 pt-0">
+                            <dl className="flex flex-col sm:flex-row sm:justify-between space-y-2 sm:space-y-0 sm:space-x-4">
+                                <div className="flex justify-between sm:block">
+                                    <dt className="font-semibold text-gray-600">Total Outflow Amount</dt>
+                                    <dd className="sm:text-right font-bold text-lg text-red-600">
+                                        {formatToRoundedIndianRupee(totalOutflowAmount || 0)}
+                                    </dd>
+                                </div>
+                                <div className="flex justify-between sm:block">
+                                    <dt className="font-semibold text-gray-600">Total Transactions</dt>
+                                    <dd className="sm:text-right font-bold text-lg text-red-600">
+                                        {filteredRowCount}
+                                    </dd>
+                                </div>
+                            </dl>
+                        </CardContent>
+                    </Card>
+                }
+            />
+        </div>
     );
 }
