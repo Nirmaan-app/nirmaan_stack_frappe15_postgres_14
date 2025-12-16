@@ -181,7 +181,14 @@ export const MilestoneDailySummary = () => {
   const [allExpanded, setAllExpanded] = useState(false);
   const [showPrintHeader, setShowPrintHeader] = useState(true);
 
+  // Fetch Work Components to get order
   const { workHeaderOrderMap } = useWorkHeaderOrder();
+  
+  // Fetch Work Milestones to get the order for milestones
+  const { data: workMilestonesList } = useFrappeGetDocList("Work Milestones", {
+      fields: ["work_milestone_name", "work_milestone_order", "work_header"],
+      limit: 0
+  });
 
   // Fetch project data
   const {
@@ -189,6 +196,77 @@ export const MilestoneDailySummary = () => {
     isLoading: projectLoading,
     error: projectError,
   } = useFrappeGetDoc("Projects", selectedProject, selectedProject ? undefined : null);
+// ... (existing code) ...
+
+// ... (existing code for projectProgressReports, allReportsForDate, dailyReportDetails) ...
+
+/* ... Work Plan Grouping ... */
+  // --- Work Plan Grouping (Daily Only) ---
+  const workPlanGroupedMilestones = useMemo(() => {
+    if (!dailyReportDetails?.milestones || reportType !== 'Daily') return {};
+
+    const grouped = dailyReportDetails.milestones.reduce((acc: any, milestone: any) => {
+      const isRelevantStatus = milestone.status === "WIP" || milestone.status === "Not Started";
+      const hasWorkPlanContent = milestone.work_plan && parseWorkPlan(milestone.work_plan).length > 0;
+
+      if (hasWorkPlanContent || isRelevantStatus) {
+        (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
+      }
+      return acc;
+    }, {});
+    
+    // Sort milestones within each group based on work_milestone_order
+    Object.keys(grouped).forEach(header => {
+        grouped[header].sort((a: any, b: any) => {
+             const orderA = workMilestonesList?.find(m => m.work_milestone_name === a.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
+             const orderB = workMilestonesList?.find(m => m.work_milestone_name === b.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
+             return orderA - orderB;
+        });
+    });
+
+    return Object.entries(grouped)
+        .sort(([headerA], [headerB]) => {
+            const orderA = workHeaderOrderMap[headerA] ?? 9999;
+            const orderB = workHeaderOrderMap[headerB] ?? 9999;
+            return orderA - orderB;
+        })
+        .reduce((acc: any, [header, milestones]) => {
+            acc[header] = milestones;
+            return acc;
+        }, {});
+
+  }, [dailyReportDetails, reportType, workHeaderOrderMap, workMilestonesList]);
+  
+  // --- NEW: Main Milestones Grouping (Memoized) ---
+  const milestoneGroups = useMemo(() => {
+    if (!dailyReportDetails?.milestones) return [];
+
+    const grouped = dailyReportDetails.milestones
+      .filter((milestone: any) => milestone.status !== "Not Applicable")
+      .reduce((acc: any, milestone: any) => {
+        (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
+        return acc;
+      }, {});
+
+    // Sort milestones within each group based on work_milestone_order
+    Object.keys(grouped).forEach(header => {
+        grouped[header].sort((a: any, b: any) => {
+             const orderA = workMilestonesList?.find(m => m.work_milestone_name === a.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
+             const orderB = workMilestonesList?.find(m => m.work_milestone_name === b.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
+             return orderA - orderB;
+        });
+    });
+    
+    // Convert to entries and sort by header order
+    return Object.entries(grouped)
+      .sort(([headerA], [headerB]) => {
+        const orderA = workHeaderOrderMap[headerA] ?? 9999;
+        const orderB = workHeaderOrderMap[headerB] ?? 9999;
+        return orderA - orderB;
+      });
+  }, [dailyReportDetails, workHeaderOrderMap, workMilestonesList]);
+
+  // --- End Work Plan Grouping ---
 
   // Fetch list of Project Progress Reports (used by Daily Report logic)
   const {
@@ -318,33 +396,7 @@ export const MilestoneDailySummary = () => {
   // --- End Collapse/Expand Logic ---
 
 
-  // --- Work Plan Grouping (Daily Only) ---
-  const workPlanGroupedMilestones = useMemo(() => {
-    if (!dailyReportDetails?.milestones || reportType !== 'Daily') return {};
 
-    const grouped = dailyReportDetails.milestones.reduce((acc: any, milestone: any) => {
-      const isRelevantStatus = milestone.status === "WIP" || milestone.status === "Not Started";
-      const hasWorkPlanContent = milestone.work_plan && parseWorkPlan(milestone.work_plan).length > 0;
-
-      if (hasWorkPlanContent || isRelevantStatus) {
-        (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
-      }
-      return acc;
-    }, {});
-
-    return Object.entries(grouped)
-        .sort(([headerA], [headerB]) => {
-            const orderA = workHeaderOrderMap[headerA] ?? 9999;
-            const orderB = workHeaderOrderMap[headerB] ?? 9999;
-            return orderA - orderB;
-        })
-        .reduce((acc: any, [header, milestones]) => {
-            acc[header] = milestones;
-            return acc;
-        }, {});
-
-  }, [dailyReportDetails, reportType, workHeaderOrderMap]);
-  // --- End Work Plan Grouping ---
  // --- NEW: Zone Progress Validation/Status Calculation ---
   const validationZoneProgress = useMemo(() => {
     if (!projectData?.project_zones || !allReportsForDate) {
@@ -684,16 +736,7 @@ export const MilestoneDailySummary = () => {
                                      </Button>
                                    </div>
              
-                                    {Object.entries(
-                                      dailyReportDetails.milestones.filter((milestone: any) => milestone.status !== "Not Applicable").reduce((acc: any, milestone: any) => {
-                                        (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
-                                        return acc;
-                                      }, {})
-                                    ).sort(([headerA], [headerB]) => {
-                                        const orderA = workHeaderOrderMap[headerA] ?? 9999;
-                                        const orderB = workHeaderOrderMap[headerB] ?? 9999;
-                                        return orderA - orderB;
-                                    }).map(([header, milestones], groupIdx) => { 
+                                    {milestoneGroups.map(([header, milestones], groupIdx) => { 
                                      const totalProgress = (milestones as any[]).reduce((sum, m) => sum + (Number(m.progress) || 0), 0);
                  const averageProgress = (milestones as any[]).length > 0 
                      ? Math.round(totalProgress / (milestones as any[]).length) 

@@ -226,6 +226,12 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport, 
   // Fetch Work Headers to get the order
   const { workHeaderOrderMap } = useWorkHeaderOrder();
 
+  // Fetch Work Milestones to get the order for milestones
+  const { data: workMilestonesList } = useFrappeGetDocList("Work Milestones", {
+      fields: ["work_milestone_name", "work_milestone_order", "work_header"],
+      limit: 0
+  });
+
   // --- MEMOIZED DATA PREPARATION ---
 
   // 1. Prepare Work Plan Groups
@@ -243,6 +249,15 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport, 
       return acc;
     }, {});
 
+     // Sort milestones within each group based on work_milestone_order
+    Object.keys(grouped).forEach(header => {
+        grouped[header].sort((a: any, b: any) => {
+             const orderA = workMilestonesList?.find(m => m.work_milestone_name === a.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
+             const orderB = workMilestonesList?.find(m => m.work_milestone_name === b.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
+             return orderA - orderB;
+        });
+    });
+
     return Object.entries(grouped)
       .filter(([header, milestones]) => (milestones as any[]).length > 0)
       .sort(([headerA], [headerB]) => {
@@ -250,7 +265,7 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport, 
         const orderB = workHeaderOrderMap[headerB] ?? 9999;
         return orderA - orderB;
       });
-  }, [dailyReportDetails, workHeaderOrderMap]);
+  }, [dailyReportDetails, workHeaderOrderMap, workMilestonesList]);
 
   // 2. Prepare Work Milestones Groups
   // Logic: Filter out "Not Applicable", group by header, sort by Order.
@@ -263,6 +278,15 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport, 
         (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
         return acc;
       }, {});
+    
+    // Sort milestones within each group based on work_milestone_order
+    Object.keys(grouped).forEach(header => {
+        grouped[header].sort((a: any, b: any) => {
+             const orderA = workMilestonesList?.find(m => m.work_milestone_name === a.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
+             const orderB = workMilestonesList?.find(m => m.work_milestone_name === b.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
+             return orderA - orderB;
+        });
+    });
 
     return Object.entries(grouped)
       .sort(([headerA], [headerB]) => {
@@ -270,7 +294,7 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport, 
         const orderB = workHeaderOrderMap[headerB] ?? 9999;
         return orderA - orderB;
       });
-  }, [dailyReportDetails, workHeaderOrderMap]);
+  }, [dailyReportDetails, workHeaderOrderMap, workMilestonesList]);
   
   // Print Header Toggle State
   const [showPrintHeader, setShowPrintHeader] = useState(true);

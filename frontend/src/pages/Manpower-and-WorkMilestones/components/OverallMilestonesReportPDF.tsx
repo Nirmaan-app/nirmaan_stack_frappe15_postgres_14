@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Download, Truck, Info, Eye, EyeOff } from 'lucide-react';
 import logo from "@/assets/logo-svg.svg";
 import { MilestoneProgress } from '../MilestonesSummary';
-import { useFrappeGetDoc } from 'frappe-react-sdk';
+import { useFrappeGetDoc, useFrappeGetDocList } from 'frappe-react-sdk';
 import { PDFImageGrid } from '@/components/ui/PDFImageGrid';
 import { Label } from '@/components/ui/label'; 
 // import { useWorkHeaderOrder } from '@/hooks/useWorkHeaderOrder'; // Removed as backend sorts now
@@ -100,7 +100,11 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
 
   const { data: ownerData } = useFrappeGetDoc<{ full_name: string }>('Nirmaan Users', latestReport?.owner || '')
   
-  // const { workHeaderOrderMap } = useWorkHeaderOrder(); // Removed
+  // Fetch Work Milestones to get the order for milestones
+  const { data: workMilestonesList } = useFrappeGetDocList("Work Milestones", {
+      fields: ["work_milestone_name", "work_milestone_order", "work_header"],
+      limit: 0
+  });
 
   // --- 1. SMART GROUPING AND CALCULATION LOGIC (Milestones) ---
   const groupedMilestones = useMemo(() => {
@@ -121,6 +125,13 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
     
     sortedHeaders.forEach(header => {
       const milestones = rawGroups[header];
+
+      // Sort milestones based on work_milestone_order
+      milestones.sort((a, b) => {
+           const orderA = workMilestonesList?.find(m => m.work_milestone_name === a.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
+           const orderB = workMilestonesList?.find(m => m.work_milestone_name === b.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
+           return orderA - orderB;
+      });
 
       const calculateAverage = (targetReport: ReportDoc | null) => {
         if (!targetReport) return 0;
@@ -160,7 +171,7 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
     });
 
     return result;
-  }, [latestReport, report7DaysAgo, report14DaysAgo]);
+  }, [latestReport, report7DaysAgo, report14DaysAgo, workMilestonesList]);
 
 
   // --- 2. GROUPED MANPOWER WITH ZERO-CHECK FILTERING ---
