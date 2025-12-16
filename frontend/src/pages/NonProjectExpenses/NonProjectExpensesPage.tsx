@@ -439,7 +439,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
                 onChange={setDateRange}
                 onClear={handleClearDateFilter}
             />
-            <span>(PAYMENT DATE)</span>
+            {/* <span>(PAYMENT DATE)</span> */}
             <DataTable<NonProjectExpensesType>
                 table={table} // This table instance is now created with columns
                 columns={columnsDefinition} // Pass the same columns definition for export/etc.

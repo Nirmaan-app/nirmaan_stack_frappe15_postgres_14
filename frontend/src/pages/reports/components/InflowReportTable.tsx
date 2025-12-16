@@ -214,7 +214,7 @@ export function InflowReportTable() {
                 onChange={setDateRange}
                 onClear={handleClearDateFilter}
             />
-            <span>(PAYMENT DATE)</span>
+            {/* <span>(PAYMENT DATE)</span> */}
             <DataTable<ProjectInflows>
                 table={table}
                 columns={columns}

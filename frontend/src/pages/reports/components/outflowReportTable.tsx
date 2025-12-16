@@ -260,7 +260,7 @@ export function OutflowReportTable() {
                 onChange={setDateRange}
                 onClear={handleClearDateFilter}
             />
-            <span>(PAYMENT DATE)</span>
+            {/* <span>(PAYMENT DATE)</span> */}
             <DataTable<OutflowRowData>
                 table={table}
                 columns={columns}
