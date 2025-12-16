@@ -233,6 +233,7 @@ const formatToRoundedIndianRupee = (value: number) =>
         style: "currency",
         currency: "INR",
         minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
     }).format(value);
 
 // Define the Row Component for the new grid layout
