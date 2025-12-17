@@ -698,9 +698,9 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
             
             // Custom Filename Logic
             const now = new Date();
-            const dateStr = format(now, "dd-MM-yyyy");
+            const dateStr = format(now, "dd_MMM_yyyy");
             const projectNameClean = (trackerDoc.project_name || "Project").replace(/[^a-zA-Z0-9-_]/g, "_");
-            const filename = `${projectNameClean}_DesignTracker_${dateStr}.pdf`;
+            const filename = `${projectNameClean}-${dateStr}-DesignTracker.pdf`;
 
             const url = window.URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
             const link = document.createElement('a');
