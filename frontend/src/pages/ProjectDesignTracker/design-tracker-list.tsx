@@ -342,7 +342,7 @@ const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, 
                                         <tr>
                                             {/* Fixed widths applied to ensure alignment across all tables */}
                                             <th className="px-4 py-3 text-left w-[18%]">Task Name</th>
-                                            <th className="px-4 py-3 text-center w-[18%]">Assigned Designer</th>
+                                            <th className="px-4 py-3 text-left w-[18%]">Assigned Designer</th>
                                             <th className="px-4 py-3 text-left w-[10%]">Deadline</th>
                                             <th className="px-4 py-3 text-center w-[12%]">Status</th>
                                             <th className="px-4 py-3 text-center w-[16%]">Sub-Status</th>
@@ -355,7 +355,7 @@ const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, 
                                         {tasks.map((task) => (
                                             <tr key={task.name} className="text-sm text-gray-800">
                                                 <td className="px-4 py-3 font-medium truncate">{task.task_name}</td>
-                                                <td className="px-4 py-3 text-center">{getAssignedNameForDisplay(task)}</td>
+                                                <td className="px-4 py-3 text-left">{getAssignedNameForDisplay(task)}</td>
                                                 {/* <td className="px-4 py-3 whitespace-nowrap">{getDeadlineDisplay(task)}</td> */}
                                                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{formatDeadlineShort(task.deadline) || '...'}</td>
 
@@ -412,7 +412,7 @@ const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, 
                                                                         href={task.file_link}
                                                                         target="_blank"
                                                                         rel="noopener noreferrer"
-                                                                        className="block w-full h-full cursor-pointer hover:scale-110 transition-transform"
+                                                                        className="flex justify-center items-center w-full h-full cursor-pointer hover:scale-110 transition-transform"
                                                                     >
                                                                         <LinkIcon className={`h-6 w-6 p-1 bg-gray-100 rounded-md ${task.file_link ? 'cursor-pointer text-blue-500' : 'text-gray-300'}`} />
                                                                     </a>

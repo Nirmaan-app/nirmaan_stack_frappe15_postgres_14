@@ -860,7 +860,7 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                                             <thead className="bg-gray-100 text-xs text-gray-500 uppercase" style={{ backgroundColor: '#f2f2fb' }}>
                                                 <tr className='text-xs text-gray-500 uppercase font-medium'>
                                                     <th className="px-4 py-3 text-left w-[15%]">Task Name</th>
-                                                    <th className="px-4 py-3 text-center w-[18%]">Assigned Designer</th>
+                                                    <th className="px-4 py-3 text-left w-[18%]">Assigned Designer</th>
                                                     <th className="px-4 py-3 text-left w-[10%]">Deadline</th>
                                                     <th className="px-4 py-3 text-center w-[10%]">Status</th>
                                                     <th className="px-4 py-3 text-center w-[15%]">Sub-Status</th>
@@ -873,7 +873,7 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                                                 {tasks.map((task) => (
                                                     <tr key={task.name}>
                                                         <td className="px-4 py-3 w-[15%] whitespace-wrap text-sm font-medium text-gray-900">{task.task_name}</td>
-                                                        <td className="px-4 py-3 text-sm text-gray-500 text-center ">{getAssignedNameForDisplay(task)}</td>
+                                                        <td className="px-4 py-3 text-sm text-gray-500 text-left ">{getAssignedNameForDisplay(task)}</td>
                                                         <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{formatDeadlineShort(task.deadline) || '...'}</td>
 
                                                         {/* Status Badge */}
@@ -928,7 +928,7 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                                                                             href={task.file_link}
                                                                             target="_blank"
                                                                             rel="noopener noreferrer"
-                                                                            className="block w-full h-full cursor-pointer hover:scale-110 transition-transform"
+                                                                            className="flex justify-center items-center w-full h-full cursor-pointer hover:scale-110 transition-transform"
                                                                         >
                                                                             <LinkIcon className={`h-6 w-6 p-1 bg-gray-100 rounded-md ${task.file_link ? 'cursor-pointer text-blue-500' : 'text-gray-300'}`} />
                                                                         </a>

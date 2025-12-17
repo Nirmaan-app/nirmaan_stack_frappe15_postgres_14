@@ -108,7 +108,9 @@ export const getAssignedNameForDisplay = (task: DesignTrackerTask): React.ReactN
             </div>
             )
         } else {
-            return <p className="text-xs text-center text-gray-500">--</p>;
+            return  <div className="flex justify-start ml-10">
+                <p>--</p>
+            </div>
         }
         // return getDesignerName(undefined);
     };
