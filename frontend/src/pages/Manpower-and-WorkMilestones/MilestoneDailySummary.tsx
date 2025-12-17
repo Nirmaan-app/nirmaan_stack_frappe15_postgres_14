@@ -201,6 +201,56 @@ export const MilestoneDailySummary = () => {
 // ... (existing code for projectProgressReports, allReportsForDate, dailyReportDetails) ...
 
 /* ... Work Plan Grouping ... */
+
+
+  // Fetch list of Project Progress Reports (used by Daily Report logic)
+  const {
+    data: projectProgressReports,
+    isLoading: projectProgressLoading,
+    error: projectProgressError,
+  } = useFrappeGetDocList(
+    "Project Progress Reports",
+    {
+      fields: ["name", "report_date", "project","report_zone"],
+      limit: 0,
+      filters: [
+        ["project", "=", selectedProject],
+        ["report_zone", "=", selectedZone],
+        ["report_status", "=", "Completed"]
+      ],
+    },
+    selectedProject && reportType === 'Daily' ? undefined : null // Only fetch if we're in Daily mode
+  );
+//-------Validation tab--------
+   const {
+    data: allReportsForDate,
+    isLoading: allReportsLoading,
+  } = useFrappeGetDocList(
+      "Project Progress Reports",
+      {
+          fields: ["name", "report_zone", "report_status"],
+          limit: 0,
+          filters: [
+              ["project", "=", selectedProject],
+              // Filter by the current date being viewed
+              ["report_date", "=", formatDateForInput(displayDate)], 
+          ]
+      },
+      selectedProject  && displayDate ? undefined : null
+  );
+  console.log("All Reports for Date:", allReportsForDate);
+  //-------Validation tab--------
+  // Fetch the detailed Daily Report
+  const {
+    data: dailyReportDetails,
+    isLoading: dailyReportLoading,
+    error: dailyReportError,
+  } = useFrappeGetDoc(
+    "Project Progress Reports",
+    reportForDisplayDateName,
+    reportForDisplayDateName && reportType === 'Daily' ? undefined : null // Only fetch if we're in Daily mode AND have a report name
+  );
+
   // --- Work Plan Grouping (Daily Only) ---
   const workPlanGroupedMilestones = useMemo(() => {
     if (!dailyReportDetails?.milestones || reportType !== 'Daily') return {};
@@ -267,54 +317,6 @@ export const MilestoneDailySummary = () => {
   }, [dailyReportDetails, workHeaderOrderMap, workMilestonesList]);
 
   // --- End Work Plan Grouping ---
-
-  // Fetch list of Project Progress Reports (used by Daily Report logic)
-  const {
-    data: projectProgressReports,
-    isLoading: projectProgressLoading,
-    error: projectProgressError,
-  } = useFrappeGetDocList(
-    "Project Progress Reports",
-    {
-      fields: ["name", "report_date", "project","report_zone"],
-      limit: 0,
-      filters: [
-        ["project", "=", selectedProject],
-        ["report_zone", "=", selectedZone],
-        ["report_status", "=", "Completed"]
-      ],
-    },
-    selectedProject && reportType === 'Daily' ? undefined : null // Only fetch if we're in Daily mode
-  );
-//-------Validation tab--------
-   const {
-    data: allReportsForDate,
-    isLoading: allReportsLoading,
-  } = useFrappeGetDocList(
-      "Project Progress Reports",
-      {
-          fields: ["name", "report_zone", "report_status"],
-          limit: 0,
-          filters: [
-              ["project", "=", selectedProject],
-              // Filter by the current date being viewed
-              ["report_date", "=", formatDateForInput(displayDate)], 
-          ]
-      },
-      selectedProject  && displayDate ? undefined : null
-  );
-  console.log("All Reports for Date:", allReportsForDate);
-  //-------Validation tab--------
-  // Fetch the detailed Daily Report
-  const {
-    data: dailyReportDetails,
-    isLoading: dailyReportLoading,
-    error: dailyReportError,
-  } = useFrappeGetDoc(
-    "Project Progress Reports",
-    reportForDisplayDateName,
-    reportForDisplayDateName && reportType === 'Daily' ? undefined : null // Only fetch if we're in Daily mode AND have a report name
-  );
 
   // Handler for Zone Tab Click
   const handleZoneChange = useCallback((zoneName: string) => {

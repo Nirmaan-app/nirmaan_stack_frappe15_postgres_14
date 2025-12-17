@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from 'uuid';
 
 // Frappe SDK and Utils
-import { useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall ,useFrappeGetDoc} from "frappe-react-sdk";
+import { useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall,useFrappeGetDoc } from "frappe-react-sdk";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 
@@ -52,18 +52,11 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
   const { prId, projectId } = useParams<{ prId: string, projectId: string }>();
 
   // --- Data Fetching ---
-  // const { data: prList, isLoading: prListLoading } = useFrappeGetDocList<ProcurementRequest>("Procurement Requests", {
-  //   fields: ["*"],
-  //   filters: [["name", "=", prId]]
-  // }, prId ? `Procurement Requests ${prId}` : undefined);
-
-   const { data: prList, isLoading: prListLoading } = useFrappeGetDoc<ProcurementRequest>(
+  const { data: prDoc, isLoading: prDocLoading } = useFrappeGetDoc<ProcurementRequest>(
     "Procurement Requests", 
-    prId, // Pass the specific ID directly
-    prId ? `Procurement Request ${prId}` : null // SWR Key (null disables if no ID)
+    prId,
+    prId ? `Procurement Request ${prId}` : undefined
   );
-
-  console.log("prList", prList);
 
   const { data: vendor_list, isLoading: vendorListLoading } = useFrappeGetDocList<Vendors>("Vendors", {
     fields: ["*"],
@@ -150,22 +143,28 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
   const checkNextButtonStatus = useCallback(() => {
     const allAmountsFilled = Object.values(amounts).every(amount => amount && amount > 0);
     const allAmountsCount = Object.keys(amounts)?.length === order?.length;
-    // const allFieldsFilled = !order?.some(i => !i?.quantity || !i?.unit || !i?.category || !i?.procurement_package || !i?.tax || !i.item);
-     const allFieldsFilled = (order && order.length > 0) 
-      ? !order.some(i => !i?.quantity || !i?.unit || !i?.category || !i?.procurement_package || !i?.tax || !i.item_name)
-      : false;
+    const allFieldsFilled = !order.some(i => !i?.quantity || !i?.unit || !i?.category || !i?.procurement_package || !i?.tax || !(i.item || i.item_name));
     return allAmountsFilled && allAmountsCount && allFieldsFilled && order.length !== 0 && !!selectedVendor?.value;
   }, [amounts, order, selectedVendor]);
 
   // --- Effects ---
   useEffect(() => {
-    if (resolve && prList && vendor_list && vendor_list.length > 0) {
-      const request = prList;
-      setOrder((request?.order_list || []) as typeof order);
+    if (resolve && prDoc && vendor_list && vendor_list.length > 0) {
+      const request = prDoc;
+      
+      const transformedOrder = (request?.order_list || []).map((item: any) => ({
+        ...item,
+        item: item.item_name || item.item,
+        name: item.item_id || item.name // Restore UUID from item_id if available
+      })) as CustomPRItem[];
+
+      setOrder(transformedOrder);
       setCategories(request?.category_list);
+      
       const amounts: { [key: string]: number } = {};
-      request?.order_list.forEach(item => { amounts[item.name] = item.quote; });
+      transformedOrder.forEach(item => { amounts[item.name] = item.quote; });
       setAmounts(amounts);
+      
       const vendorId = request?.order_list?.[0]?.vendor;
       const vendor = vendor_list?.find(v => v.name === vendorId);
       if(vendor) {
@@ -183,7 +182,7 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
         }
       }
     }
-  }, [resolve, prId, prList, vendor_list]);
+  }, [resolve, prId, prDoc, vendor_list]);
 
   // --- Handlers ---
   const handleAmountChange = useCallback((id: string, value: string) => {
@@ -191,15 +190,12 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
   }, []);
 
   const handleSaveAmounts = useCallback(() => {
-
-    if (!order) return; 
-
     let newOrderData = order.map(item => ({ ...item, quote: amounts[item.name], vendor: selectedVendor?.value }));
     setOrder(newOrderData);
     setSection("summary");
     const newCategories: { name: string, makes: string[] }[] = [];
     order.forEach((item) => {
-      if (!newCategories?.some(category => category.name === item.category)) {
+      if (!newCategories.some(category => category.name === item.category)) {
         newCategories.push({ name: item.category, makes: [] });
       }
     });
@@ -266,7 +262,7 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
         file_url = uploadedFile.file_url;
       }
       const response = await resolveCustomPRCall({
-        project_id: prList?.project,
+        project_id: prDoc?.project,
         pr_id: prId,
         order: order,
         categories: categories.list,
@@ -286,7 +282,7 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
     }
   };
 
-  if (prListLoading || vendorListLoading || procurementPackagesLoading || categoryDataLoading) {
+  if (prDocLoading || vendorListLoading || procurementPackagesLoading || categoryDataLoading) {
     return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>;
   }
 
@@ -295,7 +291,7 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
     <div className="flex-1 space-y-4">
       {/* The Header Card is now only rendered here, at the top level */}
       {section === "choose-vendor" && (
-          <ProcurementHeaderCard orderData={prList} customPr />
+          <ProcurementHeaderCard orderData={prDoc} customPr />
       )}
       
       {section === "choose-vendor" && (
@@ -337,7 +333,7 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {order && order?.length > 0 ? order?.map((item: CustomPRItem) => (
+                  {order?.length > 0 ? order?.map((item: CustomPRItem) => (
                     <TableRow key={item.name}>
                       <TableCell className="font-semibold">
                         <Select value={item.procurement_package} onValueChange={(value) => handleInputChange(item.name, "procurement_package", value)}>
@@ -351,7 +347,7 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
                           <SelectContent>{category_data?.filter((i) => item?.procurement_package === i?.work_package)?.map((cat) => (<SelectItem key={cat?.name} value={cat?.name}>{cat?.name}</SelectItem>))}</SelectContent>
                         </Select>
                       </TableCell>
-                      <TableCell className="whitespace-pre-wrap"><Textarea value={item?.item_name || ""} onChange={(e) => handleInputChange(item.name, "item_name", e.target.value)} /></TableCell>
+                      <TableCell className="whitespace-pre-wrap"><Textarea value={item?.item ||item?.item_name|| ""} onChange={(e) => handleInputChange(item.name, "item", e.target.value)} /></TableCell>
                       <TableCell><SelectUnit value={item?.unit || ""} onChange={(value) => handleInputChange(item.name, "unit", value)} /></TableCell>
                       <TableCell><Input type="number" value={item?.quantity || ""} onChange={(e) => handleInputChange(item.name, "quantity", parseFloat(e.target.value))} /></TableCell>
                       <TableCell className="font-semibold">
@@ -380,7 +376,7 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
             </div>
           </div>
           <div className="flex justify-between items-center mt-4 pl-2">
-            <Button onClick={() => setOrder(prev => [...prev, { item_id: uuidv4(), procurement_package: "", category: "", item: "", quantity: 0, unit: "", quote: 0, tax: 18, status: "Pending" }])}>New Item</Button>
+            <Button onClick={() => setOrder(prev => [...prev, { name: uuidv4(), procurement_package: "", category: "", item: "", quantity: 0, unit: "", quote: 0, tax: 18, status: "Pending" }])}>New Item</Button>
             <div className="flex items-center gap-2"><Button disabled={!checkNextButtonStatus()} onClick={handleSaveAmounts}>Next</Button></div>
           </div>
         </>
@@ -388,7 +384,7 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
 
       {section == "summary" && approvalSummary && (
         <CustomPRSummary
-          orderData={prList}
+          orderData={prDoc}
           approvalSummary={approvalSummary}
           resolve={resolve}
           onBack={() => setSection("choose-vendor")}

@@ -44,9 +44,11 @@ export const useDesignMasters = () => {
     // NOTE: Changed app path to match the new structure in the Python file
     const { data: response,
         isLoading: masterLoading,
-        error: masterError } = useFrappeGetCall<MasterDataResponse[]>(
+        error: masterError,
+        mutate: mutateMasters } = useFrappeGetCall<MasterDataResponse[]>(
             "nirmaan_stack.api.design_tracker.tracker_options.get_all_master_data",
-            []
+            {},
+            "nirmaan_stack.api.design_tracker.tracker_options.get_all_master_data"
         );
 
 
@@ -111,7 +113,8 @@ export const useDesignMasters = () => {
         // 🎯 RETURN NEW STATUS/SUB-STATUS OPTIONS
         statusOptions: TASK_STATUS_OPTIONS,
         subStatusOptions: SUB_STATUS_OPTIONS,
-        FacetProjectsOptions: FacetProjectsOptions
+        FacetProjectsOptions: FacetProjectsOptions,
+        mutateMasters
     };
 };
 

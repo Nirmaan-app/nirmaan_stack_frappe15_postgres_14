@@ -198,21 +198,18 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onSav
         const normalizedCurrentName = taskState.task_name.toLowerCase().trim();
 
         const isDuplicate = existingTaskNames.some(existingName => {
-                   const normalizedExisting = existingName.toLowerCase().trim();
-    
-                   const isNotSelf = normalizedExisting !== normalizedCurrentName;
-       
-                   return isNotSelf;
-               });
-       
-               if (isDuplicate) {
-                   toast({ 
-                       title: "Duplicate Task Name", 
-                       description: `The task name "${normalizedCurrentName}" is already used by another task in this project.`, 
-                       variant: "destructive" 
-                   });
-                   return;
-               }
+            const normalizedExisting = existingName.toLowerCase().trim();
+            return normalizedExisting === normalizedCurrentName;
+        });
+
+        if (isDuplicate) {
+            toast({ 
+                title: "Duplicate Task Name", 
+                description: `The task name "${taskState.task_name}" is already used by another task in this project.`, 
+                variant: "destructive" 
+            });
+            return;
+        }
 
         setIsSaving(true);
 
