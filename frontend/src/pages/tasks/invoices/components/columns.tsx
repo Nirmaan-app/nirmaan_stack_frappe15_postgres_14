@@ -77,9 +77,10 @@ const getCommonColumns = (attachmentsMap?: Record<string, string>, getTotalAmoun
         },
         meta: {
                 exportHeaderName: "Vendor Name",
-                exportValue: (row: InvoiceApprovalTask) => {
-                    
-                    return getVendorName(row.original.task_docname, row.original.task_doctype);
+               exportValue: (row: InvoiceApprovalTask) => {
+                    // FIX: Add safe check
+                    if (!row) return "";
+                    return getVendorName(row.task_docname, row.task_doctype);
                 }
             }
     },
@@ -97,6 +98,8 @@ const getCommonColumns = (attachmentsMap?: Record<string, string>, getTotalAmoun
             meta: {
                 exportHeaderName: "Total PO Amt (incl. GST)",
                 exportValue: (row: InvoiceApprovalTask) => {
+                    // FIX: Add safe navigation or check
+                    if (!row) return ""; 
                     const totals = getTotalAmount?.(row.task_docname, row.task_doctype);
                     return totals?.totalWithTax;
                 }

@@ -1,135 +1,150 @@
 {
-    "actions": [],
-    "allow_rename": 1,
-    "autoname": "field:category_name",
-    "creation": "2024-04-03 20:01:59.475380",
-    "doctype": "DocType",
-    "engine": "InnoDB",
-    "field_order": [
-        "category_details_section",
-        "category_name",
-        "work_package",
-        "image_url",
-        "tax",
-        "new_items"
-    ],
-    "fields": [
-        {
-            "fieldname": "category_details_section",
-            "fieldtype": "Section Break",
-            "label": "Category Details"
-        },
-        {
-            "fieldname": "category_name",
-            "fieldtype": "Data",
-            "in_list_view": 1,
-            "label": "Category Name",
-            "reqd": 1,
-            "unique": 1
-        },
-        {
-            "fieldname": "work_package",
-            "fieldtype": "Link",
-            "in_list_view": 1,
-            "label": "Procurement Package",
-            "options": "Procurement Packages",
-            "reqd": 1
-        },
-        {
-            "fieldname": "image_url",
-            "fieldtype": "Attach Image",
-            "label": "Image Url"
-        },
-        {
-            "default": "18",
-            "fieldname": "tax",
-            "fieldtype": "Data",
-            "label": "Tax"
-        },
-        {
-            "default": "true",
-            "fieldname": "new_items",
-            "fieldtype": "Data",
-            "label": "New Items Addition"
-        }
-    ],
-    "index_web_pages_for_search": 1,
-    "links": [],
-    "modified": "2024-12-31 12:38:34.280450",
-    "modified_by": "Administrator",
-    "module": "Nirmaan Stack",
-    "name": "Category",
-    "naming_rule": "By fieldname",
-    "owner": "Administrator",
-    "permissions": [
-        {
-            "create": 1,
-            "delete": 1,
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "System Manager",
-            "share": 1,
-            "write": 1
-        },
-        {
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "Nirmaan Design Executive",
-            "share": 1
-        },
-        {
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "Nirmaan Procurement Executive",
-            "share": 1
-        },
-        {
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "Nirmaan Project Lead",
-            "share": 1
-        },
-        {
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "Nirmaan Project Manager",
-            "share": 1
-        },
-        {
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "Nirmaan Estimates Executive",
-            "share": 1
-        },
-        {
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "Nirmaan Accountant",
-            "share": 1
-        }
-    ],
-    "sort_field": "modified",
-    "sort_order": "DESC",
-    "states": []
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:category_name",
+ "creation": "2024-04-03 20:01:59.475380",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "category_details_section",
+  "category_name",
+  "work_package",
+  "image_url",
+  "tax",
+  "new_items"
+ ],
+ "fields": [
+  {
+   "fieldname": "category_details_section",
+   "fieldtype": "Section Break",
+   "label": "Category Details"
+  },
+  {
+   "fieldname": "category_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Category Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "work_package",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Procurement Package",
+   "options": "Procurement Packages",
+   "reqd": 1
+  },
+  {
+   "fieldname": "image_url",
+   "fieldtype": "Attach Image",
+   "label": "Image Url"
+  },
+  {
+   "default": "18",
+   "fieldname": "tax",
+   "fieldtype": "Data",
+   "label": "Tax"
+  },
+  {
+   "default": "true",
+   "fieldname": "new_items",
+   "fieldtype": "Data",
+   "label": "New Items Addition"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-12-16 08:50:01.946901",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Category",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Manager",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant",
+   "share": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Lead",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
 }

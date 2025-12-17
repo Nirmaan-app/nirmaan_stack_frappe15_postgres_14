@@ -10,6 +10,7 @@ import {
   useFrappeUpdateDoc,
   useFrappeDeleteDoc, // ADD THIS
 } from "frappe-react-sdk";
+import { useWorkHeaderOrder } from "@/hooks/useWorkHeaderOrder";
 import CameraCapture from "@/components/CameraCapture";
 import {Camera, X, MapPin,CheckCircle } from "lucide-react"
 
@@ -256,7 +257,8 @@ const MilestoneTabInner = () => {
     error: frappeMilestonesError,
   } = useFrappeGetDocList<WorkMilestoneFromFrappe>("Work Milestones", {
     fields: ["*"],
-    limit:0,
+    limit: 0,
+    orderBy: { field: "work_milestone_order", order: "asc" },
     enabled: !!projectId,
   });
 
@@ -302,6 +304,8 @@ const latestCompletedReportDateIsToday =
     latestCompletedReportName,
     latestCompletedReportName ? undefined : null
   );
+  
+  const { workHeaderOrderMap } = useWorkHeaderOrder();
 
   // This hook correctly finds a draft for the *current* date.
   const {
@@ -418,17 +422,21 @@ const [workPlanPoints, setWorkPlanPoints] = useState<string[]>([]); // Array of 
       ? projectData.project_work_header_entries.filter(entry => entry.enabled === "True")
       : [];
 
-    // 2. Sort the dynamic entries by project_work_header_name
-    dynamicTabs.sort((a, b) => 
-      a.project_work_header_name.localeCompare(b.project_work_header_name)
-    );
+    // 2. Sort the dynamic entries by ORDER first, then by NAME
+    dynamicTabs.sort((a, b) => {
+        const orderA = workHeaderOrderMap[a.project_work_header_name] ?? 9999;
+        const orderB = workHeaderOrderMap[b.project_work_header_name] ?? 9999;
+
+        if (orderA !== orderB) {
+            return orderA - orderB;
+        }
+        return a.project_work_header_name.localeCompare(b.project_work_header_name);
+    });
+
     return [
       { name: "Work force", project_work_header_name: "Work force", enabled: "True" },
-      // ...(projectData?.enable_project_milestone_tracking === 1 && projectData?.project_work_header_entries
-      //   ? projectData.project_work_header_entries.filter(entry => entry.enabled === "True")
-      //   : []),
       ...dynamicTabs,
-          {name:"Photos",project_work_header_name:"Photos",enabled:"True"},
+      {name:"Photos",project_work_header_name:"Photos",enabled:"True"},
     ];
   };
 

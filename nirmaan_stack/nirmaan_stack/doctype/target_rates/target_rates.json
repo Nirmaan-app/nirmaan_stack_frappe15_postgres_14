@@ -56,7 +56,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-11-20 14:16:34.757006",
+ "modified": "2025-12-16 08:12:23.782718",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Target Rates",
@@ -143,6 +143,18 @@
    "read": 1,
    "report": 1,
    "role": "Nirmaan Project Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Lead",
    "share": 1,
    "write": 1
   }

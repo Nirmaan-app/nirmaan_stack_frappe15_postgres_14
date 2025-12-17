@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useFrappeGetCall } from 'frappe-react-sdk';
+import { useFrappeGetCall, useFrappeGetDocList } from 'frappe-react-sdk';
 import { formatDate } from '@/utils/FormatDate';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,9 @@ import { Card, CardContent } from '@/components/ui/card';
 import OverallMilestonesReportPDF from './OverallMilestonesReportPDF';
 import { MilestoneProgress } from '../MilestonesSummary';
 import { ImageBentoGrid } from '@/components/ui/ImageBentoGrid';
+
+// import { useWorkHeaderOrder } from '@/hooks/useWorkHeaderOrder'; // Removed as backend sorts now
+
 
 // Define types
 interface MilestoneSnapshot {
@@ -65,6 +68,14 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
     selectedProject ? undefined : null
   );
 
+  // Fetch Work Milestones to get the order for milestones
+  const { data: workMilestonesList } = useFrappeGetDocList("Work Milestones", {
+      fields: ["work_milestone_name", "work_milestone_order", "work_header"],
+      limit: 0
+  });
+
+  // const { workHeaderOrderMap } = useWorkHeaderOrder(); // Removed
+
   const [latestReport, setLatestReport] = useState<ReportDoc | null>(null);
   const [report7DaysAgo, setReport7DaysAgo] = useState<ReportDoc | null>(null);
   const [report14DaysAgo, setReport14DaysAgo] = useState<ReportDoc | null>(null);
@@ -111,11 +122,28 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
       milestone.status !== "Not Applicable" && milestone.status !== "N/A"
     );
 
-    return relevantMilestones.reduce((acc, milestone) => {
+    const grouped = relevantMilestones.reduce((acc, milestone) => {
       (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
       return acc;
     }, {} as Record<string, MilestoneSnapshot[]>);
-  }, [latestReport]);
+    
+    // Sort milestones
+    Object.keys(grouped).forEach(header => {
+        grouped[header].sort((a, b) => {
+             const orderA = workMilestonesList?.find(m => m.work_milestone_name === a.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
+             const orderB = workMilestonesList?.find(m => m.work_milestone_name === b.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
+             return orderA - orderB;
+        });
+    });
+
+    return grouped;
+  }, [latestReport, workMilestonesList]);
+
+
+
+  // Removed sortedGroupedMilestones as backend provides sorted data and Object.keys/entries preserves insertion order for non-integer keys (mostly)
+
+
 
   // ---------------------------------------------------------------------------
   // Memoized grouped manpower (Logic: Exclude if all 0)
@@ -570,6 +598,8 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
         />
       </div>
 
+
+
       {Object.keys(groupedMilestones).length === 0 ? (
         <Card className="bg-white p-6 rounded-lg shadow-sm border border-gray-300 mt-4">
           <CardContent className="flex flex-col items-center justify-center py-8">
@@ -583,14 +613,10 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
       ) : null}
     </div>
   );
+
 };
 
 export default OverallMilestonesReport;
-
-
-
-
-
 // import React, { useState, useEffect, useMemo } from 'react';
 // import { useFrappeGetCall } from 'frappe-react-sdk';
 // import { formatDate } from '@/utils/FormatDate';

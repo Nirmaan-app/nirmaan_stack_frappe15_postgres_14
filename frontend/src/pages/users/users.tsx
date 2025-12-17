@@ -44,6 +44,7 @@ export const USER_ROLE_PROFILE_OPTIONS = [
     { label: "Accountant", value: "Nirmaan Accountant Profile" },
     { label: "Estimates Executive", value: "Nirmaan Estimates Executive Profile" },
     { label: "Design Executive", value: "Nirmaan Design Executive Profile" },
+    { label: "Design Lead", value: "Nirmaan Design Lead Profile" },
 ];
 
 // --- Helper: UsersSummaryCard ---
