@@ -214,6 +214,7 @@ export function NewSidebar() {
             { key: "/customers", label: "Customers" },
             { key: "/product-packages", label: "Product Packages" },
             { key: "/milestone-packages", label: "Milestone Packages" },
+            { key: "/design-packages", label: "Design Packages" },
 
             // { key: "/all-AQs", label: "Approved Quotations" },
             //  { key: "/vendors-aq2", label: "AQ2 Vendors" },
@@ -483,6 +484,7 @@ export function NewSidebar() {
     "customers",
     "product-packages",
     "milestone-packages",
+    "design-packages",
     "all-AQs",
     "item-price",
     // 'vendors-aq2', new tab ui-fix
@@ -521,7 +523,7 @@ export function NewSidebar() {
 
 
   const groupMappings = useMemo(() => ({
-    "admin-actions": ["users", "products", "vendors", "customers", "product-packages","milestone-packages", "all-AQs"],
+    "admin-actions": ["users", "products", "vendors", "customers", "product-packages","milestone-packages","design-packages", "all-AQs"],
     // "admin-actions": ["users", "products", "vendors", "customers", "product-packages", "approved-quotes","vendors-aq2"],
     // "pl-actions": [
     //   "prs&milestones", "approve-po", "approve-sent-back",

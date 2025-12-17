@@ -46,7 +46,6 @@ const DOCTYPE = 'Project Design Tracker';
 const FE_TASK_STATUS_OPTIONS = ["Todo", "In Progress", "Done", "Blocked", "On Hold", "Submitted"];
 
 const DESIGN_TABS = { 
-    DESIGN_PACKAGES: 'packages', 
     PROJECT_WISE: 'project', 
     TASK_WISE: 'task' 
 };
@@ -570,17 +569,7 @@ export const DesignTrackerList: React.FC = () => {
             <header className="flex justify-between items-center">
                 {/* <h1 className="text-2xl font-bold text-red-700">Design Tracker</h1> */}
                 <div className="flex space-x-0 border border-gray-300 rounded-md overflow-hidden w-fit">
-                    {!isDesignExecutive && (
-                    <Button
-                        variant="primary"
-                        onClick={() => onClick(DESIGN_TABS.DESIGN_PACKAGES)}
-                        className={`px-4 py-2 text-sm font-medium h-auto shadow-none 
-                        ${activeTab === DESIGN_TABS.DESIGN_PACKAGES ? 'bg-primary text-white' : 'bg-white text-gray-700 '}
-                        border-r border-gray-300 rounded-r-none`}
-                    >
-                        Design Packages
-                    </Button>
-                    )}
+
 
 
                     <Button
@@ -593,7 +582,7 @@ export const DesignTrackerList: React.FC = () => {
             border-r border-gray-300 
             
             /* Ensure right side is square, left side gets rounding from parent div */
-            rounded-none 
+            rounded-r-none 
         `}
                     >
                         Project Wise
@@ -695,9 +684,7 @@ export const DesignTrackerList: React.FC = () => {
                 )
             }
 
-             {activeTab === DESIGN_TABS.DESIGN_PACKAGES && (
-                <DesignPackagesMaster />
-            )}
+
 
             {/* Content based on Active Tab */}
             {activeTab === DESIGN_TABS.PROJECT_WISE && (

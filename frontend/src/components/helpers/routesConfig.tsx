@@ -74,6 +74,7 @@ import MilestoneDailySummary from "@/pages/Manpower-and-WorkMilestones/Milestone
 //Design Tracker 
 import DesignTrackerList from "@/pages/ProjectDesignTracker/design-tracker-list";
 import ProjectDesignTrackerDetail from "@/pages/ProjectDesignTracker/project-design-tracker-details";
+import { DesignPackages } from "../design-packages";
 
 export const appRoutes: RouteObject[] = [
   // --- Public Routes ---
@@ -467,6 +468,7 @@ export const appRoutes: RouteObject[] = [
           { path: "product-packages", element: <ProcurementPackages /> },
           // {path:"milestones-packages",element:}
           { path: "milestone-packages", element: <WorkHeaderMilestones /> },
+          { path: "design-packages", element: <DesignPackages /> },
           
           { path: "pdf", element: <PDF /> }, // Should PDF rendering be a route? Or triggered differently?
           { path: "milestone-update", element: <NewMilestones /> },
