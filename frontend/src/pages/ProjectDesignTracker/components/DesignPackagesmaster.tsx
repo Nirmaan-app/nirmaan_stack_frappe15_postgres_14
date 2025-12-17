@@ -539,7 +539,7 @@ const CategoryCard: React.FC<CategoryCardProps> = ({ category, tasks, mutateCate
             <TableHeader className="bg-gray-100">
               <TableRow className="hover:bg-transparent">
                 <TableHead className="w-[60%] pl-4">Task Name</TableHead>
-                <TableHead className="w-[20%] text-center">Offset (Days)</TableHead>
+                <TableHead className="w-[20%] text-center">Deadline Offset (Days)</TableHead>
                 <TableHead className="w-[20%] text-right pr-4">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -547,7 +547,7 @@ const CategoryCard: React.FC<CategoryCardProps> = ({ category, tasks, mutateCate
               {tasks.map((task) => (
                 <TableRow key={task.name} className="group">
                   <TableCell className="pl-4 font-medium text-gray-700">{task.task_name}</TableCell>
-                  <TableCell className="text-center text-gray-500">{task.deadline_offset ?? '-'}</TableCell>
+                  <TableCell className="text-center text-gray-500">{task.deadline_offset ==0? '-':`T + ${task.deadline_offset}`}</TableCell>
                    <TableCell className="text-right flex items-center justify-end space-x-2">
                     <EditTaskDialog task={task} mutate={mutateTasks} /> 
                   <DeleteTaskDialog task={task} mutate={mutateTasks} />

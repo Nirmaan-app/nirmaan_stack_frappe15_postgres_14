@@ -37,7 +37,7 @@ const PROJECT_STATUS_OPTIONS = [
 // --- TYPE DEFINITION for Category Items ---
 interface CategoryItem {
     category_name: string;
-    tasks: { task_name: string }[];
+    tasks: { task_name: string; deadline_offset?: number }[];
     // Add other fields if needed, but keeping it minimal for UI/Task generation
 }
 
@@ -397,11 +397,21 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
             }
 
             taskItems.forEach(taskDef => {
+                // Calculate deadline using offset if available
+                let calculatedDeadline: string | undefined = undefined;
+                if (taskDef.deadline_offset !== undefined && taskDef.deadline_offset !== null) {
+                    const d = new Date();
+                    d.setDate(d.getDate() + taskDef.deadline_offset);
+                     // Format as YYYY-MM-DD
+                    calculatedDeadline = d.toISOString().split('T')[0];
+                }
+
                 tasksToGenerate.push({
                     task_name: taskDef.task_name || `${cat.category_name} Default Task`,
                     design_category: cat.category_name,
-                    task_status: 'Not Applicable',
-                    deadline: undefined,
+                    task_status: 'Not Started',
+                    deadline: calculatedDeadline,
+                    deadline_offset: taskDef.deadline_offset, // Also pass the offset itself if needed for reference
                 });
             });
         });
