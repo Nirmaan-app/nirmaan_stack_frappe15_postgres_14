@@ -375,7 +375,7 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_
             { value: "design_category", label: "Category" },
         ],
         // defaultSort: 'modified desc',
-        defaultSort: '`tabDesign Tracker Task Child Table`.modified desc',
+        defaultSort: '`tabDesign Tracker Task Child Table`.deadline asc',
 
         urlSyncKey: 'dt_task_wise',
         additionalFilters: additionalFilters,
