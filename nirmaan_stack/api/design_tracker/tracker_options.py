@@ -64,7 +64,7 @@ def get_all_master_data():
     
     all_tasks = frappe.get_list(
         "Design Tracker Tasks",
-        fields=["task_name", "category_link"], 
+        fields=["task_name", "category_link","deadline_offset"], 
         order_by="task_name asc",
         as_list=False
     )
@@ -72,7 +72,8 @@ def get_all_master_data():
     tasks_by_category = defaultdict(list)
     for task in all_tasks:
         tasks_by_category[task.category_link].append({
-            "task_name": task.task_name
+            "task_name": task.task_name,
+            "deadline_offset":task.deadline_offset
         })
         
     for category in categories:

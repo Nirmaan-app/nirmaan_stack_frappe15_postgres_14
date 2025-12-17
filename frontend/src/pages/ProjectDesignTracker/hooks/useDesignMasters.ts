@@ -92,7 +92,8 @@ export const useDesignMasters = () => {
         return rawCategories.map(cat => ({
             category_name: cat.category_name,
             tasks: cat.tasks.map(t => ({
-                task_name: t.task_name
+                task_name: t.task_name,
+                deadline_offset: t.deadline_offset
             }))
         }));
     }, [rawCategories]);

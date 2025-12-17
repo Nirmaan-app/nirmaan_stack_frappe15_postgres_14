@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useCallback, useEffect } from "react";
+import { addDays, format } from "date-fns";
 import { Link, useNavigate } from "react-router-dom";
 import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { Badge } from "@/components/ui/badge";
@@ -85,11 +86,20 @@ const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categ
 
                 taskItems.forEach(taskDef => {
                     const taskName = taskDef.task_name;
+                    let calculatedDeadline = undefined;
+                    if (taskDef.deadline_offset !== undefined && taskDef.deadline_offset !== null) {
+                         // Parse offset as number just in case
+                         const offset = Number(taskDef.deadline_offset);
+                         if (!isNaN(offset)) {
+                             calculatedDeadline = format(addDays(new Date(), offset), 'yyyy-MM-dd');
+                         }
+                    }
+
                     tasksToGenerate.push({
                         task_name: taskName,
                         design_category: catName,
-                        task_status: 'Not Applicable',
-                        deadline: undefined,
+                        task_status: 'Not Started',
+                        deadline: calculatedDeadline,
                     })
                 });
             } else {

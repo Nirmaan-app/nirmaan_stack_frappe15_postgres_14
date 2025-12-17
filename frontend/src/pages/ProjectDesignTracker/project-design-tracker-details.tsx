@@ -160,7 +160,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onSav
         task_name: '',
         design_category: initialCategoryName,
         deadline: '',
-        task_status: 'Not Applicable',
+        task_status: 'Not Started',
         file_link: '',
         comments: ''
     });
@@ -178,7 +178,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onSav
                 task_name: '',
                 design_category: initialCategoryName,
                 deadline: '',
-                task_status: 'Not Applicable',
+                task_status: 'Not Started',
             });
             setSelectedDesigners([]);
         } else {
