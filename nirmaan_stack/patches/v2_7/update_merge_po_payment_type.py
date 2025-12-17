@@ -7,7 +7,7 @@ def execute():
         po_list = frappe.get_all(
             "Procurement Orders", 
             filters={
-                "payment_type": ["is", "not set"]
+                "payment_type": ["in", [None,""]]
             },
             pluck="name"
         )
@@ -48,11 +48,7 @@ def execute():
         # ---------------------------------------------------------
         # THE FIX
         # ---------------------------------------------------------
-        if count_updated == total_fetched:
-            # Success: We can manually commit, or just let the function finish.
-            # Frappe will commit automatically if we don't raise an exception.
-            print("[Success] All records matched. Saving changes.")
-            frappe.db.commit()
+        frappe.db.commit()
 
     except Exception as e:
         frappe.db.rollback()

@@ -1,8 +1,9 @@
-import React, { useCallback, useMemo } from "react";
+import React, { useCallback, useMemo, useState, useEffect } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { useFrappeGetDocList, FrappeDoc, GetDocListArgs, Filter } from "frappe-react-sdk";
 import { Download, Info } from "lucide-react";
+import { DateRange } from "react-day-picker";
 
 // --- UI Components ---
 import { DataTable } from '@/components/data-table/new-data-table';
@@ -14,12 +15,15 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 // MODIFIED: Import Card components and a spinner
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { TailSpin } from 'react-loader-spinner';
+import { StandaloneDateFilter } from "@/components/ui/StandaloneDateFilter";
 
 // --- Hooks & Utils ---
 import { useServerDataTable, AggregationConfig } from '@/hooks/useServerDataTable';
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { memoize } from "lodash";
+import { urlStateManager } from "@/utils/urlStateManager";
+import { parse, formatISO, startOfDay, endOfDay } from 'date-fns';
 
 // --- Types & Config ---
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
@@ -34,6 +38,13 @@ const DOCTYPE = 'Project Inflows';
 const INFLOW_AGGREGATES_CONFIG: AggregationConfig[] = [
     { field: 'amount', function: 'sum' }
 ];
+
+// URL state management for date range
+const URL_SYNC_KEY = "inflow_report";
+const getDefaultDateRange = (): DateRange => ({
+    from: startOfDay(new Date('2024-04-01')),
+    to: endOfDay(new Date()),
+});
 
 // NEW: Helper component to display active filters in the summary card
 const AppliedFiltersDisplay = ({ filters, search }) => {
@@ -57,6 +68,43 @@ const AppliedFiltersDisplay = ({ filters, search }) => {
 interface SelectOption { label: string; value: string; }
 
 export function InflowReportTable() {
+    // 1. Manage date range state, initialized from URL or with a default
+    const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
+        const fromParam = urlStateManager.getParam(`${URL_SYNC_KEY}_from`);
+        const toParam = urlStateManager.getParam(`${URL_SYNC_KEY}_to`);
+        if (fromParam && toParam) {
+            try {
+                return {
+                    from: startOfDay(parse(fromParam, 'yyyy-MM-dd', new Date())),
+                    to: endOfDay(parse(toParam, 'yyyy-MM-dd', new Date())),
+                };
+            } catch (e) {
+                console.error("Error parsing date from URL:", e);
+            }
+        }
+        return getDefaultDateRange();
+    });
+
+    // 2. Effect to sync state changes back to the URL
+    useEffect(() => {
+        const fromISO = dateRange?.from ? formatISO(dateRange.from, { representation: 'date' }) : null;
+        const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }) : null;
+
+        urlStateManager.updateParam(`${URL_SYNC_KEY}_from`, fromISO);
+        urlStateManager.updateParam(`${URL_SYNC_KEY}_to`, toISO);
+    }, [dateRange]);
+
+    // 3. Build additional filters based on date range
+    const dateFilters = useMemo(() => {
+        if (!dateRange?.from || !dateRange?.to) return [];
+        const fromISO = formatISO(dateRange.from, { representation: 'date' });
+        const toISO = formatISO(dateRange.to, { representation: 'date' });
+        return [
+            ['payment_date', '>=', fromISO],
+            ['payment_date', '<=', toISO]
+        ];
+    }, [dateRange]);
+
     // --- Supporting Data Fetches (Projects & Customers for name lookups) ---
     const { data: projects, isLoading: projectsLoading, error: projectsError } = useFrappeGetDocList<Projects>(
         "Projects", { fields: ["name", "project_name"], limit: 0 }, "projects_for_inflow_report"
@@ -141,10 +189,15 @@ export function InflowReportTable() {
         urlSyncKey: 'inflow_report_table', // A unique key for this report instance
         defaultSort: 'payment_date desc',
         aggregatesConfig: INFLOW_AGGREGATES_CONFIG, // NEW: Pass the config
+        additionalFilters: dateFilters, // NEW: Apply date filters
     });
 
     const isLoadingOverall = projectsLoading || customersLoading || listIsLoading;
     const combinedErrorOverall = projectsError || customersError || listError;
+
+    const handleClearDateFilter = useCallback(() => {
+        setDateRange(getDefaultDateRange());
+    }, []);
 
     if (combinedErrorOverall) {
         return <AlertDestructive error={combinedErrorOverall} />;
@@ -155,59 +208,67 @@ export function InflowReportTable() {
     }
 
     return (
-        <DataTable<ProjectInflows>
-            table={table}
-            columns={columns}
-            isLoading={listIsLoading}
-            error={listError}
-            totalCount={totalCount}
-            searchFieldOptions={INFLOW_SEARCHABLE_FIELDS}
-            selectedSearchField={selectedSearchField}
-            onSelectedSearchFieldChange={setSelectedSearchField}
-            searchTerm={searchTerm}
-            onSearchTermChange={setSearchTerm}
-            facetFilterOptions={facetFilterOptions}
-            dateFilterColumns={INFLOW_DATE_COLUMNS}
-            showExportButton={true}
-            onExport={'default'}
-            exportFileName={'Inflow_Payments_Report'}
-            // NEW: Pass the fully constructed summary card as a prop
-            summaryCard={
-                <Card>
-                    <CardHeader className="p-4">
-                        <CardTitle className="text-lg">Inflow Report Summary</CardTitle>
-                        <CardDescription>
-                            <AppliedFiltersDisplay filters={columnFilters} search={searchTerm} />
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent className="p-4 pt-0">
-                        {isAggregatesLoading ? (
-                            <div className="flex justify-center items-center h-16">
-                                <TailSpin height={24} width={24} color="#4f46e5" />
-                            </div>
-                        ) : aggregates ? (
-                            <dl className="flex flex-col sm:flex-row sm:justify-between space-y-2 sm:space-y-0 sm:space-x-4">
-                                <div className="flex justify-between sm:block">
-                                    <dt className="font-semibold text-gray-600">Total Amount Received</dt>
-                                    <dd className="sm:text-right font-bold text-lg text-green-600">
-                                        {formatToRoundedIndianRupee(aggregates.sum_of_amount || 0)}
-                                    </dd>
+        <div className="space-y-4">
+            <StandaloneDateFilter
+                value={dateRange}
+                onChange={setDateRange}
+                onClear={handleClearDateFilter}
+            />
+            {/* <span>(PAYMENT DATE)</span> */}
+            <DataTable<ProjectInflows>
+                table={table}
+                columns={columns}
+                isLoading={listIsLoading}
+                error={listError}
+                totalCount={totalCount}
+                searchFieldOptions={INFLOW_SEARCHABLE_FIELDS}
+                selectedSearchField={selectedSearchField}
+                onSelectedSearchFieldChange={setSelectedSearchField}
+                searchTerm={searchTerm}
+                onSearchTermChange={setSearchTerm}
+                facetFilterOptions={facetFilterOptions}
+                dateFilterColumns={INFLOW_DATE_COLUMNS}
+                showExportButton={true}
+                onExport={'default'}
+                exportFileName={'Inflow_Payments_Report'}
+                // NEW: Pass the fully constructed summary card as a prop
+                summaryCard={
+                    <Card>
+                        <CardHeader className="p-4">
+                            <CardTitle className="text-lg">Inflow Report Summary</CardTitle>
+                            <CardDescription>
+                                <AppliedFiltersDisplay filters={columnFilters} search={searchTerm} />
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="p-4 pt-0">
+                            {isAggregatesLoading ? (
+                                <div className="flex justify-center items-center h-16">
+                                    <TailSpin height={24} width={24} color="#4f46e5" />
                                 </div>
-                                <div className="flex justify-between sm:block">
-                                    <dt className="font-semibold text-gray-600">Total Payments</dt>
-                                    <dd className="sm:text-right font-bold text-lg text-green-600">
-                                        {totalCount}
-                                    </dd>
-                                </div>
-                            </dl>
-                        ) : (
-                            <p className="text-sm text-center text-muted-foreground h-16 flex items-center justify-center">
-                                No summary data available.
-                            </p>
-                        )}
-                    </CardContent>
-                </Card>
-            }
-        />
+                            ) : aggregates ? (
+                                <dl className="flex flex-col sm:flex-row sm:justify-between space-y-2 sm:space-y-0 sm:space-x-4">
+                                    <div className="flex justify-between sm:block">
+                                        <dt className="font-semibold text-gray-600">Total Amount Received</dt>
+                                        <dd className="sm:text-right font-bold text-lg text-green-600">
+                                            {formatToRoundedIndianRupee(aggregates.sum_of_amount || 0)}
+                                        </dd>
+                                    </div>
+                                    <div className="flex justify-between sm:block">
+                                        <dt className="font-semibold text-gray-600">Total Payments</dt>
+                                        <dd className="sm:text-right font-bold text-lg text-green-600">
+                                            {totalCount}
+                                        </dd>
+                                    </div>
+                                </dl>
+                            ) : (
+                                <p className="text-sm text-center text-muted-foreground h-16 flex items-center justify-center">
+                                    No summary data available.
+                                </p>
+                            )}
+                        </CardContent>
+                    </Card>
+                }
+            />
+        </div>
     );
 }

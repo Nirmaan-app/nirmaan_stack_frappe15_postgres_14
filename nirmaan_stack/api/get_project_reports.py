@@ -2,12 +2,22 @@ import frappe
 from frappe.utils import getdate, add_days
 from frappe.model.document import Document
 
-def _process_report_data(report_doc):
+def _process_report_data(report_doc, work_header_order_map=None):
     """Helper function to calculate summary fields for a given report Document."""
     if not report_doc:
         return None
 
     report_dict = report_doc.as_dict()
+
+    # Sort milestones based on Work Header order
+    if report_dict.get("milestones") and work_header_order_map:
+        report_dict["milestones"] = sorted(
+            report_dict["milestones"],
+            key=lambda m: (
+                work_header_order_map.get(m.get("work_header"), 9999), # Primary sort: Order (defaults to 9999)
+                m.get("work_header") # Secondary sort: Alphabetical by Name
+            )
+        )
 
     # Calculate total_completed_works
     total_completed_works = 0
@@ -64,10 +74,14 @@ def get_project_progress_reports_comparison(project,report_zone):
             "seven_days": None,
             "fourteen_days": None
         }
+
+    # Fetch Work Header orders for sorting
+    work_headers = frappe.get_all("Work Headers", fields=["name", "order"])
+    work_header_order_map = {wh.name: (wh.order if wh.order is not None else 9999) for wh in work_headers}
     
     # Current report is the latest one
     current_report_doc = frappe.get_doc("Project Progress Reports", reports[0].name)
-    current_report = _process_report_data(current_report_doc)
+    current_report = _process_report_data(current_report_doc, work_header_order_map)
     
     # Calculate target dates
     today = getdate()
@@ -81,7 +95,7 @@ def get_project_progress_reports_comparison(project,report_zone):
         if abs((report_date - seven_days_ago).days) <= 2:
             seven_days_report_doc = frappe.get_doc("Project Progress Reports", report.name)
             break
-    seven_days_report = _process_report_data(seven_days_report_doc)
+    seven_days_report = _process_report_data(seven_days_report_doc, work_header_order_map)
 
     # Find closest report to 14 days ago (within 2 days)
     fourteen_days_report_doc = None
@@ -90,7 +104,7 @@ def get_project_progress_reports_comparison(project,report_zone):
         if abs((report_date - fourteen_days_ago).days) <= 2:
             fourteen_days_report_doc = frappe.get_doc("Project Progress Reports", report.name)
             break
-    fourteen_days_report = _process_report_data(fourteen_days_report_doc)
+    fourteen_days_report = _process_report_data(fourteen_days_report_doc, work_header_order_map)
     
     return {
         "current": current_report,

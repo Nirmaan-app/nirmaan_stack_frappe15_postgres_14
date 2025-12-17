@@ -1,4 +1,5 @@
 import { UserContext } from "@/utils/auth/UserProvider";
+import { format } from "date-fns";
 import { formatDate } from "@/utils/FormatDate";
 import {
   useFrappeCreateDoc,
@@ -6,8 +7,8 @@ import {
   useFrappeGetDocList,
   useFrappeUpdateDoc
 } from "frappe-react-sdk";
-import { MapPin, ChevronDown, ChevronUp, MessagesSquare } from "lucide-react";
-import { useContext, useEffect, useState,useMemo } from "react";
+import { MapPin, ChevronDown, ChevronUp, MessagesSquare, Printer, Eye, EyeOff,Download } from "lucide-react";
+import { useContext, useEffect, useState, useMemo } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate } from "react-router-dom";
 // import ProjectSelect from "@/components/custom-select/project-select";
@@ -23,10 +24,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "@/components/ui/use-toast";
-import MilestoneReportPDF from "./components/MilestoneReportPDF";
+// import MilestoneReportPDF from "./components/MilestoneReportPDF";
 import OverallMilestonesReport from "./components/OverallMilestonesReport"
 import { useUserData } from "@/hooks/useUserData";
 import { ProgressCircle } from "@/components/ui/ProgressCircle";
+import { useWorkHeaderOrder } from "@/hooks/useWorkHeaderOrder";
 import { cn } from '@/lib/utils' // Assuming you have this utility
 import {DELIMITER,parseWorkPlan,serializeWorkPlan} from "./MilestoneTab"
 import { OrientationAwareImage } from "@/components/ui/OrientationAwareImage";
@@ -221,6 +223,83 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport, 
     reportForDisplayDateName, // Fetch using the determined report name
     reportForDisplayDateName && reportType === 'Daily' ? undefined : null // Only fetch if a name exists and reportType is Daily
   );
+  // Fetch Work Headers to get the order
+  const { workHeaderOrderMap } = useWorkHeaderOrder();
+
+  // Fetch Work Milestones to get the order for milestones
+  const { data: workMilestonesList } = useFrappeGetDocList("Work Milestones", {
+      fields: ["work_milestone_name", "work_milestone_order", "work_header"],
+      limit: 0
+  });
+
+  // --- MEMOIZED DATA PREPARATION ---
+
+  // 1. Prepare Work Plan Groups
+  // Logic: Filter for WIP/Not Started OR messages with content, group by header, sort by Order.
+  const workPlanGroups = useMemo(() => {
+    if (!dailyReportDetails?.milestones) return [];
+
+    const grouped = dailyReportDetails.milestones.reduce((acc: any, milestone: any) => {
+      const isWIPOrNotStarted = milestone.status === "WIP" || milestone.status === "Not Started";
+      const hasWorkPlanContent = milestone.work_plan && parseWorkPlan(milestone.work_plan).length > 0;
+
+      if (hasWorkPlanContent || isWIPOrNotStarted) {
+        (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
+      }
+      return acc;
+    }, {});
+
+     // Sort milestones within each group based on work_milestone_order
+    Object.keys(grouped).forEach(header => {
+        grouped[header].sort((a: any, b: any) => {
+             const orderA = workMilestonesList?.find(m => m.work_milestone_name === a.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
+             const orderB = workMilestonesList?.find(m => m.work_milestone_name === b.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
+             return orderA - orderB;
+        });
+    });
+
+    return Object.entries(grouped)
+      .filter(([header, milestones]) => (milestones as any[]).length > 0)
+      .sort(([headerA], [headerB]) => {
+        const orderA = workHeaderOrderMap[headerA] ?? 9999;
+        const orderB = workHeaderOrderMap[headerB] ?? 9999;
+        return orderA - orderB;
+      });
+  }, [dailyReportDetails, workHeaderOrderMap, workMilestonesList]);
+
+  // 2. Prepare Work Milestones Groups
+  // Logic: Filter out "Not Applicable", group by header, sort by Order.
+  const milestoneGroups = useMemo(() => {
+    if (!dailyReportDetails?.milestones) return [];
+
+    const grouped = dailyReportDetails.milestones
+      .filter((milestone: any) => milestone.status !== "Not Applicable")
+      .reduce((acc: any, milestone: any) => {
+        (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
+        return acc;
+      }, {});
+    
+    // Sort milestones within each group based on work_milestone_order
+    Object.keys(grouped).forEach(header => {
+        grouped[header].sort((a: any, b: any) => {
+             const orderA = workMilestonesList?.find(m => m.work_milestone_name === a.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
+             const orderB = workMilestonesList?.find(m => m.work_milestone_name === b.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
+             return orderA - orderB;
+        });
+    });
+
+    return Object.entries(grouped)
+      .sort(([headerA], [headerB]) => {
+        const orderA = workHeaderOrderMap[headerA] ?? 9999;
+        const orderB = workHeaderOrderMap[headerB] ?? 9999;
+        return orderA - orderB;
+      });
+  }, [dailyReportDetails, workHeaderOrderMap, workMilestonesList]);
+  
+  // Print Header Toggle State
+  const [showPrintHeader, setShowPrintHeader] = useState(true);
+
+
 // Effect to initialize selectedZone (updated to handle tabs and parent control)
 useEffect(() => {
     // A. PREREQUISITE CHECK
@@ -372,6 +451,50 @@ console.log("Selected Zone:", selectedZone);
   const totalWorkHeaders = dailyReportDetails?.milestones?.length || 0;
   const completedWorksOnReport = dailyReportDetails?.milestones?.filter(m => m.status === "Completed").length || 0;
   const totalManpowerInReport = dailyReportDetails?.manpower?.reduce((sum, mp) => sum + Number(mp.count || 0), 0) || 0;
+
+  // --- NEW: Print Handler ---
+  const handleDownloadReport = async () => {
+    if (!dailyReportDetails?.name) return;
+
+    try {
+      toast({ title: "Generating PDF...", description: "Please wait while we prepare your report." });
+
+      // 1. Construct URL
+      const headerParam = showPrintHeader ? '1' : '0';
+      const printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Project%20Progress%20Reports&name=${dailyReportDetails.name}&format=Milestone%20Report&no_letterhead=0&show_header=${headerParam}`;
+
+      // 2. Fetch Blob
+      const response = await fetch(printUrl);
+      if (!response.ok) throw new Error("Failed to generate PDF");
+      const blob = await response.blob();
+
+      // 3. Construct Filename: ProjectName_Date_Zone.pdf
+      const pName = (projectData?.project_name || "Project").replace(/\s+/g, '_');
+      // Ensure valid date conversion
+      const rDate = dailyReportDetails.report_date ? new Date(dailyReportDetails.report_date) : new Date();
+      const dStr = format(rDate, "dd-MM-yyyy");
+      const zoneSuffix = selectedZone ? `_${selectedZone.replace(/\s+/g, '_')}` : "";
+
+      const fileName = `${pName}_${zoneSuffix}_${dStr}_DPR.pdf`;
+
+      // 4. Trigger Download
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', fileName);
+      document.body.appendChild(link);
+      link.click();
+
+      // 5. Cleanup
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      toast({ title: "Success", description: "Report downloaded successfully.", variant: "success" });
+
+    } catch (e) {
+      console.error("PDF Download Error:", e);
+      toast({ title: "Error", description: "Failed to download report.", variant: "destructive" });
+    }
+  };
 
   // Loading and Error States
   if (projectLoading || projectProgressLoading || dailyReportLoading) return <h1>Loading</h1>;
@@ -667,39 +790,12 @@ console.log("Selected Zone:", selectedZone);
 
 
 {/* --- UPDATED SECTION: Upcoming Work Plan Summary (Grouped by Header) --- */}
-{dailyReportDetails.milestones && dailyReportDetails.milestones.length > 0 && (() => {
-  // Group milestones by header and filter
- const groupedMilestones = dailyReportDetails.milestones.reduce((acc: any, milestone: any) => {
-    // Determine if the milestone is relevant for the Work Plan section
-    const isWIPOrNotStarted = milestone.status === "WIP" || milestone.status === "Not Started";
-    const hasWorkPlanContent = milestone.work_plan && parseWorkPlan(milestone.work_plan).length > 0;
-
-    // Include the milestone if it has content OR if it has a relevant status
-    if (hasWorkPlanContent || isWIPOrNotStarted) {
-      (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
-    }
-    return acc;
-  }, {});
-
-  // Filter out headers that have no milestones
-  let filteredGroups = Object.entries(groupedMilestones).filter(
-    ([header, milestones]) => (milestones as any[]).length > 0
-  );
-  // Filter out headers that have no milestones (this should generally not happen with the new logic, but is good for safety)
- filteredGroups = filteredGroups.sort(([headerA], [headerB]) => {
-    // Perform a locale-sensitive, case-insensitive string comparison
-    return headerA.localeCompare(headerB, undefined, { sensitivity: 'base' });
-  });
-
-  // Only render the entire Work Plan section if there are any valid groups
-  if (filteredGroups.length === 0) return null;
-
-
-  return (
+{/* --- UPDATED SECTION: Upcoming Work Plan Summary (Grouped by Header) --- */}
+{workPlanGroups.length > 0 && (
     <div className="mb-6">
       <h3 className="text-lg md:text-xl font-bold mb-6 border-b">Work Plan</h3>
       
-      {filteredGroups.map(([header, milestones], groupIdx) => (
+      {workPlanGroups.map(([header, milestones]: any, groupIdx: number) => (
         <div key={groupIdx} className="mb-4 last:mb-0 rounded-md overflow-hidden">
           {/* Header */}
           <div className="p-3 bg-gray-50">
@@ -763,8 +859,7 @@ console.log("Selected Zone:", selectedZone);
         </div>
       ))}
     </div>
-  );
-})()}
+)}
 {/* --- END UPDATED SECTION --- */}
 
 
@@ -797,12 +892,7 @@ console.log("Selected Zone:", selectedZone);
                         </Button>
                       </div>
 
-                      {Object.entries(
-                        dailyReportDetails.milestones.filter((milestone: any) => milestone.status !== "Not Applicable").reduce((acc, milestone) => {
-                          (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
-                          return acc;
-                        }, {})
-                      ).sort(([headerA], [headerB]) => headerA.localeCompare(headerB)).map(([header, milestones], groupIdx) => { 
+                      {milestoneGroups.map(([header, milestones]: any, groupIdx: number) => { 
                         const totalProgress = (milestones as any[]).reduce((sum, m) => sum + (Number(m.progress) || 0), 0);
     const averageProgress = (milestones as any[]).length > 0 
         ? Math.round(totalProgress / (milestones as any[]).length) 
@@ -1006,29 +1096,30 @@ console.log("Selected Zone:", selectedZone);
                       forPdf={false}
                     />
                   </div>
-                  {/* Download PDF Button */}
-                  <div className="mt-8 flex justify-end">
+                  <div className="mt-8 flex justify-end gap-2">
                     {dailyReportDetails && projectData && (
-                      <MilestoneReportPDF
-                        dailyReportDetails={dailyReportDetails}
-                        projectData={projectData}
-                        selectedZone={selectedZone}
-                      />
+                      <>
+                      <div> <span className="mr-3"> {showPrintHeader ?"Header Visible" : "Header Invisible"}:</span>
+                         <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => setShowPrintHeader(!showPrintHeader)}
+                          title={showPrintHeader ? "Header will be printed" : "Header will be hidden"}
+                        >
+                         
+                          {showPrintHeader ? <Eye className="w-4 h-4" />  : <EyeOff className="w-4 h-4 text-gray-400" />}
+                        </Button>
+                      </div>
+                       
+                        <Button
+                          onClick={handleDownloadReport}
+                          className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white"
+                        >
+                          <Download className="w-4 h-4" />
+                          Download Report
+                        </Button>
+                      </>
                     )}
-                    {/* {dailyReportDetails && projectData && (
-        <MilestoneReportPDF
-            // MAP 1: dailyReportDetails (your main doc) maps to 'milestone'
-            milestone={{
-                name: dailyReportDetails.name, 
-                creation: dailyReportDetails.creation, 
-                milestone_date: dailyReportDetails.report_date // Use report_date as the key date
-            }} 
-            
-            // MAP 2: projectData maps to 'contextName'
-            contextName={projectData.name || projectData.project_name} // Use the unique ID first, then the name
-        />
-    )}
-        */}
                   </div>
                 </div>
               ) : (

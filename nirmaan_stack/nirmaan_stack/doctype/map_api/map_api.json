@@ -24,7 +24,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2025-10-09 13:50:37.379930",
+ "modified": "2025-12-16 08:14:52.473907",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Map API",
@@ -97,6 +97,16 @@
    "print": 1,
    "read": 1,
    "role": "Nirmaan Project Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Nirmaan Design Lead",
    "share": 1,
    "write": 1
   }

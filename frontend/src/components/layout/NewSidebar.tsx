@@ -25,7 +25,7 @@ import {
   CreditCard,
   BanknoteIcon,
   Dices,
-  Landmark
+  Landmark,PencilRuler
 } from "lucide-react";
 
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
@@ -461,6 +461,15 @@ export function NewSidebar() {
           label: 'Reports',
         },
       ]
+      : []),
+      ...(user_id == "Administrator" || ["Nirmaan Design Lead Profile", "Nirmaan Admin Profile", "Nirmaan Design Executive Profile","Nirmaan Project Lead Profile"].includes(role)
+      ? [
+        {
+          key: '/design-tracker',
+          icon: PencilRuler,
+          label: 'Design Tracker',
+        },
+      ]
       : [])
 
 
@@ -501,6 +510,7 @@ export function NewSidebar() {
     'project-expenses',
     'non-project',
     'reports',
+    'design-tracker'
 
   ]), [])
 
@@ -531,7 +541,8 @@ export function NewSidebar() {
     "/project-invoices": ["project-invoices"],
     "/project-expenses": ["project-expenses"],
     "/non-project": ["non-project"],
-    "/reports": ["reports"]
+    "/reports": ["reports"],
+    '/design-tracker': ['design-tracker']
   }), []);
 
   const openKey = useMemo(() => {
@@ -600,7 +611,8 @@ export function NewSidebar() {
               >
                 <SidebarMenuItem>
 
-                  {new Set(["Dashboard", "Item Price Search", "Procurement Requests", "Purchase Orders", "Project Payments", "Credit Payments", "Sent Back Requests", "Projects", "Work Orders", "In-Flow Payments", "Invoice Recon", "Reports", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses"]).has(item?.label) ? (
+                  {new Set(["Dashboard", "Item Price Search", "Procurement Requests", "Purchase Orders", "Project Payments", "Credit Payments", "Sent Back Requests", "Projects", "Work Orders", "In-Flow Payments", "Invoice Recon", "Reports",
+                  "Design Tracker","Project Invoices", "Misc. Project Expenses", "Non Project Expenses"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
                         ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"

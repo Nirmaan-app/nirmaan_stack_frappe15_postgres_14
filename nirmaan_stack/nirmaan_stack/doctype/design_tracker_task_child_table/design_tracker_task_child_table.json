@@ -1,0 +1,92 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-12-02 13:09:52.828020",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "comments_column",
+  "phase",
+  "design_category",
+  "task_name",
+  "task_type",
+  "deadline",
+  "assigned_designers",
+  "task_status",
+  "task_sub_status",
+  "file_link",
+  "comments"
+ ],
+ "fields": [
+  {
+   "fieldname": "comments_column",
+   "fieldtype": "Column Break",
+   "label": "Comments"
+  },
+  {
+   "fieldname": "phase",
+   "fieldtype": "Data",
+   "label": "Phase"
+  },
+  {
+   "fieldname": "design_category",
+   "fieldtype": "Data",
+   "label": "Design Category"
+  },
+  {
+   "fieldname": "task_name",
+   "fieldtype": "Data",
+   "label": "Task Name"
+  },
+  {
+   "fieldname": "task_type",
+   "fieldtype": "Data",
+   "label": "Task Type"
+  },
+  {
+   "fieldname": "deadline",
+   "fieldtype": "Date",
+   "label": "Deadline"
+  },
+  {
+   "fieldname": "task_status",
+   "fieldtype": "Data",
+   "label": "Task Status"
+  },
+  {
+   "fieldname": "task_sub_status",
+   "fieldtype": "Data",
+   "label": "Task Sub Status"
+  },
+  {
+   "fieldname": "file_link",
+   "fieldtype": "Data",
+   "label": "File Link"
+  },
+  {
+   "fieldname": "comments",
+   "fieldtype": "Long Text",
+   "label": "Comments"
+  },
+  {
+   "fieldname": "assigned_designers",
+   "fieldtype": "JSON",
+   "label": "Assigned Designers"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2025-12-03 11:02:41.169339",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Design Tracker Task Child Table",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

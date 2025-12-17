@@ -133,7 +133,7 @@ export const Projects: React.FC<ProjectsProps> = ({
   // console.log("CreditData", CreditData);
 
   const { data: poData, isLoading: poDataLoading, error: poDataError } = useFrappeGetDocList<ProcurementOrder>(
-    "Procurement Orders", { fields: ["name", "project", "status", "amount", "tax_amount", "total_amount", "invoice_data"], filters: [["status", "not in", ["Merged", "Inactive", "PO Amendment"]],], limit: 100000 }, "POs_For_ProjectsList"
+    "Procurement Orders", { fields: ["name", "project", "status", "amount", "tax_amount", "total_amount", "invoice_data", "amount_paid", "po_amount_delivered"], filters: [["status", "not in", ["Merged", "Inactive", "PO Amendment"]],], limit: 100000 }, "POs_For_ProjectsList"
   );
 
 
@@ -156,7 +156,7 @@ export const Projects: React.FC<ProjectsProps> = ({
   const projectTypeOptions = useMemo(() => projectTypesList?.map(pt => ({ label: pt.name, value: pt.name })) || [], [projectTypesList]);
 
   const getProjectFinancials = useMemo(() => {
-    if (!poData || !srData || !projectInflows || !projectPayments || !projectExpenses || !CreditData) return () => ({ calculatedTotalInvoiced: 0, calculatedTotalInflow: 0, calculatedTotalOutflow: 0 });
+    if (!poData || !srData || !projectInflows || !projectPayments || !projectExpenses || !CreditData) return () => ({ calculatedTotalInvoiced: 0, calculatedTotalInflow: 0, calculatedTotalOutflow: 0, relatedTotalBalanceCredit: 0, relatedTotalCreditPaid: 0, totalLiabilities: 0 });
 
     // Pre-group data for efficiency
     const posByProject = memoize((projId: string) => poData.filter(po => po.project === projId));
@@ -195,12 +195,22 @@ export const Projects: React.FC<ProjectsProps> = ({
       const totalInflow = getTotalInflowAmount(relatedInflows);
       const totalOutflow = getTotalAmountPaid(relatedPayments) + getTotalExpensePaid(relatedExpenses); // Already filtered for "Paid"
 
+      // Calculate Total Liabilities (Payable Amount Against Delivered - Amount Paid Against Delivered)
+      const totalPayableAgainstDelivered = relatedPOs.reduce((sum, po) => sum + parseNumber(po.po_amount_delivered || 0), 0);
+      const totalPaidAgainstDelivered = relatedPOs.reduce((sum, po) => {
+        const amountPaid = parseNumber(po.amount_paid || 0);
+        const poAmountDelivered = parseNumber(po.po_amount_delivered || 0);
+        return sum + Math.min(amountPaid, poAmountDelivered);
+      }, 0);
+      const totalLiabilities = totalPayableAgainstDelivered - totalPaidAgainstDelivered;
+
       return {
         calculatedTotalInvoiced: totalInvoiced,
         calculatedTotalInflow: totalInflow,
         calculatedTotalOutflow: totalOutflow,
         relatedTotalBalanceCredit,
-        relatedTotalCreditPaid
+        relatedTotalCreditPaid,
+        totalLiabilities
       };
     });
   }, [poData, srData, projectInflows, projectPayments, projectExpenses, CreditData]);
@@ -305,7 +315,7 @@ export const Projects: React.FC<ProjectsProps> = ({
     },
     {
       id: "po_amount",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="PO Amount" />,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="PO Amount (incl.GST)" />,
       cell: ({ row }) => {
         const financials = getProjectFinancials(row.original.name);
         return (
@@ -345,7 +355,7 @@ export const Projects: React.FC<ProjectsProps> = ({
     },
     {
       id: "outflow",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Outflow" />,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Outflow (PO+SR)" />,
       cell: ({ row }) => {
         const financials = getProjectFinancials(row.original.name);
         return (
@@ -360,6 +370,27 @@ export const Projects: React.FC<ProjectsProps> = ({
         exportValue: (row) => {
           const financials = getProjectFinancials(row.name);
           return formatToRoundedIndianRupee(financials.calculatedTotalOutflow / 100000) + " L";
+        }
+      }
+    },
+
+    {
+      id: "total_liabilities",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Total Liabilities" />,
+      cell: ({ row }) => {
+        const financials = getProjectFinancials(row.original.name);
+        return (
+          <span className="text-red-600 tabular-nums">
+            {formatToRoundedIndianRupee(financials.totalLiabilities / 100000)} L
+          </span>
+        );
+      },
+      size: 100,
+      meta: {
+        exportHeaderName: "Total Liabilities",
+        exportValue: (row) => {
+          const financials = getProjectFinancials(row.name);
+          return formatToRoundedIndianRupee(financials.totalLiabilities / 100000) + " L";
         }
       }
     },
@@ -383,26 +414,26 @@ export const Projects: React.FC<ProjectsProps> = ({
         }
       }
     },
-    {
-      id: "creditAmtPaid",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Total Credit Amt Paid" />,
-      cell: ({ row }) => {
-        const financials = getProjectFinancials(row.original.name);
-        return (
-          <span className="tabular-nums">
-            {formatToRoundedIndianRupee(parseNumber(financials.relatedTotalCreditPaid) / 100000)} L
-          </span>
-        );
-      },
-      size: 100,
-      meta: {
-        exportHeaderName: "Total Credit Amt Paid",
-        exportValue: (row) => {
-          const financials = getProjectFinancials(row.name);
-          return formatToRoundedIndianRupee(parseNumber(financials.relatedTotalCreditPaid) / 100000) + " L";
-        }
-      }
-    }
+    // {
+    //   id: "creditAmtPaid",
+    //   header: ({ column }) => <DataTableColumnHeader column={column} title="Total Credit Amt Paid" />,
+    //   cell: ({ row }) => {
+    //     const financials = getProjectFinancials(row.original.name);
+    //     return (
+    //       <span className="tabular-nums">
+    //         {formatToRoundedIndianRupee(parseNumber(financials.relatedTotalCreditPaid) / 100000)} L
+    //       </span>
+    //     );
+    //   },
+    //   size: 100,
+    //   meta: {
+    //     exportHeaderName: "Total Credit Amt Paid",
+    //     exportValue: (row) => {
+    //       const financials = getProjectFinancials(row.name);
+    //       return formatToRoundedIndianRupee(parseNumber(financials.relatedTotalCreditPaid) / 100000) + " L";
+    //     }
+    //   }
+    // }
     //    {
     //    id: "Value", // Unique ID
     //    header: "Value of Project",

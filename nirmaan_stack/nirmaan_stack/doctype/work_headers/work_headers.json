@@ -8,7 +8,8 @@
  "field_order": [
   "details_section",
   "work_header_name",
-  "work_package_link"
+  "work_package_link",
+  "order"
  ],
  "fields": [
   {
@@ -27,12 +28,18 @@
    "fieldtype": "Link",
    "label": "Work Package Link",
    "options": "Work Packages"
+  },
+  {
+   "fieldname": "order",
+   "fieldtype": "Int",
+   "label": "Order",
+   "non_negative": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-10-09 13:52:56.200370",
+ "modified": "2025-12-15 21:02:09.077010",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Work Headers",
@@ -122,9 +129,22 @@
    "role": "Nirmaan Project Manager",
    "share": 1,
    "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Lead",
+   "share": 1,
+   "write": 1
   }
  ],
  "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": []

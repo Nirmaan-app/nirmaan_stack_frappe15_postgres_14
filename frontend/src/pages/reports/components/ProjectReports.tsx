@@ -6,15 +6,16 @@ import { formatValueToLakhsString, getProjectColumns } from "./columns/projectCo
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { ReportType, useReportStore } from "../store/useReportStore";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
+import { useFrappeGetDocList } from "frappe-react-sdk"; // Imported useFrappeGetDocList
 import {
     PROJECT_REPORTS_SEARCHABLE_FIELDS,
     PROJECT_REPORTS_DATE_COLUMNS,
-} from "../config/projectReportsTable.config"; // Make sure this file exists and is correct
+} from "../config/projectReportsTable.config"; 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"; 
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
-import { toast } from "@/components/ui/use-toast"; // For custom export
-import { exportToCsv } from "@/utils/exportToCsv"; // For custom export
-import { parseNumber } from "@/utils/parseNumber"; // For custom export credit calc
+import { toast } from "@/components/ui/use-toast"; 
+import { exportToCsv } from "@/utils/exportToCsv"; 
+import { parseNumber } from "@/utils/parseNumber"; 
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
@@ -25,9 +26,9 @@ import {NonProjectExpensesPage} from "@/pages/NonProjectExpenses/NonProjectExpen
 import { ProjectProgressReports } from "./ProjectProgressReports";
 
 import { StandaloneDateFilter } from "@/components/ui/StandaloneDateFilter";
-import { urlStateManager } from "@/utils/urlStateManager"; // <--- NEW IMPORT
-import { parse, formatISO, startOfDay, format } from 'date-fns'; // <--- NEW IMPORT
-import { DateRange } from "react-day-picker"; // <--- NEW IMPORT
+import { urlStateManager } from "@/utils/urlStateManager";
+import { parse, formatISO, startOfDay, endOfDay, format } from 'date-fns';
+import { DateRange } from "react-day-picker"; 
 
 
 // Define base fields for Projects doctype fetch
@@ -40,8 +41,8 @@ const projectReportListOptions = () => ({
 
 const URL_SYNC_KEY = "project_case_sheet"; // Use a specific key for URL state
 const getDefaultDateRange = (): DateRange => ({
-    from: new Date('2024-04-01'),
-    to: startOfDay(new Date()),
+    from: startOfDay(new Date('2024-04-01')),
+    to: endOfDay(new Date()),
 });
 
 // Component for the existing Cash Sheet report
@@ -53,8 +54,8 @@ function CashSheetReport() {
         if (fromParam && toParam) {
             try {
                 return {
-                    from: parse(fromParam, 'yyyy-MM-dd', new Date()),
-                    to: parse(toParam, 'yyyy-MM-dd', new Date()),
+                    from: startOfDay(parse(fromParam, 'yyyy-MM-dd', new Date())),
+                    to: endOfDay(parse(toParam, 'yyyy-MM-dd', new Date())),
                 };
             } catch (e) {
                 console.error("Error parsing date from URL:", e);
@@ -109,15 +110,40 @@ const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }
         }  }
     });
 
-    const financialSummary = useMemo(() => {
-        const rowsToSum = table.getFilteredRowModel().rows; 
+    // --- NEW: Fetch ALL projects for summary calculation (bypassing pagination) ---
+    const { data: allProjects } = useFrappeGetDocList<Projects>(
+        "Projects",
+        {
+            fields: ['name', 'project_name', 'project_value', 'creation', 'modified', 'status'],
+            limit: 0, // Fetch ALL
+             orderBy: { field: "creation", order: "desc" }
+        }
+    );
 
-        return rowsToSum.reduce((acc, row) => {
-            const calculated = getProjectCalculatedFields(row.original.name);
+    // Filter "allProjects" based on the search term to match the table's *scope*
+    const filteredProjectsForSummary = useMemo(() => {
+        if (!allProjects) return [];
+        if (!searchTerm) return allProjects;
+
+        const lowerSearch = searchTerm.toLowerCase();
+        return allProjects.filter(p => 
+            p.project_name?.toLowerCase().includes(lowerSearch) ||
+            p.name.toLowerCase().includes(lowerSearch)
+            // Add other search fields if needed
+        );
+    }, [allProjects, searchTerm]);
+
+
+    const financialSummary = useMemo(() => {
+        // Use the filtered ALL list, not the paginated table rows
+        const rowsToSum = filteredProjectsForSummary; 
+
+        return rowsToSum.reduce((acc, project) => {
+            const calculated = getProjectCalculatedFields(project.name);
             if (calculated) {
                
                 // ACCUMULATE ALL FIELDS
-                acc.projectValue += parseNumber(row.original.project_value); // From the Project Doc
+                acc.projectValue += parseNumber(project.project_value); // From the Project Doc
                 acc.totalInvoiced += parseNumber(calculated.totalInvoiced); // Total PO+SR Value
                 acc.totalPoSrInvoiced += parseNumber(calculated.totalPoSrInvoiced); 
                 acc.totalProjectInvoiced += parseNumber(calculated.totalProjectInvoiced);
@@ -139,7 +165,7 @@ const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }
             totalPurchaseOverCredit: 0,
             creditPaidAmount: 0,
         });
-    }, [table.getFilteredRowModel().rows, getProjectCalculatedFields]); 
+    }, [filteredProjectsForSummary, getProjectCalculatedFields]); 
     // -------------------------------------------------------------
 
     // // Helper function to format the total amount to Indian Rupee Lakhs for display

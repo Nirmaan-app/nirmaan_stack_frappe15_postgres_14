@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { v4 as uuidv4 } from 'uuid';
 
 // Frappe SDK and Utils
-import { useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall,useFrappeGetDoc } from "frappe-react-sdk";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 
@@ -52,10 +52,11 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
   const { prId, projectId } = useParams<{ prId: string, projectId: string }>();
 
   // --- Data Fetching ---
-  const { data: prList, isLoading: prListLoading } = useFrappeGetDocList<ProcurementRequest>("Procurement Requests", {
-    fields: ["*"],
-    filters: [["name", "=", prId]]
-  }, prId ? `Procurement Requests ${prId}` : undefined);
+  const { data: prDoc, isLoading: prDocLoading } = useFrappeGetDoc<ProcurementRequest>(
+    "Procurement Requests", 
+    prId,
+    prId ? `Procurement Request ${prId}` : undefined
+  );
 
   const { data: vendor_list, isLoading: vendorListLoading } = useFrappeGetDocList<Vendors>("Vendors", {
     fields: ["*"],
@@ -142,20 +143,29 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
   const checkNextButtonStatus = useCallback(() => {
     const allAmountsFilled = Object.values(amounts).every(amount => amount && amount > 0);
     const allAmountsCount = Object.keys(amounts)?.length === order?.length;
-    const allFieldsFilled = !order.some(i => !i?.quantity || !i?.unit || !i?.category || !i?.procurement_package || !i?.tax || !i.item);
+    const allFieldsFilled = !order.some(i => !i?.quantity || !i?.unit || !i?.category || !i?.procurement_package || !i?.tax || !(i.item || i.item_name));
     return allAmountsFilled && allAmountsCount && allFieldsFilled && order.length !== 0 && !!selectedVendor?.value;
   }, [amounts, order, selectedVendor]);
 
   // --- Effects ---
   useEffect(() => {
-    if (resolve && prList && prList.length > 0 && vendor_list && vendor_list.length > 0) {
-      const request = prList[0];
-      setOrder(request?.procurement_list?.list as typeof order);
+    if (resolve && prDoc && vendor_list && vendor_list.length > 0) {
+      const request = prDoc;
+      
+      const transformedOrder = (request?.order_list || []).map((item: any) => ({
+        ...item,
+        item: item.item_name || item.item,
+        name: item.item_id || item.name // Restore UUID from item_id if available
+      })) as CustomPRItem[];
+
+      setOrder(transformedOrder);
       setCategories(request?.category_list);
+      
       const amounts: { [key: string]: number } = {};
-      request?.procurement_list?.list?.forEach(item => { amounts[item.name] = item.quote; });
+      transformedOrder.forEach(item => { amounts[item.name] = item.quote; });
       setAmounts(amounts);
-      const vendorId = request?.procurement_list?.list?.[0]?.vendor;
+      
+      const vendorId = request?.order_list?.[0]?.vendor;
       const vendor = vendor_list?.find(v => v.name === vendorId);
       if(vendor) {
         setSelectedvendor({ value: vendor.name, label: vendor.vendor_name, city: vendor.vendor_city || "", state: vendor.vendor_state || "" });
@@ -172,7 +182,7 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
         }
       }
     }
-  }, [resolve, prId, prList, vendor_list]);
+  }, [resolve, prId, prDoc, vendor_list]);
 
   // --- Handlers ---
   const handleAmountChange = useCallback((id: string, value: string) => {
@@ -252,7 +262,7 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
         file_url = uploadedFile.file_url;
       }
       const response = await resolveCustomPRCall({
-        project_id: prList?.[0]?.project,
+        project_id: prDoc?.project,
         pr_id: prId,
         order: order,
         categories: categories.list,
@@ -272,7 +282,7 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
     }
   };
 
-  if (prListLoading || vendorListLoading || procurementPackagesLoading || categoryDataLoading) {
+  if (prDocLoading || vendorListLoading || procurementPackagesLoading || categoryDataLoading) {
     return <div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>;
   }
 
@@ -281,7 +291,7 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
     <div className="flex-1 space-y-4">
       {/* The Header Card is now only rendered here, at the top level */}
       {section === "choose-vendor" && (
-          <ProcurementHeaderCard orderData={prList?.[0]} customPr />
+          <ProcurementHeaderCard orderData={prDoc} customPr />
       )}
       
       {section === "choose-vendor" && (
@@ -337,7 +347,7 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
                           <SelectContent>{category_data?.filter((i) => item?.procurement_package === i?.work_package)?.map((cat) => (<SelectItem key={cat?.name} value={cat?.name}>{cat?.name}</SelectItem>))}</SelectContent>
                         </Select>
                       </TableCell>
-                      <TableCell className="whitespace-pre-wrap"><Textarea value={item?.item || ""} onChange={(e) => handleInputChange(item.name, "item", e.target.value)} /></TableCell>
+                      <TableCell className="whitespace-pre-wrap"><Textarea value={item?.item ||item?.item_name|| ""} onChange={(e) => handleInputChange(item.name, "item", e.target.value)} /></TableCell>
                       <TableCell><SelectUnit value={item?.unit || ""} onChange={(value) => handleInputChange(item.name, "unit", value)} /></TableCell>
                       <TableCell><Input type="number" value={item?.quantity || ""} onChange={(e) => handleInputChange(item.name, "quantity", parseFloat(e.target.value))} /></TableCell>
                       <TableCell className="font-semibold">
@@ -374,7 +384,7 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
 
       {section == "summary" && approvalSummary && (
         <CustomPRSummary
-          orderData={prList?.[0]}
+          orderData={prDoc}
           approvalSummary={approvalSummary}
           resolve={resolve}
           onBack={() => setSection("choose-vendor")}
