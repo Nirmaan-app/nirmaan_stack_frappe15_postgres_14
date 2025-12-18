@@ -791,7 +791,7 @@ interface POPdfProps {
 }
 
 pdfjsLib.GlobalWorkerOptions.workerSrc =
-  "https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js";
+  "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
 
 const gstAddressMap = {
   "29ABFCS9095N1Z9": "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka",
@@ -1036,31 +1036,61 @@ export const POPdf: React.FC<POPdfProps> = ({
     },
     po?.procurement_request ? undefined : null
   );
-
+console.log("Nirmaan Attachments",attachmentsData)
   const [images, setImages] = useState([]);
   const [isPrinting, setIsPrinting] = useState(false);
 
   const loadFileAsImage = async (att) => {
     try {
-      const baseURL = window.location.origin;
-      const fileUrl = `${baseURL}${att.attachment}`;
-      const fileType = att.attachment.split(".").pop().toLowerCase();
+      console.log("Processing attachment:", att);
+      let fileUrl = att.attachment;
+      if (!fileUrl.startsWith("http")) {
+         const baseURL = window.location.origin;
+         // Ensure we don't double slash if attachment also starts with /
+         const path = att.attachment.startsWith("/") ? att.attachment : `/${att.attachment}`;
+         fileUrl = `${baseURL}${path}`;
+      }
+      console.log("File URL:", fileUrl);
+      
+      let fileType = "unknown";
+      try {
+          const urlObj = new URL(fileUrl);
+          const fileNameParam = urlObj.searchParams.get("file_name");
+          if (fileNameParam) {
+             fileType = fileNameParam.split(".").pop().toLowerCase();
+          } else {
+             // Fallback to pathname extracted info
+             fileType = urlObj.pathname.split(".").pop().toLowerCase();
+          }
+      } catch (e) {
+          // Fallback to simple string split if URL parsing fails
+          console.warn("URL parsing failed, falling back to string split", e);
+          fileType = att.attachment.split(".").pop().toLowerCase();
+      }
+      
+      console.log("Detected File Type:", fileType);
 
       if (["pdf"].includes(fileType)) {
+        // Handle PDF files
+        console.log("Fetching PDF...");
+        // CRITICAL FIX: Do NOT send custom Content-Type header for GET requests to S3/API
+        // It causes CORS preflight failures or S3 Signature Mismatches
         const response = await fetch(fileUrl, {
           method: "GET",
-          headers: {
-            "Content-Type": "application/pdf",
-          },
         });
 
         if (!response.ok) {
-          throw new Error(`Failed to fetch PDF: ${response.statusText}`);
+           const errText = await response.text();
+           throw new Error(`Failed to fetch PDF: ${response.status} ${response.statusText} - ${errText}`);
         }
 
         const pdfArrayBuffer = await response.arrayBuffer();
+        console.log("PDF fetched, size:", pdfArrayBuffer.byteLength);
+
         const loadingTask = pdfjsLib.getDocument({ data: pdfArrayBuffer });
         const pdf = await loadingTask.promise;
+        console.log("PDF PDFJS Document loaded, pages:", pdf.numPages);
+        
         const pages = [];
 
         for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
@@ -1088,10 +1118,28 @@ export const POPdf: React.FC<POPdfProps> = ({
   };
 
   useEffect(() => {
-    if (attachmentsData) {
-      attachmentsData.forEach(loadFileAsImage);
+    const allAttachments = [];
+
+    if (attachmentsData && attachmentsData.length > 0) {
+      allAttachments.push(...attachmentsData);
     }
-  }, [attachmentsData]);
+
+    if (po?.attachment) {
+      console.log("Found PO Attachment:", po.attachment);
+      allAttachments.push({ attachment: po.attachment });
+    }
+
+    console.log("Combined Attachments list:", allAttachments);
+
+    if (allAttachments.length > 0) {
+      allAttachments.forEach((att, index) => {
+        console.log(`Triggering loadFileAsImage for item ${index}`, att);
+        loadFileAsImage(att);
+      });
+    } else {
+      console.log("No attachments found to process.");
+    }
+  }, [attachmentsData, po?.attachment]);
 
   const handlePrint = useReactToPrint({
     content: () => componentRef.current || null,
