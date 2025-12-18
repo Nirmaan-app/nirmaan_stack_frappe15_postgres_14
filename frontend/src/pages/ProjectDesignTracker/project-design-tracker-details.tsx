@@ -37,7 +37,7 @@ const PROJECT_STATUS_OPTIONS = [
 // --- TYPE DEFINITION for Category Items ---
 interface CategoryItem {
     category_name: string;
-    tasks: { task_name: string }[];
+    tasks: { task_name: string; deadline_offset?: number }[];
     // Add other fields if needed, but keeping it minimal for UI/Task generation
 }
 
@@ -160,7 +160,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onSav
         task_name: '',
         design_category: initialCategoryName,
         deadline: '',
-        task_status: 'Not Applicable',
+        task_status: 'Not Started',
         file_link: '',
         comments: ''
     });
@@ -178,7 +178,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onSav
                 task_name: '',
                 design_category: initialCategoryName,
                 deadline: '',
-                task_status: 'Not Applicable',
+                task_status: 'Not Started',
             });
             setSelectedDesigners([]);
         } else {
@@ -397,11 +397,21 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
             }
 
             taskItems.forEach(taskDef => {
+                // Calculate deadline using offset if available
+                let calculatedDeadline: string | undefined = undefined;
+                if (taskDef.deadline_offset !== undefined && taskDef.deadline_offset !== null) {
+                    const d = new Date();
+                    d.setDate(d.getDate() + taskDef.deadline_offset);
+                     // Format as YYYY-MM-DD
+                    calculatedDeadline = d.toISOString().split('T')[0];
+                }
+
                 tasksToGenerate.push({
                     task_name: taskDef.task_name || `${cat.category_name} Default Task`,
                     design_category: cat.category_name,
-                    task_status: 'Not Applicable',
-                    deadline: undefined,
+                    task_status: 'Not Started',
+                    deadline: calculatedDeadline,
+                    deadline_offset: taskDef.deadline_offset, // Also pass the offset itself if needed for reference
                 });
             });
         });
@@ -698,9 +708,9 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
             
             // Custom Filename Logic
             const now = new Date();
-            const dateStr = format(now, "dd-MM-yyyy");
+            const dateStr = format(now, "dd_MMM_yyyy");
             const projectNameClean = (trackerDoc.project_name || "Project").replace(/[^a-zA-Z0-9-_]/g, "_");
-            const filename = `${projectNameClean}_DesignTracker_${dateStr}.pdf`;
+            const filename = `${projectNameClean}-${dateStr}-DesignTracker.pdf`;
 
             const url = window.URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
             const link = document.createElement('a');
@@ -860,7 +870,7 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                                             <thead className="bg-gray-100 text-xs text-gray-500 uppercase" style={{ backgroundColor: '#f2f2fb' }}>
                                                 <tr className='text-xs text-gray-500 uppercase font-medium'>
                                                     <th className="px-4 py-3 text-left w-[15%]">Task Name</th>
-                                                    <th className="px-4 py-3 text-center w-[18%]">Assigned Designer</th>
+                                                    <th className="px-4 py-3 text-left w-[18%]">Assigned Designer</th>
                                                     <th className="px-4 py-3 text-left w-[10%]">Deadline</th>
                                                     <th className="px-4 py-3 text-center w-[10%]">Status</th>
                                                     <th className="px-4 py-3 text-center w-[15%]">Sub-Status</th>
@@ -873,7 +883,7 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                                                 {tasks.map((task) => (
                                                     <tr key={task.name}>
                                                         <td className="px-4 py-3 w-[15%] whitespace-wrap text-sm font-medium text-gray-900">{task.task_name}</td>
-                                                        <td className="px-4 py-3 text-sm text-gray-500 text-center ">{getAssignedNameForDisplay(task)}</td>
+                                                        <td className="px-4 py-3 text-sm text-gray-500 text-left ">{getAssignedNameForDisplay(task)}</td>
                                                         <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{formatDeadlineShort(task.deadline) || '...'}</td>
 
                                                         {/* Status Badge */}
@@ -928,7 +938,7 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                                                                             href={task.file_link}
                                                                             target="_blank"
                                                                             rel="noopener noreferrer"
-                                                                            className="block w-full h-full cursor-pointer hover:scale-110 transition-transform"
+                                                                            className="flex justify-center items-center w-full h-full cursor-pointer hover:scale-110 transition-transform"
                                                                         >
                                                                             <LinkIcon className={`h-6 w-6 p-1 bg-gray-100 rounded-md ${task.file_link ? 'cursor-pointer text-blue-500' : 'text-gray-300'}`} />
                                                                         </a>

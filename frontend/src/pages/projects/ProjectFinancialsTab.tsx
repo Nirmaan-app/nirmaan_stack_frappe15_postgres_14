@@ -201,18 +201,17 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
     },
     {
       label: "Advance Against PO",
-      // value: getTotalAmountPaid.poAmount-getAllPODeliveredAmount,
-
       value: advanceAgainstPO,
       style: "",
       info:"Advance amount paid before delivery for this project’s POs."
     },
-
-
-
-
-
-  ], [totalInflowAmount, totalProjectInvoiceAmount, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST, projectData?.project_value, CreditData])
+    {
+      label: "Current Liabilities",
+      value: getAllPODeliveredAmount - poPaymentAgainstDelivery,
+      style: "",
+      info: "PO Payable Amount - PO Payment Against Delivery"
+    },
+  ], [totalInflowAmount, totalProjectInvoiceAmount, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST, projectData?.project_value, CreditData, getAllPODeliveredAmount, poPaymentAgainstDelivery, advanceAgainstPO])
 
 
   const tabs = useMemo(() => [

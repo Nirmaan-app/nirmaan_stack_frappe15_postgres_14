@@ -348,8 +348,14 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
         );
     }, [editState.task_status, subStatusOptions]);
     
-     React.useEffect(() => {
+    React.useEffect(() => {
         const isStatusMapped = !!SUB_STATUS_MAP[editState.task_status as keyof typeof SUB_STATUS_MAP];
+        
+        // If status is Not Applicable, clear the deadline
+        if (editState.task_status === "Not Applicable") {
+            setEditState(prev => ({ ...prev, deadline: undefined }));
+        }
+
         // Only clear sub_status if status changes to one that doesn't support sub-status at all
         // Preserve sub_status for custom text input statuses
         if (!isStatusMapped && editState.task_sub_status) {
