@@ -43,7 +43,7 @@ def get_all_master_data():
     
     # 2. Fetch Users
     allowed_profiles = [
-        "Nirmaan Design Executive Profile",
+        "Nirmaan Design Executive Profile","Nirmaan Design Lead Profile"
     ]
 
     users = frappe.get_list(
