@@ -125,6 +125,8 @@ const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categ
                 design_tracker_task: tasksToGenerate
             });
             toast({ title: "Success", description: `Design Tracker created for ${projectLabel}.`, variant: "success" });
+            setSelectedProjectId(null);
+            setSelectedCategories([]);
             onSuccess();
             onClose();
         } catch (error: any) {
@@ -795,7 +797,10 @@ export const DesignTrackerList: React.FC = () => {
                 onClose={() => setIsModalOpen(false)}
                 projectOptions={projectOptions}
                 categoryData={categoryData}
-                onSuccess={() => refetchList()}
+                onSuccess={() => {
+                    refetchList();
+                    if (mutateMasters) mutateMasters();
+                }}
             />
         </div>
     )

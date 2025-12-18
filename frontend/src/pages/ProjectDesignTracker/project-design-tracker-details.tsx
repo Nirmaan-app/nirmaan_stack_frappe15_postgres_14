@@ -32,7 +32,7 @@ const PROJECT_STATUS_OPTIONS = [
     { value: 'In Progress', label: 'In Progress' },
     { value: 'Completed', label: 'Completed' },
     { value: 'On Hold', label: 'On Hold' },
-    { value: 'Archived', label: 'Archived' },
+    // { value: 'Archived', label: 'Archived' },
 ];
 // --- TYPE DEFINITION for Category Items ---
 interface CategoryItem {
@@ -819,7 +819,7 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
 
             {/* --- ON-BOARDING SECTION --- */}
             <div className="flex justify-between items-center pt-4">
-                <h2 className="text-2xl font-bold text-gray-800">On-Boarding</h2>
+                <h2 className="text-2xl font-bold text-gray-800">Task List</h2>
                 {!isDesignExecutive && (
                 <Button
                     variant="outline"
