@@ -187,32 +187,11 @@ export const useApproveSBSLogic = ({
 
             const targetRateDetail = targetRatesDataMap.get(lookupKey); // item.
 
-            const contributingHistoricalQuotes = targetRateDetail 
-                            ? mapApiQuotesToApprovedQuotations(targetRateDetail.selected_quotations_items || []) as ApprovedQuotationForHoverCard[] 
-                            : [];
 
             let targetRateValue: number | undefined = undefined;
 
-            if (contributingHistoricalQuotes.length > 0) {
-                            let minHistoricalRate = Infinity;
-                            
-                            contributingHistoricalQuotes.forEach(quote => {
-                                // Parse the rate from the quote object (handle both 'quote' and 'rate' fields)
-                                const rate = parseNumber(quote.quote || quote.rate);
-                                
-                                // If valid rate and lower than current min, update min
-                                if (rate > 0 && rate < minHistoricalRate) {
-                                    minHistoricalRate = rate;
-                                }
-                            });
-            
-                            // If we found a valid minimum, use it
-                            if (minHistoricalRate !== Infinity) {
-                                targetRateValue = minHistoricalRate;
-                            }
-                        }
-
-            if ((targetRateValue === undefined || targetRateValue === 0) && targetRateDetail?.rate) {
+           
+            if (targetRateDetail?.rate) {
                             const parsedTargetRate = parseNumber(targetRateDetail.rate);
                             if (parsedTargetRate > 0) targetRateValue = parsedTargetRate;
                         }
@@ -263,8 +242,7 @@ export const useApproveSBSLogic = ({
                 lowestQuotedAmountForItem: calculatedLowestQuotedAmountInRfq,
                 targetRate: targetRateValue,
                 targetAmount: calculatedTargetAmount,
-                // contributingHistoricalQuotes: targetRateDetail ? mapApiQuotesToApprovedQuotations(targetRateDetail.selected_quotations_items || []) as ApprovedQuotationForHoverCard[] : [],
-                contributingHistoricalQuotes: contributingHistoricalQuotes,
+                contributingHistoricalQuotes: targetRateDetail ? mapApiQuotesToApprovedQuotations(targetRateDetail.selected_quotations_items || []) as ApprovedQuotationForHoverCard[] : [],
                 savingLoss: undefined, // Initialize
             };
 

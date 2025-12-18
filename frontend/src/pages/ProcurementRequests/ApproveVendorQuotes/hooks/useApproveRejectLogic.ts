@@ -16,6 +16,7 @@ import { v4 as uuidv4 } from "uuid";
 import { useFrappeGetCall } from 'frappe-react-sdk';
 import { parseNumber } from '@/utils/parseNumber';
 import getLowestQuoteFilled from '@/utils/getLowestQuoteFilled';
+import { LetterText } from 'lucide-react';
 
 interface UseApproveRejectLogicProps {
     prId?: string;
@@ -177,37 +178,12 @@ export const useApproveRejectLogic = ({ prId, initialPrData, vendorList = [], us
             // =================================================================================
             // ✨ NEW LOGIC START: Calculate Target Rate from Lowest Historical Quote
             // =================================================================================
-
-            // 1. Extract the historical quotes list first
-            const contributingHistoricalQuotes = targetRateDetail 
-                ? mapApiQuotesToApprovedQuotations(targetRateDetail.selected_quotations_items || []) as ApprovedQuotationForHoverCard[] 
-                : [];
-
-            // 2. Determine the Target Rate Value
-            let targetRateValue: number | undefined;
-
-            // Priority A: Find the lowest rate among the historical quotes
-            if (contributingHistoricalQuotes.length > 0) {
-                let minHistoricalRate = Infinity;
-                
-                contributingHistoricalQuotes.forEach(quote => {
-                    // Parse the rate from the quote object (handle both 'quote' and 'rate' fields)
-                    const rate = parseNumber(quote.quote || quote.rate);
-                    
-                    // If valid rate and lower than current min, update min
-                    if (rate > 0 && rate < minHistoricalRate) {
-                        minHistoricalRate = rate;
-                    }
-                });
-
-                // If we found a valid minimum, use it
-                if (minHistoricalRate !== Infinity) {
-                    targetRateValue = minHistoricalRate;
-                }
-            }
-
+           console.log("selected_quotations_items",targetRateDetail,targetRateDetail?.selected_quotations_items)
+     
             // Priority B: Fallback to the generic rate from API if no valid historical quotes found
-            if ((targetRateValue === undefined || targetRateValue === 0) && targetRateDetail?.rate) {
+            let targetRateValue:number|undefined
+
+            if (targetRateDetail?.rate) {
                 const parsedTargetRate = parseNumber(targetRateDetail.rate);
                 if (parsedTargetRate > 0) targetRateValue = parsedTargetRate;
             }
@@ -233,8 +209,8 @@ export const useApproveRejectLogic = ({ prId, initialPrData, vendorList = [], us
             lowestQuotedAmountForItem: calculatedLowestQuotedAmountInRfq,
             targetRate: targetRateValue,
             targetAmount: calculatedTargetAmount,
-            // contributingHistoricalQuotes: targetRateDetail ? mapApiQuotesToApprovedQuotations(targetRateDetail.selected_quotations_items || []) as ApprovedQuotationForHoverCard[] : [],
-            contributingHistoricalQuotes: contributingHistoricalQuotes,
+            contributingHistoricalQuotes: targetRateDetail ? mapApiQuotesToApprovedQuotations(targetRateDetail.selected_quotations_items || []) as ApprovedQuotationForHoverCard[] : [],
+            // contributingHistoricalQuotes: contributingHistoricalQuotes,
             savingLoss: undefined,
         };
         

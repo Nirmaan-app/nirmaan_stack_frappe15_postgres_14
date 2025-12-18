@@ -254,7 +254,7 @@ const activeMake = selectedVendorId
                                     let targetRateValue = -1;
                                     if (targetRateDetail?.rate && targetRateDetail.rate !== "-1") {
                                         const parsedRate = parseNumber(targetRateDetail.rate);
-                                        if (!isNaN(parsedRate)) targetRateValue = parsedRate * 0.98;
+                                        if (!isNaN(parsedRate)) targetRateValue = parsedRate;
                                     }
                                     //  console.log("targetRateDetail",targetRateDetail?.selected_quotations_items)
 
@@ -495,12 +495,12 @@ const activeMake = selectedVendorId
 })}
                                          
                                             <TableCell className="align-middle text-right">
-                                                <HistoricalQuotesHoverCard quotes={mappedContributingQuotes}>
+                                                <HistoricalQuotesHoverCard quotes={mappedContributingQuotes} targetValue={targetRateValue} >
                     {/* 1. If targetRateValue is valid, show it directly */}
                     {(targetRateValue !== -1 && targetRateValue) ? 
                         (
                             <span className='font-semibold text-sm'>
-                                {formatToRoundedIndianRupee(targetRateValue)}
+                                {formatToRoundedIndianRupee(targetRateValue * 0.98 )}
                             </span>
                         ) :
                         /* 2. Target Rate is invalid. Check for Initial Rate. */

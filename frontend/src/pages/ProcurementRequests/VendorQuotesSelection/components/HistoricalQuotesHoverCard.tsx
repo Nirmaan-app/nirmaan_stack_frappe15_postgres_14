@@ -20,6 +20,7 @@ interface HistoricalQuotesHoverCardProps {
     title?: string;
     maxVisibleQuotes?: number;
     contentClassName?: string;
+    targetValue?: number; // Added targetValue prop
 }
 
 const DEFAULT_MAX_VISIBLE_QUOTES = 5;
@@ -30,14 +31,29 @@ export const HistoricalQuotesHoverCard: React.FC<HistoricalQuotesHoverCardProps>
     title = "Contributing Historical Quotes",
     maxVisibleQuotes = DEFAULT_MAX_VISIBLE_QUOTES,
     contentClassName,
+    targetValue,
 }) => {
 
-    if (!quotes || quotes.length === 0) {
+    // Filter quotes based on targetValue
+    const filteredQuotes = React.useMemo(() => {
+        if (!quotes) return [];
+        if (targetValue === undefined || targetValue === null) return quotes;
+
+        return quotes.filter(q => {
+             // Parse the rate mostly stored in `quote` field for historical data lookup
+            const rate = parseNumber(q.quote);
+            const target = parseNumber(targetValue);
+            // Show if rate is less than or equal to the target value (lowest historical rate)
+            return rate <= target;
+        });
+    }, [quotes, targetValue]);
+
+    if (!filteredQuotes || filteredQuotes.length === 0) {
         return <>{children}</>;
     }
 
-    const hasMoreQuotes = quotes.length > maxVisibleQuotes;
-    const visibleQuotes = quotes.slice(0, 1000); // Consider if 1000 is a practical limit for rendering
+    const hasMoreQuotes = filteredQuotes.length > maxVisibleQuotes;
+    const visibleQuotes = filteredQuotes.slice(0, 1000); // Consider if 1000 is a practical limit for rendering
 
     return (
         <HoverCard openDelay={200} closeDelay={100}>
@@ -118,7 +134,7 @@ export const HistoricalQuotesHoverCard: React.FC<HistoricalQuotesHoverCardProps>
                                             <Tag className="h-3 w-3" /> Rate/Qty:
                                         </span>
                                         <span className="font-semibold text-foreground">
-                                            {formatToRoundedIndianRupee(parseNumber(quote.quote || quote.rate))} {/* Check if quote or rate */}
+                                            {formatToRoundedIndianRupee(parseNumber(quote.quote))} {/* Check if quote or rate */}
                                             <span className="text-muted-foreground font-normal"> x {quote.quantity || 0} {quote.unit || ''}</span>
                                         </span>
                                     </div>
