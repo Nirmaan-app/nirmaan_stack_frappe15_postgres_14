@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useCallback, useEffect } from "react";
+import { addDays, format } from "date-fns";
 import { Link, useNavigate } from "react-router-dom";
 import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { Badge } from "@/components/ui/badge";
@@ -45,7 +46,6 @@ const DOCTYPE = 'Project Design Tracker';
 const FE_TASK_STATUS_OPTIONS = ["Todo", "In Progress", "Done", "Blocked", "On Hold", "Submitted"];
 
 const DESIGN_TABS = { 
-    DESIGN_PACKAGES: 'packages', 
     PROJECT_WISE: 'project', 
     TASK_WISE: 'task' 
 };
@@ -85,11 +85,20 @@ const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categ
 
                 taskItems.forEach(taskDef => {
                     const taskName = taskDef.task_name;
+                    let calculatedDeadline = undefined;
+                    if (taskDef.deadline_offset !== undefined && taskDef.deadline_offset !== null) {
+                         // Parse offset as number just in case
+                         const offset = Number(taskDef.deadline_offset);
+                         if (!isNaN(offset)) {
+                             calculatedDeadline = format(addDays(new Date(), offset), 'yyyy-MM-dd');
+                         }
+                    }
+
                     tasksToGenerate.push({
                         task_name: taskName,
                         design_category: catName,
-                        task_status: 'Not Applicable',
-                        deadline: undefined,
+                        task_status: 'Not Started',
+                        deadline: calculatedDeadline,
                     })
                 });
             } else {
@@ -342,7 +351,7 @@ const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, 
                                         <tr>
                                             {/* Fixed widths applied to ensure alignment across all tables */}
                                             <th className="px-4 py-3 text-left w-[18%]">Task Name</th>
-                                            <th className="px-4 py-3 text-center w-[18%]">Assigned Designer</th>
+                                            <th className="px-4 py-3 text-left w-[18%]">Assigned Designer</th>
                                             <th className="px-4 py-3 text-left w-[10%]">Deadline</th>
                                             <th className="px-4 py-3 text-center w-[12%]">Status</th>
                                             <th className="px-4 py-3 text-center w-[16%]">Sub-Status</th>
@@ -355,7 +364,7 @@ const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, 
                                         {tasks.map((task) => (
                                             <tr key={task.name} className="text-sm text-gray-800">
                                                 <td className="px-4 py-3 font-medium truncate">{task.task_name}</td>
-                                                <td className="px-4 py-3 text-center">{getAssignedNameForDisplay(task)}</td>
+                                                <td className="px-4 py-3 text-left">{getAssignedNameForDisplay(task)}</td>
                                                 {/* <td className="px-4 py-3 whitespace-nowrap">{getDeadlineDisplay(task)}</td> */}
                                                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{formatDeadlineShort(task.deadline) || '...'}</td>
 
@@ -412,7 +421,7 @@ const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, 
                                                                         href={task.file_link}
                                                                         target="_blank"
                                                                         rel="noopener noreferrer"
-                                                                        className="block w-full h-full cursor-pointer hover:scale-110 transition-transform"
+                                                                        className="flex justify-center items-center w-full h-full cursor-pointer hover:scale-110 transition-transform"
                                                                     >
                                                                         <LinkIcon className={`h-6 w-6 p-1 bg-gray-100 rounded-md ${task.file_link ? 'cursor-pointer text-blue-500' : 'text-gray-300'}`} />
                                                                     </a>
@@ -560,17 +569,7 @@ export const DesignTrackerList: React.FC = () => {
             <header className="flex justify-between items-center">
                 {/* <h1 className="text-2xl font-bold text-red-700">Design Tracker</h1> */}
                 <div className="flex space-x-0 border border-gray-300 rounded-md overflow-hidden w-fit">
-                    {!isDesignExecutive && (
-                    <Button
-                        variant="primary"
-                        onClick={() => onClick(DESIGN_TABS.DESIGN_PACKAGES)}
-                        className={`px-4 py-2 text-sm font-medium h-auto shadow-none 
-                        ${activeTab === DESIGN_TABS.DESIGN_PACKAGES ? 'bg-primary text-white' : 'bg-white text-gray-700 '}
-                        border-r border-gray-300 rounded-r-none`}
-                    >
-                        Design Packages
-                    </Button>
-                    )}
+
 
 
                     <Button
@@ -583,7 +582,7 @@ export const DesignTrackerList: React.FC = () => {
             border-r border-gray-300 
             
             /* Ensure right side is square, left side gets rounding from parent div */
-            rounded-none 
+            rounded-r-none 
         `}
                     >
                         Project Wise
@@ -685,9 +684,7 @@ export const DesignTrackerList: React.FC = () => {
                 )
             }
 
-             {activeTab === DESIGN_TABS.DESIGN_PACKAGES && (
-                <DesignPackagesMaster />
-            )}
+
 
             {/* Content based on Active Tab */}
             {activeTab === DESIGN_TABS.PROJECT_WISE && (

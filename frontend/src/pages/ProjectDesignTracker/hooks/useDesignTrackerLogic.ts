@@ -67,7 +67,7 @@ export const useDesignTrackerLogic = ({ trackerId }: UseDesignTrackerLogicProps)
     const groupedTasks: GroupedTasks = useMemo(() => {
         if (!trackerDoc?.design_tracker_task) return {};
 
-        return trackerDoc.design_tracker_task.reduce((acc, task) => {
+        const groupedResult = trackerDoc.design_tracker_task.reduce((acc, task) => {
             const categoryName = task.design_category || 'Uncategorized';
             if (!acc[categoryName]) {
                 acc[categoryName] = [];
@@ -75,6 +75,25 @@ export const useDesignTrackerLogic = ({ trackerId }: UseDesignTrackerLogicProps)
             acc[categoryName].push(task);
             return acc;
         }, {} as GroupedTasks);
+
+        // Sort tasks within each category: Earliest deadline first. No deadline last.
+        Object.keys(groupedResult).forEach(category => {
+            groupedResult[category].sort((a, b) => {
+                const hasDeadlineA = a.deadline && a.deadline.trim() !== "";
+                const hasDeadlineB = b.deadline && b.deadline.trim() !== "";
+
+                if (!hasDeadlineA && !hasDeadlineB) return 0; 
+                if (!hasDeadlineA) return 1; 
+                if (!hasDeadlineB) return -1; 
+                
+                const dateA = new Date(a.deadline!).getTime();
+                const dateB = new Date(b.deadline!).getTime();
+                
+                return dateA - dateB;
+            });
+        });
+
+        return groupedResult;
     }, [trackerDoc?.design_tracker_task]);
 
 

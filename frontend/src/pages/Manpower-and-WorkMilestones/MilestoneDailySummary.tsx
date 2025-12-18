@@ -442,10 +442,10 @@ export const MilestoneDailySummary = () => {
         const pName = (projectData?.project_name || "Project").replace(/\s+/g, '_');
         // Ensure valid date conversion
         const rDate = dailyReportDetails.report_date ? new Date(dailyReportDetails.report_date) : new Date();
-        const dStr = format(rDate, "dd-MM-yyyy");
-        const zoneSuffix = selectedZone ? `_${selectedZone.replace(/\s+/g, '_')}` : "";
+        const dStr = format(rDate, "dd-MMM-yyyy");
+        const zoneSuffix = selectedZone ? `${selectedZone.replace(/\s+/g, '_')}` : "";
   
-        const fileName = `${pName}_${zoneSuffix}_${dStr}_DPR.pdf`;
+        const fileName = `${pName}-${zoneSuffix}-${dStr}_DPR.pdf`;
   
         // 4. Trigger Download
         const url = window.URL.createObjectURL(blob);

@@ -51,6 +51,7 @@ export interface DesignTrackerTask {
     name: string; // Frappe ID
     task_name: string;
     category_link: string; // Link to Design Tracker Category
+    deadline_offset?: number;
     creation?: string;
     modified?: string;
 }
@@ -63,6 +64,7 @@ type CategoryFormValues = z.infer<typeof categoryFormSchema>;
 
 const taskFormSchema = z.object({
   task_name: z.string().min(1, "Task Name is required."),
+  deadline_offset: z.coerce.number().min(0, "Offset must be positive").optional(), 
 });
 type TaskFormValues = z.infer<typeof taskFormSchema>;
 
@@ -91,7 +93,7 @@ export const DesignPackagesMaster: React.FC = () => {
     mutate: mutateTasks 
   } = useFrappeGetDocList<DesignTrackerTask>(
     "Design Tracker Tasks",
-    { fields: ["name", "task_name", "category_link"], limit: 0, orderBy: { field: "creation", order: "asc" } }
+    { fields: ["name", "task_name", "category_link", "deadline_offset"], limit: 0, orderBy: { field: "creation", order: "asc" } }
   );
 
   if (catLoading || taskLoading) {
@@ -111,7 +113,7 @@ export const DesignPackagesMaster: React.FC = () => {
   }
 
   return (
-    <div className="flex-1 space-y-6 p-4 md:p-6 bg-white rounded-lg shadow-sm border">
+    <div className="flex-1 space-y-6 p-4 md:p-6">
       <div className="flex justify-between items-center mb-6">
         <div>
             <h2 className="text-2xl font-bold tracking-tight text-gray-800">Design Category & Tasks</h2>
@@ -318,13 +320,14 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({ categoryId, mutate 
 
   const form = useForm<TaskFormValues>({
     resolver: zodResolver(taskFormSchema),
-    defaultValues: { task_name: "" },
+    defaultValues: { task_name: "", deadline_offset: 0 },
   });
 
   const onSubmit = async (values: TaskFormValues) => {
     try {
       await createDoc("Design Tracker Tasks", { 
         task_name: values.task_name,
+        deadline_offset: values.deadline_offset,
         category_link: categoryId, // Linking to parent category
       });
       toast({ title: "Success", description: "Task added successfully.", variant: "success" });
@@ -361,6 +364,17 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({ categoryId, mutate 
                 </FormItem>
               )}
             />
+            <FormField
+              control={form.control}
+              name="deadline_offset"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Deadline Offset (Days)</FormLabel>
+                  <FormControl><Input type="number" placeholder="0" {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             <div className="flex justify-end space-x-2">
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={loading}>
@@ -385,12 +399,15 @@ const EditTaskDialog: React.FC<EditTaskDialogProps> = ({ task, mutate }) => {
   const { updateDoc, loading } = useFrappeUpdateDoc();
   const form = useForm<TaskFormValues>({
     resolver: zodResolver(taskFormSchema),
-    defaultValues: { task_name: task.task_name },
+    defaultValues: { task_name: task.task_name, deadline_offset: task.deadline_offset || 0 },
   });
 
   const onSubmit = async (values: TaskFormValues) => {
     try {
-      await updateDoc("Design Tracker Tasks", task.name, { task_name: values.task_name });
+      await updateDoc("Design Tracker Tasks", task.name, { 
+        task_name: values.task_name,
+        deadline_offset: values.deadline_offset
+       });
       toast({ title: "Success", description: "Task updated.", variant: "success" });
       await mutate();
       setOpen(false);
@@ -419,6 +436,17 @@ const EditTaskDialog: React.FC<EditTaskDialogProps> = ({ task, mutate }) => {
                 <FormItem>
                   <FormLabel>Task Name</FormLabel>
                   <FormControl><Input {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+             <FormField
+              control={form.control}
+              name="deadline_offset"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Deadline Offset (Days)</FormLabel>
+                  <FormControl><Input type="number" {...field} /></FormControl>
                   <FormMessage />
                 </FormItem>
               )}
@@ -493,8 +521,8 @@ interface CategoryCardProps {
 
 const CategoryCard: React.FC<CategoryCardProps> = ({ category, tasks, mutateCategories, mutateTasks }) => {
   return (
-    <Card className="hover:animate-shadow-drop-center">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 bg-gray-50/50 border-b">
+    <Card className="hover:animate-shadow-drop-center transition-all duration-300">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-lg font-semibold flex items-center gap-2 text-gray-800">
           {category.category_name}
           <EditCategoryDialog category={category} mutate={mutateCategories} mutateTasks={mutateTasks} />
@@ -508,19 +536,21 @@ const CategoryCard: React.FC<CategoryCardProps> = ({ category, tasks, mutateCate
           </div>
         ) : (
           <Table>
-            <TableHeader>
+            <TableHeader className="bg-gray-100">
               <TableRow className="hover:bg-transparent">
-                <TableHead className="w-[80%] pl-4">Task Name</TableHead>
-                {/* <TableHead className="w-[20%] text-right pr-4">Actions</TableHead> */}
+                <TableHead className="w-[60%] pl-4">Task Name</TableHead>
+                <TableHead className="w-[20%] text-center">Deadline Offset (Days)</TableHead>
+                <TableHead className="w-[20%] text-right pr-4">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {tasks.map((task) => (
                 <TableRow key={task.name} className="group">
                   <TableCell className="pl-4 font-medium text-gray-700">{task.task_name}</TableCell>
+                  <TableCell className="text-center text-gray-500">{task.deadline_offset ==0? '-':`T + ${task.deadline_offset}`}</TableCell>
                    <TableCell className="text-right flex items-center justify-end space-x-2">
-                    {/* <EditTaskDialog task={task} mutate={mutateTasks} /> */}
-                    {/* <DeleteTaskDialog task={task} mutate={mutateTasks} /> */}
+                    <EditTaskDialog task={task} mutate={mutateTasks} /> 
+                  <DeleteTaskDialog task={task} mutate={mutateTasks} />
                   </TableCell>
                 </TableRow>
               ))}
