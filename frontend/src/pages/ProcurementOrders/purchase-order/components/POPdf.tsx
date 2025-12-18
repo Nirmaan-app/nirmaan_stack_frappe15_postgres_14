@@ -772,7 +772,7 @@ import {
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { useFrappeGetDocList } from "frappe-react-sdk";
-import { MessageCircleMore, Printer } from "lucide-react";
+import { MessageCircleMore, Printer, Download } from "lucide-react";
 import * as pdfjsLib from "pdfjs-dist";
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useReactToPrint } from "react-to-print";
@@ -1039,6 +1039,7 @@ export const POPdf: React.FC<POPdfProps> = ({
 console.log("Nirmaan Attachments",attachmentsData)
   const [images, setImages] = useState([]);
   const [isPrinting, setIsPrinting] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const loadFileAsImage = async (att) => {
     try {
@@ -1118,28 +1119,36 @@ console.log("Nirmaan Attachments",attachmentsData)
   };
 
   useEffect(() => {
+    // User requested to prioritize/use po.attachment directly
     const allAttachments = [];
 
-    if (attachmentsData && attachmentsData.length > 0) {
-      allAttachments.push(...attachmentsData);
-    }
+    // OLD: Nirmaan Attachments
+    // if (attachmentsData && attachmentsData.length > 0) {
+    //   allAttachments.push(...attachmentsData);
+    // }
 
+    // NEW: Direct PO Attachment
     if (po?.attachment) {
       console.log("Found PO Attachment:", po.attachment);
+      // loadFileAsImage expects an object with property 'attachment'
       allAttachments.push({ attachment: po.attachment });
     }
 
-    console.log("Combined Attachments list:", allAttachments);
+    console.log("Processing Attachments list:", allAttachments);
 
     if (allAttachments.length > 0) {
+      // Clear previous images to avoid duplicates if re-running
+      setImages([]); 
       allAttachments.forEach((att, index) => {
         console.log(`Triggering loadFileAsImage for item ${index}`, att);
         loadFileAsImage(att);
       });
     } else {
       console.log("No attachments found to process.");
+      setImages([]); 
     }
-  }, [attachmentsData, po?.attachment]);
+  }, [po?.attachment]); // Removed attachmentsData dependency to stop it from overriding
+
 
   const handlePrint = useReactToPrint({
     content: () => componentRef.current || null,
@@ -1151,6 +1160,43 @@ console.log("Nirmaan Attachments",attachmentsData)
       setIsPrinting(false);
     },
   });
+
+  const handlePrintFormatPdf = async () => {
+    if (!po?.name) return;
+    setIsDownloading(true);
+    try {
+      // Fetch the PDF blob
+      const url = `/api/method/frappe.utils.print_format.download_pdf?doctype=Procurement Orders&name=${po.name}&format=PO Invoice&no_letterhead=0`;
+      const response = await fetch(url);
+      if (!response.ok) throw new Error("Network response was not ok");
+      
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      
+      // Create temporary link to trigger download with custom filename
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      // Custom Filename: [PO Number]_[Project Name]_CR.pdf
+      // Sanitizing filename just in case (replacing slashes with underscores if any)
+      const safeName = po.name.replace(/\//g, "_");
+      const safeProjectName = (po.project_name || "Project").replace(/\//g, "_");
+      link.download = `${safeName}_${safeProjectName}_CR.pdf`;
+      
+      document.body.appendChild(link);
+      link.click();
+      
+      // Cleanup
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      console.error("Download failed:", error);
+      // Fallback to old method if fetch fails
+      const url = `/api/method/frappe.utils.print_format.download_pdf?doctype=Procurement Orders&name=${po?.name}&format=PO Invoice&no_letterhead=0`;
+      window.open(url, '_blank');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   const parsedNotes = useMemo(() => {
     if (!po?.note_points) {
@@ -1206,10 +1252,20 @@ console.log("Nirmaan Attachments",attachmentsData)
   return (
     <Sheet open={poPdfSheet} onOpenChange={togglePoPdfSheet}>
       <SheetContent className="overflow-y-auto md:min-w-[900px]">
-        <Button onClick={handlePrint} className="flex items-center gap-1">
-          <Printer className="h-4 w-4" />
-          Print
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={handlePrint} className="flex items-center gap-1">
+            <Printer className="h-4 w-4" />
+            Print
+          </Button>
+          <Button
+            onClick={handlePrintFormatPdf}
+            disabled={isDownloading}
+            className="flex items-center gap-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Download className={`h-4 w-4 ${isDownloading ? "animate-bounce" : ""}`} />
+            {isDownloading ? "Downloading..." : "Download"}
+          </Button>
+        </div>
         <div className={`w-full border mt-6`}>
           <div ref={componentRef} className="w-full p-4">
             <style>
