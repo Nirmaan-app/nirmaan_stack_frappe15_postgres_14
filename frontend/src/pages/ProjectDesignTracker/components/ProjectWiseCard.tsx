@@ -42,12 +42,12 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
                             Created: {formatDate(tracker.creation)}
                         </p>
                     </div>
-                   <Badge 
+                   {/* <Badge 
                         variant="outline" 
                         className={`capitalize ${getUnifiedStatusStyle(tracker.status)}`}
                     >
                         {tracker.status}
-                    </Badge>
+                    </Badge> */}
                 </div>
             </CardHeader>
             <CardContent className="flex-1 flex flex-col justify-end pt-2">
