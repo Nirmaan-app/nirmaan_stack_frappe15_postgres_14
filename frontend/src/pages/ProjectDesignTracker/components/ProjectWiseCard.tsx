@@ -1,10 +1,11 @@
 import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { Link } from "react-router-dom";
 import { ArrowUpRight } from "lucide-react";
-import { getStatusBadgeStyle } from "../utils";
+import { getUnifiedStatusStyle } from "../utils";
 
 interface ProjectWiseCardProps {
     tracker: any; // Using any for now to match flexible API response, typically ProjectDesignTracker + stats
@@ -43,7 +44,7 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
                     </div>
                    <Badge 
                         variant="outline" 
-                        className={`capitalize ${getStatusBadgeStyle(tracker.status)}`}
+                        className={`capitalize ${getUnifiedStatusStyle(tracker.status)}`}
                     >
                         {tracker.status}
                     </Badge>
@@ -67,11 +68,20 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
                     {totalTasks > 0 ? (
                         <div className="grid grid-cols-2 gap-2 text-xs">
                              {Object.entries(statusCounts).map(([status, count]) => (
-                                <div key={status} className="flex justify-between items-center bg-gray-50 px-2 py-1 rounded">
-                                    <span className="text-gray-600 truncate max-w-[70%]" title={status}>
-                                        {status}
-                                    </span>
-                                    <span className="font-semibold text-gray-900">{count as number}</span>
+                                <div key={status} className={`flex justify-between items-center px-2 py-1 rounded ${getUnifiedStatusStyle(status)} border-0`}> 
+                                    <TooltipProvider>
+                                        <Tooltip delayDuration={300}>
+                                            <TooltipTrigger asChild>
+                                                <span className="truncate max-w-[70%] cursor-default">
+                                                    {status}
+                                                </span>
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                                <p>{status}</p>
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </TooltipProvider>
+                                    <span className="font-semibold">{count as number}</span>
                                 </div>
                             ))}
                         </div>

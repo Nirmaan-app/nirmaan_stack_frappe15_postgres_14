@@ -29,7 +29,7 @@ import { useDesignMasters } from "../hooks/useDesignMasters";
 import { TaskEditModal } from './TaskEditModal';
 import { useFrappeUpdateDoc } from "frappe-react-sdk";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { getStatusBadgeStyle,getTaskStatusStyle, getTaskSubStatusStyle ,formatDeadlineShort,getAssignedNameForDisplay} from "../utils";
+import { getUnifiedStatusStyle, getTaskSubStatusStyle ,formatDeadlineShort,getAssignedNameForDisplay } from "../utils";
 import {dateFilterFn} from "@/utils/tableFilters"
 // --- CONSTANTS ---
 const PARENT_DOCTYPE = 'Project Design Tracker';
@@ -135,7 +135,7 @@ const getTaskWiseColumns = (
         <div className="">
             <Badge 
             variant="outline"
-                className={`w-[120px] min-h-[28px] h-auto py-1 px-2 justify-center whitespace-normal break-words text-center leading-tight ${getTaskStatusStyle(row.original.task_status || '...')}`}
+                className={`w-[120px] min-h-[28px] h-auto py-1 px-2 justify-center whitespace-normal break-words text-center leading-tight ${getUnifiedStatusStyle(row.original.task_status || '...')}`}
             >
                 {row.original.task_status || '...'}
             </Badge>

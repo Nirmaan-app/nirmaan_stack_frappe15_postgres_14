@@ -603,7 +603,12 @@ export const DesignTrackerList: React.FC = () => {
             rounded-r-none 
         `}
                     >
-                        Project Wise
+                       Project Wise
+                       {/* {trackerDocs?.length > 0 && (
+                           <span className="ml-2 bg-white text-red-700 px-2 rounded-full text-xs py-1">
+                               {trackerDocs?.length || 0}
+                           </span>
+                       )} */}
                     </Button>
 
                     <Button

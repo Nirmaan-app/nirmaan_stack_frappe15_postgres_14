@@ -1,43 +1,53 @@
 import { ProjectDesignTracker, DesignTrackerTask, User, AssignedDesignerDetail } from './types';
 
 
-export const getStatusBadgeStyle = (status: string) => {
-    const lowerStatus = status.toLowerCase();
-    if (lowerStatus.includes('pending') || lowerStatus.includes('assign pending')) {
-        return 'bg-red-100 text-red-700 border border-red-500 font-medium rounded-full'
-    }
-    if (lowerStatus.includes('in progress')) {
-        return 'bg-blue-100 text-blue-700 border border-blue-500 font-medium rounded-full'
-    }
-    if (lowerStatus.includes('on hold') || lowerStatus.includes('blocked')) {
-        return 'bg-yellow-100 text-yellow-700 border border-yellow-500 font-medium rounded-full'
-    }
-    if (lowerStatus.includes('submitted') || lowerStatus.includes('completed') || lowerStatus.includes('done')) {
-        return 'bg-green-100 text-green-700 border border-green-500 font-medium rounded-full'
-    }
-    return 'bg-gray-100 text-gray-700 border border-gray-300 font-medium rounded-full'
-};
-
-export const getTaskStatusStyle = (status: string) => {
-    const lowerStatus = status.toLowerCase();
+// Consolidated Status Logic
+export const getUnifiedStatusStyle = (status: string) => {
+    if (!status) return 'bg-gray-100 text-gray-700 border border-gray-300 font-medium rounded-full';
     
+    const lowerStatus = status.toLowerCase();
+
+    // --- SUCCESS VARIATIONS ---
+    if (lowerStatus.includes('approved')) {
+        return 'bg-green-100 text-green-700 border border-green-500 font-medium rounded-full';
+    }
+    if (lowerStatus.includes('done')) {
+        return 'bg-emerald-100 text-emerald-700 border border-emerald-500 font-medium rounded-full'; // Different Green
+    }
+    if (lowerStatus.includes('completed')) {
+        return 'bg-teal-100 text-teal-700 border border-teal-500 font-medium rounded-full'; // Teal
+    }
+    if (lowerStatus.includes('submitted')) {
+        return 'bg-indigo-100 text-indigo-700 border border-indigo-500 font-medium rounded-full'; // Indigo
+    }
+
+    // --- CRITICAL / RED ---
+    if (lowerStatus.includes('not started') || lowerStatus.includes('blocked') || lowerStatus.includes('clarification') || lowerStatus.includes('rework')) {
+         return 'bg-red-100 text-red-700 border border-red-500 font-medium rounded-full';
+    }
+
+    // --- WARNING / ORANGE (Pending) ---
+    if (lowerStatus.includes('pending') || lowerStatus.includes('revision') || lowerStatus.includes('review')) {
+        return 'bg-orange-100 text-orange-700 border border-orange-500 font-medium rounded-full';
+    }
+
+    // --- CAUTION / YELLOW (Waiting) ---
+    if (lowerStatus.includes('await') || lowerStatus.includes('on hold')) {
+        return 'bg-yellow-100 text-yellow-700 border border-yellow-500 font-medium rounded-full';
+    }
+
+    // --- INFO / BLUE ---
     if (lowerStatus.includes('in progress')) {
         return 'bg-blue-100 text-blue-700 border border-blue-500 font-medium rounded-full';
     }
-    if (lowerStatus.includes('on hold')) {
-        return 'bg-yellow-100 text-yellow-700 border border-yellow-500 font-medium rounded-full';
-    }
-    if (lowerStatus.includes('submitted')) {
-        return 'bg-green-100 text-green-700 border border-green-500 font-medium rounded-full';
-    }
-    if (lowerStatus.includes('done') || lowerStatus.includes('completed')) {
-        return 'bg-green-100 text-green-700 border border-green-500 font-medium rounded-full';
-    }
-    if (lowerStatus.includes('blocked')) {
-        return 'bg-red-100 text-red-700 border border-red-500 font-medium rounded-full';
-    }
-    return 'bg-gray-100 text-gray-700 border font-medium rounded-full border-gray-300';
+
+    // Default
+    return 'bg-gray-100 text-gray-700 border border-gray-300 font-medium rounded-full';
 };
+
+// Keeping these for backward compatibility if needed, but they can just alias the unified one
+export const getStatusBadgeStyle = getUnifiedStatusStyle;
+export const getTaskStatusStyle = getUnifiedStatusStyle;
 
 export const getTaskSubStatusStyle = (subStatus?: string) => {
     if (!subStatus || subStatus === '...') return 'bg-gray-100 text-gray-700 border border-gray-300 font-medium rounded-full ';
