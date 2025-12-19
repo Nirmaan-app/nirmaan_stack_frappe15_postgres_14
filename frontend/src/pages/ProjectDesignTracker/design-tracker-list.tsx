@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback, useEffect } from "react";
 import { addDays, format } from "date-fns";
 import { Link, useNavigate } from "react-router-dom";
-import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeGetCall } from "frappe-react-sdk";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
@@ -40,6 +40,7 @@ import { TaskEditModal } from './components/TaskEditModal';
 import { TaskWiseTable } from "./components/TaskWiseTable";
 import {formatDeadlineShort, getStatusBadgeStyle,getTaskStatusStyle, getTaskSubStatusStyle,getAssignedNameForDisplay ,getExistingTaskNames} from "./utils";
 import { DesignPackagesMaster } from "./components/DesignPackagesmaster";
+import { ProjectWiseCard } from "./components/ProjectWiseCard";
 import {useUserData} from "@/hooks/useUserData";
 
 const DOCTYPE = 'Project Design Tracker';
@@ -519,12 +520,27 @@ export const DesignTrackerList: React.FC = () => {
     }, []);
 
     const {
+        data: trackerDocsData, isLoading, error, mutate: refetchList
+    } = useFrappeGetCall<any>('nirmaan_stack.api.design_tracker.get_tracker_list.get_trackers_with_stats', {}, "cache-first");
+
+    // Safe access to array data
+    const trackerDocs = useMemo(() => {
+        if (!trackerDocsData) return [];
+        if (Array.isArray(trackerDocsData)) return trackerDocsData;
+        if (Array.isArray(trackerDocsData.message)) return trackerDocsData.message;
+        return [];
+    }, [trackerDocsData]);
+    
+    // Previous DocList call commented out
+    /*
+    const {
         data: trackerDocs, isLoading, error, mutate: refetchList
     } = useFrappeGetDocList<ProjectDesignTracker>(DOCTYPE, {
         fields: ["name", "project", "project_name", "status", "creation", "modified", "overall_deadline"],
         orderBy: { field: "creation", order: "desc" },
         limit: 100
     });
+    */
 
     const { projectOptions, categories, categoryData, statusOptions,
         subStatusOptions, mutateMasters } = useDesignMasters();
@@ -691,6 +707,33 @@ export const DesignTrackerList: React.FC = () => {
             {/* Content based on Active Tab */}
             {activeTab === DESIGN_TABS.PROJECT_WISE && (
                 <div className="space-y-3">
+                    {/* New Grid View Logic */}
+                     {/* Use useFrappeGetCall instead of GetDocList for Custom API */}
+                     {/* Note: I'm casting the fetched data to match the expected structure */}
+                  
+                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {filteredDocs.length === 0 ? (
+                            <div className="col-span-full text-center text-gray-500 p-10">
+                                No design trackers found matching your search criteria.
+                            </div>
+                        ) : (
+                            filteredDocs.map((doc: any) => (
+                                <div key={doc.name} className="h-full">
+                                    <ProjectWiseCard 
+                                        tracker={doc} 
+                                        onClick={() => navigate(`/design-tracker/${doc.name}`)}
+                                    />
+                                </div>
+                            ))
+                        )}
+                    </div>
+
+
+                    {/* 
+                     ================================================================
+                     PREVIOUS LOGIC (COLLAPSIBLE CARDS) - COMMENTED OUT AS REQUESTED
+                     ================================================================
+                    
                     {filteredDocs.length === 0 ? (
                         <p className="text-center text-gray-500 p-10">No design trackers found matching your search criteria.</p>
                     ) : (
@@ -709,7 +752,7 @@ export const DesignTrackerList: React.FC = () => {
                                         onClick={() => handleToggleCollapse(doc.name)}
                                     >
                                         <CardContent className="p-0 flex flex-wrap justify-between items-center text-sm md:text-base relative">
-                                            {/* Project Name */}
+                                            {/* Project Name * /}
                                             <div className="w-full md:w-2/4 min-w-[150px] pr-4 order1 mb-2 md:mb-0">
                                                 {/* <Link
                                                     to={`/design-tracker/${doc.name}`}
@@ -718,7 +761,7 @@ export const DesignTrackerList: React.FC = () => {
                                                     onClick={(e) => e.stopPropagation()}
                                                 >
                                                     {doc.project_name}
-                                                </Link> */}
+                                                </Link> * /}
                                                 <Link
     to={`/design-tracker/${doc.name}`}
     className={`group flex items-center gap-2 text-lg font-bold w-fit
@@ -728,13 +771,13 @@ export const DesignTrackerList: React.FC = () => {
     <span className="underline underline-offset-4 group-hover:underline underline-offset-4">
         {doc.project_name}
     </span>
-    {/* Icon appears/moves slightly on hover */}
+    {/* Icon appears/moves slightly on hover * /}
     <ArrowUpRight className="h-4 w-4 opacity-90 group-hover:opacity-100 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 transition-all" />
 </Link>
                                             </div>
 
-                                            {/* Details */}
-                                            {/* Date Section */}
+                                            {/* Details * /}
+                                            {/* Date Section * /}
                                             <div className="text-gray-600 flex flex-col items-start md:items-center w-1/2 md:w-auto">
                                                 <div className="text-xs text-gray-500 capitalize font-medium">Task Created On:</div>
                                                 <div className="text-sm font-medium text-gray-900">
@@ -742,7 +785,7 @@ export const DesignTrackerList: React.FC = () => {
                                                 </div>
                                             </div>
 
-                                            {/* Status Section */}
+                                            {/* Status Section * /}
                                             <div className="text-right flex flex-col items-end md:items-center w-1/2 md:w-auto">
                                                 <div className="text-xs text-gray-500 capitalize font-medium">Status</div>
                                                 <Badge
@@ -753,7 +796,7 @@ export const DesignTrackerList: React.FC = () => {
                                                 </Badge>
                                             </div>
 
-                                            {/* Row 3: Action Icon */}
+                                            {/* Row 3: Action Icon * /}
                                             <div className="absolute right-0 top-0 md:static md:order-3 md:ml-4">
                                                 <Button variant="outline" size="icon" className="h-8 w-8 bg-gray-100  hover:bg-gray-200">
                                                     {isExpanded ? <ChevronUp className="h-5 w-5 " /> : <ChevronDown className="h-5 w-5 " />}
@@ -762,7 +805,7 @@ export const DesignTrackerList: React.FC = () => {
                                         </CardContent>
                                     </Card>
 
-                                    {/* Expanded Task List */}
+                                    {/* Expanded Task List * /}
                                     {isExpanded && (
                                         <div className={`bg-white border rounded-b-lg p-0
                                                 ${isPending ? 'border-destructive border-t' : 'border-gray-200 border-t'}`}>
@@ -778,6 +821,7 @@ export const DesignTrackerList: React.FC = () => {
                             )
                         })
                     )}
+                    */}
                 </div>
             )}
 

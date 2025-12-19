@@ -10,7 +10,8 @@
   "project_name",
   "overall_deadline",
   "status",
-  "design_tracker_task"
+  "design_tracker_task",
+  "project_phase"
  ],
  "fields": [
   {
@@ -44,12 +45,17 @@
    "fieldtype": "Table",
    "label": "Design Tracker Task",
    "options": "Design Tracker Task Child Table"
+  },
+  {
+   "fieldname": "project_phase",
+   "fieldtype": "Data",
+   "label": "Project Phase"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-12-15 20:58:08.697109",
+ "modified": "2025-12-19 11:26:28.558143",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Design Tracker",
@@ -153,7 +159,6 @@
   }
  ],
  "row_format": "Dynamic",
- "rows_threshold_for_grid_search": 20,
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": []
