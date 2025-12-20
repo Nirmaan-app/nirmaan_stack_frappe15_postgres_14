@@ -38,9 +38,9 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
                          <CardTitle className="text-lg font-bold text-gray-800 line-clamp-1" title={tracker.project_name}>
                             {tracker.project_name}
                         </CardTitle>
-                         <p className="text-xs text-muted-foreground">
+                         {/* <p className="text-xs text-muted-foreground">
                             Created: {formatDate(tracker.creation)}
-                        </p>
+                        </p> */}
                     </div>
                    {/* <Badge 
                         variant="outline" 

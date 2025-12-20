@@ -54,14 +54,15 @@
   },
   {
    "fieldname": "zone",
-   "fieldtype": "Data",
-   "label": "Zone"
+   "fieldtype": "Table",
+   "label": "Zone",
+   "options": "Design Tracker Zone"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-12-19 13:02:58.628625",
+ "modified": "2025-12-20 10:47:40.221998",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Design Tracker",

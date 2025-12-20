@@ -55,6 +55,12 @@ const DESIGN_TABS = {
 const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categoryData, onSuccess }) => {
     const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
     const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+    
+    // Zone State
+    const [zones, setZones] = useState<string[]>([]);
+    const [currentZoneInput, setCurrentZoneInput] = useState("");
+    const [isManualZone, setIsManualZone] = useState<boolean | null>(null); // null = not selected, true = yes, false = no
+
     const { createDoc, loading: createLoading } = useFrappeCreateDoc();
 
     const visibleCategories = useMemo(() => {
@@ -66,9 +72,55 @@ const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categ
         setSelectedCategories(prev => prev.includes(categoryName) ? prev.filter(c => c !== categoryName) : [...prev, categoryName])
     };
 
+    const handleManualZoneChange = (value: string) => {
+        const isManual = value === "yes";
+        setIsManualZone(isManual);
+        
+        if (isManual) {
+            // Reset to empty to allow manual entry
+            setZones([]);
+        } else {
+            // Set to default zone
+            setZones(["Default Zone"]);
+        }
+        setCurrentZoneInput("");
+    };
+
+    const handleAddZone = () => {
+        if (currentZoneInput.trim()) {
+            // Validation: Alphanumeric only
+            const trimmed = currentZoneInput.trim();
+             const isValidFormat = /^[a-zA-Z0-9 ]+$/.test(trimmed);
+            if (!isValidFormat) {
+                toast({ title: "Invalid Format", description: "Zone name must contain only letters and numbers.", variant: "destructive" });
+                return;
+            }
+
+            // Duplicate Check (Case Insensitive)
+            const isDuplicate = zones.some(z => z.toLowerCase() === trimmed.toLowerCase());
+            
+            if (isDuplicate) {
+                toast({ title: "Duplicate Zone", description: "This zone name already exists.", variant: "destructive" });
+                return;
+            }
+
+            setZones([...zones, trimmed]);
+            setCurrentZoneInput("");
+        }
+    };
+
+    const handleRemoveZone = (zoneToRemove: string) => {
+        setZones(zones.filter(z => z !== zoneToRemove));
+    };
+
     const handleConfirm = async () => {
         if (!selectedProjectId || selectedCategories.length === 0) {
             toast({ title: "Error", description: "Select project and at least one category.", variant: "destructive" });
+            return;
+        }
+
+        if (zones.length === 0) {
+            toast({ title: "Error", description: "Please add at least one Zone.", variant: "destructive" });
             return;
         }
 
@@ -77,40 +129,34 @@ const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categ
 
         const tasksToGenerate: Partial<DesignTrackerTask>[] = [];
 
-        selectedCategories.forEach(catName => {
-            const categoryDef = categoryData.find(c => c.category_name === catName);
+        // Loop through Zones first (or tasks, order doesn't strictly matter for DB, but logical for UI)
+        zones.forEach(zoneName => {
+            selectedCategories.forEach(catName => {
+                const categoryDef = categoryData.find(c => c.category_name === catName);
 
-            // Updated logic: Skip category if tasks array is missing or empty
-            if (categoryDef && Array.isArray(categoryDef.tasks) && categoryDef.tasks.length > 0) {
-                const taskItems = categoryDef.tasks;
+                if (categoryDef && Array.isArray(categoryDef.tasks) && categoryDef.tasks.length > 0) {
+                    const taskItems = categoryDef.tasks;
 
-                taskItems.forEach(taskDef => {
-                    const taskName = taskDef.task_name;
-                    let calculatedDeadline = undefined;
-                    if (taskDef.deadline_offset !== undefined && taskDef.deadline_offset !== null) {
-                         // Parse offset as number just in case
-                         const offset = Number(taskDef.deadline_offset);
-                         if (!isNaN(offset)) {
-                             calculatedDeadline = format(addDays(new Date(), offset), 'yyyy-MM-dd');
-                         }
-                    }
+                    taskItems.forEach(taskDef => {
+                        const taskName = taskDef.task_name;
+                        let calculatedDeadline = undefined;
+                        if (taskDef.deadline_offset !== undefined && taskDef.deadline_offset !== null) {
+                             const offset = Number(taskDef.deadline_offset);
+                             if (!isNaN(offset)) {
+                                 calculatedDeadline = format(addDays(new Date(), offset), 'yyyy-MM-dd');
+                             }
+                        }
 
-                    tasksToGenerate.push({
-                        task_name: taskName,
-                        design_category: catName,
-                        task_status: 'Not Started',
-                        deadline: calculatedDeadline,
-                    })
-                });
-            } else {
-                // Category is skipped, provide feedback via toast
-                toast({
-                    title: "Category Skipped",
-                    description: `Category ${catName} has no tasks defined in master data and was skipped.`,
-                    variant: "destructive"
-                });
-                return; // Skip to the next category in the forEach loop
-            }
+                        tasksToGenerate.push({
+                            task_name: taskName,
+                            design_category: catName,
+                            task_status: 'Not Started',
+                            deadline: calculatedDeadline,
+                            task_zone: zoneName // Set the Zone
+                        })
+                    });
+                }
+            });
         });
 
         if (tasksToGenerate.length === 0) {
@@ -118,16 +164,26 @@ const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categ
             return;
         }
 
+        // Prepare Zone Child Table Data
+        const zoneChildTableData = zones.map(z => ({ tracker_zone: z }));
+
         try {
             await createDoc(DOCTYPE, {
                 project: selectedProjectId,
                 project_name: projectLabel,
                 status: 'Assign Pending',
-                design_tracker_task: tasksToGenerate
+                design_tracker_task: tasksToGenerate,
+                zone: zoneChildTableData // Send Zones to backend
             });
             toast({ title: "Success", description: `Design Tracker created for ${projectLabel}.`, variant: "success" });
+            
+            // Reset State
             setSelectedProjectId(null);
             setSelectedCategories([]);
+            setZones([]);
+            setCurrentZoneInput("");
+            setIsManualZone(null);
+            
             onSuccess();
             onClose();
         } catch (error: any) {
@@ -137,36 +193,107 @@ const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categ
 
     return (
         <AlertDialog open={isOpen} onOpenChange={onClose}>
-            <AlertDialogContent className="sm:max-w-lg">
+            <AlertDialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
                 <AlertDialogHeader>
-                    <AlertDialogTitle className="text-center">Select Project</AlertDialogTitle>
-                    <AlertDialogDescription className="text-center">Step 1: Select a project that you want to add to the design tracker</AlertDialogDescription>
+                    <AlertDialogTitle className="text-center">Create Design Tracker</AlertDialogTitle>
                 </AlertDialogHeader>
-                <div className="space-y-6 py-4">
-                    {/* Project Selection */}
-                     <div className="flex flex-col gap-2">
-                        <Label htmlFor="Projects">Select Project *</Label>
+                <div className="space-y-6 py-2">
+                    {/* Step 1: Project Selection */}
+                     <div className="space-y-2">
+                        <Label>Step 1: Select Project *</Label>
                         <ReactSelect
                             options={projectOptions}
                             value={projectOptions.find((p: any) => p.value === selectedProjectId) || null}
                             onChange={(option: any) => setSelectedProjectId(option ? option.value : null)}
                             classNamePrefix="react-select"
-                            menuPosition={'auto'}
-                        
+                            menuPosition={'auto'} 
+                            placeholder="Search Project..."
                         />
                     </div>
 
-                    {/* Category Selection */}
-                          <div className="space-y-3">
-                        <AlertDialogDescription>Step 2: Choose one or more categories for this project</AlertDialogDescription>
+                    {/* Step 2: Zone Selection */}
+                    <div className="space-y-3">
+                        <Label>Step 2: Add Zones *</Label>
+                        
+                        <div className="space-y-2">
+                             <Label className="text-sm font-normal text-muted-foreground">Do you want to setup manual zones for this Project?</Label>
+                             <div className="flex gap-4">
+                                <div className="flex items-center space-x-2">
+                                    <input 
+                                        type="radio" 
+                                        id="r-yes" 
+                                        name="manual-zones" 
+                                        value="yes" 
+                                        checked={isManualZone === true}
+                                        onChange={() => handleManualZoneChange('yes')}
+                                        className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                                    />
+                                    <Label htmlFor="r-yes">Yes</Label>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                    <input 
+                                        type="radio" 
+                                        id="r-no" 
+                                        name="manual-zones" 
+                                        value="no" 
+                                        checked={isManualZone === false}
+                                        onChange={() => handleManualZoneChange('no')}
+                                        className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                                    />
+                                    <Label htmlFor="r-no">No</Label>
+                                </div>
+                             </div>
+                        </div>
+
+                        {/* Input Box - Only show if Manual is Yes */}
+                        {isManualZone === true && (
+                            <div className="flex gap-2">
+                                <Input 
+                                    value={currentZoneInput}
+                                    onChange={(e) => setCurrentZoneInput(e.target.value)}
+                                    placeholder="Enter Zone Name (e.g. Tower A)"
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            handleAddZone();
+                                        }
+                                    }}
+                                />
+                                <Button type="button" onClick={handleAddZone} variant="secondary">Add</Button>
+                            </div>
+                        )}
+
+                        {/* Zone List Display */}
+                        <div className="flex flex-wrap gap-2 min-h-[40px] items-center">
+                            {zones.length === 0 && <span className="text-gray-400 text-sm italic">No zones selected.</span>}
+                             
+                            {zones.map((zone) => (
+                                <Badge key={zone} variant="secondary" className="px-3 py-1 text-sm bg-white border shadow-sm">
+                                    {zone}
+                                    {isManualZone && (
+                                        <button onClick={() => handleRemoveZone(zone)} className="ml-2 text-gray-400 hover:text-red-500">
+                                            ×
+                                        </button>
+                                    )}
+                                </Badge>
+                            ))}
+                        </div>
+                    </div>
+
+
+                    {/* Step 3: Category Selection */}
+                    <div className="space-y-2">
+                        <Label>Step 3: Choose Categories</Label>
                         
                         {visibleCategories.length > 0 ? (
-                            <div className="grid grid-cols-3 gap-3">
+                            <div className="grid grid-cols-3 gap-2">
                                 {visibleCategories.map((cat: any) => (
                                     <Button
                                         key={cat.category_name}
                                         variant={selectedCategories.includes(cat.category_name) ? "default" : "outline"}
                                         onClick={() => handleCategoryToggle(cat.category_name)}
+                                        size="sm"
+                                        className="text-xs h-auto py-2 whitespace-normal h-full min-h-[40px]"
                                     >
                                         {cat.category_name}
                                     </Button>
@@ -184,7 +311,7 @@ const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categ
                     <AlertDialogCancel disabled={createLoading} onClick={onClose}> Cancel</AlertDialogCancel>
                     <Button
                         onClick={handleConfirm}
-                        disabled={!selectedProjectId || selectedCategories.length === 0 || createLoading}
+                        disabled={!selectedProjectId || selectedCategories.length === 0 || zones.length === 0 || createLoading}
                     >
                         {createLoading ? <TailSpin width={20} height={20} color="white" /> : "Confirm"}
                     </Button>
