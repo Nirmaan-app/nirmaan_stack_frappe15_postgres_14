@@ -99,6 +99,7 @@ def get_task_wise_list(
                     if row.get('task_name') and term_lower in str(row.get('task_name')).lower(): found = True
                     elif row.get('design_category') and term_lower in str(row.get('design_category')).lower(): found = True
                     elif row.get('project_name') and term_lower in str(row.get('project_name')).lower(): found = True
+                    elif row.get('task_zone') and term_lower in str(row.get('task_zone')).lower(): found = True # Include Zone in Logic
                     
                     if not found:
                         continue

@@ -75,6 +75,13 @@ const getTaskWiseColumns = (
             enableColumnFilter: true,
         },
         {
+            // Zone Column (NEW)
+            accessorKey: "task_zone",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Task Zone" />,
+            cell: ({ row }) => (row.original.task_zone || '--'),
+            enableColumnFilter: true,
+        },
+        {
             // Task Category
             accessorKey: "design_category",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Task Category" />,
@@ -332,6 +339,7 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_
         { value: "task_name", label: "Task Name", default: true },
         { value: "`tabProject Design Tracker`.project_name", label: "Project Name" },
         { value: "design_category", label: "Category" },
+        { value: "task_zone", label: "Zone" }, // Added Zone Search Option
 
     ];
     const FETCH_FIELDS = [
@@ -340,18 +348,20 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_
         "project",
         "status",
         // Child table fields (Design Tracker Task)
-        '`tabDesign Tracker Task Child Table`.name',                              // Child row DocName
-        '`tabDesign Tracker Task Child Table`.task_name',                         // Task name
-        '`tabDesign Tracker Task Child Table`.design_category',                   // Category
-        '`tabDesign Tracker Task Child Table`.task_type',                         // Task type (optional)
-        '`tabDesign Tracker Task Child Table`.deadline',                          // Deadline date
-        '`tabDesign Tracker Task Child Table`.assigned_designers',                // JSON string field
-        '`tabDesign Tracker Task Child Table`.task_status',                       // Status enum
-        '`tabDesign Tracker Task Child Table`.task_sub_status',                   // Sub-status
-        '`tabDesign Tracker Task Child Table`.file_link',                         // File link
-        '`tabDesign Tracker Task Child Table`.comments',
-        '`tabDesign Tracker Task Child Table`.modified',
-          '`tabDesign Tracker Task Child Table`.assigned_designers',                            // Comments
+        'name',                              // Child row DocName
+        'task_name',                         // Task name
+        'design_category',                   // Category
+        'task_type',
+                                 // Task type (optional)
+        'deadline',                          // Deadline date
+        'assigned_designers',                // JSON string field
+        'task_status',                       // Status enum
+        'task_sub_status',                   // Sub-status
+        'file_link',                         // File link
+        'comments',
+        'modified',
+        'task_zone', // Added Zone field
+          'assigned_designers',                            // Comments
         
         // Parent table fields (Project Design Tracker) - using backticks
        
@@ -371,6 +381,7 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_
             { value: "task_name", label: "Task Name", default: true },
             { value: "project_name", label: "Project Name" }, // Field name match API alias
             { value: "design_category", label: "Category" },
+            { value: "task_zone", label: "Zone" }, // Added to Searchable Fields
         ],
         // defaultSort: 'modified desc',
         defaultSort: 'deadline asc', // Standard field name
