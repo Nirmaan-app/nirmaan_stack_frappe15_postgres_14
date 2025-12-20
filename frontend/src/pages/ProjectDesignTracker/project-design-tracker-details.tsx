@@ -23,6 +23,7 @@ import { SUB_STATUS_MAP } from './hooks/useDesignMasters';
 import { getStatusBadgeStyle, getTaskStatusStyle, getTaskSubStatusStyle, formatDeadlineShort ,getAssignedNameForDisplay,getExistingTaskNames} from './utils';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TaskEditModal } from './components/TaskEditModal';
+import { RenameZoneDialog } from './components/RenameZoneDialog';
 import { useUserData } from "@/hooks/useUserData";
 
 
@@ -624,6 +625,7 @@ interface ProjectDesignTrackerDetailProps {
 export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProps> = ({ trackerId: propTrackerId }) => {
     const { role, user_id } = useUserData();
     const isDesignExecutive = role === "Nirmaan Design Executive Profile";
+    const hasEditStructureAccess = role === "Nirmaan Design Lead Profile" || role === "Nirmaan Admin Profile" || user_id === "Administrator";
 
     const checkIfUserAssigned = (task: DesignTrackerTask) => {
         const designerField = task.assigned_designers;
@@ -665,6 +667,10 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
     const [isAddZoneModalOpen, setIsAddZoneModalOpen] = useState(false); // NEW STATE
     const [isProjectOverviewModalOpen, setIsProjectOverviewModalOpen] = useState(false);
     const [activeTab, setActiveTab] = useState("");
+
+    // Rename Modal State
+    const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
+    const [zoneToRename, setZoneToRename] = useState("");
 
     // --- Master Category Calculation ---
 
@@ -792,7 +798,7 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                         task_status: 'Not Started',
                         deadline: calculatedDeadline,
                         task_zone: zoneName, 
-                        deadline_offset: taskDef.deadline_offset
+                        // deadline_offset: taskDef.deadline_offset
                         // assigned_designers? default empty
                     });
                  });
@@ -933,6 +939,17 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
   
      
 
+    // --- RENAME ZONE HANDLER ---
+    // Opens the modal dialogue
+    const handleRenameZone = (currentZoneName?: string) => {
+        if (currentZoneName) {
+            setZoneToRename(currentZoneName);
+        } else {
+            setZoneToRename("");
+        }
+        setIsRenameModalOpen(true);
+    };
+
     // --- PDF DOWNLOAD HANDLER ---
     const handleDownloadReport = async (zoneName?: string) => {
         const printFormatName = "Project Design Tracker"; 
@@ -997,23 +1014,25 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                 </header>
 
                 <div className="flex flex-col md:flex-row w-full md:w-auto space-y-2 md:space-y-0 md:space-x-3">
-                    {!isDesignExecutive && (
-                    <Button
-                        variant="outline"
-                        className="flex items-center justify-center gap-1 text-red-700 border-red-700 hover:bg-red-50/50 w-full md:w-auto"
+                    {hasEditStructureAccess && (
+                    <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="flex items-center gap-2 text-red-700 border-red-700 hover:bg-red-50/50 w-full md:w-auto"
                         onClick={() => setIsAddCategoryModalOpen(true)}
                         disabled={availableNewCategories.length === 0}
                     >
-                        <Plus className="h-4 w-4" /> Add Categories
+                        <Plus className="h-4 w-4" /> Add New Categories
                     </Button>
                     )}
-                    {!isDesignExecutive && (
-                    <Button
-                        variant="outline"
+                    {hasEditStructureAccess && (
+                    <Button 
+                        variant="outline" 
+                        size="sm" 
                         className="flex items-center justify-center gap-1 text-red-700 border-red-700 hover:bg-red-50/50 w-full md:w-auto"
                         onClick={() => setIsAddZoneModalOpen(true)}
                     >
-                        <Plus className="h-4 w-4" /> Add Zone
+                        <Plus className="h-4 w-4" /> Add new Zone
                     </Button>
                     )}
                     <Button 
@@ -1133,19 +1152,32 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                         <TabsList className="mb-0">
                             {/* <TabsTrigger value="all">All</TabsTrigger> */}
                             {uniqueZones.map(zone => (
-                                <TabsTrigger key={zone} value={zone!}>{zone}</TabsTrigger>
+                                <TabsTrigger key={zone} value={zone!} className="relative group pr-8">
+                                    {zone}
+                                    {hasEditStructureAccess && (
+                                        <Edit 
+                                            className="w-3 h-3 absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer text-gray-400 hover:text-gray-900"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleRenameZone(zone!);
+                                            }}
+                                        />
+                                    )}
+                                </TabsTrigger>
                             ))}
                         </TabsList>
 
                         {activeTab !== 'all' && (
-                             <Button 
-                                variant="outline" 
-                                size="sm" 
-                                className="flex items-center gap-2 text-red-700 border-red-700 hover:bg-red-50/50"
-                                onClick={() => handleDownloadReport(activeTab)}
-                            >
-                                <Download className="h-4 w-4" /> Export {activeTab}
-                            </Button>
+                             <div className="flex items-center gap-2">
+                                 <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    className="flex items-center gap-2 text-red-700 border-red-700 hover:bg-red-50/50"
+                                    onClick={() => handleDownloadReport(activeTab)}
+                                >
+                                    <Download className="h-4 w-4" /> Export {activeTab}
+                                </Button>
+                             </div>
                         )}
                     </div>
                 )}
@@ -1183,7 +1215,7 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                                                         <thead className="bg-gray-100 text-xs text-gray-500 uppercase" style={{ backgroundColor: '#f2f2fb' }}>
                                                             <tr className='text-xs text-gray-500 uppercase font-medium'>
                                                                 <th className="px-4 py-3 text-left w-[15%]">Task Name</th>
-                                                                <th className="px-4 py-3 text-left w-[18%]">Assigned Designer</th>
+                                                                {!isDesignExecutive && <th className="px-4 py-3 text-left w-[18%]">Assigned Designer</th>}
                                                                 <th className="px-4 py-3 text-left w-[10%]">Deadline</th>
                                                                 <th className="px-4 py-3 text-center w-[10%]">Status</th>
                                                                 <th className="px-4 py-3 text-center w-[15%]">Sub-Status</th>
@@ -1196,7 +1228,7 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                                                             {filteredTasks.map((task) => (
                                                                 <tr key={task.name}>
                                                                     <td className="px-4 py-3 w-[15%] whitespace-wrap text-sm font-medium text-gray-900">{task.task_name}</td>
-                                                                    <td className="px-4 py-3 text-sm text-gray-500 text-left ">{getAssignedNameForDisplay(task)}</td>
+                                                                    {!isDesignExecutive && <td className="px-4 py-3 text-sm text-gray-500 text-left ">{getAssignedNameForDisplay(task)}</td>}
                                                                     <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{formatDeadlineShort(task.deadline) || '...'}</td>
 
                                                                     {/* Status Badge */}
@@ -1302,6 +1334,20 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
 
             </Tabs>
 
+
+            {/* --- MODALS --- */}
+
+            <RenameZoneDialog 
+                isOpen={isRenameModalOpen}
+                onClose={() => setIsRenameModalOpen(false)}
+                zones={uniqueZones}
+                trackerId={trackerId!}
+                initialZone={zoneToRename}
+                onSuccess={() => {
+                     // Reload to reflect changes
+                     window.location.reload();
+                }}
+            />
 
             {editingTask && (
                 <TaskEditModal

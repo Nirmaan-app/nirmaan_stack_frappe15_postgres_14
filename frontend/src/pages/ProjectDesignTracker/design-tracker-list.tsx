@@ -616,6 +616,7 @@ export const DesignTrackerList: React.FC = () => {
     const { role,user_id } = useUserData();
     // console.log("role-Nirmaan Design Executive Profile",role,user_id)
     const isDesignExecutive = role === "Nirmaan Design Executive Profile";
+    const hasEditStructureAccess = role === "Nirmaan Design Lead Profile" || role === "Nirmaan Admin Profile" || user_id === "Administrator";
     
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
@@ -752,7 +753,7 @@ export const DesignTrackerList: React.FC = () => {
                         Task Wise
                     </Button>
                 </div>
-                {activeTab === DESIGN_TABS.PROJECT_WISE && !isDesignExecutive && (
+                {activeTab === DESIGN_TABS.PROJECT_WISE && hasEditStructureAccess && (
                     <Button onClick={() => setIsModalOpen(true)} className="">
                         <CirclePlus className="h-5 w-5 pr-1" /> Track New Project
                     </Button>
