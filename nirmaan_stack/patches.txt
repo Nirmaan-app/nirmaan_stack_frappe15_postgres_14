@@ -61,3 +61,4 @@ nirmaan_stack.patches.v2_5.populate_amount_paid_for_sr_and_po #2
 
 nirmaan_stack.patches.v2_7.set_project_zones #6
 nirmaan_stack.patches.v2_7.update_merge_po_payment_type #2
+nirmaan_stack.patches.v2_7.populate_design_tracker_zones

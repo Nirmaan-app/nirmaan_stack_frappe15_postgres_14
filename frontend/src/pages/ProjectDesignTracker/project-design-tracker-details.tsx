@@ -664,7 +664,7 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
     const [isAddCategoryModalOpen, setIsAddCategoryModalOpen] = useState(false); // Can likely remove now
     const [isAddZoneModalOpen, setIsAddZoneModalOpen] = useState(false); // NEW STATE
     const [isProjectOverviewModalOpen, setIsProjectOverviewModalOpen] = useState(false);
-    const [activeTab, setActiveTab] = useState("all");
+    const [activeTab, setActiveTab] = useState("");
 
     // --- Master Category Calculation ---
 
@@ -842,6 +842,13 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
         }
     }, [trackerDoc?.overall_deadline]);
 
+    // Set Default Tab to first Zone when zones are loaded
+    React.useEffect(() => {
+        if (uniqueZones.length > 0 && (activeTab === "" || activeTab === "all")) {
+            setActiveTab(uniqueZones[0]!);
+        }
+    }, [uniqueZones, activeTab]);
+
 
     const toggleCategory = useCallback((categoryName: string) => {
         setExpandedCategories(prev => ({
@@ -927,7 +934,7 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
      
 
     // --- PDF DOWNLOAD HANDLER ---
-    const handleDownloadReport = async () => {
+    const handleDownloadReport = async (zoneName?: string) => {
         const printFormatName = "Project Design Tracker"; 
         const params = new URLSearchParams({
             doctype: DOCTYPE,
@@ -936,6 +943,10 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
             no_letterhead: "0", 
             _lang: "en",
         });
+
+        if (zoneName) {
+            params.append("zone", zoneName);
+        }
 
         // Use the frappe.utils.print_format.download_pdf method which returns the PDF file directly
         const downloadUrl = `/api/method/frappe.utils.print_format.download_pdf?${params.toString()}`;
@@ -952,7 +963,12 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
             const now = new Date();
             const dateStr = format(now, "dd_MMM_yyyy");
             const projectNameClean = (trackerDoc.project_name || "Project").replace(/[^a-zA-Z0-9-_]/g, "_");
-            const filename = `${projectNameClean}-${dateStr}-DesignTracker.pdf`;
+            
+            let filename = `${projectNameClean}-${dateStr}-DesignTracker`;
+            if (zoneName) {
+                filename += `-${zoneName.replace(/[^a-zA-Z0-9-_]/g, "_")}`;
+            }
+            filename += ".pdf";
 
             const url = window.URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
             const link = document.createElement('a');
@@ -1003,9 +1019,9 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                     <Button 
                         variant="destructive" 
                         className="flex items-center justify-center gap-2 w-full md:w-auto"
-                        onClick={handleDownloadReport}
+                        onClick={() => handleDownloadReport()}
                     >
-                        <Download className="h-4 w-4" /> Export
+                        <Download className="h-4 w-4" /> Export All
                     </Button>
 
                    
@@ -1111,155 +1127,29 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
 
             {/* --- TASK LIST (ACCORDION STYLE) --- */}
             
-            <Tabs defaultValue="all" className="w-full" onValueChange={setActiveTab}>
+            <Tabs value={activeTab} className="w-full" onValueChange={setActiveTab}>
                 {uniqueZones.length > 0 && (
-                    <TabsList className="mb-4">
-                        <TabsTrigger value="all">All</TabsTrigger>
-                        {uniqueZones.map(zone => (
-                            <TabsTrigger key={zone} value={zone!}>{zone}</TabsTrigger>
-                        ))}
-                    </TabsList>
+                    <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
+                        <TabsList className="mb-0">
+                            {/* <TabsTrigger value="all">All</TabsTrigger> */}
+                            {uniqueZones.map(zone => (
+                                <TabsTrigger key={zone} value={zone!}>{zone}</TabsTrigger>
+                            ))}
+                        </TabsList>
+
+                        {activeTab !== 'all' && (
+                             <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className="flex items-center gap-2 text-red-700 border-red-700 hover:bg-red-50/50"
+                                onClick={() => handleDownloadReport(activeTab)}
+                            >
+                                <Download className="h-4 w-4" /> Export {activeTab}
+                            </Button>
+                        )}
+                    </div>
                 )}
 
-                 <TabsContent value="all" className="mt-0 space-y-4 bg-white border rounded-lg p-4">
-                     {Object.entries(groupedTasks).map(([categoryName, tasks]) => {
-                        const isExpanded = expandedCategories[categoryName] ?? true;
-
-                        return (
-                            <div key={categoryName} className="">
-
-                                {/* Category Header */}
-                                <div
-                                    className={`flex justify-between items-center px-2 py-3 cursor-pointer 
-                                    ${isExpanded ? 'border-none bg-white rounded-t-lg' : 'border bg-[#f2f2fb] rounded-lg'}`}
-                                    onClick={() => toggleCategory(categoryName)}
-                                >
-                                    <h2 className="text-lg font-semibold text-gray-800">
-                                        {categoryName} ({tasks.length} Tasks)
-                                    </h2>
-                                    {isExpanded ? <ChevronUp className="text-gray-600" /> : < ChevronDown />}
-                                </div>
-
-                                {/* Task Table Content */}
-                                {isExpanded && (
-                                    <div className=" overflow-x-auto rounded-lg border border-gray-300">
-                                        <div className="overflow-x-auto">
-                                            <table className="min-w-full divide-y divide-gray-200">
-                                                <thead className="bg-gray-100 text-xs text-gray-500 uppercase" style={{ backgroundColor: '#f2f2fb' }}>
-                                                    <tr className='text-xs text-gray-500 uppercase font-medium'>
-                                                        <th className="px-4 py-3 text-left w-[15%]">Task Name</th>
-                                                        <th className="px-4 py-3 text-left w-[18%]">Assigned Designer</th>
-                                                        <th className="px-4 py-3 text-left w-[10%]">Deadline</th>
-                                                        <th className="px-4 py-3 text-center w-[10%]">Status</th>
-                                                        <th className="px-4 py-3 text-center w-[15%]">Sub-Status</th>
-                                                        <th className="px-4 py-3 text-center w-[10%]">Comments</th>
-                                                        <th className="px-4 py-3 text-center w-[10%]">Link</th>
-                                                        <th className="px-4 py-3 text-center w-[15%]">Actions</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="bg-white divide-y divide-gray-100">
-                                                    {tasks.map((task) => (
-                                                        <tr key={task.name}>
-                                                            <td className="px-4 py-3 w-[15%] whitespace-wrap text-sm font-medium text-gray-900">{task.task_name}</td>
-                                                            <td className="px-4 py-3 text-sm text-gray-500 text-left ">{getAssignedNameForDisplay(task)}</td>
-                                                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{formatDeadlineShort(task.deadline) || '...'}</td>
-
-                                                            {/* Status Badge */}
-                                                            <td className="px-4 py-3 text-sm">
-                                                                <div className="flex justify-center">
-                                                                    <Badge
-                                                                        variant="outline"
-                                                                        className={`w-[120px] min-h-[28px] h-auto py-1 px-2 justify-center capitalize whitespace-normal break-words text-center leading-tight ${getTaskStatusStyle(task.task_status || '...')} rounded-full`}
-                                                                    >
-                                                                        {task.task_status || '...'}
-                                                                    </Badge>
-                                                                </div>
-                                                            </td>
-
-                                                            {/* Sub-Status Badge */}
-                                                            <td className="px-4 py-3 text-sm">
-                                                                <div className="flex justify-center">
-                                                                    <Badge
-                                                                        variant="outline"
-                                                                        className={`w-[120px] min-h-[28px] h-auto py-1 px-2 justify-center whitespace-normal break-words text-center leading-tight ${getTaskSubStatusStyle(task.task_sub_status || '...')} rounded-full`}
-                                                                    >
-                                                                        {task.task_sub_status || '...'}
-                                                                    </Badge>
-                                                                </div>
-                                                            </td>
-                                                            <td className="px-4 py-3 text-center">
-                                                                <TooltipProvider>
-                                                                    <Tooltip delayDuration={300}>
-                                                                        <TooltipTrigger asChild>
-                                                                            {/* We use cursor-default here as the trigger handles the hover interaction */}
-                                                                            <MessageCircle
-                                                                                className={`h-6 w-6 p-1 bg-gray-100 rounded-md mx-auto  ${task.comments ? 'cursor-pointer text-gray-600 hover:scale-110 transition-transform ' : 'text-gray-300'}`}
-                                                                            />
-                                                                        </TooltipTrigger>
-                                                                        {task.comments && (
-                                                                            <TooltipContent className="max-w-xs p-2 bg-white text-gray-900 border shadow-lg">
-                                                                                {/* <p className="font-semibold text-xs mb-1">Comments:</p> */}
-                                                                                <p className="text-xs">{task.comments}</p>
-                                                                            </TooltipContent>
-                                                                        )}
-                                                                    </Tooltip>
-                                                                </TooltipProvider>
-                                                            </td>
-
-                                                            {/* 2. Link Column (Using Tooltip) */}
-                                                            <td className="px-4 py-3 text-center">
-
-                                                                <TooltipProvider>
-                                                                    <Tooltip delayDuration={300}>
-                                                                        <TooltipTrigger asChild>
-                                                                            <a
-                                                                                href={task.file_link}
-                                                                                target="_blank"
-                                                                                rel="noopener noreferrer"
-                                                                                className="flex justify-center items-center w-full h-full cursor-pointer hover:scale-110 transition-transform"
-                                                                            >
-                                                                                <LinkIcon className={`h-6 w-6 p-1 bg-gray-100 rounded-md ${task.file_link ? 'cursor-pointer text-blue-500' : 'text-gray-300'}`} />
-                                                                            </a>
-                                                                        </TooltipTrigger>
-                                                                        {task.file_link && (<TooltipContent className="p-2 bg-gray-900 text-white shadow-lg">
-                                                                            <a
-                                                                                href={task.file_link}
-                                                                                target="_blank"
-                                                                                rel="noopener noreferrer"
-                                                                                className="block w-full h-full cursor-pointer hover:scale-110 transition-transform"
-                                                                            >
-                                                                                {task.file_link.substring(0, 30)}...
-                                                                            </a>
-                                                                        </TooltipContent>)}
-
-                                                                    </Tooltip>
-                                                                </TooltipProvider>
-
-                                                            </td>
-
-                                                            {/* Actions */}
-                                                            <td className="px-4 py-3 text-center">
-                                                                {(!isDesignExecutive || (isDesignExecutive && checkIfUserAssigned(task))) ? (
-                                                                    <Button variant="outline" size="sm" onClick={() => setEditingTask(task)} className="h-8">
-                                                                        <Edit className="h-3 w-3 mr-1" /> Edit
-                                                                    </Button>
-                                                                ) : (
-                                                                    <Button variant="outline" size="sm" className="h-8 opacity-50 cursor-not-allowed" disabled>
-                                                                        <Edit className="h-3 w-3 mr-1" /> Edit
-                                                                    </Button>
-                                                                )}
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        );
-                    })}
-                </TabsContent>
 
                 {uniqueZones.map(zone => (
                     <TabsContent key={zone} value={zone!} className="mt-0 space-y-4 bg-white border rounded-lg p-4">
