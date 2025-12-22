@@ -433,7 +433,7 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
                         task_status: 'Not Started',
                         deadline: calculatedDeadline,
                         task_zone: zoneName, // Assign the Zone
-                        deadline_offset: taskDef.deadline_offset
+                        // deadline_offset: taskDef.deadline_offset
                     });
                 });
             });

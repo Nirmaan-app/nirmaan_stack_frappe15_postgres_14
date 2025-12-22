@@ -410,7 +410,9 @@ export const SelectServiceVendorPage: React.FC<SelectServiceVendorPageProps> = (
         variant: "success",
       });
       if (sr_data?.status === "Vendor Selected") {
-        navigate(`/service-requests/${sr_data?.name}?tab=approve-service-order`);
+        // navigate(`/service-requests/${sr_data?.name}?tab=approve-service-order`);
+        navigate(`/service-requests?tab=approve-service-order`);
+
       } else {
         navigate("/service-requests?tab=choose-vendor");
       }
