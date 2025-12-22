@@ -50,6 +50,7 @@ interface TaskWiseTableProps {
     onSearchTermChange?: (term: string) => void;
     user_id: string; // Recieve from parent
     isDesignExecutive: boolean; // Receive from parent
+    statusFilter?: string; // New prop for status filtering
 }
 
 // --- COLUMN DEFINITION ---
@@ -284,7 +285,7 @@ const getTaskWiseColumns = (
 
 
 // --- MAIN COMPONENT ---
-export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_id, isDesignExecutive }) => {
+export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_id, isDesignExecutive, statusFilter }) => {
     
     const { usersList,statusOptions, subStatusOptions, categoryData,categories,FacetProjectsOptions } = useDesignMasters();
     const [editingTask, setEditingTask] = useState<FlattenedTask | null>(null);
@@ -389,8 +390,14 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_
     ];
   // Filters are now handled by Custom API logic or standard pass-through
   const additionalFilters = useMemo(() => {
-     return [['Design Tracker Task Child Table', 'task_name', '!=', undefined]];
-  }, []);
+     const baseFilters: any[] = [['Design Tracker Task Child Table', 'task_name', '!=', undefined]];
+     
+     if (statusFilter && statusFilter !== 'All') {
+         baseFilters.push(['Design Tracker Task Child Table', 'task_status', '=', statusFilter]);
+     }
+     
+     return baseFilters;
+  }, [statusFilter]);
     // Use the server data table hook
     const serverDataTable = useServerDataTable<FlattenedTask>({
         doctype:PARENT_DOCTYPE , // Target Tasks directly

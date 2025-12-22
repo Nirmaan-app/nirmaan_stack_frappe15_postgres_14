@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useCallback, useEffect } from "react";
 import { addDays, format } from "date-fns";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Link, useNavigate } from "react-router-dom";
 import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeGetCall } from "frappe-react-sdk";
 import { Badge } from "@/components/ui/badge";
@@ -632,6 +633,7 @@ export const DesignTrackerList: React.FC = () => {
     const initialTab = useMemo(() => getUrlStringParam("tab", DESIGN_TABS.PROJECT_WISE), []);
     const [activeTab, setActiveTab] = useState<string>(initialTab);
     const [expandedProject, setExpandedProject] = useState<string | null>(null);
+    const [activeStatusTab, setActiveStatusTab] = useState<string>("All");
 
     const onClick = useCallback((value: string) => {
         if (activeTab === value) return;
@@ -966,13 +968,43 @@ export const DesignTrackerList: React.FC = () => {
             )}
 
             {activeTab === DESIGN_TABS.TASK_WISE && (
-                <TaskWiseTable 
-                    refetchList={refetchList} 
-                    searchTerm={searchTerm} 
-                    onSearchTermChange={setSearchTerm}
-                    user_id={user_id}
-                    isDesignExecutive={isDesignExecutive}
-                />
+                <div className="space-y-4">
+                     <Tabs value={activeStatusTab} onValueChange={setActiveStatusTab} className="w-full">
+                        <TabsList className="w-full justify-start h-auto flex-wrap gap-2 bg-transparent p-0">
+                             <TabsTrigger 
+                                value="All" 
+                                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground border bg-white min-w-[100px]"
+                            >
+                                All
+                            </TabsTrigger>
+                            <TabsTrigger 
+                                value="Approved"
+                                className="data-[state=active]:bg-green-600 data-[state=active]:text-white border bg-white min-w-[100px]"
+                            >
+                                Approved
+                            </TabsTrigger>
+                             {/* Add more specific tabs if needed, or map from statusOptions */}
+                             {statusOptions?.filter(s => s.value !== 'Approved').sort((a,b) => a.label.localeCompare(b.label)).map((option) => (
+                                 <TabsTrigger 
+                                    key={option.value} 
+                                    value={option.value}
+                                    className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground border bg-white min-w-[100px]"
+                                >
+                                    {option.label}
+                                </TabsTrigger>
+                             ))}
+                        </TabsList>
+                    </Tabs>
+
+                    <TaskWiseTable 
+                        refetchList={refetchList} 
+                        searchTerm={searchTerm} 
+                        onSearchTermChange={setSearchTerm}
+                        user_id={user_id}
+                        isDesignExecutive={isDesignExecutive}
+                        statusFilter={activeStatusTab}
+                    />
+                </div>
             )}
 
             {/* Modal for New Tracker */}
