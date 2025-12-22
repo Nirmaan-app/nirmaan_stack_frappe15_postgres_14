@@ -708,9 +708,9 @@ export const DesignTrackerList: React.FC = () => {
                                 Approved
                             </TabsTrigger>
                              {/* Add more specific tabs if needed, or map from statusOptions */}
-                             {statusOptions?.filter(s => s.value !== 'Approved').sort((a,b) => a.label.localeCompare(b.label)).map((option) => (
-                                 <TabsTrigger 
-                                    key={option.value} 
+                             {statusOptions?.filter(s => s.value !== 'Approved' && s.value !== 'Not Applicable').sort((a,b) => a.label.localeCompare(b.label)).map((option) => (
+                                 <TabsTrigger
+                                    key={option.value}
                                     value={option.value}
                                     className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground border bg-white min-w-[100px]"
                                 >
