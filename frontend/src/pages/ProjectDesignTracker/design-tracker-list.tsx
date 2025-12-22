@@ -81,7 +81,7 @@ const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categ
             setZones([]);
         } else {
             // Set to default zone
-            setZones(["Default Zone"]);
+            setZones(["Default"]);
         }
         setCurrentZoneInput("");
     };
