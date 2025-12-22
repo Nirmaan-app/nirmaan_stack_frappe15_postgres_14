@@ -7,42 +7,28 @@ export const getUnifiedStatusStyle = (status: string) => {
     
     const lowerStatus = status.toLowerCase();
 
-    // --- SUCCESS VARIATIONS ---
-    if (lowerStatus.includes('approved')) {
+    // 1. Not Applicable -> Gray
+    if (lowerStatus.includes('not applicable')) {
+        return 'bg-gray-100 text-gray-700 border border-gray-300 font-medium rounded-full';
+    }
+
+    // 2. Not Started -> Red
+    if (lowerStatus.includes('not started')) {
+        return 'bg-red-100 text-red-700 border border-red-500 font-medium rounded-full';
+    }
+
+    // 3. Submitted -> Light Green
+    if (lowerStatus.includes('submitted')) {
         return 'bg-green-100 text-green-700 border border-green-500 font-medium rounded-full';
     }
-    if (lowerStatus.includes('done')) {
-        return 'bg-emerald-100 text-emerald-700 border border-emerald-500 font-medium rounded-full'; // Different Green
-    }
-    if (lowerStatus.includes('completed')) {
-        return 'bg-teal-100 text-teal-700 border border-teal-500 font-medium rounded-full'; // Teal
-    }
-    if (lowerStatus.includes('submitted')) {
-        return 'bg-indigo-100 text-indigo-700 border border-indigo-500 font-medium rounded-full'; // Indigo
+
+    // 4. Approved -> Dark Green (Using a stronger green variant)
+    if (lowerStatus.includes('approved')) {
+         return 'bg-green-300 text-green-900 border border-green-500 font-medium rounded-full';
     }
 
-    // --- CRITICAL / RED ---
-    if (lowerStatus.includes('not started') || lowerStatus.includes('blocked') || lowerStatus.includes('clarification') || lowerStatus.includes('rework')) {
-         return 'bg-red-100 text-red-700 border border-red-500 font-medium rounded-full';
-    }
-
-    // --- WARNING / ORANGE (Pending) ---
-    if (lowerStatus.includes('pending') || lowerStatus.includes('revision') || lowerStatus.includes('review')) {
-        return 'bg-orange-100 text-orange-700 border border-orange-500 font-medium rounded-full';
-    }
-
-    // --- CAUTION / YELLOW (Waiting) ---
-    if (lowerStatus.includes('await') || lowerStatus.includes('on hold')) {
-        return 'bg-yellow-100 text-yellow-700 border border-yellow-500 font-medium rounded-full';
-    }
-
-    // --- INFO / BLUE ---
-    if (lowerStatus.includes('in progress')) {
-        return 'bg-blue-100 text-blue-700 border border-blue-500 font-medium rounded-full';
-    }
-
-    // Default
-    return 'bg-gray-100 text-gray-700 border border-gray-300 font-medium rounded-full';
+    // 5. Default / Others -> Amber
+    return 'bg-amber-100 text-amber-700 border border-amber-500 font-medium rounded-full';
 };
 
 // Keeping these for backward compatibility if needed, but they can just alias the unified one
@@ -54,7 +40,7 @@ export const getTaskSubStatusStyle = (subStatus?: string) => {
     
     const lowerSubStatus = subStatus.toLowerCase();
     if (lowerSubStatus.includes('clarification') || lowerSubStatus.includes('rework') || lowerSubStatus.includes('sub-status 1')) {
-        return 'bg-red-100 text-red-700 border border-red-500 font-medium rounded-full';
+        return 'bg-amber-100 text-amber-700 border border-amber-500 font-medium rounded-full';
     }
     return 'bg-gray-100 text-gray-700 border border-gray-300 font-medium rounded-full';
 };

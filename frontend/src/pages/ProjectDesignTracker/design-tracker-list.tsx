@@ -143,7 +143,12 @@ const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, proje
                         if (taskDef.deadline_offset !== undefined && taskDef.deadline_offset !== null) {
                              const offset = Number(taskDef.deadline_offset);
                              if (!isNaN(offset)) {
-                                 calculatedDeadline = format(addDays(new Date(), offset), 'yyyy-MM-dd');
+                                 // Use project start_date if available (found in projects list), else today
+                                 const projectStart = projects?.find((p: any) => p.name === selectedProjectId)?.project_start_date;
+                                 const baseDate = projectStart ? new Date(projectStart) : new Date();
+                                 const d = new Date(baseDate);
+                                 d.setDate(baseDate.getDate() + offset);
+                                 calculatedDeadline = format(d, 'yyyy-MM-dd');
                              }
                         }
 

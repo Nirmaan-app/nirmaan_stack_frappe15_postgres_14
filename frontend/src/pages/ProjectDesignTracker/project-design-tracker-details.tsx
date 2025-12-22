@@ -422,8 +422,10 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
                 taskItems.forEach(taskDef => {
                     let calculatedDeadline: string | undefined = undefined;
                     if (taskDef.deadline_offset !== undefined && taskDef.deadline_offset !== null) {
-                        const d = new Date();
-                        d.setDate(d.getDate() + Number(taskDef.deadline_offset));
+                        // Use tracker start_date if available, otherwise fallback to today
+                        const baseDate = trackerDoc?.start_date ? new Date(trackerDoc.start_date) : new Date();
+                        const d = new Date(baseDate);
+                        d.setDate(baseDate.getDate() + Number(taskDef.deadline_offset));
                         calculatedDeadline = d.toISOString().split('T')[0];
                     }
 
@@ -786,9 +788,10 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                     let calculatedDeadline: string | undefined = undefined;
                     if (taskDef.deadline_offset !== undefined && taskDef.deadline_offset !== null) {
                          // Calculate based on today or project start? Usually creation date or today.
-                         // Using current date as baseline for new zone addition
-                        const d = new Date();
-                        d.setDate(d.getDate() + Number(taskDef.deadline_offset));
+                         // Use tracker start_date if available, otherwise fallback to today
+                        const baseDate = trackerDoc?.start_date ? new Date(trackerDoc.start_date) : new Date();
+                        const d = new Date(baseDate);
+                        d.setDate(baseDate.getDate() + Number(taskDef.deadline_offset));
                         calculatedDeadline = d.toISOString().split('T')[0];
                     }
 
@@ -1053,7 +1056,7 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                    {/* Edit moved to Header Actions */}
                 </div>
                 <CardTitle className="text-xl font-semibold mb-4">Project Overview</CardTitle>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 text-sm text-gray-700 border p-4 rounded-lg">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 text-sm text-gray-700 border p-4 rounded-lg">
 
                     {/* Project ID */}
                     <div className="space-y-1">
@@ -1065,6 +1068,10 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                     <div className="space-y-1">
                         <Label className="uppercase text-xs font-medium text-gray-500">Project Name</Label>
                         <p className="font-semibold">{trackerDoc.project_name}</p>
+                    </div>
+                    <div className="space-y-1">
+                        <Label className="uppercase text-xs font-medium text-gray-500">Start Date</Label>
+                        <p className="font-semibold">{trackerDoc.start_date}</p>
                     </div>
 
                     {/* Created On */}
