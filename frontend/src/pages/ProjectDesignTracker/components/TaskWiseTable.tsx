@@ -390,12 +390,15 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_
     ];
   // Filters are now handled by Custom API logic or standard pass-through
   const additionalFilters = useMemo(() => {
-     const baseFilters: any[] = [['Design Tracker Task Child Table', 'task_name', '!=', undefined]];
-     
+     const baseFilters: any[] = [
+         ['Design Tracker Task Child Table', 'task_name', '!=', undefined],
+         ['Design Tracker Task Child Table', 'task_status', '!=', 'Not Applicable']
+     ];
+
      if (statusFilter && statusFilter !== 'All') {
          baseFilters.push(['Design Tracker Task Child Table', 'task_status', '=', statusFilter]);
      }
-     
+
      return baseFilters;
   }, [statusFilter]);
     // Use the server data table hook
