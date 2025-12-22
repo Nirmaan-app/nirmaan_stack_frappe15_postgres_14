@@ -28,7 +28,7 @@ def get_all_master_data():
     # Fetch eligible projects
     projects = frappe.get_list(
         "Projects", 
-        fields=["name", "project_name"], 
+        fields=["name", "project_name", "project_start_date"], 
         filters=project_filters,
         limit=0, 
         as_list=False

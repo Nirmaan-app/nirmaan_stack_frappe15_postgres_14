@@ -52,7 +52,7 @@ const DESIGN_TABS = {
 };
 
 
-const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categoryData, onSuccess }) => {
+const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, projects, categoryData, onSuccess }) => {
     const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
     const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
     
@@ -153,6 +153,7 @@ const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categ
                             task_status: 'Not Started',
                             deadline: calculatedDeadline,
                             task_zone: zoneName // Set the Zone
+                            
                         })
                     });
                 }
@@ -171,6 +172,7 @@ const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categ
             await createDoc(DOCTYPE, {
                 project: selectedProjectId,
                 project_name: projectLabel,
+                start_date: projects?.find((p: any) => p.name === selectedProjectId)?.project_start_date,
                 status: 'Assign Pending',
                 design_tracker_task: tasksToGenerate,
                 zone: zoneChildTableData // Send Zones to backend
@@ -670,7 +672,7 @@ export const DesignTrackerList: React.FC = () => {
     });
     */
 
-    const { projectOptions, categories, categoryData, statusOptions,
+    const { projectOptions, projects, categories, categoryData, statusOptions,
         subStatusOptions, mutateMasters } = useDesignMasters();
 
     useEffect(() => {
@@ -973,6 +975,7 @@ export const DesignTrackerList: React.FC = () => {
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
                 projectOptions={projectOptions}
+                projects={projects}
                 categoryData={categoryData}
                 onSuccess={() => {
                     refetchList();
