@@ -772,7 +772,7 @@ import {
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { useFrappeGetDocList } from "frappe-react-sdk";
-import { MessageCircleMore, Printer } from "lucide-react";
+import { MessageCircleMore, Printer, Download } from "lucide-react";
 import * as pdfjsLib from "pdfjs-dist";
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useReactToPrint } from "react-to-print";
@@ -791,7 +791,7 @@ interface POPdfProps {
 }
 
 pdfjsLib.GlobalWorkerOptions.workerSrc =
-  "https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js";
+  "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
 
 const gstAddressMap = {
   "29ABFCS9095N1Z9": "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka",
@@ -1024,45 +1024,68 @@ export const POPdf: React.FC<POPdfProps> = ({
   
   const finalPaymentTerms = paymentTerms && paymentTerms.length > 0 ? paymentTerms : po?.payment_terms;
 
-  const { data: attachmentsData } = useFrappeGetDocList(
-    "Nirmaan Attachments",
-    {
-      fields: ["*"],
-      filters: [
-        ["associated_doctype", "=", "Procurement Requests"],
-        ["associated_docname", "=", po?.procurement_request!],
-        ["attachment_type", "=", "custom pr attachment"],
-      ],
-    },
-    po?.procurement_request ? undefined : null
-  );
+  // const { data: attachmentsData } = useFrappeGetDocList(
+  //   "Nirmaan Attachments",
+  //   {
+  //     fields: ["*"],
+  //     filters: [
+  //       ["associated_doctype", "=", "Procurement Requests"],
+  //       ["associated_docname", "=", po?.procurement_request!],
+  //       ["attachment_type", "=", "custom pr attachment"],
+  //     ],
+  //   },
+  //   po?.procurement_request ? undefined : null
+  // );
 
   const [images, setImages] = useState([]);
   const [isPrinting, setIsPrinting] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
 
-  const loadFileAsImage = async (att) => {
+  // Helper to process a single attachment and return list of image URLs (or data URLs for PDF pages)
+  const getImagesFromAttachment = async (att) => {
     try {
-      const baseURL = window.location.origin;
-      const fileUrl = `${baseURL}${att.attachment}`;
-      const fileType = att.attachment.split(".").pop().toLowerCase();
+      console.log("Processing attachment:", att);
+      let fileUrl = att.attachment;
+      if (!fileUrl.startsWith("http")) {
+         const baseURL = window.location.origin;
+         const path = att.attachment.startsWith("/") ? att.attachment : `/${att.attachment}`;
+         fileUrl = `${baseURL}${path}`;
+      }
+      console.log("File URL:", fileUrl);
+      
+      let fileType = "unknown";
+      try {
+          const urlObj = new URL(fileUrl);
+          const fileNameParam = urlObj.searchParams.get("file_name");
+          if (fileNameParam) {
+             fileType = fileNameParam.split(".").pop().toLowerCase();
+          } else {
+             fileType = urlObj.pathname.split(".").pop().toLowerCase();
+          }
+      } catch (e) {
+          console.warn("URL parsing failed, falling back to string split", e);
+          fileType = att.attachment.split(".").pop().toLowerCase();
+      }
+      
+      console.log("Detected File Type:", fileType);
 
       if (["pdf"].includes(fileType)) {
-        const response = await fetch(fileUrl, {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/pdf",
-          },
-        });
+        // Handle PDF files
+        console.log("Fetching PDF...");
+        const response = await fetch(fileUrl, { method: "GET" });
 
         if (!response.ok) {
-          throw new Error(`Failed to fetch PDF: ${response.statusText}`);
+           const errText = await response.text();
+           throw new Error(`Failed to fetch PDF: ${response.status} ${response.statusText} - ${errText}`);
         }
 
         const pdfArrayBuffer = await response.arrayBuffer();
+        console.log("PDF fetched, size:", pdfArrayBuffer.byteLength);
+
         const loadingTask = pdfjsLib.getDocument({ data: pdfArrayBuffer });
         const pdf = await loadingTask.promise;
+        
         const pages = [];
-
         for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
           const page = await pdf.getPage(pageNum);
           const viewport = page.getViewport({ scale: 1.5 });
@@ -1075,23 +1098,54 @@ export const POPdf: React.FC<POPdfProps> = ({
           const imgData = canvas.toDataURL();
           pages.push(imgData);
         }
-
-        setImages((prevImages) => [...prevImages, ...pages]);
+        return pages;
       } else if (["png", "jpg", "jpeg", "gif", "webp"].includes(fileType)) {
-        setImages((prevImages) => [...prevImages, fileUrl]);
+        return [fileUrl];
       } else {
         console.warn(`Unsupported file type: ${fileType}`);
+        return [];
       }
     } catch (error) {
       console.error("Failed to load file as image:", error);
+      return [];
     }
   };
 
   useEffect(() => {
-    if (attachmentsData) {
-      attachmentsData.forEach(loadFileAsImage);
-    }
-  }, [attachmentsData]);
+    let isActive = true;
+
+    const fetchAllAttachments = async () => {
+        // Direct PO Attachment
+        const allAttachments = [];
+        if (po?.attachment) {
+            allAttachments.push({ attachment: po.attachment });
+        }
+
+        console.log("Processing Attachments list:", allAttachments);
+
+        if (allAttachments.length === 0) {
+            if (isActive) setImages([]);
+            return;
+        }
+
+        // Process concurrently
+        const results = await Promise.all(allAttachments.map(att => getImagesFromAttachment(att)));
+        
+        // Flatten results
+        const flattenedImages = results.flat();
+        
+        if (isActive) {
+            setImages(flattenedImages);
+        }
+    };
+
+    fetchAllAttachments();
+
+    return () => {
+        isActive = false;
+    };
+  }, [po?.attachment]);
+
 
   const handlePrint = useReactToPrint({
     content: () => componentRef.current || null,
@@ -1103,6 +1157,43 @@ export const POPdf: React.FC<POPdfProps> = ({
       setIsPrinting(false);
     },
   });
+
+  const handlePrintFormatPdf = async () => {
+    if (!po?.name) return;
+    setIsDownloading(true);
+    try {
+      // Fetch the PDF blob
+      const url = `/api/method/frappe.utils.print_format.download_pdf?doctype=Procurement Orders&name=${po.name}&format=PO Invoice&no_letterhead=0`;
+      const response = await fetch(url);
+      if (!response.ok) throw new Error("Network response was not ok");
+      
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      
+      // Create temporary link to trigger download with custom filename
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      // Custom Filename: [PO Number]_[Project Name]_CR.pdf
+      // Sanitizing filename just in case (replacing slashes with underscores if any)
+      const safeName = po.name.replace(/\//g, "_");
+      const safeProjectName = (po.project_name || "Project").replace(/\//g, "_");
+      link.download = `${safeName}_${safeProjectName}_CR.pdf`;
+      
+      document.body.appendChild(link);
+      link.click();
+      
+      // Cleanup
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      console.error("Download failed:", error);
+      // Fallback to old method if fetch fails
+      const url = `/api/method/frappe.utils.print_format.download_pdf?doctype=Procurement Orders&name=${po?.name}&format=PO Invoice&no_letterhead=0`;
+      window.open(url, '_blank');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   const parsedNotes = useMemo(() => {
     if (!po?.note_points) {
@@ -1158,10 +1249,20 @@ export const POPdf: React.FC<POPdfProps> = ({
   return (
     <Sheet open={poPdfSheet} onOpenChange={togglePoPdfSheet}>
       <SheetContent className="overflow-y-auto md:min-w-[900px]">
-        <Button onClick={handlePrint} className="flex items-center gap-1">
-          <Printer className="h-4 w-4" />
-          Print
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={handlePrint} className="flex items-center gap-1">
+            <Printer className="h-4 w-4" />
+            Print
+          </Button>
+          <Button
+            onClick={handlePrintFormatPdf}
+            disabled={isDownloading}
+            className="flex items-center gap-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Download className={`h-4 w-4 ${isDownloading ? "animate-bounce" : ""}`} />
+            {isDownloading ? "Downloading..." : "Download"}
+          </Button>
+        </div>
         <div className={`w-full border mt-6`}>
           <div ref={componentRef} className="w-full p-4">
             <style>

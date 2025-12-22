@@ -10,6 +10,7 @@
   "customer",
   "project_type",
   "project_value",
+  "carpet_area",
   "project_value_gst",
   "project_gst_number",
   "customer_section",
@@ -227,12 +228,18 @@
    "fieldtype": "Table",
    "label": "Project Zones",
    "options": "Project Zone Child Table"
+  },
+  {
+   "fieldname": "carpet_area",
+   "fieldtype": "Int",
+   "label": "Carpet Area",
+   "non_negative": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-12-16 08:12:59.436114",
+ "modified": "2025-12-22 19:42:33.951451",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Projects",

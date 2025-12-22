@@ -68,7 +68,7 @@
   },
   {
    "fieldname": "attachment",
-   "fieldtype": "Data",
+   "fieldtype": "Attach",
    "label": "Attachment"
   },
   {
@@ -282,7 +282,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-12-16 08:13:35.052806",
+ "modified": "2025-12-18 13:22:44.396177",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Procurement Orders",

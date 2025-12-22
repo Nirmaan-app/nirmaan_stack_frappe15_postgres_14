@@ -1,7 +1,8 @@
 import React, { useMemo, useState, useCallback, useEffect } from "react";
 import { addDays, format } from "date-fns";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Link, useNavigate } from "react-router-dom";
-import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeGetCall } from "frappe-react-sdk";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
@@ -40,6 +41,7 @@ import { TaskEditModal } from './components/TaskEditModal';
 import { TaskWiseTable } from "./components/TaskWiseTable";
 import {formatDeadlineShort, getStatusBadgeStyle,getTaskStatusStyle, getTaskSubStatusStyle,getAssignedNameForDisplay ,getExistingTaskNames} from "./utils";
 import { DesignPackagesMaster } from "./components/DesignPackagesmaster";
+import { ProjectWiseCard } from "./components/ProjectWiseCard";
 import {useUserData} from "@/hooks/useUserData";
 
 const DOCTYPE = 'Project Design Tracker';
@@ -51,9 +53,15 @@ const DESIGN_TABS = {
 };
 
 
-const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categoryData, onSuccess }) => {
+const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, projects, categoryData, onSuccess }) => {
     const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
     const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+    
+    // Zone State
+    const [zones, setZones] = useState<string[]>([]);
+    const [currentZoneInput, setCurrentZoneInput] = useState("");
+    const [isManualZone, setIsManualZone] = useState<boolean | null>(null); // null = not selected, true = yes, false = no
+
     const { createDoc, loading: createLoading } = useFrappeCreateDoc();
 
     const visibleCategories = useMemo(() => {
@@ -65,9 +73,55 @@ const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categ
         setSelectedCategories(prev => prev.includes(categoryName) ? prev.filter(c => c !== categoryName) : [...prev, categoryName])
     };
 
+    const handleManualZoneChange = (value: string) => {
+        const isManual = value === "yes";
+        setIsManualZone(isManual);
+        
+        if (isManual) {
+            // Reset to empty to allow manual entry
+            setZones([]);
+        } else {
+            // Set to default zone
+            setZones(["Default"]);
+        }
+        setCurrentZoneInput("");
+    };
+
+    const handleAddZone = () => {
+        if (currentZoneInput.trim()) {
+            // Validation: Alphanumeric only
+            const trimmed = currentZoneInput.trim();
+             const isValidFormat = /^[a-zA-Z0-9 ]+$/.test(trimmed);
+            if (!isValidFormat) {
+                toast({ title: "Invalid Format", description: "Zone name must contain only letters and numbers.", variant: "destructive" });
+                return;
+            }
+
+            // Duplicate Check (Case Insensitive)
+            const isDuplicate = zones.some(z => z.toLowerCase() === trimmed.toLowerCase());
+            
+            if (isDuplicate) {
+                toast({ title: "Duplicate Zone", description: "This zone name already exists.", variant: "destructive" });
+                return;
+            }
+
+            setZones([...zones, trimmed]);
+            setCurrentZoneInput("");
+        }
+    };
+
+    const handleRemoveZone = (zoneToRemove: string) => {
+        setZones(zones.filter(z => z !== zoneToRemove));
+    };
+
     const handleConfirm = async () => {
         if (!selectedProjectId || selectedCategories.length === 0) {
             toast({ title: "Error", description: "Select project and at least one category.", variant: "destructive" });
+            return;
+        }
+
+        if (zones.length === 0) {
+            toast({ title: "Error", description: "Please add at least one Zone.", variant: "destructive" });
             return;
         }
 
@@ -76,40 +130,40 @@ const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categ
 
         const tasksToGenerate: Partial<DesignTrackerTask>[] = [];
 
-        selectedCategories.forEach(catName => {
-            const categoryDef = categoryData.find(c => c.category_name === catName);
+        // Loop through Zones first (or tasks, order doesn't strictly matter for DB, but logical for UI)
+        zones.forEach(zoneName => {
+            selectedCategories.forEach(catName => {
+                const categoryDef = categoryData.find(c => c.category_name === catName);
 
-            // Updated logic: Skip category if tasks array is missing or empty
-            if (categoryDef && Array.isArray(categoryDef.tasks) && categoryDef.tasks.length > 0) {
-                const taskItems = categoryDef.tasks;
+                if (categoryDef && Array.isArray(categoryDef.tasks) && categoryDef.tasks.length > 0) {
+                    const taskItems = categoryDef.tasks;
 
-                taskItems.forEach(taskDef => {
-                    const taskName = taskDef.task_name;
-                    let calculatedDeadline = undefined;
-                    if (taskDef.deadline_offset !== undefined && taskDef.deadline_offset !== null) {
-                         // Parse offset as number just in case
-                         const offset = Number(taskDef.deadline_offset);
-                         if (!isNaN(offset)) {
-                             calculatedDeadline = format(addDays(new Date(), offset), 'yyyy-MM-dd');
-                         }
-                    }
+                    taskItems.forEach(taskDef => {
+                        const taskName = taskDef.task_name;
+                        let calculatedDeadline = undefined;
+                        if (taskDef.deadline_offset !== undefined && taskDef.deadline_offset !== null) {
+                             const offset = Number(taskDef.deadline_offset);
+                             if (!isNaN(offset)) {
+                                 // Use project start_date if available (found in projects list), else today
+                                 const projectStart = projects?.find((p: any) => p.name === selectedProjectId)?.project_start_date;
+                                 const baseDate = projectStart ? new Date(projectStart) : new Date();
+                                 const d = new Date(baseDate);
+                                 d.setDate(baseDate.getDate() + offset);
+                                 calculatedDeadline = format(d, 'yyyy-MM-dd');
+                             }
+                        }
 
-                    tasksToGenerate.push({
-                        task_name: taskName,
-                        design_category: catName,
-                        task_status: 'Not Started',
-                        deadline: calculatedDeadline,
-                    })
-                });
-            } else {
-                // Category is skipped, provide feedback via toast
-                toast({
-                    title: "Category Skipped",
-                    description: `Category ${catName} has no tasks defined in master data and was skipped.`,
-                    variant: "destructive"
-                });
-                return; // Skip to the next category in the forEach loop
-            }
+                        tasksToGenerate.push({
+                            task_name: taskName,
+                            design_category: catName,
+                            task_status: 'Not Started',
+                            deadline: calculatedDeadline,
+                            task_zone: zoneName // Set the Zone
+                            
+                        })
+                    });
+                }
+            });
         });
 
         if (tasksToGenerate.length === 0) {
@@ -117,14 +171,27 @@ const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categ
             return;
         }
 
+        // Prepare Zone Child Table Data
+        const zoneChildTableData = zones.map(z => ({ tracker_zone: z }));
+
         try {
             await createDoc(DOCTYPE, {
                 project: selectedProjectId,
                 project_name: projectLabel,
+                start_date: projects?.find((p: any) => p.name === selectedProjectId)?.project_start_date,
                 status: 'Assign Pending',
-                design_tracker_task: tasksToGenerate
+                design_tracker_task: tasksToGenerate,
+                zone: zoneChildTableData // Send Zones to backend
             });
             toast({ title: "Success", description: `Design Tracker created for ${projectLabel}.`, variant: "success" });
+            
+            // Reset State
+            setSelectedProjectId(null);
+            setSelectedCategories([]);
+            setZones([]);
+            setCurrentZoneInput("");
+            setIsManualZone(null);
+            
             onSuccess();
             onClose();
         } catch (error: any) {
@@ -134,36 +201,107 @@ const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categ
 
     return (
         <AlertDialog open={isOpen} onOpenChange={onClose}>
-            <AlertDialogContent className="sm:max-w-lg">
+            <AlertDialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
                 <AlertDialogHeader>
-                    <AlertDialogTitle className="text-center">Select Project</AlertDialogTitle>
-                    <AlertDialogDescription className="text-center">Step 1: Select a project that you want to add to the design tracker</AlertDialogDescription>
+                    <AlertDialogTitle className="text-center">Create Design Tracker</AlertDialogTitle>
                 </AlertDialogHeader>
-                <div className="space-y-6 py-4">
-                    {/* Project Selection */}
-                     <div className="flex flex-col gap-2">
-                        <Label htmlFor="Projects">Select Project *</Label>
+                <div className="space-y-6 py-2">
+                    {/* Step 1: Project Selection */}
+                     <div className="space-y-2">
+                        <Label>Step 1: Select Project *</Label>
                         <ReactSelect
                             options={projectOptions}
                             value={projectOptions.find((p: any) => p.value === selectedProjectId) || null}
                             onChange={(option: any) => setSelectedProjectId(option ? option.value : null)}
                             classNamePrefix="react-select"
-                            menuPosition={'auto'}
-                        
+                            menuPosition={'auto'} 
+                            placeholder="Search Project..."
                         />
                     </div>
 
-                    {/* Category Selection */}
-                          <div className="space-y-3">
-                        <AlertDialogDescription>Step 2: Choose one or more categories for this project</AlertDialogDescription>
+                    {/* Step 2: Zone Selection */}
+                    <div className="space-y-3">
+                        <Label>Step 2: Add Zones *</Label>
+                        
+                        <div className="space-y-2">
+                             <Label className="text-sm font-normal text-muted-foreground">Do you want to setup manual zones for this Project?</Label>
+                             <div className="flex gap-4">
+                                <div className="flex items-center space-x-2">
+                                    <input 
+                                        type="radio" 
+                                        id="r-yes" 
+                                        name="manual-zones" 
+                                        value="yes" 
+                                        checked={isManualZone === true}
+                                        onChange={() => handleManualZoneChange('yes')}
+                                        className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                                    />
+                                    <Label htmlFor="r-yes">Yes</Label>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                    <input 
+                                        type="radio" 
+                                        id="r-no" 
+                                        name="manual-zones" 
+                                        value="no" 
+                                        checked={isManualZone === false}
+                                        onChange={() => handleManualZoneChange('no')}
+                                        className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                                    />
+                                    <Label htmlFor="r-no">No</Label>
+                                </div>
+                             </div>
+                        </div>
+
+                        {/* Input Box - Only show if Manual is Yes */}
+                        {isManualZone === true && (
+                            <div className="flex gap-2">
+                                <Input 
+                                    value={currentZoneInput}
+                                    onChange={(e) => setCurrentZoneInput(e.target.value)}
+                                    placeholder="Enter Zone Name (e.g. Tower A)"
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            handleAddZone();
+                                        }
+                                    }}
+                                />
+                                <Button type="button" onClick={handleAddZone} variant="secondary">Add</Button>
+                            </div>
+                        )}
+
+                        {/* Zone List Display */}
+                        <div className="flex flex-wrap gap-2 min-h-[40px] items-center">
+                            {zones.length === 0 && <span className="text-gray-400 text-sm italic">No zones selected.</span>}
+                             
+                            {zones.map((zone) => (
+                                <Badge key={zone} variant="secondary" className="px-3 py-1 text-sm bg-white border shadow-sm">
+                                    {zone}
+                                    {isManualZone && (
+                                        <button onClick={() => handleRemoveZone(zone)} className="ml-2 text-gray-400 hover:text-red-500">
+                                            ×
+                                        </button>
+                                    )}
+                                </Badge>
+                            ))}
+                        </div>
+                    </div>
+
+
+                    {/* Step 3: Category Selection */}
+                    <div className="space-y-2">
+                        <Label>Step 3: Choose Categories</Label>
                         
                         {visibleCategories.length > 0 ? (
-                            <div className="grid grid-cols-3 gap-3">
+                            <div className="grid grid-cols-3 gap-2">
                                 {visibleCategories.map((cat: any) => (
                                     <Button
                                         key={cat.category_name}
                                         variant={selectedCategories.includes(cat.category_name) ? "default" : "outline"}
                                         onClick={() => handleCategoryToggle(cat.category_name)}
+                                        size="sm"
+                                        className="text-xs h-auto py-2 whitespace-normal h-full min-h-[40px]"
                                     >
                                         {cat.category_name}
                                     </Button>
@@ -181,7 +319,7 @@ const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categ
                     <AlertDialogCancel disabled={createLoading} onClick={onClose}> Cancel</AlertDialogCancel>
                     <Button
                         onClick={handleConfirm}
-                        disabled={!selectedProjectId || selectedCategories.length === 0 || createLoading}
+                        disabled={!selectedProjectId || selectedCategories.length === 0 || zones.length === 0 || createLoading}
                     >
                         {createLoading ? <TailSpin width={20} height={20} color="white" /> : "Confirm"}
                     </Button>
@@ -486,6 +624,7 @@ export const DesignTrackerList: React.FC = () => {
     const { role,user_id } = useUserData();
     // console.log("role-Nirmaan Design Executive Profile",role,user_id)
     const isDesignExecutive = role === "Nirmaan Design Executive Profile";
+    const hasEditStructureAccess = role === "Nirmaan Design Lead Profile" || role === "Nirmaan Admin Profile" || user_id === "Administrator";
     
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
@@ -494,6 +633,7 @@ export const DesignTrackerList: React.FC = () => {
     const initialTab = useMemo(() => getUrlStringParam("tab", DESIGN_TABS.PROJECT_WISE), []);
     const [activeTab, setActiveTab] = useState<string>(initialTab);
     const [expandedProject, setExpandedProject] = useState<string | null>(null);
+    const [activeStatusTab, setActiveStatusTab] = useState<string>("All");
 
     const onClick = useCallback((value: string) => {
         if (activeTab === value) return;
@@ -517,14 +657,29 @@ export const DesignTrackerList: React.FC = () => {
     }, []);
 
     const {
+        data: trackerDocsData, isLoading, error, mutate: refetchList
+    } = useFrappeGetCall<any>('nirmaan_stack.api.design_tracker.get_tracker_list.get_trackers_with_stats', {}, "cache-first");
+
+    // Safe access to array data
+    const trackerDocs = useMemo(() => {
+        if (!trackerDocsData) return [];
+        if (Array.isArray(trackerDocsData)) return trackerDocsData;
+        if (Array.isArray(trackerDocsData.message)) return trackerDocsData.message;
+        return [];
+    }, [trackerDocsData]);
+    
+    // Previous DocList call commented out
+    /*
+    const {
         data: trackerDocs, isLoading, error, mutate: refetchList
     } = useFrappeGetDocList<ProjectDesignTracker>(DOCTYPE, {
         fields: ["name", "project", "project_name", "status", "creation", "modified", "overall_deadline"],
         orderBy: { field: "creation", order: "desc" },
         limit: 100
     });
+    */
 
-    const { projectOptions, categories, categoryData, statusOptions,
+    const { projectOptions, projects, categories, categoryData, statusOptions,
         subStatusOptions, mutateMasters } = useDesignMasters();
 
     useEffect(() => {
@@ -585,7 +740,12 @@ export const DesignTrackerList: React.FC = () => {
             rounded-r-none 
         `}
                     >
-                        Project Wise
+                       Project Wise
+                       {/* {trackerDocs?.length > 0 && (
+                           <span className="ml-2 bg-white text-red-700 px-2 rounded-full text-xs py-1">
+                               {trackerDocs?.length || 0}
+                           </span>
+                       )} */}
                     </Button>
 
                     <Button
@@ -602,7 +762,7 @@ export const DesignTrackerList: React.FC = () => {
                         Task Wise
                     </Button>
                 </div>
-                {activeTab === DESIGN_TABS.PROJECT_WISE && !isDesignExecutive && (
+                {activeTab === DESIGN_TABS.PROJECT_WISE && hasEditStructureAccess && (
                     <Button onClick={() => setIsModalOpen(true)} className="">
                         <CirclePlus className="h-5 w-5 pr-1" /> Track New Project
                     </Button>
@@ -689,6 +849,33 @@ export const DesignTrackerList: React.FC = () => {
             {/* Content based on Active Tab */}
             {activeTab === DESIGN_TABS.PROJECT_WISE && (
                 <div className="space-y-3">
+                    {/* New Grid View Logic */}
+                     {/* Use useFrappeGetCall instead of GetDocList for Custom API */}
+                     {/* Note: I'm casting the fetched data to match the expected structure */}
+                  
+                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {filteredDocs.length === 0 ? (
+                            <div className="col-span-full text-center text-gray-500 p-10">
+                                No design trackers found matching your search criteria.
+                            </div>
+                        ) : (
+                            filteredDocs.map((doc: any) => (
+                                <div key={doc.name} className="h-full">
+                                    <ProjectWiseCard 
+                                        tracker={doc} 
+                                        onClick={() => navigate(`/design-tracker/${doc.name}`)}
+                                    />
+                                </div>
+                            ))
+                        )}
+                    </div>
+
+
+                    {/* 
+                     ================================================================
+                     PREVIOUS LOGIC (COLLAPSIBLE CARDS) - COMMENTED OUT AS REQUESTED
+                     ================================================================
+                    
                     {filteredDocs.length === 0 ? (
                         <p className="text-center text-gray-500 p-10">No design trackers found matching your search criteria.</p>
                     ) : (
@@ -707,7 +894,7 @@ export const DesignTrackerList: React.FC = () => {
                                         onClick={() => handleToggleCollapse(doc.name)}
                                     >
                                         <CardContent className="p-0 flex flex-wrap justify-between items-center text-sm md:text-base relative">
-                                            {/* Project Name */}
+                                            {/* Project Name * /}
                                             <div className="w-full md:w-2/4 min-w-[150px] pr-4 order1 mb-2 md:mb-0">
                                                 {/* <Link
                                                     to={`/design-tracker/${doc.name}`}
@@ -716,7 +903,7 @@ export const DesignTrackerList: React.FC = () => {
                                                     onClick={(e) => e.stopPropagation()}
                                                 >
                                                     {doc.project_name}
-                                                </Link> */}
+                                                </Link> * /}
                                                 <Link
     to={`/design-tracker/${doc.name}`}
     className={`group flex items-center gap-2 text-lg font-bold w-fit
@@ -726,13 +913,13 @@ export const DesignTrackerList: React.FC = () => {
     <span className="underline underline-offset-4 group-hover:underline underline-offset-4">
         {doc.project_name}
     </span>
-    {/* Icon appears/moves slightly on hover */}
+    {/* Icon appears/moves slightly on hover * /}
     <ArrowUpRight className="h-4 w-4 opacity-90 group-hover:opacity-100 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 transition-all" />
 </Link>
                                             </div>
 
-                                            {/* Details */}
-                                            {/* Date Section */}
+                                            {/* Details * /}
+                                            {/* Date Section * /}
                                             <div className="text-gray-600 flex flex-col items-start md:items-center w-1/2 md:w-auto">
                                                 <div className="text-xs text-gray-500 capitalize font-medium">Task Created On:</div>
                                                 <div className="text-sm font-medium text-gray-900">
@@ -740,7 +927,7 @@ export const DesignTrackerList: React.FC = () => {
                                                 </div>
                                             </div>
 
-                                            {/* Status Section */}
+                                            {/* Status Section * /}
                                             <div className="text-right flex flex-col items-end md:items-center w-1/2 md:w-auto">
                                                 <div className="text-xs text-gray-500 capitalize font-medium">Status</div>
                                                 <Badge
@@ -751,7 +938,7 @@ export const DesignTrackerList: React.FC = () => {
                                                 </Badge>
                                             </div>
 
-                                            {/* Row 3: Action Icon */}
+                                            {/* Row 3: Action Icon * /}
                                             <div className="absolute right-0 top-0 md:static md:order-3 md:ml-4">
                                                 <Button variant="outline" size="icon" className="h-8 w-8 bg-gray-100  hover:bg-gray-200">
                                                     {isExpanded ? <ChevronUp className="h-5 w-5 " /> : <ChevronDown className="h-5 w-5 " />}
@@ -760,7 +947,7 @@ export const DesignTrackerList: React.FC = () => {
                                         </CardContent>
                                     </Card>
 
-                                    {/* Expanded Task List */}
+                                    {/* Expanded Task List * /}
                                     {isExpanded && (
                                         <div className={`bg-white border rounded-b-lg p-0
                                                 ${isPending ? 'border-destructive border-t' : 'border-gray-200 border-t'}`}>
@@ -776,17 +963,48 @@ export const DesignTrackerList: React.FC = () => {
                             )
                         })
                     )}
+                    */}
                 </div>
             )}
 
             {activeTab === DESIGN_TABS.TASK_WISE && (
-                <TaskWiseTable 
-                    refetchList={refetchList} 
-                    searchTerm={searchTerm} 
-                    onSearchTermChange={setSearchTerm}
-                    user_id={user_id}
-                    isDesignExecutive={isDesignExecutive}
-                />
+                <div className="space-y-4">
+                     <Tabs value={activeStatusTab} onValueChange={setActiveStatusTab} className="w-full">
+                        <TabsList className="w-full justify-start h-auto flex-wrap gap-2 bg-transparent p-0">
+                             <TabsTrigger 
+                                value="All" 
+                                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground border bg-white min-w-[100px]"
+                            >
+                                All
+                            </TabsTrigger>
+                            <TabsTrigger 
+                                value="Approved"
+                                className="data-[state=active]:bg-green-600 data-[state=active]:text-white border bg-white min-w-[100px]"
+                            >
+                                Approved
+                            </TabsTrigger>
+                             {/* Add more specific tabs if needed, or map from statusOptions */}
+                             {statusOptions?.filter(s => s.value !== 'Approved').sort((a,b) => a.label.localeCompare(b.label)).map((option) => (
+                                 <TabsTrigger 
+                                    key={option.value} 
+                                    value={option.value}
+                                    className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground border bg-white min-w-[100px]"
+                                >
+                                    {option.label}
+                                </TabsTrigger>
+                             ))}
+                        </TabsList>
+                    </Tabs>
+
+                    <TaskWiseTable 
+                        refetchList={refetchList} 
+                        searchTerm={searchTerm} 
+                        onSearchTermChange={setSearchTerm}
+                        user_id={user_id}
+                        isDesignExecutive={isDesignExecutive}
+                        statusFilter={activeStatusTab}
+                    />
+                </div>
             )}
 
             {/* Modal for New Tracker */}
@@ -794,8 +1012,12 @@ export const DesignTrackerList: React.FC = () => {
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
                 projectOptions={projectOptions}
+                projects={projects}
                 categoryData={categoryData}
-                onSuccess={() => refetchList()}
+                onSuccess={() => {
+                    refetchList();
+                    if (mutateMasters) mutateMasters();
+                }}
             />
         </div>
     )

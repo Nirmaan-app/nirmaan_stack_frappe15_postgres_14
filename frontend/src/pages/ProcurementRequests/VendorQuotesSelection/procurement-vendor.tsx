@@ -275,7 +275,9 @@ console.log("targetRatesDataMap", targetRatesDataMap);
                           <TableCell>{item.quantity}</TableCell>
                           <TableCell>
                             {/* Use HistoricalQuotesHoverCard here */}
-                            <HistoricalQuotesHoverCard quotes={mappedQuotes}>
+                            <HistoricalQuotesHoverCard quotes={mappedQuotes}
+                             targetValue={targetRateValue}
+                            >
                               {targetRateValue === -1 ? "N/A" : formatToRoundedIndianRupee(targetRateValue * 0.98)}
                             </HistoricalQuotesHoverCard>
                           </TableCell>

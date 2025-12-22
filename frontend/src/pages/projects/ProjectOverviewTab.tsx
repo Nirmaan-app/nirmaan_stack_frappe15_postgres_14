@@ -312,7 +312,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
 
           <CardDescription className="space-y-2">
             <span>Area (Sqft)</span>
-            <p className="font-bold text-black">placeholder</p>
+            <p className="font-bold text-black">{projectData?.carpet_area || 0}</p>
           </CardDescription>
 
           <CardDescription className="space-y-2 text-end md:text-center">

@@ -346,6 +346,7 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                               {parseNumber(item?.targetRate) > 0 ? (
                                 <HistoricalQuotesHoverCard
                                   quotes={item.contributingHistoricalQuotes}
+                                  targetValue={item.targetRate}
                                 >
                                   <span>
                                     {formatToIndianRupee(
