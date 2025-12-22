@@ -748,7 +748,7 @@ export const MilestoneDailySummary = () => {
                                          );
                                          const weightage = milestoneData?.weightage || 1.0;
                                          const effectiveWeightage = m.status !== "Not Applicable" ? weightage : 0;
-                                         console.log(milestoneData.work_milestone_name," Effective weightage = ", effectiveWeightage)
+                                        //  console.log(milestoneData.work_milestone_name," Effective weightage = ", effectiveWeightage)
                                          return {
                                            ...m,
                                            weightage,
@@ -764,7 +764,7 @@ export const MilestoneDailySummary = () => {
                                          0
                                        );
 
-                                      console.log("sumEffectiveWeightages = ",sumEffectiveWeightages)
+                                      // console.log("sumEffectiveWeightages = ",sumEffectiveWeightages)
                                        // If no effective weightage, return 0
                                        if (sumEffectiveWeightages === 0) return 0;
 
@@ -774,7 +774,7 @@ export const MilestoneDailySummary = () => {
                                          return sum + effectiveProgress;
                                        }, 0);
 
-                                       console.log("overallProgress = ",overallProgress)
+                                      //  console.log("overallProgress = ",overallProgress)
 
                                        return Math.round(overallProgress);
                                      };

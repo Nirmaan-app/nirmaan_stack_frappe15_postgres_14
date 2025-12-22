@@ -7,7 +7,7 @@ import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { UserContext } from "@/utils/auth/UserProvider";
 import { useFrappeDocumentEventListener, useFrappeGetCall, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { ProcurementRequestItemDetail } from "@/types/NirmaanStack/ProcurementRequests";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import formatToIndianRupee,{ formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { ArrowBigRightDash, MessageCircleMore, Trash2 } from 'lucide-react';
 import { useContext, useMemo } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -278,7 +278,7 @@ console.log("targetRatesDataMap", targetRatesDataMap);
                             <HistoricalQuotesHoverCard quotes={mappedQuotes}
                              targetValue={targetRateValue}
                             >
-                              {targetRateValue === -1 ? "N/A" : formatToRoundedIndianRupee(targetRateValue * 0.98)}
+                              {targetRateValue === -1 ? "N/A" : formatToIndianRupee(targetRateValue * 0.98)}
                             </HistoricalQuotesHoverCard>
                           </TableCell>
                         </TableRow>
