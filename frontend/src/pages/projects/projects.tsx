@@ -376,7 +376,7 @@ export const Projects: React.FC<ProjectsProps> = ({
 
     {
       id: "total_liabilities",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Total Liabilities" />,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Current Liabilities" />,
       cell: ({ row }) => {
         const financials = getProjectFinancials(row.original.name);
         return (
@@ -387,7 +387,7 @@ export const Projects: React.FC<ProjectsProps> = ({
       },
       size: 100,
       meta: {
-        exportHeaderName: "Total Liabilities",
+        exportHeaderName: "Current Liabilities",
         exportValue: (row) => {
           const financials = getProjectFinancials(row.name);
           return formatToRoundedIndianRupee(financials.totalLiabilities / 100000) + " L";

@@ -84,6 +84,7 @@ const ProjectEstimates = React.lazy(() => import("./add-project-estimates"));
 const ProjectPOSummaryTable = React.lazy(() => import("./components/ProjectPOSummaryTable"));
 const ProjectMaterialUsageTab = React.lazy(() => import("./components/ProjectMaterialUsageTab"));
 const ProjectDesignTrackerDetail = React.lazy(() => import("@/pages/ProjectDesignTracker/project-design-tracker-details").then(module => ({ default: module.ProjectDesignTrackerDetail })));
+const NoDesignTrackerView = React.lazy(() => import("@/pages/ProjectDesignTracker/components/NoDesignTrackerView").then(module => ({ default: module.NoDesignTrackerView })));
 import { ProjectExpensesTab } from "./components/ProjectExpenseTab"; // NEW
 import { ProjectWorkReportTab } from "./ProjectWorkReportTab";
 
@@ -252,7 +253,7 @@ type ProjectPageTabValue = typeof PROJECT_PAGE_TABS[keyof typeof PROJECT_PAGE_TA
 
 const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item_data }: ProjectViewProps) => {
 
-  const { data: designTrackerList } = useFrappeGetDocList("Project Design Tracker", {
+  const { data: designTrackerList, mutate: mutateDesignTrackerList } = useFrappeGetDocList("Project Design Tracker", {
     fields: ["name"],
     filters: [["project", "=", projectId]],
     limit: 1
@@ -977,7 +978,18 @@ const advanceAgainstPO = useMemo(() => {
       case PROJECT_PAGE_TABS.WORK_REPORT: // ADD THIS NEW CASE
             return <ProjectWorkReportTab projectData={data} project_mutate={project_mutate} current_role={role}/>;
       case PROJECT_PAGE_TABS.DESIGN_TRACKER:
-            return designTrackerId ? <ProjectDesignTrackerDetail trackerId={designTrackerId} /> : <div className="p-4">No Design Tracker found for this project.</div>;
+            return designTrackerId ? (
+              <ProjectDesignTrackerDetail trackerId={designTrackerId} />
+            ) : (
+              <NoDesignTrackerView
+                projectId={projectId}
+                projectName={data.project_name}
+                onTrackerCreated={() => {
+                  // Refetch the design tracker list to get the newly created tracker
+                  mutateDesignTrackerList();
+                }}
+              />
+            );
       case PROJECT_PAGE_TABS.PR_SUMMARY:
         return <ProjectPRSummaryTable projectId={projectId} />;
       case PROJECT_PAGE_TABS.SR_SUMMARY:

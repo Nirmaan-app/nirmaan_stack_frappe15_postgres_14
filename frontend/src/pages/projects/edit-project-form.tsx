@@ -166,6 +166,7 @@ const projectFormSchema = z.object({
       gst: z.string(),
     }))
   }),
+  carpet_area: z.string().optional(),
 });
 
 type ProjectFormValues = z.infer<typeof projectFormSchema>;
@@ -355,6 +356,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
             }
           ]
         },
+      carpet_area: data?.carpet_area || "",  
       project_scopes: data?.project_scopes
         ? JSON.parse(data?.project_scopes)
         : {
@@ -391,7 +393,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
           work_packages: transformedWpConfigForForm,
         },
         project_gst_number: data?.project_gst_number ? (typeof data.project_gst_number === 'string' ? JSON.parse(data.project_gst_number) : data.project_gst_number) : { list: [{ location: "Bengaluru", gst: "29ABFCS9095N1Z9" }] },
-
+        carpet_area: data?.carpet_area || "", 
         project_scopes: data?.project_scopes ? (typeof data.project_scopes === 'string' ? JSON.parse(data.project_scopes) : data.project_scopes) : { scopes: [] },
 
       });
@@ -577,6 +579,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
         // GST and Scopes: Assuming they are still JSON fields and frontend sends them correctly
         project_gst_number: typeof values.project_gst_number === 'string' ? values.project_gst_number : JSON.stringify(values.project_gst_number),
         project_scopes: typeof values.project_scopes === 'string' ? values.project_scopes : JSON.stringify(values.project_scopes),
+        carpet_area: values.carpet_area,
 
         project_start_date: formatted_start_date,
         project_end_date: formatted_end_date,
@@ -886,6 +889,30 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
             </SelectContent>
           </Select>
           <FormMessage />
+        </div>
+      </FormItem>
+    );
+  }}
+/>
+
+<FormField
+  control={form.control}
+  name="carpet_area"
+  render={({ field }) => {
+    return (
+      <FormItem className="lg:flex lg:items-center gap-4">
+        <FormLabel className="md:basis-3/12">
+            Carpet Area (Sqft)
+        </FormLabel>
+        <div className="md:basis-2/4">
+            <FormControl>
+                <Input
+                    type="number"
+                    placeholder="Enter Area"
+                    {...field}
+                />
+            </FormControl>
+            <FormMessage />
         </div>
       </FormItem>
     );

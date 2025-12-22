@@ -30,14 +30,14 @@ import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getTotalInflowAmount } from "@/utils/getAmounts";
 import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
-import { CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, CirclePlus, ListChecks,LinkIcon } from "lucide-react";
+import { CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, CirclePlus, ListChecks, LinkIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link, useNavigate } from "react-router-dom";
 import { useUsersList } from "../ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import { Projects } from "@/types/NirmaanStack/Projects";
 // IMPORT THE NEW COMPONENT AND ITS INTERFACE
-import { AddCustomerPODialog, CustomerPODetail } from "./components/AddCustomerPODialog"; 
+import { AddCustomerPODialog, CustomerPODetail } from "./components/AddCustomerPODialog";
 import { CustomerPODetailsCard } from "./components/CustomerPODeatilsCard";
 
 
@@ -64,8 +64,8 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
 
   const [selectedUser, setSelectedUser] = useState<string | undefined>();
   const [userOptions, setUserOptions] = useState<{ label: JSX.Element; value: string }[]>([]);
- 
-// console.log("projectData.customer_po_details", projectData.customer_po_details);
+
+  // console.log("projectData.customer_po_details", projectData.customer_po_details);
 
   const [assignUserDialog, setAssignUserDialog] = useState(false);
   const toggleAssignUserDialog = useCallback(() => {
@@ -311,8 +311,8 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
           </CardDescription>
 
           <CardDescription className="space-y-2">
-            <span>Area (Sqft)</span>
-            <p className="font-bold text-black">placeholder</p>
+            <span>Carpet Area</span>
+            <p className="font-bold text-black">{projectData?.carpet_area || 0} SQFT</p>
           </CardDescription>
 
           <CardDescription className="space-y-2 text-end md:text-center">
@@ -431,20 +431,20 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
                       </Select> */}
                       <div className="col-span-3"> {/* Wrap ReactSelect to fit grid */}
                         <ReactSelect
-                            options={userOptions}
-                            // Value needs to be the full option object for react-select
-                            value={userOptions.find(option => option.value === selectedUser) || null}
-                            onChange={val => setSelectedUser(val ? val.value as string : undefined)}
-                            menuPosition="auto"
-                            isClearable={true} // Allows clearing the selection
-                            placeholder="Select User"
-                            // If you want to render the JSX label
-                            formatOptionLabel={(option) => option.label}
-                            // If you added a searchableLabel to your options, you can use getOptionLabel for search
-                            getOptionLabel={(option) => (option as any).searchableLabel || option.value}
-                            // classNamePrefix="react-select" 
+                          options={userOptions}
+                          // Value needs to be the full option object for react-select
+                          value={userOptions.find(option => option.value === selectedUser) || null}
+                          onChange={val => setSelectedUser(val ? val.value as string : undefined)}
+                          menuPosition="auto"
+                          isClearable={true} // Allows clearing the selection
+                          placeholder="Select User"
+                          // If you want to render the JSX label
+                          formatOptionLabel={(option) => option.label}
+                          // If you added a searchableLabel to your options, you can use getOptionLabel for search
+                          getOptionLabel={(option) => (option as any).searchableLabel || option.value}
+                        // classNamePrefix="react-select" 
                         />
-                    </div>
+                      </div>
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
                       <span className="text-right font-light">To:</span>
@@ -519,7 +519,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
           </CardDescription>
         </CardContent>
       </Card>
-       {/* 2. NEW: Customer PO Details Card */}
+      {/* 2. NEW: Customer PO Details Card */}
       <Card>
         {/* <CardHeader>
           <CardTitle className="flex justify-between items-center">
@@ -533,7 +533,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
             />
           </CardTitle>
         </CardHeader> */}
-        <CustomerPODetailsCard projectId={projectData.name}/>
+        <CustomerPODetailsCard projectId={projectData.name} />
         {/* <CardContent>
           {projectData?.customer_po_details?.length === 0? (
             <p className="text-gray-500">No customer purchase orders recorded yet.</p>

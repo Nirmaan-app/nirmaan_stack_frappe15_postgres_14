@@ -104,6 +104,7 @@ export const useDesignMasters = () => {
 
     return {
         projectOptions,
+        projects, // Expose raw projects list
         usersList,
         // phasesList, <-- REMOVED
         // phaseOptions, <-- REMOVED

@@ -78,12 +78,24 @@ def generate_pos_from_selection(project_id: str, pr_name: str, selected_items: l
         created_po_names = []
         is_pr_custom = not pr_doc.work_package
 
+        # --- PRE-FETCH ATTACHMENT FOR CUSTOM PR ---
+        pr_attachment = None
+        if is_pr_custom:
+            pr_attachment = frappe.db.get_value("Nirmaan Attachments", {
+                "associated_doctype": "Procurement Requests",
+                "associated_docname": pr_name,
+                "attachment_type": "custom pr attachment"
+            }, "attachment")
+            print(f"DEBUG_ATTACHMENT: {pr_attachment}")
+
         for vendor_id, po_items_list_for_vendor in vendor_po_items_details.items():
             po_doc = frappe.new_doc("Procurement Orders")
             vendor_doc = frappe.get_doc("Vendors", vendor_id)
             
             # Set PO Header Fields (no change)
             po_doc.procurement_request = pr_name
+            if pr_attachment:
+                po_doc.attachment = pr_attachment
             po_doc.project = pr_doc.project
             if project_doc:
                 po_doc.project_name = project_doc.project_name

@@ -1,7 +1,8 @@
 import React, { useMemo, useState, useCallback, useEffect } from "react";
 import { addDays, format } from "date-fns";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Link, useNavigate } from "react-router-dom";
-import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeGetCall } from "frappe-react-sdk";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
@@ -40,155 +41,16 @@ import { TaskEditModal } from './components/TaskEditModal';
 import { TaskWiseTable } from "./components/TaskWiseTable";
 import {formatDeadlineShort, getStatusBadgeStyle,getTaskStatusStyle, getTaskSubStatusStyle,getAssignedNameForDisplay ,getExistingTaskNames} from "./utils";
 import { DesignPackagesMaster } from "./components/DesignPackagesmaster";
+import { ProjectWiseCard } from "./components/ProjectWiseCard";
 import {useUserData} from "@/hooks/useUserData";
+import { NewTrackerModal } from "./components/NewTrackerModal";
 
 const DOCTYPE = 'Project Design Tracker';
 const FE_TASK_STATUS_OPTIONS = ["Todo", "In Progress", "Done", "Blocked", "On Hold", "Submitted"];
 
-const DESIGN_TABS = { 
-    PROJECT_WISE: 'project', 
-    TASK_WISE: 'task' 
-};
-
-
-const NewTrackerModal: React.FC<any> = ({ isOpen, onClose, projectOptions, categoryData, onSuccess }) => {
-    const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-    const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
-    const { createDoc, loading: createLoading } = useFrappeCreateDoc();
-
-    const visibleCategories = useMemo(() => {
-        if (!categoryData) return [];
-        return categoryData.filter((cat: any) => Array.isArray(cat.tasks) && cat.tasks.length > 0);
-    }, [categoryData]);
-
-    const handleCategoryToggle = (categoryName: string) => {
-        setSelectedCategories(prev => prev.includes(categoryName) ? prev.filter(c => c !== categoryName) : [...prev, categoryName])
-    };
-
-    const handleConfirm = async () => {
-        if (!selectedProjectId || selectedCategories.length === 0) {
-            toast({ title: "Error", description: "Select project and at least one category.", variant: "destructive" });
-            return;
-        }
-
-        const projectLabel = projectOptions.find(p => p.value === selectedProjectId)?.label;
-        if (!projectLabel) return;
-
-        const tasksToGenerate: Partial<DesignTrackerTask>[] = [];
-
-        selectedCategories.forEach(catName => {
-            const categoryDef = categoryData.find(c => c.category_name === catName);
-
-            // Updated logic: Skip category if tasks array is missing or empty
-            if (categoryDef && Array.isArray(categoryDef.tasks) && categoryDef.tasks.length > 0) {
-                const taskItems = categoryDef.tasks;
-
-                taskItems.forEach(taskDef => {
-                    const taskName = taskDef.task_name;
-                    let calculatedDeadline = undefined;
-                    if (taskDef.deadline_offset !== undefined && taskDef.deadline_offset !== null) {
-                         // Parse offset as number just in case
-                         const offset = Number(taskDef.deadline_offset);
-                         if (!isNaN(offset)) {
-                             calculatedDeadline = format(addDays(new Date(), offset), 'yyyy-MM-dd');
-                         }
-                    }
-
-                    tasksToGenerate.push({
-                        task_name: taskName,
-                        design_category: catName,
-                        task_status: 'Not Started',
-                        deadline: calculatedDeadline,
-                    })
-                });
-            } else {
-                // Category is skipped, provide feedback via toast
-                toast({
-                    title: "Category Skipped",
-                    description: `Category ${catName} has no tasks defined in master data and was skipped.`,
-                    variant: "destructive"
-                });
-                return; // Skip to the next category in the forEach loop
-            }
-        });
-
-        if (tasksToGenerate.length === 0) {
-            toast({ title: "Error", description: "No tasks could be generated from selected categories.", variant: "destructive" });
-            return;
-        }
-
-        try {
-            await createDoc(DOCTYPE, {
-                project: selectedProjectId,
-                project_name: projectLabel,
-                status: 'Assign Pending',
-                design_tracker_task: tasksToGenerate
-            });
-            toast({ title: "Success", description: `Design Tracker created for ${projectLabel}.`, variant: "success" });
-            onSuccess();
-            onClose();
-        } catch (error: any) {
-            toast({ title: "Creation Failed", description: error.message || "Failed to create tracker.", variant: "destructive" })
-        }
-    };
-
-    return (
-        <AlertDialog open={isOpen} onOpenChange={onClose}>
-            <AlertDialogContent className="sm:max-w-lg">
-                <AlertDialogHeader>
-                    <AlertDialogTitle className="text-center">Select Project</AlertDialogTitle>
-                    <AlertDialogDescription className="text-center">Step 1: Select a project that you want to add to the design tracker</AlertDialogDescription>
-                </AlertDialogHeader>
-                <div className="space-y-6 py-4">
-                    {/* Project Selection */}
-                     <div className="flex flex-col gap-2">
-                        <Label htmlFor="Projects">Select Project *</Label>
-                        <ReactSelect
-                            options={projectOptions}
-                            value={projectOptions.find((p: any) => p.value === selectedProjectId) || null}
-                            onChange={(option: any) => setSelectedProjectId(option ? option.value : null)}
-                            classNamePrefix="react-select"
-                            menuPosition={'auto'}
-                        
-                        />
-                    </div>
-
-                    {/* Category Selection */}
-                          <div className="space-y-3">
-                        <AlertDialogDescription>Step 2: Choose one or more categories for this project</AlertDialogDescription>
-                        
-                        {visibleCategories.length > 0 ? (
-                            <div className="grid grid-cols-3 gap-3">
-                                {visibleCategories.map((cat: any) => (
-                                    <Button
-                                        key={cat.category_name}
-                                        variant={selectedCategories.includes(cat.category_name) ? "default" : "outline"}
-                                        onClick={() => handleCategoryToggle(cat.category_name)}
-                                    >
-                                        {cat.category_name}
-                                    </Button>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="p-4 text-center text-sm text-gray-500 bg-gray-50 rounded-md">
-                                No categories available with defined tasks.
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                <AlertDialogFooter>
-                    <AlertDialogCancel disabled={createLoading} onClick={onClose}> Cancel</AlertDialogCancel>
-                    <Button
-                        onClick={handleConfirm}
-                        disabled={!selectedProjectId || selectedCategories.length === 0 || createLoading}
-                    >
-                        {createLoading ? <TailSpin width={20} height={20} color="white" /> : "Confirm"}
-                    </Button>
-                </AlertDialogFooter>
-            </AlertDialogContent>
-        </AlertDialog>
-    )
+const DESIGN_TABS = {
+    PROJECT_WISE: 'project',
+    TASK_WISE: 'task'
 };
 
 interface ExpandedProjectTasksProps {
@@ -486,6 +348,7 @@ export const DesignTrackerList: React.FC = () => {
     const { role,user_id } = useUserData();
     // console.log("role-Nirmaan Design Executive Profile",role,user_id)
     const isDesignExecutive = role === "Nirmaan Design Executive Profile";
+    const hasEditStructureAccess = role === "Nirmaan Design Lead Profile" || role === "Nirmaan Admin Profile" || user_id === "Administrator";
     
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
@@ -494,6 +357,7 @@ export const DesignTrackerList: React.FC = () => {
     const initialTab = useMemo(() => getUrlStringParam("tab", DESIGN_TABS.PROJECT_WISE), []);
     const [activeTab, setActiveTab] = useState<string>(initialTab);
     const [expandedProject, setExpandedProject] = useState<string | null>(null);
+    const [activeStatusTab, setActiveStatusTab] = useState<string>("All");
 
     const onClick = useCallback((value: string) => {
         if (activeTab === value) return;
@@ -517,14 +381,29 @@ export const DesignTrackerList: React.FC = () => {
     }, []);
 
     const {
+        data: trackerDocsData, isLoading, error, mutate: refetchList
+    } = useFrappeGetCall<any>('nirmaan_stack.api.design_tracker.get_tracker_list.get_trackers_with_stats', {}, "cache-first");
+
+    // Safe access to array data
+    const trackerDocs = useMemo(() => {
+        if (!trackerDocsData) return [];
+        if (Array.isArray(trackerDocsData)) return trackerDocsData;
+        if (Array.isArray(trackerDocsData.message)) return trackerDocsData.message;
+        return [];
+    }, [trackerDocsData]);
+    
+    // Previous DocList call commented out
+    /*
+    const {
         data: trackerDocs, isLoading, error, mutate: refetchList
     } = useFrappeGetDocList<ProjectDesignTracker>(DOCTYPE, {
         fields: ["name", "project", "project_name", "status", "creation", "modified", "overall_deadline"],
         orderBy: { field: "creation", order: "desc" },
         limit: 100
     });
+    */
 
-    const { projectOptions, categories, categoryData, statusOptions,
+    const { projectOptions, projects, categories, categoryData, statusOptions,
         subStatusOptions, mutateMasters } = useDesignMasters();
 
     useEffect(() => {
@@ -585,7 +464,12 @@ export const DesignTrackerList: React.FC = () => {
             rounded-r-none 
         `}
                     >
-                        Project Wise
+                       Project Wise
+                       {/* {trackerDocs?.length > 0 && (
+                           <span className="ml-2 bg-white text-red-700 px-2 rounded-full text-xs py-1">
+                               {trackerDocs?.length || 0}
+                           </span>
+                       )} */}
                     </Button>
 
                     <Button
@@ -602,7 +486,7 @@ export const DesignTrackerList: React.FC = () => {
                         Task Wise
                     </Button>
                 </div>
-                {activeTab === DESIGN_TABS.PROJECT_WISE && !isDesignExecutive && (
+                {activeTab === DESIGN_TABS.PROJECT_WISE && hasEditStructureAccess && (
                     <Button onClick={() => setIsModalOpen(true)} className="">
                         <CirclePlus className="h-5 w-5 pr-1" /> Track New Project
                     </Button>
@@ -689,6 +573,33 @@ export const DesignTrackerList: React.FC = () => {
             {/* Content based on Active Tab */}
             {activeTab === DESIGN_TABS.PROJECT_WISE && (
                 <div className="space-y-3">
+                    {/* New Grid View Logic */}
+                     {/* Use useFrappeGetCall instead of GetDocList for Custom API */}
+                     {/* Note: I'm casting the fetched data to match the expected structure */}
+                  
+                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {filteredDocs.length === 0 ? (
+                            <div className="col-span-full text-center text-gray-500 p-10">
+                                No design trackers found matching your search criteria.
+                            </div>
+                        ) : (
+                            filteredDocs.map((doc: any) => (
+                                <div key={doc.name} className="h-full">
+                                    <ProjectWiseCard 
+                                        tracker={doc} 
+                                        onClick={() => navigate(`/design-tracker/${doc.name}`)}
+                                    />
+                                </div>
+                            ))
+                        )}
+                    </div>
+
+
+                    {/* 
+                     ================================================================
+                     PREVIOUS LOGIC (COLLAPSIBLE CARDS) - COMMENTED OUT AS REQUESTED
+                     ================================================================
+                    
                     {filteredDocs.length === 0 ? (
                         <p className="text-center text-gray-500 p-10">No design trackers found matching your search criteria.</p>
                     ) : (
@@ -707,7 +618,7 @@ export const DesignTrackerList: React.FC = () => {
                                         onClick={() => handleToggleCollapse(doc.name)}
                                     >
                                         <CardContent className="p-0 flex flex-wrap justify-between items-center text-sm md:text-base relative">
-                                            {/* Project Name */}
+                                            {/* Project Name * /}
                                             <div className="w-full md:w-2/4 min-w-[150px] pr-4 order1 mb-2 md:mb-0">
                                                 {/* <Link
                                                     to={`/design-tracker/${doc.name}`}
@@ -716,7 +627,7 @@ export const DesignTrackerList: React.FC = () => {
                                                     onClick={(e) => e.stopPropagation()}
                                                 >
                                                     {doc.project_name}
-                                                </Link> */}
+                                                </Link> * /}
                                                 <Link
     to={`/design-tracker/${doc.name}`}
     className={`group flex items-center gap-2 text-lg font-bold w-fit
@@ -726,13 +637,13 @@ export const DesignTrackerList: React.FC = () => {
     <span className="underline underline-offset-4 group-hover:underline underline-offset-4">
         {doc.project_name}
     </span>
-    {/* Icon appears/moves slightly on hover */}
+    {/* Icon appears/moves slightly on hover * /}
     <ArrowUpRight className="h-4 w-4 opacity-90 group-hover:opacity-100 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 transition-all" />
 </Link>
                                             </div>
 
-                                            {/* Details */}
-                                            {/* Date Section */}
+                                            {/* Details * /}
+                                            {/* Date Section * /}
                                             <div className="text-gray-600 flex flex-col items-start md:items-center w-1/2 md:w-auto">
                                                 <div className="text-xs text-gray-500 capitalize font-medium">Task Created On:</div>
                                                 <div className="text-sm font-medium text-gray-900">
@@ -740,7 +651,7 @@ export const DesignTrackerList: React.FC = () => {
                                                 </div>
                                             </div>
 
-                                            {/* Status Section */}
+                                            {/* Status Section * /}
                                             <div className="text-right flex flex-col items-end md:items-center w-1/2 md:w-auto">
                                                 <div className="text-xs text-gray-500 capitalize font-medium">Status</div>
                                                 <Badge
@@ -751,7 +662,7 @@ export const DesignTrackerList: React.FC = () => {
                                                 </Badge>
                                             </div>
 
-                                            {/* Row 3: Action Icon */}
+                                            {/* Row 3: Action Icon * /}
                                             <div className="absolute right-0 top-0 md:static md:order-3 md:ml-4">
                                                 <Button variant="outline" size="icon" className="h-8 w-8 bg-gray-100  hover:bg-gray-200">
                                                     {isExpanded ? <ChevronUp className="h-5 w-5 " /> : <ChevronDown className="h-5 w-5 " />}
@@ -760,7 +671,7 @@ export const DesignTrackerList: React.FC = () => {
                                         </CardContent>
                                     </Card>
 
-                                    {/* Expanded Task List */}
+                                    {/* Expanded Task List * /}
                                     {isExpanded && (
                                         <div className={`bg-white border rounded-b-lg p-0
                                                 ${isPending ? 'border-destructive border-t' : 'border-gray-200 border-t'}`}>
@@ -776,17 +687,48 @@ export const DesignTrackerList: React.FC = () => {
                             )
                         })
                     )}
+                    */}
                 </div>
             )}
 
             {activeTab === DESIGN_TABS.TASK_WISE && (
-                <TaskWiseTable 
-                    refetchList={refetchList} 
-                    searchTerm={searchTerm} 
-                    onSearchTermChange={setSearchTerm}
-                    user_id={user_id}
-                    isDesignExecutive={isDesignExecutive}
-                />
+                <div className="space-y-4">
+                     <Tabs value={activeStatusTab} onValueChange={setActiveStatusTab} className="w-full">
+                        <TabsList className="w-full justify-start h-auto flex-wrap gap-2 bg-transparent p-0">
+                             <TabsTrigger 
+                                value="All" 
+                                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground border bg-white min-w-[100px]"
+                            >
+                                All
+                            </TabsTrigger>
+                            <TabsTrigger 
+                                value="Approved"
+                                className="data-[state=active]:bg-green-600 data-[state=active]:text-white border bg-white min-w-[100px]"
+                            >
+                                Approved
+                            </TabsTrigger>
+                             {/* Add more specific tabs if needed, or map from statusOptions */}
+                             {statusOptions?.filter(s => s.value !== 'Approved').sort((a,b) => a.label.localeCompare(b.label)).map((option) => (
+                                 <TabsTrigger 
+                                    key={option.value} 
+                                    value={option.value}
+                                    className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground border bg-white min-w-[100px]"
+                                >
+                                    {option.label}
+                                </TabsTrigger>
+                             ))}
+                        </TabsList>
+                    </Tabs>
+
+                    <TaskWiseTable 
+                        refetchList={refetchList} 
+                        searchTerm={searchTerm} 
+                        onSearchTermChange={setSearchTerm}
+                        user_id={user_id}
+                        isDesignExecutive={isDesignExecutive}
+                        statusFilter={activeStatusTab}
+                    />
+                </div>
             )}
 
             {/* Modal for New Tracker */}
@@ -794,8 +736,12 @@ export const DesignTrackerList: React.FC = () => {
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
                 projectOptions={projectOptions}
+                projects={projects}
                 categoryData={categoryData}
-                onSuccess={() => refetchList()}
+                onSuccess={() => {
+                    refetchList();
+                    if (mutateMasters) mutateMasters();
+                }}
             />
         </div>
     )

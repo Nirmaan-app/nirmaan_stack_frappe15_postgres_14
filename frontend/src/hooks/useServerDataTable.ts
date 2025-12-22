@@ -169,7 +169,9 @@ export interface ServerDataTableConfig<TData> {
     /** Key for storing/retrieving state in URL. If not provided, URL sync is disabled */
     urlSyncKey?: string;
 
-    additionalFilters?: any[] // Keep this for static  filters
+    additionalFilters?: any[];
+    apiEndpoint?: string; // Optional custom API endpoint
+    customParams?: Record<string, any>; // Optional params for custom API
     // --- NEW ---
     /** Should the Item Search option be available for this table? */
     // enableItemSearch?: boolean;
@@ -295,7 +297,9 @@ export function useServerDataTable<TData extends { name: string }>({
     clientData,
     clientTotalCount,
     shouldCache = false,
-    meta
+    meta,
+    apiEndpoint: customApiEndpoint, // Rename to avoid clash with const variable or usage
+    customParams
 }: ServerDataTableConfig<TData>): ServerDataTableResult<TData> {
 
     // --- NEW: Determine if operating in client-side mode ---
@@ -350,7 +354,9 @@ export function useServerDataTable<TData extends { name: string }>({
 
 
 
-    const apiEndpoint = 'nirmaan_stack.api.data-table.get_list_with_count_enhanced'; // Get Frappe call method from context
+    // Use custom endpoint if provided, otherwise default to generic enhanced list
+    // Use custom endpoint if provided, otherwise default to generic enhanced list
+    const apiEndpoint = customApiEndpoint || 'nirmaan_stack.api.data-table.get_list_with_count_enhanced';
     const { call: triggerFetch, loading: isCallingApi, error: apiError, reset: resetApiState } = useFrappePostCall<{ message: { data: TData[]; total_count: number; aggregates: any, group_by_result: any } }>(apiEndpoint); // Get Frappe call method from context
 
     // --- SWR Mutate for Cache Invalidation ---
@@ -629,7 +635,8 @@ export function useServerDataTable<TData extends { name: string }>({
             aggregates_config: aggregatesConfig && aggregatesConfig.length > 0
                 ? JSON.stringify(aggregatesConfig)
                 : undefined,
-            group_by_config: groupByConfig ? JSON.stringify(groupByConfig) : undefined, // NEW
+            group_by_config: groupByConfig ? JSON.stringify(groupByConfig) : undefined,
+            ...customParams // Spread custom parameters to payload
             // -----------
         };
 
@@ -859,7 +866,7 @@ export function useServerDataTable<TData extends { name: string }>({
         setSelectedSearchField,
         // isGlobalSearchEnabled,
         // toggleGlobalSearch,
-        // isItemSearchEnabled, 
+        // isItemSearchEnabled,
         // toggleItemSearch, // Add new item search state/toggle
         // showItemSearchToggle: enableItemSearch, // Indicate if toggle should be shown
         refetch,

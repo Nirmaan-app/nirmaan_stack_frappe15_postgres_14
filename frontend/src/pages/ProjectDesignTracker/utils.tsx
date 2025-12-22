@@ -1,50 +1,46 @@
 import { ProjectDesignTracker, DesignTrackerTask, User, AssignedDesignerDetail } from './types';
 
 
-export const getStatusBadgeStyle = (status: string) => {
-    const lowerStatus = status.toLowerCase();
-    if (lowerStatus.includes('pending') || lowerStatus.includes('assign pending')) {
-        return 'bg-red-100 text-red-700 border border-red-500 font-medium rounded-full'
-    }
-    if (lowerStatus.includes('in progress')) {
-        return 'bg-blue-100 text-blue-700 border border-blue-500 font-medium rounded-full'
-    }
-    if (lowerStatus.includes('on hold') || lowerStatus.includes('blocked')) {
-        return 'bg-yellow-100 text-yellow-700 border border-yellow-500 font-medium rounded-full'
-    }
-    if (lowerStatus.includes('submitted') || lowerStatus.includes('completed') || lowerStatus.includes('done')) {
-        return 'bg-green-100 text-green-700 border border-green-500 font-medium rounded-full'
-    }
-    return 'bg-gray-100 text-gray-700 border border-gray-300 font-medium rounded-full'
-};
-
-export const getTaskStatusStyle = (status: string) => {
-    const lowerStatus = status.toLowerCase();
+// Consolidated Status Logic
+export const getUnifiedStatusStyle = (status: string) => {
+    if (!status) return 'bg-gray-100 text-gray-700 border border-gray-300 font-medium rounded-full';
     
-    if (lowerStatus.includes('in progress')) {
-        return 'bg-blue-100 text-blue-700 border border-blue-500 font-medium rounded-full';
+    const lowerStatus = status.toLowerCase();
+
+    // 1. Not Applicable -> Gray
+    if (lowerStatus.includes('not applicable')) {
+        return 'bg-gray-100 text-gray-700 border border-gray-300 font-medium rounded-full';
     }
-    if (lowerStatus.includes('on hold')) {
-        return 'bg-yellow-100 text-yellow-700 border border-yellow-500 font-medium rounded-full';
+
+    // 2. Not Started -> Red
+    if (lowerStatus.includes('not started')) {
+        return 'bg-red-100 text-red-700 border border-red-500 font-medium rounded-full';
     }
+
+    // 3. Submitted -> Light Green
     if (lowerStatus.includes('submitted')) {
         return 'bg-green-100 text-green-700 border border-green-500 font-medium rounded-full';
     }
-    if (lowerStatus.includes('done') || lowerStatus.includes('completed')) {
-        return 'bg-green-100 text-green-700 border border-green-500 font-medium rounded-full';
+
+    // 4. Approved -> Dark Green (Using a stronger green variant)
+    if (lowerStatus.includes('approved')) {
+         return 'bg-green-300 text-green-900 border border-green-500 font-medium rounded-full';
     }
-    if (lowerStatus.includes('blocked')) {
-        return 'bg-red-100 text-red-700 border border-red-500 font-medium rounded-full';
-    }
-    return 'bg-gray-100 text-gray-700 border font-medium rounded-full border-gray-300';
+
+    // 5. Default / Others -> Amber
+    return 'bg-amber-100 text-amber-700 border border-amber-500 font-medium rounded-full';
 };
+
+// Keeping these for backward compatibility if needed, but they can just alias the unified one
+export const getStatusBadgeStyle = getUnifiedStatusStyle;
+export const getTaskStatusStyle = getUnifiedStatusStyle;
 
 export const getTaskSubStatusStyle = (subStatus?: string) => {
     if (!subStatus || subStatus === '...') return 'bg-gray-100 text-gray-700 border border-gray-300 font-medium rounded-full ';
     
     const lowerSubStatus = subStatus.toLowerCase();
     if (lowerSubStatus.includes('clarification') || lowerSubStatus.includes('rework') || lowerSubStatus.includes('sub-status 1')) {
-        return 'bg-red-100 text-red-700 border border-red-500 font-medium rounded-full';
+        return 'bg-amber-100 text-amber-700 border border-amber-500 font-medium rounded-full';
     }
     return 'bg-gray-100 text-gray-700 border border-gray-300 font-medium rounded-full';
 };
@@ -98,7 +94,7 @@ export const getAssignedNameForDisplay = (task: DesignTrackerTask): React.ReactN
         if (designers.length > 0) {
             return (
                 <div className="flex justify-start">
-                <ul className="list-disc list-inside text-xs text-left">
+                <ul className="list-disc list-inside text-xs text-center">
                     {designers.map((d, index) => (
                         <li key={index}>
                             {d.userName || d.userId}

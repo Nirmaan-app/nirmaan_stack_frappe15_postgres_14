@@ -29,13 +29,13 @@ import { useDesignMasters } from "../hooks/useDesignMasters";
 import { TaskEditModal } from './TaskEditModal';
 import { useFrappeUpdateDoc } from "frappe-react-sdk";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { getStatusBadgeStyle,getTaskStatusStyle, getTaskSubStatusStyle ,formatDeadlineShort,getAssignedNameForDisplay} from "../utils";
+import { getUnifiedStatusStyle, getTaskSubStatusStyle ,formatDeadlineShort,getAssignedNameForDisplay } from "../utils";
 import {dateFilterFn} from "@/utils/tableFilters"
 // --- CONSTANTS ---
 const PARENT_DOCTYPE = 'Project Design Tracker';
 const CHILD_DOCTYPE = 'Design Tracker Task Child Table';
 
-export const TASK_DATE_COLUMNS = ["deadline"];
+export const TASK_DATE_COLUMNS = ["deadline", "last_submitted"];
 // --- FLATTENED TASK TYPE ---
 interface FlattenedTask extends DesignTrackerTask {
     project_name: string;
@@ -50,6 +50,7 @@ interface TaskWiseTableProps {
     onSearchTermChange?: (term: string) => void;
     user_id: string; // Recieve from parent
     isDesignExecutive: boolean; // Receive from parent
+    statusFilter?: string; // New prop for status filtering
 }
 
 // --- COLUMN DEFINITION ---
@@ -75,6 +76,13 @@ const getTaskWiseColumns = (
             enableColumnFilter: true,
         },
         {
+            // Zone Column (NEW)
+            accessorKey: "task_zone",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Task Zone" />,
+            cell: ({ row }) => (row.original.task_zone || '--'),
+            enableColumnFilter: true,
+        },
+        {
             // Task Category
             accessorKey: "design_category",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Task Category" />,
@@ -97,8 +105,22 @@ const getTaskWiseColumns = (
     ),
     // filterFn: dateFilterFn,
 },
-//         {
-//     // Assigned Designer - with filtering support
+        {
+            // Last Submitted
+            id: "last_submitted",
+            accessorKey: "last_submitted",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Last Submitted Date" />,
+            cell: ({ row }) => (
+                <div className={row.original.last_submitted ? "text-center" : "text-center"}>
+                    {row.original.last_submitted ? formatDeadlineShort(row.original.last_submitted) : '--'}
+                </div>
+            ),
+             // filterFn: dateFilterFn, // Automatically handled by dateFilterColumns in DataTable
+            size: 200,
+            minSize: 200,
+        },
+        // {
+    // Assigned Designer - with filtering support
 //     id: "assigned_designers",
 //     accessorFn: (row) => {
 //         try {
@@ -115,6 +137,8 @@ const getTaskWiseColumns = (
 //         </div>
 //     ),
 //     enableColumnFilter: true, // This will enable text-based filtering on the formatted value
+//     size: 200,
+//     minSize: 200,
 // },
         ...(isDesignExecutive ? [] : [{
             // Assigned Designer
@@ -125,6 +149,9 @@ const getTaskWiseColumns = (
                     {getAssignedNameForDisplay(row.original)}
                 </div>
             ),
+            size: 200,
+            minSize: 200,
+
         }]),
         
      {
@@ -135,7 +162,7 @@ const getTaskWiseColumns = (
         <div className="">
             <Badge 
             variant="outline"
-                className={`w-[120px] min-h-[28px] h-auto py-1 px-2 justify-center whitespace-normal break-words text-center leading-tight ${getTaskStatusStyle(row.original.task_status || '...')}`}
+                className={`w-[120px] min-h-[28px] h-auto py-1 px-2 justify-center whitespace-normal break-words text-center leading-tight ${getUnifiedStatusStyle(row.original.task_status || '...')}`}
             >
                 {row.original.task_status || '...'}
             </Badge>
@@ -258,7 +285,7 @@ const getTaskWiseColumns = (
 
 
 // --- MAIN COMPONENT ---
-export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_id, isDesignExecutive }) => {
+export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_id, isDesignExecutive, statusFilter }) => {
     
     const { usersList,statusOptions, subStatusOptions, categoryData,categories,FacetProjectsOptions } = useDesignMasters();
     const [editingTask, setEditingTask] = useState<FlattenedTask | null>(null);
@@ -293,6 +320,8 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_
     // Hook for updating tasks
     const { updateDoc: updateTask } = useFrappeUpdateDoc();
 
+    console.log("FacetProjectsOptions",FacetProjectsOptions)
+
    const TASK_FACET_FILTER_OPTIONS = {
     // 1. Project Name (uses parent doc field)
     "project": {
@@ -314,13 +343,13 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_
         title: "Sub-Status",
         options: subStatusOptions||[],
     },
-    // "assigned_designers": {
-    //     title: "Assigned Designer",
-    //     options: usersList?.map(user => ({ 
-    //         label: user.full_name || user.name, 
-    //         value: user.name 
-    //     })) || [],
-    // },
+    "assigned_designers": {
+        title: "Assigned Designer",
+        options: usersList?.map(user => ({ 
+            label: user.full_name || user.name, 
+            value: user.name 
+        })) || [],
+    },
 };
 
 
@@ -330,6 +359,7 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_
         { value: "task_name", label: "Task Name", default: true },
         { value: "`tabProject Design Tracker`.project_name", label: "Project Name" },
         { value: "design_category", label: "Category" },
+        { value: "task_zone", label: "Zone" }, // Added Zone Search Option
 
     ];
     const FETCH_FIELDS = [
@@ -338,60 +368,59 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_
         "project",
         "status",
         // Child table fields (Design Tracker Task)
-        '`tabDesign Tracker Task Child Table`.name',                              // Child row DocName
-        '`tabDesign Tracker Task Child Table`.task_name',                         // Task name
-        '`tabDesign Tracker Task Child Table`.design_category',                   // Category
-        '`tabDesign Tracker Task Child Table`.task_type',                         // Task type (optional)
-        '`tabDesign Tracker Task Child Table`.deadline',                          // Deadline date
-        '`tabDesign Tracker Task Child Table`.assigned_designers',                // JSON string field
-        '`tabDesign Tracker Task Child Table`.task_status',                       // Status enum
-        '`tabDesign Tracker Task Child Table`.task_sub_status',                   // Sub-status
-        '`tabDesign Tracker Task Child Table`.file_link',                         // File link
-        '`tabDesign Tracker Task Child Table`.comments',
-        '`tabDesign Tracker Task Child Table`.modified',
-          '`tabDesign Tracker Task Child Table`.assigned_designers',                            // Comments
+        'name',                              // Child row DocName
+        'task_name',                         // Task name
+        'design_category',                   // Category
+        'task_type',
+                                 // Task type (optional)
+        'deadline',                          // Deadline date
+        'assigned_designers',                // JSON string field
+        'task_status',                       // Status enum
+        'task_sub_status',                   // Sub-status
+        'file_link',                         // File link
+        'comments',
+        'modified',
+        'modified',
+        'task_zone', // Added Zone field
+        'last_submitted', // Added Last Submitted field
+          'assigned_designers',                            // Comments
         
         // Parent table fields (Project Design Tracker) - using backticks
        
     ];
- const additionalFilters = useMemo(() => {
-
-    const filters = [['Design Tracker Task Child Table', 'task_name', '!=', undefined]];
-
-    
-    // --- NEW LOGIC ---
-    // Translate TanStack column filters into Frappe API filters
-    // console.log()
-    return filters;
-  }, []);
+  // Filters are now handled by Custom API logic or standard pass-through
+  const additionalFilters = useMemo(() => {
+     const baseFilters: any[] = [['Design Tracker Task Child Table', 'task_name', '!=', undefined]];
+     
+     if (statusFilter && statusFilter !== 'All') {
+         baseFilters.push(['Design Tracker Task Child Table', 'task_status', '=', statusFilter]);
+     }
+     
+     return baseFilters;
+  }, [statusFilter]);
     // Use the server data table hook
     const serverDataTable = useServerDataTable<FlattenedTask>({
-        doctype: PARENT_DOCTYPE, 
+        doctype:PARENT_DOCTYPE , // Target Tasks directly
+        apiEndpoint: 'nirmaan_stack.api.design_tracker.get_task_wise_list.get_task_wise_list',
+        customParams: { user_id, is_design_executive: isDesignExecutive },
         columns: useMemo(() => getTaskWiseColumns(setEditingTask, isDesignExecutive, checkIfUserAssigned), [isDesignExecutive, user_id]), 
         fetchFields: FETCH_FIELDS,
         searchableFields: [
             { value: "task_name", label: "Task Name", default: true },
-            { value: "`tabProject Design Tracker`.project_name", label: "Project Name" },
+            { value: "project_name", label: "Project Name" }, // Field name match API alias
             { value: "design_category", label: "Category" },
+            { value: "task_zone", label: "Zone" }, // Added to Searchable Fields
         ],
         // defaultSort: 'modified desc',
-        defaultSort: '`tabDesign Tracker Task Child Table`.deadline asc',
+        defaultSort: 'deadline asc', // Standard field name
 
         urlSyncKey: 'dt_task_wise',
         additionalFilters: additionalFilters,
     });
 
-    // --- CLIENT-SIDE FILTERING FOR DESIGN EXECUTIVE ---
-    const filteredData = useMemo(() => {
-        if (!serverDataTable.data) return [];
-        if (isDesignExecutive && user_id) {
-            return serverDataTable.data.filter(task => checkIfUserAssigned(task));
-        }
-        return serverDataTable.data;
-    }, [serverDataTable.data, isDesignExecutive, user_id]);
-
+    // Client-side filtering removed as API handles it natively
     const table = useReactTable({
-        data: filteredData,
+        data: serverDataTable.data || [],
         columns: serverDataTable.table.options.columns,
         getCoreRowModel: getCoreRowModel(),
         manualPagination: true, // Maintain manual pagination to sync with server
@@ -458,7 +487,7 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_
                         isLoading={serverDataTable.isLoading}
                         error={serverDataTable.error}
                         // totalCount={serverDataTable?.data?.length}
-                        totalCount={isDesignExecutive && user_id ? filteredData.length : serverDataTable.totalCount}
+                        totalCount={serverDataTable.totalCount}
                         searchFieldOptions={SearchFieldOptions}
                         selectedSearchField={serverDataTable.selectedSearchField}
                         onSelectedSearchFieldChange={serverDataTable.setSelectedSearchField}
@@ -497,387 +526,3 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_
 
 
 
-
-// frontend/src/pages/ProjectDesignTracker/components/TaskWiseTable.tsx
-
-// import React, { useMemo, useState } from "react";
-// import { Link } from "react-router-dom";
-// import { Badge } from "@/components/ui/badge";
-// import { Button } from "@/components/ui/button";
-// import { Link as LinkIcon, MessageCircle, Edit } from "lucide-react";
-// import { toast } from '@/components/ui/use-toast';
-// import { TableSkeleton } from "@/components/ui/skeleton";
-
-// // DataTable imports
-// import { DataTable } from "@/components/data-table/new-data-table"; 
-// import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header"; 
-// import { useServerDataTable } from "@/hooks/useServerDataTable"; 
-// import { ColumnDef } from "@tanstack/react-table";
-
-// // Type and Hook imports
-// import { DesignTrackerTask } from "../types"; 
-// import { useDesignMasters } from "../hooks/useDesignMasters"; 
-// import { TaskEditModal } from './TaskEditModal';
-// import { useFrappeUpdateDoc } from "frappe-react-sdk";
-// import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-// import { getTaskStatusStyle, getTaskSubStatusStyle, formatDeadlineShort, getAssignedNameForDisplay } from "../utils";
-// import { dateFilterFn } from "@/utils/tableFilters";
-
-// // --- CONSTANTS ---
-// const PARENT_DOCTYPE = 'Project Design Tracker';
-// const CHILD_DOCTYPE = 'Design Tracker Task Child Table';
-
-// export const TASK_DATE_COLUMNS = ["deadline"];
-
-// // --- FLATTENED TASK TYPE ---
-// interface FlattenedTask extends DesignTrackerTask {
-//     project_name: string;
-//     prjname: string;
-//     project: string;
-//     tracker_status?: string;
-// }
-
-// // --- PROPS INTERFACE ---
-// interface TaskWiseTableProps {
-//     refetchList: () => void;
-// }
-
-// // --- COLUMN DEFINITION ---
-// const getTaskWiseColumns = (handleEditClick: (task: FlattenedTask) => void): ColumnDef<FlattenedTask>[] => {
-    
-//     return [
-//         {
-//             // Project Name
-//             accessorKey: "project_name", 
-//             header: ({ column }) => <DataTableColumnHeader column={column} title="Project Name" />,
-//             cell: ({ row }) => (
-//                 <Link 
-//                     to={`/design-tracker/${row.original.prjname}`} 
-//                     className="text-red-700 underline-offset-2 hover:underline font-medium"
-//                 >
-//                     {row.original.project_name}
-//                 </Link>
-//             ),
-//             enableColumnFilter: true,
-//         },
-//         {
-//             // Task Category
-//             accessorKey: "design_category",
-//             header: ({ column }) => <DataTableColumnHeader column={column} title="Task Category" />,
-//             enableColumnFilter: true,
-//         },
-//         {
-//             // Task Name
-//             accessorKey: "task_name",
-//             header: ({ column }) => <DataTableColumnHeader column={column} title="Task Name" />,
-//         },
-//         {
-//             // Deadlines
-//             id: "deadline",
-//             accessorFn: (row) => row.deadline,
-//             header: ({ column }) => <DataTableColumnHeader column={column} title="Deadlines" />,
-//             cell: ({ row }) => (
-//                 <div className="whitespace-nowrap text-center">
-//                     {row.original.deadline ? formatDeadlineShort(row.original.deadline) : '...'}
-//                 </div>
-//             ),
-//             filterFn: dateFilterFn,
-//         },
-//         {
-//             // Assigned Designer
-//             id: "assigned_designers",
-//             header: ({ column }) => <DataTableColumnHeader column={column} title="Assigned Designer" />,
-//             cell: ({ row }) => (
-//                 <div className="text-left py-2">
-//                     {getAssignedNameForDisplay(row.original)}
-//                 </div>
-//             ),
-//         },
-//         {
-//             // Status
-//             accessorKey: "task_status",
-//             header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
-//             cell: ({ row }) => (
-//                 <div className="flex justify-center">
-//                     <Badge 
-//                         variant="outline"
-//                         className={`w-[120px] min-h-[28px] h-auto py-1 px-2 justify-center whitespace-normal break-words text-center leading-tight ${getTaskStatusStyle(row.original.task_status || '...')}`}
-//                     >
-//                         {row.original.task_status || '...'}
-//                     </Badge>
-//                 </div>
-//             ),
-//             enableColumnFilter: true,
-//         },
-//         {
-//             // Sub-Status
-//             accessorKey: "task_sub_status",
-//             header: ({ column }) => <DataTableColumnHeader column={column} title="Sub-Status" />,
-//             cell: ({ row }) => (
-//                 <div className="flex justify-center">
-//                     {row.original.task_sub_status ? (
-//                         <Badge 
-//                             variant="outline"
-//                             className={`w-[120px] min-h-[28px] h-auto py-1 px-2 justify-center whitespace-normal break-words text-center leading-tight ${getTaskSubStatusStyle(row.original.task_sub_status)}`}
-//                         >
-//                             {row.original.task_sub_status}
-//                         </Badge>
-//                     ) : (
-//                         "--"
-//                     )}
-//                 </div>
-//             ),
-//             enableColumnFilter: true,
-//         },
-//         {
-//             // Link Column
-//             accessorKey: "file_link",
-//             header: () => <div className="text-center">Link</div>,
-//             cell: ({ row }) => (
-//                 <div className="flex justify-start items-center">
-//                     <TooltipProvider>
-//                         <Tooltip delayDuration={300}>
-//                             <TooltipTrigger asChild>
-//                                 <a 
-//                                     href={row.original.file_link} 
-//                                     target="_blank" 
-//                                     rel="noopener noreferrer" 
-//                                     className="hover:scale-110 transition-transform"
-//                                 >
-//                                     <LinkIcon className={`h-6 w-6 p-1 bg-gray-100 rounded-md ${row.original.file_link ? 'cursor-pointer text-blue-500' : 'text-gray-300'}`} />
-//                                 </a>
-//                             </TooltipTrigger>
-//                             {row.original.file_link && (
-//                                 <TooltipContent className="max-w-xs p-2 bg-white text-gray-900 border shadow-lg">
-//                                     <a 
-//                                         href={row.original.file_link} 
-//                                         target="_blank" 
-//                                         rel="noopener noreferrer" 
-//                                         className="cursor-pointer hover:scale-110 transition-transform"
-//                                     >
-//                                         {row.original.file_link.substring(0, 30)}...
-//                                     </a>
-//                                 </TooltipContent>
-//                             )}
-//                         </Tooltip>
-//                     </TooltipProvider>
-//                 </div>
-//             ),
-//             size: 80,
-//             maxSize: 80,
-//             meta: { excludeFromExport: true },
-//         },
-//         {
-//             // Comments Column
-//             accessorKey: "comments",
-//             header: () => <div className="text-center">Comments</div>,
-//             cell: ({ row }) => (
-//                 <div className="flex justify-center items-center">
-//                     <TooltipProvider>
-//                         <Tooltip delayDuration={300}>
-//                             <TooltipTrigger asChild>
-//                                 <MessageCircle 
-//                                     className={`h-6 w-6 p-1 bg-gray-100 rounded-md ${row.original.comments ? 'cursor-pointer text-gray-600 hover:scale-110 transition-transform' : 'text-gray-300'}`} 
-//                                 />
-//                             </TooltipTrigger>
-//                             {row.original.comments && (
-//                                 <TooltipContent className="max-w-xs p-2 bg-white text-gray-900 border shadow-lg">
-//                                     <p className="text-xs">{row.original.comments}</p>
-//                                 </TooltipContent>
-//                             )}
-//                         </Tooltip>
-//                     </TooltipProvider>
-//                 </div>
-//             ),
-//             size: 100,
-//             maxSize: 100,
-//             meta: { excludeFromExport: true },
-//         },
-//         {
-//             // Actions Column
-//             id: "actions",
-//             header: () => <div className="text-center">Actions</div>,
-//             cell: ({ row }) => (
-//                 <div className="flex justify-start">
-//                     <Button 
-//                         variant="outline" 
-//                         size="sm" 
-//                         onClick={() => {
-//                             console.log("Edit clicked for task:", row.original);
-//                             handleEditClick(row.original);
-//                         }} 
-//                         className="h-8"
-//                     >
-//                         <Edit className="h-3 w-3 mr-1" /> Edit
-//                     </Button>
-//                 </div>
-//             ),
-//             meta: { excludeFromExport: true },
-//         },
-//     ];
-// };
-
-// // --- MAIN COMPONENT ---
-// export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList }) => {
-    
-//     const { usersList, statusOptions, subStatusOptions, categoryData, categories, FacetProjectsOptions } = useDesignMasters();
-//     const [editingTask, setEditingTask] = useState<FlattenedTask | null>(null);
-
-//     console.log("categoryData", categoryData, categories, FacetProjectsOptions);
-    
-//     // Hook for updating tasks
-//     const { updateDoc: updateTask } = useFrappeUpdateDoc();
-
-//     const TASK_FACET_FILTER_OPTIONS = {
-//         // 1. Project Name - now using parent field from child table
-//         "project_name": {
-//             title: "Project",
-//             options: FacetProjectsOptions || [],
-//         },
-//         // 2. Task Category
-//         "design_category": {
-//             title: "Category",
-//             options: categoryData?.map(cat => ({ label: cat.category_name, value: cat.category_name })) || [],
-//         },
-//         // 3. Task Status
-//         "task_status": {
-//             title: "Status",
-//             options: statusOptions || [],
-//         },
-//         // 4. Task Sub-Status
-//         "task_sub_status": {
-//             title: "Sub-Status",
-//             options: subStatusOptions || [],
-//         },
-//         // 5. Assigned Designer
-//         "assigned_designers": {
-//             title: "Assigned Designer",
-//             options: usersList?.map(user => ({ 
-//                 label: user.full_name || user.name, 
-//                 value: user.name 
-//             })) || [],
-//         },
-//     };
-
-//     // Search options - now searching child table fields
-//     const SearchFieldOptions = [
-//         { value: "task_name", label: "Task Name", default: true },
-//         { value: "design_category", label: "Category" },
-//         { value: "parent", label: "Project ID" },
-//     ];
-
-//     // ✅ FIXED: Fetch fields from CHILD table with parent references
-//     const FETCH_FIELDS = [
-//         'name',                     // Child row unique ID
-//         'task_name',
-//         'design_category',
-//         'task_type',
-//         'deadline',
-//         'assigned_designers',
-//         'task_status',
-//         'task_sub_status',
-//         'file_link',
-//         'comments',
-//         'modified',
-        
-//         // Map parent field to multiple aliases for convenience
-//         'parent as prjname',        // For URL navigation
-//         'parent as project',        // For filters/reference
-        
-//         // Get parent table fields using backticks (Frappe convention)
-//         // '`tabProject Design Tracker`.project_name',
-//         // '`tabProject Design Tracker`.status as tracker_status',
-//     ];
-
-   
-//     // ✅ FIXED: Use CHILD_DOCTYPE to get correct count (tasks, not projects)
-//     const serverDataTable = useServerDataTable<FlattenedTask>({
-//         doctype: CHILD_DOCTYPE,  // ✅ Changed from PARENT_DOCTYPE to CHILD_DOCTYPE
-//         columns: useMemo(() => getTaskWiseColumns(setEditingTask), []), 
-//         fetchFields: FETCH_FIELDS,
-//         searchableFields: SearchFieldOptions,
-//         dateFilterColumns: TASK_DATE_COLUMNS,
-//         defaultSort: 'modified desc',  // ✅ Sorting by child table's modified field
-//         urlSyncKey: 'dt_task_wise',
-//     });
-
-//     console.log("TaskWiseTable - serverDataTable", serverDataTable);
-
-//     // Task Save Handler
-//     const handleTaskSave = async (updatedFields: { [key: string]: any }) => {
-//         if (!editingTask) return;
-        
-//         let fieldsToSend: { [key: string]: any } = { ...updatedFields };
-
-//         // Serialize assigned_designers if it's an array
-//         if (Array.isArray(updatedFields.assigned_designers)) { 
-//             const structuredDataForServer = { list: updatedFields.assigned_designers };
-//             fieldsToSend.assigned_designers = JSON.stringify(structuredDataForServer); 
-//         }
-
-//         try {
-//             // Update the child document directly
-//             // editingTask.name is now the child row ID
-//             await updateTask(CHILD_DOCTYPE, editingTask.name, fieldsToSend);
-            
-//             toast({ 
-//                 title: "Success", 
-//                 description: "Task updated successfully.", 
-//                 variant: "success" 
-//             });
-            
-//             // Refresh both tables
-//             serverDataTable.refetch(); 
-//             refetchList(); 
-//             setEditingTask(null);
-//         } catch (error: any) {
-//             toast({ 
-//                 title: "Save Failed", 
-//                 description: error?.message || "Failed to save task.", 
-//                 variant: "destructive" 
-//             });
-//         }
-//     };
-
-//     return (
-//         <>
-//             {serverDataTable.isLoading && !serverDataTable.data?.length ? (
-//                 <TableSkeleton />
-//             ) : (
-//                 <div className="overflow-x-auto rounded-lg shadow-sm bg-white">
-//                     <DataTable<FlattenedTask>
-//                         table={serverDataTable.table}
-//                         columns={serverDataTable.table.options.columns}
-//                         isLoading={serverDataTable.isLoading}
-//                         error={serverDataTable.error}
-//                         totalCount={serverDataTable.totalCount}  // ✅ Now shows correct child count (e.g., 56 tasks)
-//                         searchFieldOptions={SearchFieldOptions}
-//                         selectedSearchField={serverDataTable.selectedSearchField}
-//                         onSelectedSearchFieldChange={serverDataTable.setSelectedSearchField}
-//                         facetFilterOptions={TASK_FACET_FILTER_OPTIONS}
-//                         dateFilterColumns={TASK_DATE_COLUMNS}
-//                         searchTerm={serverDataTable.searchTerm}
-//                         onSearchTermChange={serverDataTable.setSearchTerm}
-//                         showExportButton={true}
-//                         exportFileName="Design_Tasks_Wise"
-//                         onExport="default"
-//                         tableHeight="60vh"
-//                     />
-//                 </div>
-//             )}
-             
-//             {/* Task Edit Modal */}
-//             {editingTask && (
-//                 <TaskEditModal
-//                     isOpen={!!editingTask}
-//                     onOpenChange={(open) => { if (!open) setEditingTask(null); }}
-//                     task={editingTask}
-//                     onSave={handleTaskSave} 
-//                     usersList={usersList || []}
-//                     statusOptions={statusOptions}
-//                     subStatusOptions={subStatusOptions}
-//                 />
-//             )}
-//         </>
-//     );
-// };
