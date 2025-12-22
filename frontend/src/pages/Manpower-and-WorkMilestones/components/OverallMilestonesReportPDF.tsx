@@ -100,9 +100,9 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
 
   const { data: ownerData } = useFrappeGetDoc<{ full_name: string }>('Nirmaan Users', latestReport?.owner || '')
   
-  // Fetch Work Milestones to get the order for milestones
+  // Fetch Work Milestones to get the order and weightage for milestones
   const { data: workMilestonesList } = useFrappeGetDocList("Work Milestones", {
-      fields: ["work_milestone_name", "work_milestone_order", "work_header"],
+      fields: ["work_milestone_name", "work_milestone_order", "work_header", "weightage"],
       limit: 0
   });
 
@@ -135,29 +135,45 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
 
       const calculateAverage = (targetReport: ReportDoc | null) => {
         if (!targetReport) return 0;
-        
-        let totalProgress = 0;
-        let count = 0;
 
-        milestones.forEach(m => {
+        // Step 1: Calculate effective weightage for each milestone
+        const milestonesWithWeightage = milestones.map(m => {
+          const milestoneData = workMilestonesList?.find(
+            wm => wm.work_milestone_name === m.work_milestone_name && wm.work_header === header
+          );
+          const weightage = milestoneData?.weightage || 1.0;
+          const effectiveWeightage = m.status !== "Not Applicable" ? weightage : 0;
+
+          // Find progress from target report
           const historicalMilestone = targetReport.milestones.find(
             hm => hm.work_milestone_name === m.work_milestone_name && hm.work_header === m.work_header
           );
+          const progress = Number(historicalMilestone?.progress) || 0;
 
-          if (historicalMilestone) {
-            const val = Number(historicalMilestone.progress) || 0;
-            totalProgress += val;
-            count++;
-          } else {
-             // If milestone existed in past but not found now (edge case), or didn't exist
-             // For accurate "progress of THIS group", we should only count if it existed? 
-             // Or count as 0? Let's count as 0 if it's "work plan" logic. 
-             // But here we are comparing snapshots. If it's not in the report, it's 0.
-             count++; 
-          }
+          return {
+            ...m,
+            weightage,
+            effectiveWeightage,
+            progress
+          };
         });
 
-        return count > 0 ? Math.round(totalProgress / count) : 0;
+        // Step 2: Calculate sum of all effective weightages
+        const sumEffectiveWeightages = milestonesWithWeightage.reduce(
+          (sum, m) => sum + m.effectiveWeightage,
+          0
+        );
+
+        // If no effective weightage, return 0
+        if (sumEffectiveWeightages === 0) return 0;
+
+        // Step 3: Calculate effective progress for each milestone and sum them
+        const overallProgress = milestonesWithWeightage.reduce((sum, m) => {
+          const effectiveProgress = (m.effectiveWeightage * 100 / sumEffectiveWeightages) * (m.progress / 100);
+          return sum + effectiveProgress;
+        }, 0);
+
+        return Math.round(overallProgress);
       };
 
       result[header] = {

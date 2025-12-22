@@ -68,9 +68,9 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
     selectedProject ? undefined : null
   );
 
-  // Fetch Work Milestones to get the order for milestones
+  // Fetch Work Milestones to get the order and weightage for milestones
   const { data: workMilestonesList } = useFrappeGetDocList("Work Milestones", {
-      fields: ["work_milestone_name", "work_milestone_order", "work_header"],
+      fields: ["work_milestone_name", "work_milestone_order", "work_header", "weightage"],
       limit: 0
   });
 
@@ -176,24 +176,49 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
   }, [latestReport, report7DaysAgo, report14DaysAgo]);
 
   // ---------------------------------------------------------------------------
-  // Helper: Calculate Header Average
+  // Helper: Calculate Weighted Header Average
   // ---------------------------------------------------------------------------
   const calculateHeaderAverage = (targetReport: ReportDoc | null, header: string, activeMilestones: MilestoneSnapshot[]) => {
     if (!targetReport || !activeMilestones.length) return 0;
-    
-    let totalProgress = 0;
-    
-    activeMilestones.forEach(m => {
+
+    // Step 1: Calculate effective weightage for each milestone
+    const milestonesWithWeightage = activeMilestones.map(m => {
+      const milestoneData = workMilestonesList?.find(
+        wm => wm.work_milestone_name === m.work_milestone_name && wm.work_header === header
+      );
+      const weightage = milestoneData?.weightage || 1.0;
+      const effectiveWeightage = m.status !== "Not Applicable" ? weightage : 0;
+
+      // Find progress from target report
       const historicalMilestone = targetReport.milestones.find(
         hm => hm.work_milestone_name === m.work_milestone_name && hm.work_header === header
       );
+      const progress = Number(historicalMilestone?.progress) || 0;
 
-      if (historicalMilestone) {
-        totalProgress += (Number(historicalMilestone.progress) || 0);
-      }
+      return {
+        ...m,
+        weightage,
+        effectiveWeightage,
+        progress
+      };
     });
 
-    return Math.round(totalProgress / activeMilestones.length);
+    // Step 2: Calculate sum of all effective weightages
+    const sumEffectiveWeightages = milestonesWithWeightage.reduce(
+      (sum, m) => sum + m.effectiveWeightage,
+      0
+    );
+
+    // If no effective weightage, return 0
+    if (sumEffectiveWeightages === 0) return 0;
+
+    // Step 3: Calculate effective progress for each milestone and sum them
+    const overallProgress = milestonesWithWeightage.reduce((sum, m) => {
+      const effectiveProgress = (m.effectiveWeightage * 100 / sumEffectiveWeightages) * (m.progress / 100);
+      return sum + effectiveProgress;
+    }, 0);
+
+    return Math.round(overallProgress);
   };
 
 
