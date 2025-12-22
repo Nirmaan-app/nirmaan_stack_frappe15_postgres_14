@@ -52,6 +52,9 @@ const projectFormSchema = z.object({
     customer: z
         .string({
             required_error: "Please select associated customer"
+        })
+        .min(1, {
+            message: "Please select associated customer"
         }),
     project_type: z
         .string()
@@ -176,31 +179,11 @@ const projectFormSchema = z.object({
         list: z.array(z.object({
             location: z.string(),
             gst: z.string(),
-        }))
-         // <<< ADD THIS LINE
+        })),
     }),
-        // NEW FIELDS FOR MILESTONE TRACKING
+    carpet_area: z.coerce.number().nonnegative().optional(),
 
-    enable_project_milestone_tracking: z.boolean().default(false), // Boolean field
-
-    project_work_header_entries: z.array( // Array for work headers
-        z.object({
-            work_header_name: z.string(),
-            enabled: z.boolean(), // To track if the checkbox is true or false
-        })
-    ).optional(),
    
-}).superRefine((data, ctx) => { // Add superRefine here
-    if (data.enable_project_milestone_tracking) {
-        // If milestone tracking is enabled, check if any work header is enabled
-        if (!data.project_work_header_entries || data.project_work_header_entries.length === 0 || data.project_work_header_entries.every(entry => !entry.enabled)) {
-            ctx.addIssue({
-                code: z.ZodIssueCode.custom,
-                message: 'At least one Work Header must be selected when milestone tracking is enabled.',
-                path: ['project_work_header_entries'], // Points to the specific field for error message
-            });
-        }
-    }
 });
 
 type ProjectFormValues = z.infer<typeof projectFormSchema>
@@ -239,11 +222,7 @@ export const ProjectForm = () => {
              filters: [["work_package_name", "not in", ["Tool & Equipments", "Services","Additional Charges"]]],
             limit: 1000
         });
-    const { data: work_header_list, isLoading: wh_list_loading, error: wh_list_error } = useFrappeGetDocList("Work Headers",
-        {
-            fields: ['work_header_name'],
-            limit: 1000
-        });
+
 
     const defaultValues: ProjectFormValues = {
         project_name: "",
@@ -262,6 +241,7 @@ export const ProjectForm = () => {
                 }
             ]
         },
+        carpet_area: 0,
         project_scopes: {
             scopes: []
         },
@@ -284,9 +264,10 @@ export const ProjectForm = () => {
         project_manager: "",
         accountant: "",
         // subdivisions: "",
-        // NEW FIELDS FOR MILESTONE TRACKING
+        // subdivisions: "",
+        /* // NEW FIELDS FOR MILESTONE TRACKING
         enable_project_milestone_tracking: false, // Default to false
-        project_work_header_entries: [], // Empty array by default
+        project_work_header_entries: [], // Empty array by default */
 
     };
 
@@ -391,14 +372,9 @@ export const ProjectForm = () => {
             if (!values.project_work_packages.work_packages.length) {
                 throw new Error('Please select atleast one work package associated with this project!')
             }
-              // Add validation for work headers if milestone tracking is enabled but none are selected
-           let projectWorkHeaderEntriesForSubmission = [];
-        if (values.enable_project_milestone_tracking && values.project_work_header_entries) {
-            projectWorkHeaderEntriesForSubmission = values.project_work_header_entries.filter(entry => entry.enabled);
-        }
             // console.log("Final Data", ...values, areaNames )
             const response = await createProjectAndAddress({
-                values: { ...values, areaNames,project_work_header_entries: projectWorkHeaderEntriesForSubmission },
+                values: { ...values, areaNames },
             });
 
             if (response.message.status === 200) {
@@ -429,23 +405,25 @@ export const ProjectForm = () => {
     const startDate = form.watch("project_start_date");
     const endDate = form.watch("project_end_date");
 
+
+
       // Watch the enable_project_milestone_tracking field
-    const enableMilestoneTracking = form.watch("enable_project_milestone_tracking");
+    // const enableMilestoneTracking = form.watch("enable_project_milestone_tracking");
 
     // Effect to reset/initialize project_work_header_entries when the checkbox changes
-    useEffect(() => {
-        if (enableMilestoneTracking && work_header_list) {
-            // Initialize with all work headers, default to unchecked
-            const initialEntries = work_header_list.map(header => ({
-                work_header_name: header.work_header_name,
-               enabled: true // Changed to true for "select all by default"
-            }));
-            form.setValue("project_work_header_entries", initialEntries, { shouldValidate: false });
-        } else if (!enableMilestoneTracking) {
-            // Clear the array if tracking is disabled
-            form.setValue("project_work_header_entries", [], { shouldValidate: false });
-        }
-    }, [enableMilestoneTracking, work_header_list]); // Depend on both checkbox state and fetched list
+    // useEffect(() => {
+    //     if (enableMilestoneTracking && work_header_list) {
+    //         // Initialize with all work headers, default to unchecked
+    //         const initialEntries = work_header_list.map(header => ({
+    //             work_header_name: header.work_header_name,
+    //            enabled: true // Changed to true for "select all by default"
+    //         }));
+    //         form.setValue("project_work_header_entries", initialEntries, { shouldValidate: false });
+    //     } else if (!enableMilestoneTracking) {
+    //         // Clear the array if tracking is disabled
+    //         form.setValue("project_work_header_entries", [], { shouldValidate: false });
+    //     }
+    // }, [enableMilestoneTracking, work_header_list]); // Depend on both checkbox state and fetched list
 
     useEffect(() => {
         if (startDate && endDate) {
@@ -533,7 +511,7 @@ export const ProjectForm = () => {
             });
             return; // Stop further execution if this validation fails
        
-         // For project_end_date, if it's conditionally required for this section, this is fine.
+        }         // For project_end_date, if it's conditionally required for this section, this is fine.
           // --- NEW: Check for selected Work Headers if milestone tracking is enabled ---
       
        
@@ -555,7 +533,7 @@ export const ProjectForm = () => {
             return
         }
         
-    }
+
 
         const nextSec = nextSection(section)
         const nextIndex = currentStep + 1
@@ -571,11 +549,11 @@ export const ProjectForm = () => {
     const getFieldsForSection = (sectionName: string) => {
         switch (sectionName) {
             case "projectDetails":
-                return ["project_name", "customer", "project_type", "subdivisions", "project_value", "project_value_gst"];
+                return ["project_name", "customer", "project_type", "subdivisions", "project_value", "project_value_gst", "carpet_area"];
             case "projectAddressDetails":
                 return ["address_line_1", "address_line_2", "project_city", "project_state", "pin", 'email', 'phone'];
             case "projectTimeline":
-                return ["project_start_date", "project_end_date", "enable_project_milestone_tracking", "project_work_header_entries"];
+                return ["project_start_date", "project_end_date"];
             // case "projectTimeline":
             // // Add enable_project_milestone_tracking and its dependent fields to validation
             //     const fields = ["project_start_date", "project_end_date", "enable_project_milestone_tracking"];
@@ -843,6 +821,39 @@ export const ProjectForm = () => {
       </FormItem>
     );
   }}
+/>
+
+<FormField
+    control={form.control}
+    name="carpet_area"
+    render={({ field }) => (
+        <FormItem className="lg:flex lg:items-center gap-4">
+            <FormLabel className="md:basis-2/12">
+                Carpet Area (Sqft)
+            </FormLabel>
+            <div className="md:basis-2/4">
+                <FormControl>
+                    <Input
+                        type="number"
+                        placeholder="Enter Area"
+                       
+                        min={0} // 1. hint to browser
+                        {...field}
+                        // 2. Prevent typing negative signs
+                        onKeyDown={(e) => {
+                            if (e.key === "-" || e.key === "e") {
+                                e.preventDefault();
+                            }
+                        }}
+                    />
+                </FormControl>
+                <FormMessage />
+            </div>
+            <FormDescription>
+                Area in Sqft
+            </FormDescription>
+        </FormItem>
+    )}
 />
                                
 {/* <FormField
@@ -1205,75 +1216,6 @@ export const ProjectForm = () => {
                                         <h1 className="text-sm text-red-600"><sup>*</sup>(Days)</h1>
                                     </div>
                                 </div>
-                                 {/* NEW MILESTONE TRACKING SECTION */}
-        <Separator className="my-6" />
-        <p className="text-sky-600 font-semibold">Project Milestone Tracking</p>
-
-        <FormField
-            control={form.control}
-            name="enable_project_milestone_tracking"
-            render={({ field }) => (
-                <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
-                    <FormControl>
-                        <Checkbox
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                        />
-                    </FormControl>
-                    <div className="space-y-1 leading-none">
-                        <FormLabel>
-                            Enable Project Milestone Tracking
-                        </FormLabel>
-                        <FormDescription>
-                            If enabled, select the work headers for milestone tracking.
-                        </FormDescription>
-                    </div>
-                    <FormMessage />
-                </FormItem>
-            )}
-        />
-
-        {enableMilestoneTracking && ( // Conditionally render if tracking is enabled
-            <div className="mt-4">
-                {wh_list_loading ? (
-                    <div>Loading Work Headers...</div>
-                ) : wh_list_error ? (
-                    <div>Error loading Work Headers: {wh_list_error.message}</div>
-                ) : (
-                    <FormField
-                        control={form.control}
-                        name="project_work_header_entries"
-                        render={() => ( // No field prop here, as we iterate over the array
-                            <FormItem>
-                                <FormLabel className="mb-2 block">Select Work Headers:</FormLabel>
-                                {form.getValues("project_work_header_entries")?.map((entry, index) => (
-                                    <div key={entry.work_header_name} className="flex items-center space-x-2 py-1">
-                                        <FormControl>
-                                            <Checkbox
-                                                checked={entry.enabled}
-                                                onCheckedChange={(checked) => {
-                                                    const updatedEntries = [...form.getValues("project_work_header_entries")];
-                                                    updatedEntries[index] = {
-                                                        ...updatedEntries[index],
-                                                        enabled: checked as boolean, // checked can be true/false/indeterminate
-                                                    };
-                                                    form.setValue("project_work_header_entries", updatedEntries, { shouldValidate: true });
-                                                }}
-                                            />
-                                        </FormControl>
-                                        <FormLabel>{entry.work_header_name}</FormLabel>
-                                    </div>
-                                ))}
-                                <FormDescription>
-                                    Only selected work headers will be used for milestone tracking.
-                                </FormDescription>
-                                <FormMessage />
-                            </FormItem>
-                        )}
-                    />
-                )}
-            </div>
-        )}
         {/* END NEW MILESTONE TRACKING SECTION */}
                                 <div className="flex items-center justify-end gap-2">
                                     <Button variant={"outline"} onClick={() => {
@@ -1766,7 +1708,9 @@ const ReviewDetails: React.FC<ReviewDetailsProps> = ({ form, duration, company, 
                     <Detail label="Customer" value={form.getValues("customer") ? company?.find(c => c.name === form.getValues("customer"))?.company_name : ""} />
                     <Detail label="Project Value(excl. GST)" value={form.getValues("project_value")} />
                     <Detail label="Project Value(incl. GST)" value={form.getValues("project_value_gst")} />
+                     <Detail label="Carpet Area(Sqft)" value={form.getValues("carpet_area")} />
                     <Detail label="Selected GST List" value={form.getValues("project_gst_number").list.map(item => item.location).join(', ')} />
+                    
 
                 </Section>
 
@@ -1793,7 +1737,7 @@ const ReviewDetails: React.FC<ReviewDetailsProps> = ({ form, duration, company, 
                         label="Duration"
                         value={`${duration} days`}
                     />
-                    <Detail
+                        {/* <Detail
                             label="Milestone Tracking Enabled"
                             value={form.getValues("enable_project_milestone_tracking") ? "Yes" : "No"}
                         />
@@ -1808,7 +1752,7 @@ const ReviewDetails: React.FC<ReviewDetailsProps> = ({ form, duration, company, 
                                         ))}
                                 </ul>
                             </div>
-                        )}
+                        )} */}
                 </Section>
 
                 <Section sectionKey={"projectAssignees"}>
