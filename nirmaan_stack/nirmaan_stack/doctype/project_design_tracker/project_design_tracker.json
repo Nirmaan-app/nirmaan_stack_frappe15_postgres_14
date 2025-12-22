@@ -8,6 +8,7 @@
   "project_details_section",
   "project",
   "project_name",
+  "start_date",
   "overall_deadline",
   "status",
   "design_tracker_task",
@@ -57,12 +58,17 @@
    "fieldtype": "Table",
    "label": "Zone",
    "options": "Design Tracker Zone"
+  },
+  {
+   "fieldname": "start_date",
+   "fieldtype": "Date",
+   "label": "Start Date"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-12-20 10:47:40.221998",
+ "modified": "2025-12-22 15:30:49.589413",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Design Tracker",
