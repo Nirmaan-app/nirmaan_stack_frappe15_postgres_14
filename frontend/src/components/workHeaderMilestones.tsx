@@ -56,6 +56,7 @@ export interface WorkMilestone {
     work_milestone_name: string;
     work_header: string;
     work_milestone_order?: number; // Renamed to work_milestone_order
+    weightage?: number;
     creation?: string;
     modified?: string;
     owner?: string;
@@ -69,6 +70,7 @@ type WorkHeaderFormValues = z.infer<typeof workHeaderFormSchema>;
 
 const workMilestoneFormSchema = z.object({
   work_milestone_name: z.string().min(1, "Milestone Name is required."),
+  weightage: z.coerce.number().positive("Weightage must be greater than 0."),
 });
 type WorkMilestoneFormValues = z.infer<typeof workMilestoneFormSchema>;
 
@@ -88,17 +90,17 @@ export const WorkHeaderMilestones: React.FC = () => {
         }
     );
 
-    const { 
-        data: workMilestones, 
-        isLoading: workMilestonesLoading, 
-        error: workMilestonesError, 
-        mutate: workMilestonesMutate 
+    const {
+        data: workMilestones,
+        isLoading: workMilestonesLoading,
+        error: workMilestonesError,
+        mutate: workMilestonesMutate
     } = useFrappeGetDocList<WorkMilestone>(
         "Work Milestones",
-        { 
-            fields: ["name", "work_milestone_name", "work_header", "work_milestone_order"], 
-            limit: 0, 
-            orderBy: { field: "work_milestone_order", order: "asc" } 
+        {
+            fields: ["name", "work_milestone_name", "work_header", "work_milestone_order", "weightage"],
+            limit: 0,
+            orderBy: { field: "work_milestone_order", order: "asc" }
         }
     );
 
@@ -490,6 +492,7 @@ const CreateWorkMilestoneDialog: React.FC<CreateWorkMilestoneDialogProps> = ({ w
     resolver: zodResolver(workMilestoneFormSchema),
     defaultValues: {
       work_milestone_name: "",
+      weightage: 1.0,
     },
   });
 
@@ -498,7 +501,8 @@ const CreateWorkMilestoneDialog: React.FC<CreateWorkMilestoneDialogProps> = ({ w
       await createDoc("Work Milestones", { // Ensure DocType name is correct
         work_milestone_name: values.work_milestone_name,
         work_header: workHeaderId,
-        work_milestone_order: nextOrder // Automatically set order
+        work_milestone_order: nextOrder, // Automatically set order
+        weightage: values.weightage
       });
       toast({ title: "Success", description: "Work Milestone created successfully.", variant: "success" });
       form.reset();
@@ -538,6 +542,19 @@ const CreateWorkMilestoneDialog: React.FC<CreateWorkMilestoneDialogProps> = ({ w
                 </FormItem>
               )}
             />
+            <FormField
+              control={form.control}
+              name="weightage"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Weightage</FormLabel>
+                  <FormControl>
+                    <Input type="number" step="0.01" min="0.01" placeholder="1.0" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             <div className="flex justify-end space-x-2">
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                 Cancel
@@ -566,6 +583,7 @@ const EditWorkMilestoneDialog: React.FC<EditWorkMilestoneDialogProps> = ({ miles
     resolver: zodResolver(workMilestoneFormSchema),
     defaultValues: {
       work_milestone_name: milestone.work_milestone_name,
+      weightage: milestone.weightage || 1.0,
     },
   });
 
@@ -573,6 +591,7 @@ const EditWorkMilestoneDialog: React.FC<EditWorkMilestoneDialogProps> = ({ miles
     try {
       await updateDoc("Work Milestones", milestone.name, {
         work_milestone_name: values.work_milestone_name,
+        weightage: values.weightage,
       });
       toast({ title: "Success", description: "Work Milestone updated successfully.", variant: "success" });
       await mutate();
@@ -606,6 +625,19 @@ const EditWorkMilestoneDialog: React.FC<EditWorkMilestoneDialogProps> = ({ miles
                   <FormLabel>Milestone Name</FormLabel>
                   <FormControl>
                     <Input {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="weightage"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Weightage</FormLabel>
+                  <FormControl>
+                    <Input type="number" step="0.01" min="0.01" placeholder="1.0" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -804,14 +836,15 @@ const WorkHeaderCard: React.FC<WorkHeaderCardProps> = ({ header, milestones, wor
             <TableHeader className="bg-gray-100">
               <TableRow>
                 {isReordering && <TableHead className="w-[50px] text-center">#</TableHead>}
-                <TableHead className="w-[60%]">Milestone</TableHead>
+                <TableHead className="w-[50%]">Milestone</TableHead>
+                {!isReordering && <TableHead className="w-[15%]">Weightage</TableHead>}
                 {isReordering && <TableHead className="w-[50px] text-center">Drag</TableHead>}
                 {!isReordering && <TableHead className="w-[20%] text-right">Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {milestoneList.map((milestone, index) => (
-                <TableRow 
+                <TableRow
                     key={milestone.name}
                     draggable={isReordering}
                     onDragStart={(e) => isReordering && handleDragStart(e, index)}
@@ -823,9 +856,13 @@ const WorkHeaderCard: React.FC<WorkHeaderCardProps> = ({ header, milestones, wor
                   {isReordering && (
                       <TableCell className="text-center font-mono text-gray-500">{index + 1}</TableCell>
                   )}
-                  
+
                   <TableCell>{milestone.work_milestone_name}</TableCell>
-                  
+
+                  {!isReordering && (
+                      <TableCell>{(milestone.weightage || 1.0).toFixed(2)}</TableCell>
+                  )}
+
                   {isReordering ? (
                        <TableCell className="text-center">
                             <GripVertical className="w-5 h-5 text-gray-400 mx-auto" />
