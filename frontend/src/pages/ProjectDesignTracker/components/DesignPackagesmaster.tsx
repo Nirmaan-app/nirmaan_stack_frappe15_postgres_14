@@ -41,19 +41,19 @@ import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDocList, useFrappeP
 
 // --- Types ---
 export interface DesignTrackerCategory {
-    name: string; // Frappe ID
-    category_name: string;
-    creation?: string;
-    modified?: string;
+  name: string; // Frappe ID
+  category_name: string;
+  creation?: string;
+  modified?: string;
 }
 
 export interface DesignTrackerTask {
-    name: string; // Frappe ID
-    task_name: string;
-    category_link: string; // Link to Design Tracker Category
-    deadline_offset?: number;
-    creation?: string;
-    modified?: string;
+  name: string; // Frappe ID
+  task_name: string;
+  category_link: string; // Link to Design Tracker Category
+  deadline_offset?: number;
+  creation?: string;
+  modified?: string;
 }
 
 // --- Zod Schemas ---
@@ -64,7 +64,7 @@ type CategoryFormValues = z.infer<typeof categoryFormSchema>;
 
 const taskFormSchema = z.object({
   task_name: z.string().min(1, "Task Name is required."),
-  deadline_offset: z.coerce.number().min(0, "Offset must be positive").optional(), 
+  deadline_offset: z.coerce.number().min(0, "Offset must be positive").optional(),
 });
 type TaskFormValues = z.infer<typeof taskFormSchema>;
 
@@ -75,22 +75,22 @@ type TaskFormValues = z.infer<typeof taskFormSchema>;
 
 export const DesignPackagesMaster: React.FC = () => {
   // 1. Fetch Categories
-  const { 
-    data: categories, 
-    isLoading: catLoading, 
-    error: catError, 
-    mutate: mutateCategories 
+  const {
+    data: categories,
+    isLoading: catLoading,
+    error: catError,
+    mutate: mutateCategories
   } = useFrappeGetDocList<DesignTrackerCategory>(
     "Design Tracker Category",
     { fields: ["name", "category_name"], limit: 0, orderBy: { field: "creation", order: "asc" } }
   );
 
   // 2. Fetch Tasks
-  const { 
-    data: tasks, 
-    isLoading: taskLoading, 
-    error: taskError, 
-    mutate: mutateTasks 
+  const {
+    data: tasks,
+    isLoading: taskLoading,
+    error: taskError,
+    mutate: mutateTasks
   } = useFrappeGetDocList<DesignTrackerTask>(
     "Design Tracker Tasks",
     { fields: ["name", "task_name", "category_link", "deadline_offset"], limit: 0, orderBy: { field: "creation", order: "asc" } }
@@ -116,8 +116,8 @@ export const DesignPackagesMaster: React.FC = () => {
     <div className="flex-1 space-y-6 p-4 md:p-6">
       <div className="flex justify-between items-center mb-6">
         <div>
-            <h2 className="text-2xl font-bold tracking-tight text-gray-800">Design Category & Tasks</h2>
-            <p className="text-sm text-gray-500">Manage master categories and their default tasks.</p>
+          <h2 className="text-2xl font-bold tracking-tight text-gray-800">Design Packages</h2>
+          <p className="text-sm text-gray-500">Manage design packages and their set of design tasks.</p>
         </div>
         <CreateCategoryDialog mutate={mutateCategories} />
       </div>
@@ -127,8 +127,8 @@ export const DesignPackagesMaster: React.FC = () => {
       <div className="space-y-6">
         {categories?.length === 0 ? (
           <div className="text-center py-10">
-              <p className="text-gray-500 mb-4">No Design Categories found.</p>
-              <CreateCategoryDialog mutate={mutateCategories} />
+            <p className="text-gray-500 mb-4">No Design Categories found.</p>
+            <CreateCategoryDialog mutate={mutateCategories} />
           </div>
         ) : (
           categories?.map((cat) => (
@@ -181,7 +181,7 @@ const CreateCategoryDialog: React.FC<CreateCategoryDialogProps> = ({ mutate }) =
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button className="bg-primary hover:bg-primary/90">
-          <PlusCircle className="mr-2 h-4 w-4" /> Add New Category
+          <PlusCircle className="mr-2 h-4 w-4" /> Add New Design Package
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[425px]">
@@ -229,48 +229,48 @@ interface EditCategoryDialogProps {
 const EditCategoryDialog: React.FC<EditCategoryDialogProps> = ({ category, mutate, mutateTasks }) => {
   const [open, setOpen] = useState(false);
   // Using updateDoc to change the field 'category_name'
- const { call: renameDoc, loading: renameLoading } = useFrappePostCall( // <-- Using useFrappePostCall
-     'frappe.model.rename_doc.update_document_title'
-   );
+  const { call: renameDoc, loading: renameLoading } = useFrappePostCall( // <-- Using useFrappePostCall
+    'frappe.model.rename_doc.update_document_title'
+  );
 
   const form = useForm<CategoryFormValues>({
     resolver: zodResolver(categoryFormSchema),
     defaultValues: { category_name: category.category_name },
   });
 
-    const onSubmit = async (values: CategoryFormValues) => {
-      // Check if the name actually changed
-      if (values.category_name === category.category_name) {
-        toast({ title: "Info", description: "No changes detected.", variant: "default" });
-        setOpen(false);
-        return;
-      }
-  
-      try {
-        const payload = {
-          doctype: "Design Tracker Category", // The DocType to rename
-          docname: category.name,      // The old Frappe 'name' (ID)
-          name: values.category_name, // The new Frappe 'name' (ID) and title
-          merge: 0,                  // Do not merge with an existing document
-          // enqueue: true,            // Removing enqueue makes it synchronous
-          freeze: true,              // Freeze UI during rename on Frappe's side
-          freeze_message: `Renaming Category "${category.category_name}" and updating related records...`,
-        };
-  
-        await renameDoc(payload); // <-- Calling the rename API
-     
-  
-         toast({ title: "Success", description: "Category updated.", variant: "success" });
+  const onSubmit = async (values: CategoryFormValues) => {
+    // Check if the name actually changed
+    if (values.category_name === category.category_name) {
+      toast({ title: "Info", description: "No changes detected.", variant: "default" });
+      setOpen(false);
+      return;
+    }
+
+    try {
+      const payload = {
+        doctype: "Design Tracker Category", // The DocType to rename
+        docname: category.name,      // The old Frappe 'name' (ID)
+        name: values.category_name, // The new Frappe 'name' (ID) and title
+        merge: 0,                  // Do not merge with an existing document
+        // enqueue: true,            // Removing enqueue makes it synchronous
+        freeze: true,              // Freeze UI during rename on Frappe's side
+        freeze_message: `Renaming Category "${category.category_name}" and updating related records...`,
+      };
+
+      await renameDoc(payload); // <-- Calling the rename API
+
+
+      toast({ title: "Success", description: "Category updated.", variant: "success" });
       await mutate();
       await mutateTasks(); // Refetch tasks in case logic depends on it
-        setOpen(false);
-      } catch (error: any) {
-        console.error("Failed to rename Work Header:", error);
-        toast({ title: "Error", description: `Failed to rename Work Header: ${error.message || 'Unknown error'}`, variant: "destructive" });
-      }
-    };
-  
- 
+      setOpen(false);
+    } catch (error: any) {
+      console.error("Failed to rename Work Header:", error);
+      toast({ title: "Error", description: `Failed to rename Work Header: ${error.message || 'Unknown error'}`, variant: "destructive" });
+    }
+  };
+
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -325,7 +325,7 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({ categoryId, mutate 
 
   const onSubmit = async (values: TaskFormValues) => {
     try {
-      await createDoc("Design Tracker Tasks", { 
+      await createDoc("Design Tracker Tasks", {
         task_name: values.task_name,
         deadline_offset: values.deadline_offset,
         category_link: categoryId, // Linking to parent category
@@ -343,7 +343,7 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({ categoryId, mutate 
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button variant="outline" size="sm">
-          <PlusCircle className="mr-2 h-3 w-3" /> Add Task
+          <PlusCircle className="mr-2 h-3 w-3" /> Add New Design Task
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[425px]">
@@ -404,10 +404,10 @@ const EditTaskDialog: React.FC<EditTaskDialogProps> = ({ task, mutate }) => {
 
   const onSubmit = async (values: TaskFormValues) => {
     try {
-      await updateDoc("Design Tracker Tasks", task.name, { 
+      await updateDoc("Design Tracker Tasks", task.name, {
         task_name: values.task_name,
         deadline_offset: values.deadline_offset
-       });
+      });
       toast({ title: "Success", description: "Task updated.", variant: "success" });
       await mutate();
       setOpen(false);
@@ -440,7 +440,7 @@ const EditTaskDialog: React.FC<EditTaskDialogProps> = ({ task, mutate }) => {
                 </FormItem>
               )}
             />
-             <FormField
+            <FormField
               control={form.control}
               name="deadline_offset"
               render={({ field }) => (
@@ -547,10 +547,10 @@ const CategoryCard: React.FC<CategoryCardProps> = ({ category, tasks, mutateCate
               {tasks.map((task) => (
                 <TableRow key={task.name} className="group">
                   <TableCell className="pl-4 font-medium text-gray-700">{task.task_name}</TableCell>
-                  <TableCell className="text-center text-gray-500">{task.deadline_offset ==0? '-':`T + ${task.deadline_offset}`}</TableCell>
-                   <TableCell className="text-right flex items-center justify-end space-x-2">
-                    <EditTaskDialog task={task} mutate={mutateTasks} /> 
-                  <DeleteTaskDialog task={task} mutate={mutateTasks} />
+                  <TableCell className="text-center text-gray-500">{task.deadline_offset == 0 ? '-' : `T + ${task.deadline_offset}`}</TableCell>
+                  <TableCell className="text-right flex items-center justify-end space-x-2">
+                    <EditTaskDialog task={task} mutate={mutateTasks} />
+                    <DeleteTaskDialog task={task} mutate={mutateTasks} />
                   </TableCell>
                 </TableRow>
               ))}
