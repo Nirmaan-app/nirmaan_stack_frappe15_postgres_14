@@ -1056,7 +1056,7 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                    {/* Edit moved to Header Actions */}
                 </div>
                 <CardTitle className="text-xl font-semibold mb-4">Project Overview</CardTitle>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 text-sm text-gray-700 border p-4 rounded-lg">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 text-sm text-gray-700 border p-4 rounded-lg">
 
                     {/* Project ID */}
                     <div className="space-y-1">
@@ -1065,13 +1065,13 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                     </div>
 
                     {/* Project Name */}
-                    <div className="space-y-1">
+                    {/* <div className="space-y-1">
                         <Label className="uppercase text-xs font-medium text-gray-500">Project Name</Label>
                         <p className="font-semibold">{trackerDoc.project_name}</p>
-                    </div>
+                    </div> */}
                     <div className="space-y-1">
                         <Label className="uppercase text-xs font-medium text-gray-500">Start Date</Label>
-                        <p className="font-semibold">{trackerDoc.start_date}</p>
+                        <p className="font-semibold">{formatDeadlineShort(trackerDoc.start_date)}</p>
                     </div>
 
                     {/* Created On */}
@@ -1099,7 +1099,7 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                      {/* Overall Deadline (Editable Input) */}
     <div className="space-y-1">
         {/* 1. Label and Edit Button Container */}
-        <div className="flex items-center justify-start gap-1">
+        <div className="flex items-center justify-start">
             
             <Label className="uppercase text-xs font-medium text-muted-foreground tracking-wider">
                 Deadline
@@ -1120,7 +1120,7 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
         </div>
         
         {/* 2. Value: DEADLINE DATE */}
-        <p className="text-xl font-bold text-red-700 tracking-tight"> {/* MATCHED TEXT-XL FONT-BOLD */}
+        <p className="text-md font-bold text-red-700 tracking-tight"> {/* MATCHED TEXT-XL FONT-BOLD */}
             {formatDeadlineShort(trackerDoc.overall_deadline)}
         </p>
     </div>
@@ -1224,6 +1224,7 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                                                                 <th className="px-4 py-3 text-left w-[15%]">Task Name</th>
                                                                 {!isDesignExecutive && <th className="px-4 py-3 text-left w-[18%]">Assigned Designer</th>}
                                                                 <th className="px-4 py-3 text-left w-[10%]">Deadline</th>
+                                                                <th className="px-4 py-3 text-left w-[10%]">Last Submitted</th>
                                                                 <th className="px-4 py-3 text-center w-[10%]">Status</th>
                                                                 <th className="px-4 py-3 text-center w-[15%]">Sub-Status</th>
                                                                 <th className="px-4 py-3 text-center w-[10%]">Comments</th>
@@ -1237,6 +1238,7 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                                                                     <td className="px-4 py-3 w-[15%] whitespace-wrap text-sm font-medium text-gray-900">{task.task_name}</td>
                                                                     {!isDesignExecutive && <td className="px-4 py-3 text-sm text-gray-500 text-left ">{getAssignedNameForDisplay(task)}</td>}
                                                                     <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{formatDeadlineShort(task.deadline) || '...'}</td>
+                                                                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{formatDeadlineShort(task.last_submitted) || '--'}</td>
 
                                                                     {/* Status Badge */}
                                                                     <td className="px-4 py-3 text-sm">

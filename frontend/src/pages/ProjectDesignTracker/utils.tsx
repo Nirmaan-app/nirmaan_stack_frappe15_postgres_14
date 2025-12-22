@@ -94,7 +94,7 @@ export const getAssignedNameForDisplay = (task: DesignTrackerTask): React.ReactN
         if (designers.length > 0) {
             return (
                 <div className="flex justify-start">
-                <ul className="list-disc list-inside text-xs text-left">
+                <ul className="list-disc list-inside text-xs text-center">
                     {designers.map((d, index) => (
                         <li key={index}>
                             {d.userName || d.userId}

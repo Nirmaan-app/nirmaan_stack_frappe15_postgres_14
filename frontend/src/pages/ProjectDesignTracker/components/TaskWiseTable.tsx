@@ -35,7 +35,7 @@ import {dateFilterFn} from "@/utils/tableFilters"
 const PARENT_DOCTYPE = 'Project Design Tracker';
 const CHILD_DOCTYPE = 'Design Tracker Task Child Table';
 
-export const TASK_DATE_COLUMNS = ["deadline"];
+export const TASK_DATE_COLUMNS = ["deadline", "last_submitted"];
 // --- FLATTENED TASK TYPE ---
 interface FlattenedTask extends DesignTrackerTask {
     project_name: string;
@@ -105,34 +105,53 @@ const getTaskWiseColumns = (
     // filterFn: dateFilterFn,
 },
         {
+            // Last Submitted
+            id: "last_submitted",
+            accessorKey: "last_submitted",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Last Submitted Date" />,
+            cell: ({ row }) => (
+                <div className={row.original.last_submitted ? "text-center" : "text-center"}>
+                    {row.original.last_submitted ? formatDeadlineShort(row.original.last_submitted) : '--'}
+                </div>
+            ),
+             // filterFn: dateFilterFn, // Automatically handled by dateFilterColumns in DataTable
+            size: 200,
+            minSize: 200,
+        },
+        // {
     // Assigned Designer - with filtering support
-    id: "assigned_designers",
-    accessorFn: (row) => {
-        try {
-            const designers = JSON.parse(row.assigned_designers || '{"list":[]}');
-            return designers.list?.map((d: any) => d.designer_name || d.name).join(', ') || '';
-        } catch {
-            return '';
-        }
-    },
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Assigned Designer" />,
-    cell: ({ row }) => (
-        <div className="text-left py-2">
-            {getAssignedNameForDisplay(row.original)}
-        </div>
-    ),
-    enableColumnFilter: true, // This will enable text-based filtering on the formatted value
-},
-        // ...(isDesignExecutive ? [] : [{
-        //     // Assigned Designer
-        //     id: "assigned_designers",
-        //     header: ({ column }: { column: any }) => <DataTableColumnHeader column={column} title="Assigned Designer" />,
-        //     cell: ({ row }: { row: any }) => (
-        //         <div className="text-left py-2">
-        //             {getAssignedNameForDisplay(row.original)}
-        //         </div>
-        //     ),
-        // }]),
+//     id: "assigned_designers",
+//     accessorFn: (row) => {
+//         try {
+//             const designers = JSON.parse(row.assigned_designers || '{"list":[]}');
+//             return designers.list?.map((d: any) => d.designer_name || d.name).join(', ') || '';
+//         } catch {
+//             return '';
+//         }
+//     },
+//     header: ({ column }) => <DataTableColumnHeader column={column} title="Assigned Designer" />,
+//     cell: ({ row }) => (
+//         <div className="text-left py-2">
+//             {getAssignedNameForDisplay(row.original)}
+//         </div>
+//     ),
+//     enableColumnFilter: true, // This will enable text-based filtering on the formatted value
+//     size: 200,
+//     minSize: 200,
+// },
+        ...(isDesignExecutive ? [] : [{
+            // Assigned Designer
+            id: "assigned_designers",
+            header: ({ column }: { column: any }) => <DataTableColumnHeader column={column} title="Assigned Designer" />,
+            cell: ({ row }: { row: any }) => (
+                <div className="text-left py-2">
+                    {getAssignedNameForDisplay(row.original)}
+                </div>
+            ),
+            size: 200,
+            minSize: 200,
+
+        }]),
         
      {
     // Status
@@ -360,7 +379,9 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_
         'file_link',                         // File link
         'comments',
         'modified',
+        'modified',
         'task_zone', // Added Zone field
+        'last_submitted', // Added Last Submitted field
           'assigned_designers',                            // Comments
         
         // Parent table fields (Project Design Tracker) - using backticks
