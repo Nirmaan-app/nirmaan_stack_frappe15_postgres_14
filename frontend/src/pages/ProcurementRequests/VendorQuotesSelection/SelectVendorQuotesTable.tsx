@@ -500,7 +500,7 @@ const activeMake = selectedVendorId
                     {(targetRateValue !== -1 && targetRateValue) ? 
                         (
                             <span className='font-semibold text-sm'>
-                                {formatToRoundedIndianRupee(targetRateValue * 0.98 )}
+                                {formatToIndianRupee(targetRateValue * 0.98 )}
                             </span>
                         ) :
                         /* 2. Target Rate is invalid. Check for Initial Rate. */
@@ -509,9 +509,9 @@ const activeMake = selectedVendorId
                             /* Show Initial Target Rate with Warning Icon and Unit (small, as requested) */
                             <span className='flex flex-col items-end'>
                                
-                                <div className='flex items-center gap-1 text-xs' title={`Initial Target Rate: ${formatToRoundedIndianRupee(initialTargetRateValue)} per ${initialTargetRateUnit}`}>
+                                <div className='flex items-center gap-1 text-xs' title={`Initial Target Rate: ${formatToIndianRupee(initialTargetRateValue)} per ${initialTargetRateUnit}`}>
                                     <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
-                                    <span className="font-medium text-amber-600">{formatToRoundedIndianRupee(initialTargetRateValue)}</span>
+                                    <span className="font-medium text-amber-600">{formatToIndianRupee(initialTargetRateValue)}</span>
                                     <span className="text-muted-foreground">({initialTargetRateUnit})</span>
                                 </div>
                             </span>
