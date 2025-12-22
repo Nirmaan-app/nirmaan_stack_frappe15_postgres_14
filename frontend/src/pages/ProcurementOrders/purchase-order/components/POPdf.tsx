@@ -1024,30 +1024,30 @@ export const POPdf: React.FC<POPdfProps> = ({
   
   const finalPaymentTerms = paymentTerms && paymentTerms.length > 0 ? paymentTerms : po?.payment_terms;
 
-  const { data: attachmentsData } = useFrappeGetDocList(
-    "Nirmaan Attachments",
-    {
-      fields: ["*"],
-      filters: [
-        ["associated_doctype", "=", "Procurement Requests"],
-        ["associated_docname", "=", po?.procurement_request!],
-        ["attachment_type", "=", "custom pr attachment"],
-      ],
-    },
-    po?.procurement_request ? undefined : null
-  );
-console.log("Nirmaan Attachments",attachmentsData)
+  // const { data: attachmentsData } = useFrappeGetDocList(
+  //   "Nirmaan Attachments",
+  //   {
+  //     fields: ["*"],
+  //     filters: [
+  //       ["associated_doctype", "=", "Procurement Requests"],
+  //       ["associated_docname", "=", po?.procurement_request!],
+  //       ["attachment_type", "=", "custom pr attachment"],
+  //     ],
+  //   },
+  //   po?.procurement_request ? undefined : null
+  // );
+
   const [images, setImages] = useState([]);
   const [isPrinting, setIsPrinting] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
 
-  const loadFileAsImage = async (att) => {
+  // Helper to process a single attachment and return list of image URLs (or data URLs for PDF pages)
+  const getImagesFromAttachment = async (att) => {
     try {
       console.log("Processing attachment:", att);
       let fileUrl = att.attachment;
       if (!fileUrl.startsWith("http")) {
          const baseURL = window.location.origin;
-         // Ensure we don't double slash if attachment also starts with /
          const path = att.attachment.startsWith("/") ? att.attachment : `/${att.attachment}`;
          fileUrl = `${baseURL}${path}`;
       }
@@ -1060,11 +1060,9 @@ console.log("Nirmaan Attachments",attachmentsData)
           if (fileNameParam) {
              fileType = fileNameParam.split(".").pop().toLowerCase();
           } else {
-             // Fallback to pathname extracted info
              fileType = urlObj.pathname.split(".").pop().toLowerCase();
           }
       } catch (e) {
-          // Fallback to simple string split if URL parsing fails
           console.warn("URL parsing failed, falling back to string split", e);
           fileType = att.attachment.split(".").pop().toLowerCase();
       }
@@ -1074,11 +1072,7 @@ console.log("Nirmaan Attachments",attachmentsData)
       if (["pdf"].includes(fileType)) {
         // Handle PDF files
         console.log("Fetching PDF...");
-        // CRITICAL FIX: Do NOT send custom Content-Type header for GET requests to S3/API
-        // It causes CORS preflight failures or S3 Signature Mismatches
-        const response = await fetch(fileUrl, {
-          method: "GET",
-        });
+        const response = await fetch(fileUrl, { method: "GET" });
 
         if (!response.ok) {
            const errText = await response.text();
@@ -1090,10 +1084,8 @@ console.log("Nirmaan Attachments",attachmentsData)
 
         const loadingTask = pdfjsLib.getDocument({ data: pdfArrayBuffer });
         const pdf = await loadingTask.promise;
-        console.log("PDF PDFJS Document loaded, pages:", pdf.numPages);
         
         const pages = [];
-
         for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
           const page = await pdf.getPage(pageNum);
           const viewport = page.getViewport({ scale: 1.5 });
@@ -1106,48 +1098,53 @@ console.log("Nirmaan Attachments",attachmentsData)
           const imgData = canvas.toDataURL();
           pages.push(imgData);
         }
-
-        setImages((prevImages) => [...prevImages, ...pages]);
+        return pages;
       } else if (["png", "jpg", "jpeg", "gif", "webp"].includes(fileType)) {
-        setImages((prevImages) => [...prevImages, fileUrl]);
+        return [fileUrl];
       } else {
         console.warn(`Unsupported file type: ${fileType}`);
+        return [];
       }
     } catch (error) {
       console.error("Failed to load file as image:", error);
+      return [];
     }
   };
 
   useEffect(() => {
-    // User requested to prioritize/use po.attachment directly
-    const allAttachments = [];
+    let isActive = true;
 
-    // OLD: Nirmaan Attachments
-    // if (attachmentsData && attachmentsData.length > 0) {
-    //   allAttachments.push(...attachmentsData);
-    // }
+    const fetchAllAttachments = async () => {
+        // Direct PO Attachment
+        const allAttachments = [];
+        if (po?.attachment) {
+            allAttachments.push({ attachment: po.attachment });
+        }
 
-    // NEW: Direct PO Attachment
-    if (po?.attachment) {
-      console.log("Found PO Attachment:", po.attachment);
-      // loadFileAsImage expects an object with property 'attachment'
-      allAttachments.push({ attachment: po.attachment });
-    }
+        console.log("Processing Attachments list:", allAttachments);
 
-    console.log("Processing Attachments list:", allAttachments);
+        if (allAttachments.length === 0) {
+            if (isActive) setImages([]);
+            return;
+        }
 
-    if (allAttachments.length > 0) {
-      // Clear previous images to avoid duplicates if re-running
-      setImages([]); 
-      allAttachments.forEach((att, index) => {
-        console.log(`Triggering loadFileAsImage for item ${index}`, att);
-        loadFileAsImage(att);
-      });
-    } else {
-      console.log("No attachments found to process.");
-      setImages([]); 
-    }
-  }, [po?.attachment]); // Removed attachmentsData dependency to stop it from overriding
+        // Process concurrently
+        const results = await Promise.all(allAttachments.map(att => getImagesFromAttachment(att)));
+        
+        // Flatten results
+        const flattenedImages = results.flat();
+        
+        if (isActive) {
+            setImages(flattenedImages);
+        }
+    };
+
+    fetchAllAttachments();
+
+    return () => {
+        isActive = false;
+    };
+  }, [po?.attachment]);
 
 
   const handlePrint = useReactToPrint({
