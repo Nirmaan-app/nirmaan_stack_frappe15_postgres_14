@@ -95,9 +95,7 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
       if (current?.milestones) {
         // Initialize expanded state based on the raw data
         const initialExpandedState = current.milestones.reduce((acc: Record<string, boolean>, m: MilestoneSnapshot) => {
-          if (m.status !== "Not Applicable" && m.status !== "N/A") {
-             acc[m.work_header] = true;
-          }
+          acc[m.work_header] = true;
           return acc;
         }, {} as Record<string, boolean>);
         setExpandedSections(initialExpandedState);
@@ -118,11 +116,7 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
   const groupedMilestones = useMemo(() => {
     if (!latestReport?.milestones) return {};
 
-    const relevantMilestones = latestReport.milestones.filter(milestone => 
-      milestone.status !== "Not Applicable" && milestone.status !== "N/A"
-    );
-
-    const grouped = relevantMilestones.reduce((acc, milestone) => {
+    const grouped = latestReport.milestones.reduce((acc, milestone) => {
       (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
       return acc;
     }, {} as Record<string, MilestoneSnapshot[]>);

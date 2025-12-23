@@ -7,7 +7,7 @@ import {
   useFrappeGetDocList,
   useFrappeUpdateDoc
 } from "frappe-react-sdk";
-import { MapPin, ChevronDown, ChevronUp, MessagesSquare, Printer, Eye, EyeOff,Download } from "lucide-react";
+import { MapPin, ChevronDown, ChevronUp, MessagesSquare, Printer, Eye, EyeOff, Download } from "lucide-react";
 import { useContext, useEffect, useState, useMemo } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate } from "react-router-dom";
@@ -30,13 +30,13 @@ import { useUserData } from "@/hooks/useUserData";
 import { ProgressCircle } from "@/components/ui/ProgressCircle";
 import { useWorkHeaderOrder } from "@/hooks/useWorkHeaderOrder";
 import { cn } from '@/lib/utils' // Assuming you have this utility
-import {DELIMITER,parseWorkPlan,serializeWorkPlan} from "./MilestoneTab"
+import { DELIMITER, parseWorkPlan, serializeWorkPlan } from "./MilestoneTab"
 import { OrientationAwareImage } from "@/components/ui/OrientationAwareImage";
 import { ImageBentoGrid } from "@/components/ui/ImageBentoGrid";
 import { Badge } from "@/components/ui/badge";
 import { getZoneStatusIndicator } from "./MilestoneDailySummary";
 
-import {CopyReportButton} from "./components/CopyReportButton";
+import { CopyReportButton } from "./components/CopyReportButton";
 
 
 
@@ -77,7 +77,7 @@ interface MilestoneProgressProps {
 
 const getColorForProgress = (value: number): string => {
   const val = Math.round(value)
-  if( isNaN(val) ) {
+  if (isNaN(val)) {
     return 'text-gray-500' // Default gray for invalid numbers
   }
   if (val === 0) {
@@ -92,7 +92,7 @@ const getColorForProgress = (value: number): string => {
   if (val < 100) {
     return 'text-green-600' // Blue for 75-99%
   }
-  
+
   // 100% will be overridden by isComplete check in ProgressCircle
   return 'text-green-500'
 }
@@ -105,7 +105,7 @@ export const MilestoneProgress = ({
 }: MilestoneProgressProps) => {
 
   // Handle N/A case
-  if (milestoneStatus === "Not Applicable"|| value=="N/A") {
+  if (milestoneStatus === "Not Applicable" || value == "N/A") {
     return (
       <div
         className={cn(
@@ -165,27 +165,27 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport, 
   const [allExpanded, setAllExpanded] = useState(false);
 
   //-------Validation tab--------
-     const {
-      data: allReportsForDate,
-      isLoading: allReportsLoading,
-    } = useFrappeGetDocList(
-        "Project Progress Reports",
-        {
-            fields: ["name", "report_zone", "report_status"],
-            limit: 0,
-            filters: [
-                ["project", "=", selectedProject],
-                // Filter by the current date being viewed
-                ["report_date", "=", formatDateForInput(displayDate)], 
-            ]
-        },
-        // selectedProject && reportType === 'Daily' && displayDate ? undefined : null
-        selectedProject && displayDate ? undefined : null
+  const {
+    data: allReportsForDate,
+    isLoading: allReportsLoading,
+  } = useFrappeGetDocList(
+    "Project Progress Reports",
+    {
+      fields: ["name", "report_zone", "report_status"],
+      limit: 0,
+      filters: [
+        ["project", "=", selectedProject],
+        // Filter by the current date being viewed
+        ["report_date", "=", formatDateForInput(displayDate)],
+      ]
+    },
+    // selectedProject && reportType === 'Daily' && displayDate ? undefined : null
+    selectedProject && displayDate ? undefined : null
 
-    );
-    console.log("All Reports for Date:", allReportsForDate);
-    //-------Validation tab--------
-    // Fetch the detailed Daily Report
+  );
+  console.log("All Reports for Date:", allReportsForDate);
+  //-------Validation tab--------
+  // Fetch the detailed Daily Report
 
   // Fetch project data (e.g., project name, work packages)
   const {
@@ -202,7 +202,7 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport, 
   } = useFrappeGetDocList(
     "Project Progress Reports",
     {
-      fields: ["name", "report_date","report_zone", "project"],
+      fields: ["name", "report_date", "report_zone", "project"],
       limit: 0,
       filters: [
         ["project", "=", selectedProject],
@@ -228,8 +228,8 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport, 
 
   // Fetch Work Milestones to get the order and weightage for milestones
   const { data: workMilestonesList } = useFrappeGetDocList("Work Milestones", {
-      fields: ["work_milestone_name", "work_milestone_order", "work_header", "weightage"],
-      limit: 0
+    fields: ["work_milestone_name", "work_milestone_order", "work_header", "weightage"],
+    limit: 0
   });
 
   // --- MEMOIZED DATA PREPARATION ---
@@ -249,13 +249,13 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport, 
       return acc;
     }, {});
 
-     // Sort milestones within each group based on work_milestone_order
+    // Sort milestones within each group based on work_milestone_order
     Object.keys(grouped).forEach(header => {
-        grouped[header].sort((a: any, b: any) => {
-             const orderA = workMilestonesList?.find(m => m.work_milestone_name === a.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
-             const orderB = workMilestonesList?.find(m => m.work_milestone_name === b.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
-             return orderA - orderB;
-        });
+      grouped[header].sort((a: any, b: any) => {
+        const orderA = workMilestonesList?.find(m => m.work_milestone_name === a.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
+        const orderB = workMilestonesList?.find(m => m.work_milestone_name === b.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
+        return orderA - orderB;
+      });
     });
 
     return Object.entries(grouped)
@@ -273,19 +273,19 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport, 
     if (!dailyReportDetails?.milestones) return [];
 
     const grouped = dailyReportDetails.milestones
-      .filter((milestone: any) => milestone.status !== "Not Applicable")
+      // .filter((milestone: any) => milestone.status !== "Not Applicable")
       .reduce((acc: any, milestone: any) => {
         (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
         return acc;
       }, {});
-    
+
     // Sort milestones within each group based on work_milestone_order
     Object.keys(grouped).forEach(header => {
-        grouped[header].sort((a: any, b: any) => {
-             const orderA = workMilestonesList?.find(m => m.work_milestone_name === a.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
-             const orderB = workMilestonesList?.find(m => m.work_milestone_name === b.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
-             return orderA - orderB;
-        });
+      grouped[header].sort((a: any, b: any) => {
+        const orderA = workMilestonesList?.find(m => m.work_milestone_name === a.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
+        const orderB = workMilestonesList?.find(m => m.work_milestone_name === b.work_milestone_name && m.work_header === header)?.work_milestone_order ?? 9999;
+        return orderA - orderB;
+      });
     });
 
     return Object.entries(grouped)
@@ -295,75 +295,75 @@ export const MilestonesSummary = ({ workReport = false, projectIdForWorkReport, 
         return orderA - orderB;
       });
   }, [dailyReportDetails, workHeaderOrderMap, workMilestonesList]);
-  
+
   // Print Header Toggle State
   const [showPrintHeader, setShowPrintHeader] = useState(true);
 
 
-// Effect to initialize selectedZone (updated to handle tabs and parent control)
-useEffect(() => {
+  // Effect to initialize selectedZone (updated to handle tabs and parent control)
+  useEffect(() => {
     // A. PREREQUISITE CHECK
     if (!projectData || !selectedProject) {
-        // If the project is unselected, clear the zone
-        setSelectedZone(null);
-        return;
+      // If the project is unselected, clear the zone
+      setSelectedZone(null);
+      return;
     }
-     
+
     // B. PRIORITY 0: PARENT CONTROL (Work Report Mode)
     // If parent is controlling, always use the parent's value and stop.
     if (workReport && parentSelectedZone !== null) {
-        setSelectedZone(parentSelectedZone);
-        return;
+      setSelectedZone(parentSelectedZone);
+      return;
     }
 
     const currentProjectZones = projectData.project_zones?.map(z => z.zone_name) || [];
-    
+
     // C. IMPLICIT PROJECT CHANGE CHECK (Focusing on reset/re-run logic)
     // If the selected project has changed, the selectedZone will often be invalid. 
     // We only proceed to selection if the current zone is null, or if it's already valid.
-    
+
     // 💡 THE CORE LOGIC CHANGE: 
     // If a zone is currently selected BUT it is not in the new project's zones, 
     // we assume the project changed and force a reset (set selectedZone to null).
     if (selectedZone !== null && !currentProjectZones.includes(selectedZone)) {
-        console.log(`Project changed (selectedProject: ${selectedProject}). Resetting zone from ${selectedZone} to null.`);
-        setSelectedZone(null); 
-        return; // Re-run effect to pick up new zone
+      console.log(`Project changed (selectedProject: ${selectedProject}). Resetting zone from ${selectedZone} to null.`);
+      setSelectedZone(null);
+      return; // Re-run effect to pick up new zone
     }
 
     // D. ZONE SELECTION LOGIC (Only runs if selectedZone is null or already valid)
     if (selectedZone === null && currentProjectZones.length > 0) {
-        // Priority 1: Check URL for a 'zone' parameter
-        const urlZone = searchParams.get('zone');
-        if (urlZone && currentProjectZones.includes(urlZone)) {
-            setSelectedZone(urlZone);
-            return;
-        }
+      // Priority 1: Check URL for a 'zone' parameter
+      const urlZone = searchParams.get('zone');
+      if (urlZone && currentProjectZones.includes(urlZone)) {
+        setSelectedZone(urlZone);
+        return;
+      }
 
-        // Priority 2: Select the first available zone
-        const firstZoneName = currentProjectZones[0];
-        if (firstZoneName) {
-            setSelectedZone(firstZoneName);
-        }
+      // Priority 2: Select the first available zone
+      const firstZoneName = currentProjectZones[0];
+      if (firstZoneName) {
+        setSelectedZone(firstZoneName);
+      }
     }
-    
-}, [
-    projectData, 
-    selectedProject, 
-    workReport, 
+
+  }, [
+    projectData,
+    selectedProject,
+    workReport,
     parentSelectedZone,
-    selectedZone, 
+    selectedZone,
     // Assuming searchParams is available in scope
-]);
-console.log("Selected Zone:", selectedZone);
+  ]);
+  console.log("Selected Zone:", selectedZone);
   // Effect to determine reportForDisplayDateName based on selectedProject and displayDate
   useEffect(() => {
     if (projectProgressReports && selectedProject && displayDate && selectedZone) {
       const selectedDateFormatted = formatDate(displayDate); // Assuming formatDate handles Date objects
 
       const foundReport = projectProgressReports.find(
-        (report) => formatDate(report.report_date) === selectedDateFormatted && report.report_zone===selectedZone
-        
+        (report) => formatDate(report.report_date) === selectedDateFormatted && report.report_zone === selectedZone
+
       );
 
       if (foundReport) {
@@ -371,7 +371,7 @@ console.log("Selected Zone:", selectedZone);
       } else {
         setReportForDisplayDateName(null);
       }
-    }else{
+    } else {
       setReportForDisplayDateName(null);
     }
   }, [projectProgressReports, selectedProject, displayDate, selectedZone]);
@@ -429,23 +429,23 @@ console.log("Selected Zone:", selectedZone);
     }
   };
 
-   // --- NEW: Zone Progress Validation/Status Calculation ---
-    const validationZoneProgress = useMemo(() => {
-      if (!projectData?.project_zones || !allReportsForDate) {
-          // Return null/empty map if data is not ready
-          return new Map<string, { status: string, name: string }>(); 
-      }
-      
-      // Map fetched reports by zone for quick lookup
-      const reportStatusMap = new Map<string, { status: string, name: string }>();
-      allReportsForDate.forEach((report: any) => {
-          reportStatusMap.set(report.report_zone, { status: report.report_status, name: report.name });
-      });
-  
-      return reportStatusMap;
-    }, [projectData?.project_zones, allReportsForDate,reportType]);
-    // --- END NEW: Zone Progress Validation/Status Calculation ---
-  
+  // --- NEW: Zone Progress Validation/Status Calculation ---
+  const validationZoneProgress = useMemo(() => {
+    if (!projectData?.project_zones || !allReportsForDate) {
+      // Return null/empty map if data is not ready
+      return new Map<string, { status: string, name: string }>();
+    }
+
+    // Map fetched reports by zone for quick lookup
+    const reportStatusMap = new Map<string, { status: string, name: string }>();
+    allReportsForDate.forEach((report: any) => {
+      reportStatusMap.set(report.report_zone, { status: report.report_status, name: report.name });
+    });
+
+    return reportStatusMap;
+  }, [projectData?.project_zones, allReportsForDate, reportType]);
+  // --- END NEW: Zone Progress Validation/Status Calculation ---
+
 
   // Calculate metrics for the Daily Work Report Summary Section
   const totalWorkHeaders = dailyReportDetails?.milestones?.length || 0;
@@ -524,13 +524,13 @@ console.log("Selected Zone:", selectedZone);
       </div>
     );
   }
-    // --- NEW: Zone Select Handler (Updates State and URL) ---
+  // --- NEW: Zone Select Handler (Updates State and URL) ---
   const handleZone = (zoneName: string | null) => {
     setSelectedZone(zoneName);
 
     // 1. Prepare new URLSearchParams object
     const params = new URLSearchParams(location.search);
-    
+
     // 2. Set or delete the zone parameter
     if (zoneName) {
       params.set('zone', zoneName);
@@ -601,7 +601,7 @@ console.log("Selected Zone:", selectedZone);
             
           </div>
         )} */}
-       {!workReport && (
+        {!workReport && (
           // Main Container: Vertical stack on mobile, horizontal on desktop, aligns items
           <div className="flex flex-col  gap-4 mb-2 w-full">
 
@@ -609,46 +609,45 @@ console.log("Selected Zone:", selectedZone);
             <div className="w-full flex-shrink-0">
               <ProjectMilestoneSelect
                 onChange={handleChange}
-                universal={true} 
+                universal={true}
               />
             </div>
-            
+
             {/* 2. Zone Tab Section & Add Report Button Container - Remaining space on desktop */}
             {selectedProject && (
               <div className="flex flex-col w-full  gap-4">
 
                 {/* START ZONE TAB SECTION */}
                 <div className="flex items-center gap-2 w-full overflow-x-auto pb-1 flex-shrink-0">
-                    <span className="font-semibold text-gray-700 whitespace-nowrap flex-shrink-0 hidden md:block">Zone:</span>
-                    <div className="flex rounded-md border border-gray-300 overflow-hidden flex-shrink-0">
-                        {projectData.project_zones?.length === 0 ? (
-                            <div className="text-red-500 text-xs p-1.5 bg-gray-50 border border-red-300 rounded-md">Define Zones</div>
-                        ) : (
-                            projectData.project_zones.map((zone) => {
-                               const zoneStatus = validationZoneProgress.get(zone.zone_name);
-                                                          const statusData = getZoneStatusIndicator(zoneStatus ? zoneStatus.status : null);
-                                return (  
-                                <button
-                                    key={zone.zone_name}
-                                    className={`px-2 py-1 text-xs font-medium transition-colors md:text-sm md:px-3 md:py-1.5 ${
-                                        selectedZone === zone.zone_name 
-                                            ? 'bg-blue-600 text-white shadow-inner' 
-                                            : 'bg-white text-blue-600 hover:bg-blue-50'
-                                    }`}
-                                    onClick={() => handleZone(zone.zone_name)} 
-                                >
-                                     <span className="text-xs md:text-sm">{zone.zone_name}</span>
-                                                                        <Badge 
-                                                                            variant="secondary" 
-                                                                            className={`p-0 ${statusData.color}`}
-                                                                        >
-                                                                            {statusData.icon}
-                                                                        </Badge>
-                                </button>
-                                )
-})
-                        )}
-                    </div>
+                  <span className="font-semibold text-gray-700 whitespace-nowrap flex-shrink-0 hidden md:block">Zone:</span>
+                  <div className="flex rounded-md border border-gray-300 overflow-hidden flex-shrink-0">
+                    {projectData.project_zones?.length === 0 ? (
+                      <div className="text-red-500 text-xs p-1.5 bg-gray-50 border border-red-300 rounded-md">Define Zones</div>
+                    ) : (
+                      projectData.project_zones.map((zone) => {
+                        const zoneStatus = validationZoneProgress.get(zone.zone_name);
+                        const statusData = getZoneStatusIndicator(zoneStatus ? zoneStatus.status : null);
+                        return (
+                          <button
+                            key={zone.zone_name}
+                            className={`px-2 py-1 text-xs font-medium transition-colors md:text-sm md:px-3 md:py-1.5 ${selectedZone === zone.zone_name
+                                ? 'bg-blue-600 text-white shadow-inner'
+                                : 'bg-white text-blue-600 hover:bg-blue-50'
+                              }`}
+                            onClick={() => handleZone(zone.zone_name)}
+                          >
+                            <span className="text-xs md:text-sm">{zone.zone_name}</span>
+                            <Badge
+                              variant="secondary"
+                              className={`p-0 ${statusData.color}`}
+                            >
+                              {statusData.icon}
+                            </Badge>
+                          </button>
+                        )
+                      })
+                    )}
+                  </div>
                 </div>
                 {/* END ZONE TAB SECTION */}
 
@@ -656,40 +655,40 @@ console.log("Selected Zone:", selectedZone);
                 {selectedProject && selectedZone && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2 w-full p-2">
                     <div className="w-full">
-      <CopyReportButton
-        selectedProject={selectedProject}
-        selectedZone={selectedZone}
-        dailyReportDetailsDisable={reportType !== "Daily" || dailyReportDetails}
-      />
-    </div>
-                    
-                      <Button
-      onClick={() => navigate(`${selectedProject}?zone=${selectedZone}`)}
-      // 3. Remove fixed width ([200px]) and flex-shrink. Use w-full to fill the grid cell.
-      className="text-sm w-full" 
-      disabled={
-        dailyReportDetails ||
-        reportType !== "Daily" ||
-        !selectedProject ||
-        !selectedZone
-      }
-    >
-      {"Add Today's Report"}
-    </Button>
-
-                    
+                      <CopyReportButton
+                        selectedProject={selectedProject}
+                        selectedZone={selectedZone}
+                        dailyReportDetailsDisable={reportType !== "Daily" || dailyReportDetails}
+                      />
                     </div>
-                  
+
+                    <Button
+                      onClick={() => navigate(`${selectedProject}?zone=${selectedZone}`)}
+                      // 3. Remove fixed width ([200px]) and flex-shrink. Use w-full to fill the grid cell.
+                      className="text-sm w-full"
+                      disabled={
+                        dailyReportDetails ||
+                        reportType !== "Daily" ||
+                        !selectedProject ||
+                        !selectedZone
+                      }
+                    >
+                      {"Add Today's Report"}
+                    </Button>
+
+
+                  </div>
+
 
                 )}
               </div>
             )}
-            
+
           </div>
         )}
 
 
-        {selectedProject  && (
+        {selectedProject && (
           <div className="mx-0 px-0 pt-4">
             {/* Report Type and Show By Date section - as per image */}
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-4 p-4 shadow-sm border border-gray-300 rounded-md gap-3">
@@ -728,7 +727,7 @@ console.log("Selected Zone:", selectedZone);
                     />
                   </div>
                 </div>
-             
+
               )}
             </div>
 
@@ -789,78 +788,78 @@ console.log("Selected Zone:", selectedZone);
 
 
 
-{/* --- UPDATED SECTION: Upcoming Work Plan Summary (Grouped by Header) --- */}
-{/* --- UPDATED SECTION: Upcoming Work Plan Summary (Grouped by Header) --- */}
-{workPlanGroups.length > 0 && (
-    <div className="mb-6">
-      <h3 className="text-lg md:text-xl font-bold mb-6 border-b">Work Plan</h3>
-      
-      {workPlanGroups.map(([header, milestones]: any, groupIdx: number) => (
-        <div key={groupIdx} className="mb-4 last:mb-0 rounded-md overflow-hidden">
-          {/* Header */}
-          <div className="p-3 bg-gray-50">
-            <h3 className="text-base md:text-lg font-bold">
-              {header} - {milestones.length.toString().padStart(2, '0')}
-            </h3>
-          </div>
+                  {/* --- UPDATED SECTION: Upcoming Work Plan Summary (Grouped by Header) --- */}
+                  {/* --- UPDATED SECTION: Upcoming Work Plan Summary (Grouped by Header) --- */}
+                  {workPlanGroups.length > 0 && (
+                    <div className="mb-6">
+                      <h3 className="text-lg md:text-xl font-bold mb-6 border-b">Work Plan</h3>
 
-          {/* Content - Always visible, no collapse */}
-          <div className="p-3">
-            
-                 {/* Mobile & Desktop Card View */}
-            <div className="space-y-3">
-              {(milestones as any[]).map((milestone: any, idx: number) => {
-                const milestoneWorkPlan = parseWorkPlan(milestone.work_plan);
-                console.log("milestoneWorkPlan",milestoneWorkPlan)
-                const hasWorkPlan = milestoneWorkPlan.length > 0;
+                      {workPlanGroups.map(([header, milestones]: any, groupIdx: number) => (
+                        <div key={groupIdx} className="mb-4 last:mb-0 rounded-md overflow-hidden">
+                          {/* Header */}
+                          <div className="p-3 bg-gray-50">
+                            <h3 className="text-base md:text-lg font-bold">
+                              {header} - {milestones.length.toString().padStart(2, '0')}
+                            </h3>
+                          </div>
 
-                return (
-                  <div key={idx} className="border rounded-lg p-3 bg-white shadow-sm">
-                    <div className="mb-2">
-                      <h4 className="font-medium text-sm text-gray-800">
-                        {milestone.work_milestone_name}
-                      </h4>
-                    </div>
-                    
-                    {/* Work Plan or "Nothing" message */}
-                    <div className="mt-3">
-                      {hasWorkPlan ? (
-                        // Case 1: Work plan exists, render the list
-                        <div className="p-2 bg-blue-50 border border-blue-200 rounded-md">
-                          <ul className="list-disc list-inside text-xs text-blue-800 space-y-0.5 ml-2">
-                            {milestoneWorkPlan.map((point: string, i: number) => (
-                              <>
-                              {point.trim() === "" ? (<div className="p-2 bg-red-50 border border-red-200 rounded-md text-center">
-                          <span className="text-sm font-semibold text-red-700">No Activity Plan</span>
-                        </div>) : (
-                           <li key={i} className="break-words whitespace-pre-wrap">
-                                {point}
-                              </li>
-                        )}
-                              </>
+                          {/* Content - Always visible, no collapse */}
+                          <div className="p-3">
 
-                             
-                            ))}
-                          </ul>
+                            {/* Mobile & Desktop Card View */}
+                            <div className="space-y-3">
+                              {(milestones as any[]).map((milestone: any, idx: number) => {
+                                const milestoneWorkPlan = parseWorkPlan(milestone.work_plan);
+                                console.log("milestoneWorkPlan", milestoneWorkPlan)
+                                const hasWorkPlan = milestoneWorkPlan.length > 0;
+
+                                return (
+                                  <div key={idx} className="border rounded-lg p-3 bg-white shadow-sm">
+                                    <div className="mb-2">
+                                      <h4 className="font-medium text-sm text-gray-800">
+                                        {milestone.work_milestone_name}
+                                      </h4>
+                                    </div>
+
+                                    {/* Work Plan or "Nothing" message */}
+                                    <div className="mt-3">
+                                      {hasWorkPlan ? (
+                                        // Case 1: Work plan exists, render the list
+                                        <div className="p-2 bg-blue-50 border border-blue-200 rounded-md">
+                                          <ul className="list-disc list-inside text-xs text-blue-800 space-y-0.5 ml-2">
+                                            {milestoneWorkPlan.map((point: string, i: number) => (
+                                              <>
+                                                {point.trim() === "" ? (<div className="p-2 bg-red-50 border border-red-200 rounded-md text-center">
+                                                  <span className="text-sm font-semibold text-red-700">No Activity Plan</span>
+                                                </div>) : (
+                                                  <li key={i} className="break-words whitespace-pre-wrap">
+                                                    {point}
+                                                  </li>
+                                                )}
+                                              </>
+
+
+                                            ))}
+                                          </ul>
+                                        </div>
+                                      ) : (
+                                        // Case 2: No work plan, render "Nothing" in red
+                                        <div className="p-2 bg-red-50 border border-red-200 rounded-md text-center">
+                                          <span className="text-sm font-semibold text-red-700">No Activity Plan</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                          </div>
                         </div>
-                      ) : (
-                        // Case 2: No work plan, render "Nothing" in red
-                        <div className="p-2 bg-red-50 border border-red-200 rounded-md text-center">
-                          <span className="text-sm font-semibold text-red-700">No Activity Plan</span>
-                        </div>
-                      )}
+                      ))}
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-           
-          </div>
-        </div>
-      ))}
-    </div>
-)}
-{/* --- END UPDATED SECTION --- */}
+                  )}
+                  {/* --- END UPDATED SECTION --- */}
 
 
 
@@ -929,86 +928,86 @@ console.log("Selected Zone:", selectedZone);
                         };
 
                         const averageProgress = calculateWeightedProgress(milestones as any[]);
-                        return(
-                        <div key={groupIdx} className="mb-4 last:mb-0 border rounded-md overflow-hidden">
-                          {/* Collapsible Header */}
-                          <div
-                            className="flex items-center justify-between p-3 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors"
-                            onClick={() => toggleSection(header)}
-                          >
-                           <div className="flex items-center  gap-4">
-                                  <h3 className="text-base md:text-lg font-bold">
-                                    {header} - {milestones.length.toString().padStart(2, '0')}
-                                  </h3>
+                        return (
+                          <div key={groupIdx} className="mb-4 last:mb-0 border rounded-md overflow-hidden">
+                            {/* Collapsible Header */}
+                            <div
+                              className="flex items-center justify-between p-3 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors"
+                              onClick={() => toggleSection(header)}
+                            >
+                              <div className="flex items-center  gap-4">
+                                <h3 className="text-base md:text-lg font-bold">
+                                  {header} - {milestones.length.toString().padStart(2, '0')}
+                                </h3>
+                              </div>
+                              <div className="flex items-center">
+                                {milestones.length > 0 && (
+                                  <div className="flex items-center text-end gap-2">
+                                    <span className="text-xs text-gray-500 font-medium hidden sm:inline">Overall:</span>
+                                    <MilestoneProgress
+                                      milestoneStatus="Completed"
+                                      value={averageProgress}
+                                      sizeClassName="size-[40px]"
+                                      textSizeClassName="text-[10px]"
+                                    />
+                                  </div>
+                                )}
+                                <span className="text-xs md:text-sm text-gray-500 mx-2">
+                                  {milestones.length} milestone{milestones.length !== 1 ? 's' : ''}
+                                </span>
+                                {expandedSections[header] ? (
+                                  <ChevronUp className="h-5 w-5 text-gray-600" />
+                                ) : (
+                                  <ChevronDown className="h-5 w-5 text-gray-600" />
+                                )}
+                              </div>
                             </div>
-                            <div className="flex items-center">
-                              {milestones.length > 0 && (
-                                    <div className="flex items-center text-end gap-2">
-                                      <span className="text-xs text-gray-500 font-medium hidden sm:inline">Overall:</span>
-                                      <MilestoneProgress
-                                        milestoneStatus="Completed"
-                                        value={averageProgress}
-                                        sizeClassName="size-[40px]"
-                                        textSizeClassName="text-[10px]"
-                                      />
-                                    </div>
-                                  )}
-                              <span className="text-xs md:text-sm text-gray-500 mx-2">
-                                {milestones.length} milestone{milestones.length !== 1 ? 's' : ''}
-                              </span>
-                              {expandedSections[header] ? (
-                                <ChevronUp className="h-5 w-5 text-gray-600" />
-                              ) : (
-                                <ChevronDown className="h-5 w-5 text-gray-600" />
-                              )}
-                            </div>
-                          </div>
 
-                          {/* Collapsible Content */}
-                          {expandedSections[header] && (
-                            <div className="p-3">
-                              {/* Desktop Table View */}
-                              <div className="hidden md:block">
-                                <Table className="w-full">
-                                  <TableHeader>
-                                    <TableRow className="bg-gray-100">
-                                      <TableHead className="w-[40%] font-semibold text-gray-700 text-sm py-2">Work</TableHead>
-                                      <TableHead className="w-[20%] text-center font-semibold text-gray-700 text-sm py-2">Status</TableHead>
-                                      <TableHead className="w-[20%] text-center font-semibold text-gray-700 text-sm py-2">Progress</TableHead>
-                                      <TableHead className="w-[20%] text-center font-semibold text-gray-700 text-sm py-2">Excepted Starting/completion Date</TableHead>
+                            {/* Collapsible Content */}
+                            {expandedSections[header] && (
+                              <div className="p-3">
+                                {/* Desktop Table View */}
+                                <div className="hidden md:block">
+                                  <Table className="w-full">
+                                    <TableHeader>
+                                      <TableRow className="bg-gray-100">
+                                        <TableHead className="w-[40%] font-semibold text-gray-700 text-sm py-2">Work</TableHead>
+                                        <TableHead className="w-[20%] text-center font-semibold text-gray-700 text-sm py-2">Status</TableHead>
+                                        <TableHead className="w-[20%] text-center font-semibold text-gray-700 text-sm py-2">Progress</TableHead>
+                                        <TableHead className="w-[20%] text-center font-semibold text-gray-700 text-sm py-2">Excepted Starting/completion Date</TableHead>
 
-                                    </TableRow>
+                                      </TableRow>
 
-                                  </TableHeader>
-                                  <TableBody>
-                                    {milestones.map((milestone, idx) => (
-                                      <TableRow key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                                        <TableCell className="py-3 px-4 text-sm">{milestone.work_milestone_name}
-                                          {milestone.remarks && (
-                                            <div className="mt-1">
-                                              <p className="flex items-center gap-2 p-1 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs">
-                                                {/* Icon: Added classes to control size and ensure it's vertically centered */}
-                                                <MessagesSquare className="h-4 w-4 flex-shrink-0" />
+                                    </TableHeader>
+                                    <TableBody>
+                                      {milestones.map((milestone, idx) => (
+                                        <TableRow key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                                          <TableCell className="py-3 px-4 text-sm">{milestone.work_milestone_name}
+                                            {milestone.remarks && (
+                                              <div className="mt-1">
+                                                <p className="flex items-center gap-2 p-1 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs">
+                                                  {/* Icon: Added classes to control size and ensure it's vertically centered */}
+                                                  <MessagesSquare className="h-4 w-4 flex-shrink-0" />
 
-                                                {/* Remarks text */}
-                                                <span className="flex-grow">
-                                                  {milestone.remarks}
-                                                </span>
-                                              </p>
-                                            </div>
-                                          )}
-                                        </TableCell>
-                                        <TableCell className="text-center py-3 px-4">
-                                          <Badge
-                                            variant="secondary"
-                                            className={`${getStatusBadgeClasses(milestone.status)} text-xs`}
-                                          >
-                                            {milestone.status}
-                                          </Badge>
-                                        </TableCell>
+                                                  {/* Remarks text */}
+                                                  <span className="flex-grow">
+                                                    {milestone.remarks}
+                                                  </span>
+                                                </p>
+                                              </div>
+                                            )}
+                                          </TableCell>
+                                          <TableCell className="text-center py-3 px-4">
+                                            <Badge
+                                              variant="secondary"
+                                              className={`${getStatusBadgeClasses(milestone.status)} text-xs`}
+                                            >
+                                              {milestone.status}
+                                            </Badge>
+                                          </TableCell>
 
-                                        <TableCell className="text-center py-3 px-4 font-medium">
-                                          {/* {milestone.status !== "Not Applicable" ? (
+                                          <TableCell className="text-center py-3 px-4 font-medium">
+                                            {/* {milestone.status !== "Not Applicable" ? (
                                             <div className="flex flex-col items-center">
                                               <span className="text-sm font-semibold mb-1">{milestone.progress}%</span>
                                               <div className="w-full max-w-[120px] h-2 bg-gray-200 rounded-full overflow-hidden">
@@ -1021,102 +1020,103 @@ console.log("Selected Zone:", selectedZone);
                                           ) : (
                                             <span className="text-sm font-semibold mb-1">{"N/A"}</span>
                                           )} */}
-                                          <MilestoneProgress
-                                            // 1. Pass the status for the N/A check
-                                            milestoneStatus={milestone.status}
+                                            <MilestoneProgress
+                                              // 1. Pass the status for the N/A check
+                                              milestoneStatus={milestone.status}
 
-                                            // 2. Pass the progress value for the circle and color logic
-                                            value={milestone.progress}
+                                              // 2. Pass the progress value for the circle and color logic
+                                              value={milestone.progress}
 
-                                            // 3. Set the desired size and text size
-                                            sizeClassName="size-[60px]"
-                                            textSizeClassName="text-md"
-                                          />
+                                              // 3. Set the desired size and text size
+                                              sizeClassName="size-[60px]"
+                                              textSizeClassName="text-md"
+                                            />
 
-                                        </TableCell>
-                                        <TableCell className="text-center py-3 px-4 text-sm">
+                                          </TableCell>
+                                          <TableCell className="text-center py-3 px-4 text-sm">
+                                            {milestone.status === "Not Started" ? (
+                                              <span className="text-red-600 font-medium">
+                                                {milestone.expected_starting_date ? formatDate(milestone.expected_starting_date) : 'N/A'}
+                                              </span>
+                                            ) : (
+                                              <span className="text-green-500 font-medium">{milestone.expected_completion_date ? formatDate(milestone.expected_completion_date) : 'N/A'}</span>
+
+                                            )}
+                                          </TableCell>
+                                          {/* New Remarks Table Cell */}
+
+                                        </TableRow>
+                                      ))}
+                                    </TableBody>
+                                  </Table>
+                                </div>
+
+                                {/* Mobile Card View */}
+                                <div className="md:hidden space-y-3">
+                                  {milestones.map((milestone, idx) => (
+                                    <div key={idx} className="border rounded-lg p-3 bg-white shadow-sm">
+                                      <div className="mb-2">
+                                        <h4 className="font-medium text-sm text-gray-800">{milestone.work_milestone_name}</h4>
+
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                          <p className="text-xs text-gray-500 mb-1">Status</p>
+                                          <Badge
+                                            variant="secondary"
+                                            className={`${getStatusBadgeClasses(milestone.status)} text-xs`}
+                                          >
+                                            {milestone.status}
+                                          </Badge>
+                                        </div>
+                                        <div>
                                           {milestone.status === "Not Started" ? (
-                                            <span className="text-red-600 font-medium">
-                                              {milestone.expected_starting_date ? formatDate(milestone.expected_starting_date) : 'N/A'}
-                                            </span>
+                                            <>
+                                              <p className="text-xs text-gray-500 mb-1">Expected Start</p>
+                                              <p className="text-sm font-medium text-red-600">
+                                                {milestone.expected_starting_date ? formatDate(milestone.expected_starting_date) : 'N/A'}
+                                              </p>
+                                            </>
                                           ) : (
-                                            <span className="text-green-500 font-medium">{ milestone.expected_completion_date ? formatDate(milestone.expected_completion_date) : 'N/A'}</span>
-                                           
+                                            <>
+                                              <p className="text-xs text-gray-500 mb-1">Expected Date</p>
+                                              <p className="text-sm font-medium">
+                                                {milestone.expected_completion_date ? formatDate(milestone.expected_completion_date) : 'N/A'}
+                                              </p>
+                                            </>
                                           )}
-                                        </TableCell>
-                                        {/* New Remarks Table Cell */}
-
-                                      </TableRow>
-                                    ))}
-                                  </TableBody>
-                                </Table>
-                              </div>
-
-                              {/* Mobile Card View */}
-                              <div className="md:hidden space-y-3">
-                                {milestones.map((milestone, idx) => (
-                                  <div key={idx} className="border rounded-lg p-3 bg-white shadow-sm">
-                                    <div className="mb-2">
-                                      <h4 className="font-medium text-sm text-gray-800">{milestone.work_milestone_name}</h4>
-
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-3">
-                                      <div>
-                                        <p className="text-xs text-gray-500 mb-1">Status</p>
-                                        <Badge
-                                          variant="secondary"
-                                          className={`${getStatusBadgeClasses(milestone.status)} text-xs`}
-                                        >
-                                          {milestone.status}
-                                        </Badge>
+                                        </div>
                                       </div>
-                                      <div>
-                                        {milestone.status === "Not Started" ? (
-                                          <>
-                                            <p className="text-xs text-gray-500 mb-1">Expected Start</p>
-                                            <p className="text-sm font-medium text-red-600">
-                                              {milestone.expected_starting_date ? formatDate(milestone.expected_starting_date) : 'N/A'}
-                                            </p>
-                                          </>
-                                        ) : (
-                                          <>
-                                            <p className="text-xs text-gray-500 mb-1">Expected Date</p>
-                                            <p className="text-sm font-medium">
-                                              {milestone.expected_completion_date ? formatDate(milestone.expected_completion_date) : 'N/A'}
-                                            </p>
-                                          </>
-                                        )}
-                                      </div>
-                                    </div>
-                                    <div className="mt-3">
-                                      <div className="flex justify-between items-center mb-1">
-                                        <p className="text-xs text-gray-500">Progress</p>
-                                        <span className="text-sm font-semibold">{milestone.progress}%</span>
-                                      </div>
-                                      <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                                        <div
-                                          className="h-full bg-blue-500 rounded-full"
-                                          style={{ width: `${milestone.progress}%` }}
-                                        ></div>
-                                      </div>
-                                    </div>
-                                    {/* Milestone Remarks for Mobile */}
-                                    {milestone.remarks && (
                                       <div className="mt-3">
-                                        <p className="text-xs text-gray-500 mb-1">Remarks</p>
-                                        <p className="p-2 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs">
-                                          {milestone.remarks}
-                                        </p>
+                                        <div className="flex justify-between items-center mb-1">
+                                          <p className="text-xs text-gray-500">Progress</p>
+                                          <span className="text-sm font-semibold">{milestone.progress}%</span>
+                                        </div>
+                                        <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                                          <div
+                                            className="h-full bg-blue-500 rounded-full"
+                                            style={{ width: `${milestone.progress}%` }}
+                                          ></div>
+                                        </div>
                                       </div>
-                                    )}
-                                  </div>
-                                ))}
+                                      {/* Milestone Remarks for Mobile */}
+                                      {milestone.remarks && (
+                                        <div className="mt-3">
+                                          <p className="text-xs text-gray-500 mb-1">Remarks</p>
+                                          <p className="p-2 bg-yellow-100 text-yellow-900 rounded-md break-words text-xs">
+                                            {milestone.remarks}
+                                          </p>
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
-                            </div>
-                          )}
-                        </div>
+                            )}
+                          </div>
 
-                      )})}
+                        )
+                      })}
                     </div>
                   )}
 
@@ -1131,18 +1131,18 @@ console.log("Selected Zone:", selectedZone);
                   <div className="mt-8 flex justify-end gap-2">
                     {dailyReportDetails && projectData && (
                       <>
-                      <div> <span className="mr-3"> {showPrintHeader ?"Header Visible" : "Header Invisible"}:</span>
-                         <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={() => setShowPrintHeader(!showPrintHeader)}
-                          title={showPrintHeader ? "Header will be printed" : "Header will be hidden"}
-                        >
-                         
-                          {showPrintHeader ? <Eye className="w-4 h-4" />  : <EyeOff className="w-4 h-4 text-gray-400" />}
-                        </Button>
-                      </div>
-                       
+                        <div> <span className="mr-3"> {showPrintHeader ? "Header Visible" : "Header Invisible"}:</span>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => setShowPrintHeader(!showPrintHeader)}
+                            title={showPrintHeader ? "Header will be printed" : "Header will be hidden"}
+                          >
+
+                            {showPrintHeader ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4 text-gray-400" />}
+                          </Button>
+                        </div>
+
                         <Button
                           onClick={handleDownloadReport}
                           className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white"
