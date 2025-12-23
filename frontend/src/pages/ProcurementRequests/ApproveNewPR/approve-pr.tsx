@@ -259,7 +259,7 @@ export const ApprovePR: React.FC = () => {
     }
 
     return (
-        <div className="flex-1 md:space-y-4">
+        <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'h-[calc(100vh-80px)] overflow-hidden' : ''}`}>
             {isLoading ? (
                 <TableSkeleton />
             ) : (

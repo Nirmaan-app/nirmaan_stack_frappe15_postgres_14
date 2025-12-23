@@ -255,7 +255,7 @@ export default function UsersPage() {
     }), []);
 
     return (
-        <div className="flex-1 space-y-4">
+        <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'h-[calc(100vh-80px)] overflow-hidden' : ''}`}>
             {/* <div className="flex items-center justify-between">
                 <h1 className="text-2xl font-semibold">Manage Users</h1>
                 <Button onClick={() => navigate("/new-user")}>
@@ -263,9 +263,12 @@ export default function UsersPage() {
                 </Button>
             </div> */}
 
-            <UsersSummaryCard />
+            <div className="flex-shrink-0 overflow-y-auto">
+                <UsersSummaryCard />
+            </div>
 
-            <DataTable<NirmaanUsers>
+            <div className="flex-1 overflow-hidden">
+                <DataTable<NirmaanUsers>
                 table={table}
                 columns={columns}
                 isLoading={isLoading}
@@ -283,7 +286,8 @@ export default function UsersPage() {
                 exportFileName="nirmaan_users_list"
                 showRowSelection={false}
             // toolbarActions={<div>Custom Action Button</div>} // Example for custom actions
-            />
+                />
+            </div>
         </div>
     );
 }

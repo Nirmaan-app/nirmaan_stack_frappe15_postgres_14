@@ -277,7 +277,7 @@ const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }
     }
 
     return (
-        <>
+         <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'h-[calc(100vh-130px)] overflow-hidden' : ''}`}>
             <StandaloneDateFilter
                 value={dateRange}
                 onChange={setDateRange}
@@ -569,7 +569,7 @@ const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }
             
         />
         
-        </>
+        </div>
     );
 }
 

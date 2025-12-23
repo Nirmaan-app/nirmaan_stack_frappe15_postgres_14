@@ -1280,7 +1280,7 @@ export default function ApprovedQuotationsTable({
   // console.log("filteredSuggestions",filteredSuggestions)
 
   return (
-    <div className="flex-1 space-y-4 p-4 md:p-6">
+     <div className="h-[calc(100vh-80px)] flex flex-col gap-2 overflow-hidden">
       {!productId ? (
         <div className="space-y-3">
           <div className="flex justify-between items-center">

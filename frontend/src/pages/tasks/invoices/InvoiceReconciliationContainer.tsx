@@ -109,7 +109,6 @@ export default function InvoiceReconciliationContainer() {
 
     return (
         <div 
-        className="flex-1 space-y-4 space-x-4"
         >
                 {tabs && (
                     <Radio.Group

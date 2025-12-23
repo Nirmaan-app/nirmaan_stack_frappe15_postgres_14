@@ -164,7 +164,7 @@ export default function VendorReports() {
     }
     
     return (
-        <div className="space-y-4">
+        <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'h-[calc(100vh-130px)] overflow-hidden' : ''}`}>
             {/* 4. The external controls section */}
             <div className="flex items-center gap-4">
                 <StandaloneDateFilter value={dateRange} onChange={setDateRange} onClear={handleClearDateFilter} />

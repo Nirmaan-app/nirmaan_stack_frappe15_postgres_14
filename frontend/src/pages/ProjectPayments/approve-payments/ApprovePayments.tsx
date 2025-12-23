@@ -333,7 +333,7 @@ export const ApprovePayments: React.FC = () => {
     }
 
     return (
-        <div className="flex-1 space-y-4">
+         <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'max-h-[calc(100vh-80px)] overflow-hidden' : ''}`}>
             {isPageLoading && !data?.length ? (
                 <TableSkeleton />
             ) : (
