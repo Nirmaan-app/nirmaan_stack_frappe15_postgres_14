@@ -195,6 +195,7 @@ def get_task_wise_list(
             continue
 
     # 3. SORTING
+    # 3. SORTING
     try:
         if order_by:
             parts = order_by.split()
@@ -206,14 +207,20 @@ def get_task_wise_list(
             
             def sort_key(x):
                 val = x.get(sort_field)
-                # Handle date sorting specially? String compare usually works for ISO dates
-                return val if val is not None else ""
+                # Tuple comparison: (is_none, value).
+                # False < True, so Non-None values come first in ASC sort.
+                # When both are not None, they are compared directly (preserving date/int order).
+                # When both are None, they are equal.
+                if isinstance(val, str):
+                    return (val is None, val.lower())
+                return (val is None, val)
             
             flattened_tasks.sort(key=sort_key, reverse=not ascending)
         else:
-             flattened_tasks.sort(key=lambda x: x.get('deadline') or "", reverse=False)
-    except:
-        pass
+            # Default sort logic
+            flattened_tasks.sort(key=lambda x: (x.get('deadline') is None, x.get('deadline')), reverse=False)
+    except Exception as e:
+        frappe.log_error(f"Task Sorting Error: {str(e)}")
 
     # 4. PAGINATION
     total_count = len(flattened_tasks)
