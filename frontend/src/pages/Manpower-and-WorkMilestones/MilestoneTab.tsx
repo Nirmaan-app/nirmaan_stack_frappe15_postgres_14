@@ -1083,6 +1083,7 @@ console.log(user)
     
     allTabs.forEach(tab => {
       const storageKey = `project_${projectId}_date_${dateString}_zone_${zoneKey}_tab_${tab.project_work_header_name}`;
+      console.log("Clear keys",storageKey)
       sessionStorage.removeItem(storageKey);
     });
   };
@@ -1207,6 +1208,7 @@ console.log(user)
 
       if (isLastTab) {
         clearAllTabData();
+        console.log("clearrrrr")
         setCurrentFrappeReportName(null);
         navigate('/prs&milestones/milestone-report', { replace: true });
 
@@ -1315,6 +1317,7 @@ console.log(user)
     // --------------------------------------------------------------
 
     const updatedLocalMilestone: LocalMilestoneData = {
+      ...selectedMilestoneForDialog,
       name: selectedMilestoneForDialog.name,
       work_milestone_name: selectedMilestoneForDialog.work_milestone_name,
       work_header: selectedMilestoneForDialog.work_header,
@@ -1331,22 +1334,22 @@ console.log(user)
 
     if (newStatus === 'Not Started') {
       updatedLocalMilestone.expected_starting_date = expectedDate ? formatDate(expectedDate) : undefined;
-      updatedLocalMilestone.expected_completion_date = undefined;
+      // updatedLocalMilestone.expected_completion_date = undefined;
       updatedLocalMilestone.progress = 0;
     } else if (newStatus === 'WIP') {
       if(progress>75){
       updatedLocalMilestone.expected_completion_date = expectedDate ? formatDate(expectedDate) : undefined;
-      updatedLocalMilestone.expected_starting_date = undefined; 
+      // updatedLocalMilestone.expected_starting_date = undefined; 
       updatedLocalMilestone.progress = progress;
       }else{
-         updatedLocalMilestone.expected_completion_date = undefined;
-      updatedLocalMilestone.expected_starting_date = undefined; 
+        //  updatedLocalMilestone.expected_completion_date = undefined;
+      // updatedLocalMilestone.expected_starting_date = undefined; 
       updatedLocalMilestone.progress = progress;
       } 
     }
     else if(newStatus === 'Completed'){
-      updatedLocalMilestone.expected_completion_date = undefined;
-      updatedLocalMilestone.expected_starting_date = undefined; 
+      // updatedLocalMilestone.expected_completion_date = undefined;
+      // updatedLocalMilestone.expected_starting_date = undefined; 
       updatedLocalMilestone.progress = 100;
       updatedLocalMilestone.work_plan="";
       updatedLocalMilestone.work_plan_ratio="Plan Not Required";
