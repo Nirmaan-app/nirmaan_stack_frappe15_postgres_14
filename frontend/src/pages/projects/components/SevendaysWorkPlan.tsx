@@ -367,26 +367,26 @@ export const SevendaysWorkPlan = ({
 
     return (
         <div className="space-y-6">
-             <div className="overflow-hidden rounded-lg border bg-white shadow-sm">
+             <div className="overflow-hidden bg-white">
                 <div 
-                    className="flex cursor-pointer items-center justify-between border-b bg-white px-6 py-4 transition-colors hover:bg-gray-50"
-                    onClick={() => setIsMainExpanded(!isMainExpanded)}
+                    className="flex cursor-pointer items-center justify-between bg-white py-2"
+                    // onClick={() => setIsMainExpanded(!isMainExpanded)}
                 >
                     <div className="flex items-center gap-3">
-                        <h3 className="text-lg font-bold text-gray-900">Work Milestones</h3>
-                        <Badge variant="secondary" className="bg-blue-600 text-white hover:bg-blue-700">
+                        <h3 className="text-xl font-bold text-gray-900">Work Milestones</h3>
+                        <Badge variant="secondary" className="bg-blue-700 text-white hover:bg-blue-800 h-6 w-6 p-0 flex items-center justify-center rounded-full text-[12px]">
                              {workHeaders.length}
                         </Badge>
                     </div>
-                     {isMainExpanded ? (
+                     {/* {isMainExpanded ? (
                         <ChevronUp className="h-5 w-5 text-gray-500" />
                     ) : (
                         <ChevronDown className="h-5 w-5 text-gray-500" />
-                    )}
+                    )} */}
                 </div>
                 
                 {isMainExpanded && (
-                    <div className="bg-gray-50/50 p-6 space-y-4">
+                    <div className="p-6 space-y-4">
                         {!hasData ? (
                             <div className="rounded-lg border bg-gray-50 p-8 text-center text-gray-500">
                                 No work plan items found.

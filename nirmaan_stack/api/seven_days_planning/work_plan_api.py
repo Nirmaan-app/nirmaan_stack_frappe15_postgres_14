@@ -37,7 +37,17 @@ def get_work_plan(project, start_date=None, end_date=None):
     if not zones:
         return []
 
+    # Get sorting metadata
+    headers_meta = frappe.get_all("Work Headers", fields=["work_header_name as name", "order"])
+    header_map = {h.name: (h.order or 9999) for h in headers_meta}
+
+    milestones_meta = frappe.get_all("Work Milestones", fields=["work_milestone_name as name", "work_milestone_order"])
+    milestone_map = {m.name: (m.work_milestone_order or 9999) for m in milestones_meta}
+
     all_milestones = []
+    
+    # Sort zones alphanumerically
+    zones.sort()
 
     for zone in zones:
         # Get Latest Project Progress Report for this Zone
@@ -67,6 +77,8 @@ def get_work_plan(project, start_date=None, end_date=None):
 
                     m_dict = m.as_dict()
                     m_dict["zone"] = report_doc.report_zone
+                    m_dict["header_order"] = header_map.get(m.work_header, 9999)
+                    m_dict["milestone_order"] = milestone_map.get(m.work_milestone_name, 9999)
                     
                     # Check Work Plan DocType
                     if frappe.db.exists("DocType", "Work Plan"):
@@ -89,9 +101,19 @@ def get_work_plan(project, start_date=None, end_date=None):
                                     if wp.wp_start_date and wp.wp_end_date:
                                         wp_start = getdate(wp.wp_start_date)
                                         wp_end = getdate(wp.wp_end_date)
-                                        
+                                        # if wp.wp_status == "Completed":
+                                        #     # Only show if it was completed within the selected range
+                                        #     if wp_end >= start and wp_end <= end:
+                                        #         filtered_plans.append(wp)
+                                        # else:
+                                        #     # For pending/WIP tasks, use the overlap logic
+                                        #     if wp_start <= end and wp_end >= start:
+                                        #         filtered_plans.append(wp)
+                                        # This Will show overlap of start and end within this field"
                                         if wp_start <= end and wp_end >= start:
+                                        # if wp_start >= start and wp_start <= end: // Standard this will focusing on start date
                                             filtered_plans.append(wp)
+
                             else:
                                 # If no date range provided, include all
                                 filtered_plans = all_work_plans
@@ -101,6 +123,14 @@ def get_work_plan(project, start_date=None, end_date=None):
 
                     all_milestones.append(m_dict)
             
+    # Sort all collected milestones
+    if all_milestones:
+        all_milestones.sort(key=lambda x: (
+            x.get("header_order", 9999), 
+            x.get("zone", ""), 
+            x.get("milestone_order", 9999)
+        ))
+
     grouped_milestones = {}
     if all_milestones:
         for m in all_milestones:
