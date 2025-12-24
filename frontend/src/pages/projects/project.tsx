@@ -87,6 +87,7 @@ const ProjectDesignTrackerDetail = React.lazy(() => import("@/pages/ProjectDesig
 const NoDesignTrackerView = React.lazy(() => import("@/pages/ProjectDesignTracker/components/NoDesignTrackerView").then(module => ({ default: module.NoDesignTrackerView })));
 import { ProjectExpensesTab } from "./components/ProjectExpenseTab"; // NEW
 import { ProjectWorkReportTab } from "./ProjectWorkReportTab";
+import { SevenDayPlanningTab } from "./SevenDayPlanningTab";
 
 import { KeyedMutator } from "swr";
 import { useUrlParam } from "@/hooks/useUrlParam";
@@ -236,6 +237,7 @@ export const Component = Project;
 export const PROJECT_PAGE_TABS = {
   OVERVIEW: 'overview',
   WORK_REPORT: 'workreport', // ADD THIS NEW KEY
+  SEVEN_DAY_PLANNING: '7dayplanning', // ADD THIS NEW KEY
   DESIGN_TRACKER: 'designtracker',
   PR_SUMMARY: 'prsummary',
   SR_SUMMARY: 'srsummary',
@@ -334,6 +336,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     { // ADD THIS NEW MENU ITEM
       label: "Work Report", // This is the displayed text
       key: PROJECT_PAGE_TABS.WORK_REPORT, // This is the unique key
+    },
+    { // ADD THIS NEW MENU ITEM
+      label: "7-Day Planning",
+      key: PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
     },
     {
       label: "Design Tracker",
@@ -977,6 +983,8 @@ const advanceAgainstPO = useMemo(() => {
         return <ProjectOverviewTab projectData={data} estimatesTotal={estimatesTotal} projectCustomer={projectCustomer} totalPOAmountWithGST={totalPOAmountWithGST} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getTotalAmountPaid={getTotalAmountPaid} />;
       case PROJECT_PAGE_TABS.WORK_REPORT: // ADD THIS NEW CASE
             return <ProjectWorkReportTab projectData={data} project_mutate={project_mutate} current_role={role}/>;
+      case PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING:
+            return <SevenDayPlanningTab />;
       case PROJECT_PAGE_TABS.DESIGN_TRACKER:
             return designTrackerId ? (
               <ProjectDesignTrackerDetail trackerId={designTrackerId} />
