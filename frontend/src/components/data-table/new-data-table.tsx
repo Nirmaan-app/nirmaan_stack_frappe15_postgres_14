@@ -176,11 +176,11 @@ export function DataTable<T>({
 
   /* ───────── UI ───────── */
   return (
-    <div className={cn("space-y-4", className)}>
+    <div className={cn("flex flex-col gap-4", className)}>
 
       {/* ───── NEW: Summary Card Slot ───── */}
       {summaryCard && (
-        <div className="mb-4">
+        <div>
           {summaryCard}
         </div>
       )}
@@ -205,10 +205,11 @@ export function DataTable<T>({
 
       {/* ───── Table container ───── */}
       <div ref={parentRef}
-        className={`rounded-md border overflow-x-auto max-h-[${tableHeight}] overflow-y-auto relative`}>
+        className="rounded-md border overflow-auto relative"
+        style={{ maxHeight: tableHeight }}>
         {/* Setting position relative for proper stacking context */}
 
-        <Table className="min-w-full table-fixed">
+        <Table className="w-full table-fixed">
 
           {/* ---- colgroup guarantees identical widths ---- */}
           <colgroup>
@@ -389,6 +390,7 @@ function Toolbar(props: {
   isLoading: boolean;
   table: TanTable<any>;
   showRowSelection: boolean;
+  showSearchBar?: boolean;
 }) {
   const searchInputId = React.useId();
   const cfg = props.searchFieldOptions.find(o => o.value === props.selectedSearchField)
@@ -396,27 +398,7 @@ function Toolbar(props: {
   const ph = cfg?.placeholder || `Search by ${cfg?.label}`;
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-4 py-4">
-      {/* <div className="flex items-center gap-2 flex-grow sm:flex-grow-0 sm:w-auto">
-        {props.searchFieldOptions.length > 0 && (
-          <Select value={props.selectedSearchField}
-            onValueChange={props.onSelectedSearchFieldChange}>
-            <SelectTrigger className="w-[150px] h-9"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {props.searchFieldOptions.map(o =>
-                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        )}
-        <Input
-          aria-label={ph}
-          id={searchInputId}
-          className="h-9 w-full sm:w-[250px] lg:w-[300px]"
-          placeholder={ph} value={props.searchTerm}
-          onChange={e => props.onSearchTermChange(e.target.value)} />
-      </div> */}
-      {/* --- FIX STARTS HERE: Conditional Rendering --- */}
-      
+    <div className="flex flex-wrap items-center justify-between gap-4">
       {props.showSearchBar ? (
         <div className="flex items-center gap-2 flex-grow sm:flex-grow-0 sm:w-auto">
           {props.searchFieldOptions.length > 0 && (
@@ -439,10 +421,8 @@ function Toolbar(props: {
       ) : (
         <div /> // Render an empty div to maintain flexbox justify-between layout
       )}
-      {/* --- FIX ENDS HERE --- */}
 
-
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         {props.toolbarActions}
         {props.showExportButton && props.effectiveExport && (
           <Button size="sm" variant="outline"
