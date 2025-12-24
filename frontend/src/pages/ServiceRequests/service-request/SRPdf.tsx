@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
-import { Printer } from 'lucide-react';
+import { Printer, Download } from 'lucide-react';
 import { AddressView } from "@/components/address-view";
 
 
@@ -165,6 +165,39 @@ const SRPdf: React.FC<SRPdfProps> = ({
   const HEADER_HEIGHT = 200;
   const AVAILABLE_HEIGHT = PAGE_HEIGHT - HEADER_HEIGHT;
 
+  const [isDownloading, setIsDownloading] = React.useState(false);
+
+  const handleDownload = async () => {
+    if (!orderData?.name) return;
+    setIsDownloading(true);
+    try {
+      const url = `/api/method/frappe.utils.print_format.download_pdf?doctype=Service Requests&name=${orderData.name}&format=Work Orders&no_letterhead=0`;
+      const response = await fetch(url);
+      if (!response.ok) throw new Error("Network response was not ok");
+      
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      const safeName = orderData.name.replace(/\//g, "_");
+      const safeProjectName = (project?.name || "Project").replace(/\//g, "_");
+      link.download = `${safeName}_${safeProjectName}_SR.pdf`;
+      
+      document.body.appendChild(link);
+      link.click();
+      
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      console.error("Download failed:", error);
+      const url = `/api/method/frappe.utils.print_format.download_pdf?doctype=Service Requests&name=${orderData?.name}&format=Work Orders&no_letterhead=0`;
+      window.open(url, '_blank');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   // Smart pagination function
   const smartPagination = (items: any[]) => {
     if (!items || items.length === 0) return [];
@@ -205,10 +238,20 @@ const SRPdf: React.FC<SRPdfProps> = ({
   return (
     <Sheet open={srPdfSheet} onOpenChange={toggleSrPdfSheet}>
       <SheetContent className="overflow-y-auto md:min-w-[900px]">
-        <Button onClick={handlePrint} className="flex items-center gap-1">
-          <Printer className="h-4 w-4" />
-          Print
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={handlePrint} className="flex items-center gap-1">
+            <Printer className="h-4 w-4" />
+            Print
+          </Button>
+          <Button
+            onClick={handleDownload}
+            disabled={isDownloading}
+            className="flex items-center gap-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Download className={`h-4 w-4 ${isDownloading ? "animate-bounce" : ""}`} />
+            {isDownloading ? "Downloading..." : "Download"}
+          </Button>
+        </div>
         <div className={`w-full border mt-6`}>
           <div ref={componentRef} className="w-full p-4">
             <style>
