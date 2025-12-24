@@ -6,7 +6,23 @@ import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
 import { ProjectExpenses } from '@/types/NirmaanStack/ProjectExpenses';
 import { parseNumber } from '@/utils/parseNumber';
 import { useOrderTotals } from '@/hooks/useOrderTotals';
-import { formatISO } from 'date-fns';
+import { formatISO, parseISO, isWithinInterval } from 'date-fns';
+
+/**
+ * Helper function to check if a date string is within the period
+ * Falls back to creation date if payment_date is not available
+ */
+const isDateInPeriod = (paymentDate: string | null | undefined, creationDate: string, startDate: Date, endDate: Date): boolean => {
+    try {
+        const dateToCheck = paymentDate || creationDate; // Fallback to creation
+        if (!dateToCheck) return false;
+        const date = parseISO(dateToCheck);
+        return isWithinInterval(date, { start: startDate, end: endDate });
+    } catch {
+        return false;
+    }
+};
+
 /**
  * A standardized interface for a single row in our Outflow Report.
  * This ensures that data from both ProjectPayments and ProjectExpenses
@@ -33,33 +49,25 @@ interface UseOutflowReportDataParams {
 
 export const useOutflowReportData = ({ startDate, endDate }: UseOutflowReportDataParams = {}) => {
     // Build date filters if dates are provided
+    // NOTE: Date filtering moved to client-side to handle payments without payment_date
     const dateFilters = useMemo(() => {
         const filters: any[] = [['status', '=', 'Paid']];
-        if (startDate && endDate) {
-            const fromISO = formatISO(startDate, { representation: 'date' });
-            const toISO = formatISO(endDate, { representation: 'date' });
-            filters.push(['payment_date', '>=', fromISO]);
-            filters.push(['payment_date', '<=', toISO]);
-        }
+        // Removed date filters from database query - will filter client-side instead
         return filters;
-    }, [startDate, endDate]);
+    }, []);
 
     const expenseFilters = useMemo(() => {
         const filters: any[] = [];
-        if (startDate && endDate) {
-            const fromISO = formatISO(startDate, { representation: 'date' });
-            const toISO = formatISO(endDate, { representation: 'date' });
-            filters.push(['payment_date', '>=', fromISO]);
-            filters.push(['payment_date', '<=', toISO]);
-        }
+        // Removed date filters from database query - will filter client-side instead
         return filters;
-    }, [startDate, endDate]);
+    }, []);
 
-    // 1. Fetch all 'Paid' Project Payments (with optional date filters)
+    // 1. Fetch all 'Paid' Project Payments (no date filters - will filter client-side)
     const { data: projectPaymentsData, isLoading: isLoadingPayments, error: paymentsError } = useFrappeGetDocList<ProjectPayments>('Project Payments', {
         fields: [
             'name',
             'payment_date',
+            'creation', // Added for fallback date filtering
             'project',
             'vendor',
             'amount',
@@ -70,16 +78,17 @@ export const useOutflowReportData = ({ startDate, endDate }: UseOutflowReportDat
         ],
         filters: dateFilters,
         limit: 0
-    }, `outflow-project-payments-${JSON.stringify(dateFilters)}`);
+    }, `outflow-project-payments-all`);
 
     const {getEffectiveGST} = useOrderTotals()
 
 
-    // 2. Fetch all Project Expenses (with optional date filters)
+    // 2. Fetch all Project Expenses (no date filters - will filter client-side)
     const { data: projectExpensesData, isLoading: isLoadingExpenses, error: expensesError } = useFrappeGetDocList<ProjectExpenses>('Project Expenses', {
         fields: [
             'name',
             'payment_date',
+            'creation', // Added for fallback date filtering
             'projects', // Note: field name is 'projects' here
             'vendor',
             'amount',
@@ -90,7 +99,7 @@ export const useOutflowReportData = ({ startDate, endDate }: UseOutflowReportDat
         ],
         filters: expenseFilters,
         limit: 0
-    }, `outflow-project-expenses-${JSON.stringify(expenseFilters)}`);
+    }, `outflow-project-expenses-all`);
 
     // 3. Combine and standardize the data once it's all fetched
     const reportData = useMemo<OutflowRowData[]>(() => {
@@ -98,8 +107,18 @@ export const useOutflowReportData = ({ startDate, endDate }: UseOutflowReportDat
             return [];
         }
 
+        // Apply client-side date filtering to payments (with fallback to creation date)
+        const filteredPayments = startDate && endDate
+            ? projectPaymentsData.filter(p => isDateInPeriod(p.payment_date, p.creation, startDate, endDate))
+            : projectPaymentsData;
+
+        // Apply client-side date filtering to expenses (with fallback to creation date)
+        const filteredExpenses = startDate && endDate
+            ? projectExpensesData.filter(e => isDateInPeriod(e.payment_date, e.creation, startDate, endDate))
+            : projectExpensesData;
+
         // Map Project Payments to the standard OutflowRowData format
-        const mappedPayments: OutflowRowData[] = projectPaymentsData.map(p => {
+        const mappedPayments: OutflowRowData[] = filteredPayments.map(p => {
             let expenseType = 'Unknown Payment';
             let effectiveGst;
             if (p.document_type === 'Procurement Orders') {
@@ -132,7 +151,7 @@ export const useOutflowReportData = ({ startDate, endDate }: UseOutflowReportDat
         });
 
         // Map Project Expenses to the standard OutflowRowData format
-        const mappedExpenses: OutflowRowData[] = projectExpensesData.map(e => ({
+        const mappedExpenses: OutflowRowData[] = filteredExpenses.map(e => ({
             id: e.name,
             payment_date: e.payment_date,
             project: e.projects, // field name is 'projects'
@@ -155,7 +174,7 @@ export const useOutflowReportData = ({ startDate, endDate }: UseOutflowReportDat
         return combined;
 
 
-    }, [projectPaymentsData, projectExpensesData]);
+    }, [projectPaymentsData, projectExpensesData, startDate, endDate]);
 
     return {
         reportData,

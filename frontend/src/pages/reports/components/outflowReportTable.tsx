@@ -1,6 +1,6 @@
 // /workspace/development/frappe-bench/apps/nirmaan_stack/frontend/src/pages/reports/components/OutflowReportTable.tsx
 
-import React, { useCallback, useMemo, useEffect, useState } from "react";
+import React, { useCallback, useMemo, useEffect, useState, useRef } from "react";
 import { memoize } from "lodash";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { DateRange } from "react-day-picker";
@@ -62,8 +62,27 @@ const AppliedFiltersDisplay = ({ filters, search }) => {
 interface SelectOption { label: string; value: string; }
 
 export function OutflowReportTable() {
-    // 1. Manage date range state, initialized from URL or with a default
+    // 1. Manage date range state, initialized from URL filters or standalone date params
     const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
+        // PRIORITY 1: Check if date filters are passed via outflow_report_table_filters (from project cash sheet link)
+        try {
+            const encodedFilters = urlStateManager.getParam('outflow_report_table_filters');
+            if (encodedFilters) {
+                const decodedFilters = JSON.parse(atob(encodedFilters));
+                const dateFilter = decodedFilters.find(f => f.id === 'payment_date');
+                if (dateFilter?.value?.operator === 'Between' && Array.isArray(dateFilter.value.value)) {
+                    const [fromStr, toStr] = dateFilter.value.value;
+                    return {
+                        from: startOfDay(new Date(fromStr)),
+                        to: endOfDay(new Date(toStr)),
+                    };
+                }
+            }
+        } catch (e) {
+            console.error("Error parsing date filters from URL:", e);
+        }
+
+        // PRIORITY 2: Check standalone date params (for direct navigation to this page)
         const fromParam = urlStateManager.getParam(`${URL_SYNC_KEY}_from`);
         const toParam = urlStateManager.getParam(`${URL_SYNC_KEY}_to`);
         if (fromParam && toParam) {
@@ -76,6 +95,8 @@ export function OutflowReportTable() {
                 console.error("Error parsing date from URL:", e);
             }
         }
+
+        // PRIORITY 3: Use default date range
         return getDefaultDateRange();
     });
 
@@ -143,7 +164,7 @@ export function OutflowReportTable() {
     const {
         table, totalisLoading: isTableHookLoading, error: tableHookError,
         searchTerm, setSearchTerm, selectedSearchField, setSelectedSearchField,
-        columnFilters
+        columnFilters, setColumnFilters
     } = useServerDataTable<OutflowRowData>({
         doctype: 'OutflowReportVirtual', // A virtual name for this client-side table
         columns: columns,
@@ -163,6 +184,20 @@ export function OutflowReportTable() {
 
         // aggregatesConfig: OUTFLOW_AGGREGATES_CONFIG,
     });
+
+    // Remove payment_date filter from columnFilters if present (it's already applied via dateRange in data fetch)
+    // This prevents double filtering: once at fetch level, once at table level
+    const hasRemovedDateFilter = useRef(false);
+    useEffect(() => {
+        if (!hasRemovedDateFilter.current) {
+            const hasDateFilter = columnFilters.some(f => f.id === 'payment_date');
+            if (hasDateFilter) {
+                // Remove only the payment_date filter, keep all others (like project filter)
+                setColumnFilters(prev => prev.filter(f => f.id !== 'payment_date'));
+                hasRemovedDateFilter.current = true;
+            }
+        }
+    }, [columnFilters, setColumnFilters]); // Watch columnFilters but only remove once
 
 
 

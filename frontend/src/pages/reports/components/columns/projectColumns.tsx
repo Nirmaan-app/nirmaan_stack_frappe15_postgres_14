@@ -152,6 +152,42 @@ export const getProjectColumns = (): ColumnDef<Projects>[] => [
     meta: { exportHeaderName: "Outflow", isNumeric: true }
   },
   {
+    id: "totalLiabilities",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Current Liability" />,
+    cell: (props) => <CalculatedCell {...props} accessor="totalLiabilities" formatter={formatDisplayValueToLakhs} />,
+    meta: { exportHeaderName: "Current Liability", isNumeric: true }
+  },
+  {
+    id: "cashflowGap",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Cashflow Gap" />,
+    cell: ({ row, table }) => {
+      const meta = table.options.meta as { getProjectCalculatedFields: (projectId: string) => ProjectCalculatedFields | null; isLoadingGlobalDeps: boolean } | undefined;
+
+      if (!meta || typeof meta.getProjectCalculatedFields !== 'function') {
+        return <span className="text-destructive text-xs">Meta Error</span>;
+      }
+
+      if (meta.isLoadingGlobalDeps) {
+        return <Skeleton className="h-4 w-20 my-1" />;
+      }
+
+      const calculatedData = meta.getProjectCalculatedFields(row.original.name);
+
+      if (calculatedData === null) {
+        return <Skeleton className="h-4 w-20 my-1" />;
+      }
+
+      const cashflowGap = calculatedData.totalOutflow + calculatedData.totalLiabilities - calculatedData.totalInflow;
+
+      return (
+        <div className={`tabular-nums ${cashflowGap > 0 ? 'text-red-600' : 'text-green-600'}`}>
+          {formatDisplayValueToLakhs(cashflowGap)}
+        </div>
+      );
+    },
+    meta: { exportHeaderName: "Cashflow Gap", isNumeric: true }
+  },
+  {
     id: "totalInvoiced", // Use ID for columns not directly on `Projects`
     header: ({ column }) => <DataTableColumnHeader column={column} title="Total PO+SR Value (incl. GST)" />,
     cell: (props) => <CalculatedCell {...props} accessor="totalInvoiced" formatter={formatDisplayValueToLakhs} />,
@@ -160,9 +196,9 @@ export const getProjectColumns = (): ColumnDef<Projects>[] => [
   // --- (Indicator) NEW COLUMN ---
   {
     id: "totalPoSrInvoiced",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Total PO+SR Invoiced (incl. GST)" />,
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Total PO+SR Invoice Received" />,
     cell: (props) => <CalculatedCell {...props} accessor="totalPoSrInvoiced" formatter={formatDisplayValueToLakhs} />,
-    meta: { exportHeaderName: "Total PO+SR Invoiced (incl. GST)", isNumeric: true }
+    meta: { exportHeaderName: "Total PO+SR Invoice Received", isNumeric: true }
   },
   {
     accessorKey: "project_value",
@@ -181,23 +217,23 @@ export const getProjectColumns = (): ColumnDef<Projects>[] => [
       isNumeric: true
     }
   },
-  {
-    id: "CreditPaidAmount", // A unique ID for the column
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Total Credit Amount Paid" />,
-    // Pass the correct accessor string
-    cell: (props) => <CalculatedCell {...props} accessor="CreditPaidAmount" formatter={formatValueToLakhsString} />,
-    meta: {
-      exportHeaderName: "Amount Due (Lakhs)",
-      isNumeric: true
-    }
-  },
+  // {
+  //   id: "CreditPaidAmount", // A unique ID for the column
+  //   header: ({ column }) => <DataTableColumnHeader column={column} title="Total Credit Amount Paid" />,
+  //   // Pass the correct accessor string
+  //   cell: (props) => <CalculatedCell {...props} accessor="CreditPaidAmount" formatter={formatValueToLakhsString} />,
+  //   meta: {
+  //     exportHeaderName: "Amount Due (Lakhs)",
+  //     isNumeric: true
+  //   }
+  // },
   // --- END OF FIX ---
 
-  {
-    accessorKey: "creation",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Creation Date" />,
-    cell: ({ row }) => <div>{formatDate(row.original.creation)}</div>,
-    meta: { exportHeaderName: "Creation Date", exportValue: (row: Projects) => formatDate(row.creation) }
-  },
+  // {
+  //   accessorKey: "creation",
+  //   header: ({ column }) => <DataTableColumnHeader column={column} title="Creation Date" />,
+  //   cell: ({ row }) => <div>{formatDate(row.original.creation)}</div>,
+  //   meta: { exportHeaderName: "Creation Date", exportValue: (row: Projects) => formatDate(row.creation) }
+  // },
 
 ];

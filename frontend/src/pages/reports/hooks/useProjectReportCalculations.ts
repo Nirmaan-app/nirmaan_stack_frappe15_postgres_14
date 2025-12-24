@@ -41,6 +41,7 @@ export interface ProjectCalculatedFields {
     totalOutflow: number;
     TotalPurchaseOverCredit: number; // ✨ NEW
     CreditPaidAmount: number;           // ✨ NEW
+    totalLiabilities: number; // Current liabilities
     // You can add more calculated fields here if needed, e.g., totalCredit
 }
 
@@ -150,7 +151,9 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
 
          const docsToProcess = shouldFilterByDate
             ? inflowsData.filter(inflow => {
-                return isDateInPeriod(inflow.payment_date, startDate, endDate);
+                // Use payment_date with fallback to creation date
+                const dateToCheck = inflow.payment_date || inflow.creation;
+                return isDateInPeriod(dateToCheck, startDate, endDate);
             })
             : inflowsData; // If no dates, use the full list
 
@@ -202,8 +205,9 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
 
         const docsToProcess = shouldFilterByDate
             ? paymentsData.filter(payment => {
-                // Payments should be filtered by 'payment_date'
-                return isDateInPeriod(payment.payment_date, startDate, endDate);
+                // Payments should be filtered by 'payment_date' with fallback to 'creation'
+                const dateToCheck = payment.payment_date || payment.creation;
+                return isDateInPeriod(dateToCheck, startDate, endDate);
             })
             : paymentsData; // If no dates, use the full list
 
@@ -352,6 +356,16 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
 
             // Get the newly calculated invoiced amount from our map
             const totalPoSrInvoiced = totalPoSrInvoicedByProject.get(projectId) || 0;
+
+            // Calculate Current Liabilities (Payable Amount Against Delivered - Amount Paid Against Delivered)
+            const totalPayableAgainstDelivered = relatedPOs.reduce((sum, po) => sum + parseNumber(po.po_amount_delivered || 0), 0);
+            const totalPaidAgainstDelivered = relatedPOs.reduce((sum, po) => {
+                const amountPaid = parseNumber(po.amount_paid || 0);
+                const poAmountDelivered = parseNumber(po.po_amount_delivered || 0);
+                return sum + Math.min(amountPaid, poAmountDelivered);
+            }, 0);
+            const totalLiabilities = totalPayableAgainstDelivered - totalPaidAgainstDelivered;
+
             return {
                 totalInvoiced: parseNumber(totalInvoiced),
                 totalPoSrInvoiced: parseNumber(totalPoSrInvoiced), // Add the new value here
@@ -360,6 +374,7 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
                 totalOutflow: parseNumber(totalOutflow),
                 TotalPurchaseOverCredit: TotalPurchaseOverCredit, // ✨ Add the new value
                 CreditPaidAmount: CreditPaidAmount,
+                totalLiabilities: totalLiabilities,
             };
         },
         [

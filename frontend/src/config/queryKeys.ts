@@ -236,7 +236,7 @@ export const getProjectReportListOptions = (): ProjectListParams => ({
 });
 
 export const getPOForProjectInvoiceOptions = (): POListParams => ({
-  fields: ['name', 'project', 'loading_charges', 'freight_charges', 'invoice_data',"total_amount","amount","tax_amount",'creation'], // Only fields needed for invoice calc
+  fields: ['name', 'project', 'loading_charges', 'freight_charges', 'invoice_data',"total_amount","amount","tax_amount",'creation', 'po_amount_delivered', 'amount_paid'], // Added po_amount_delivered and amount_paid for totalLiabilities calc
   filters: [["status", "not in", ["Merged", "Cancelled", "PO Amendment","Inactive"]]], // Match PO report filters
   limit: 100000,
 });
