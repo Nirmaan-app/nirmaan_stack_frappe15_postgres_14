@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState, useEffect } from "react";
+import React, { useCallback, useMemo, useState, useEffect, useRef } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { useFrappeGetDocList, FrappeDoc, GetDocListArgs, Filter } from "frappe-react-sdk";
@@ -68,8 +68,27 @@ const AppliedFiltersDisplay = ({ filters, search }) => {
 interface SelectOption { label: string; value: string; }
 
 export function InflowReportTable() {
-    // 1. Manage date range state, initialized from URL or with a default
+    // 1. Manage date range state, initialized from URL filters or standalone date params
     const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
+        // PRIORITY 1: Check if date filters are passed via inflow_report_table_filters (from project cash sheet link)
+        try {
+            const encodedFilters = urlStateManager.getParam('inflow_report_table_filters');
+            if (encodedFilters) {
+                const decodedFilters = JSON.parse(atob(encodedFilters));
+                const dateFilter = decodedFilters.find(f => f.id === 'payment_date');
+                if (dateFilter?.value?.operator === 'Between' && Array.isArray(dateFilter.value.value)) {
+                    const [fromStr, toStr] = dateFilter.value.value;
+                    return {
+                        from: startOfDay(new Date(fromStr)),
+                        to: endOfDay(new Date(toStr)),
+                    };
+                }
+            }
+        } catch (e) {
+            console.error("Error parsing date filters from URL:", e);
+        }
+
+        // PRIORITY 2: Check standalone date params (for direct navigation to this page)
         const fromParam = urlStateManager.getParam(`${URL_SYNC_KEY}_from`);
         const toParam = urlStateManager.getParam(`${URL_SYNC_KEY}_to`);
         if (fromParam && toParam) {
@@ -82,6 +101,8 @@ export function InflowReportTable() {
                 console.error("Error parsing date from URL:", e);
             }
         }
+
+        // PRIORITY 3: Use default date range
         return getDefaultDateRange();
     });
 
@@ -180,7 +201,7 @@ export function InflowReportTable() {
         searchTerm, setSearchTerm, selectedSearchField, setSelectedSearchField,
         aggregates, // NEW
         isAggregatesLoading, // NEW
-        columnFilters // NEW
+        columnFilters, setColumnFilters // NEW - Added setColumnFilters
     } = useServerDataTable<ProjectInflows>({
         doctype: DOCTYPE,
         columns: columns,
@@ -191,6 +212,20 @@ export function InflowReportTable() {
         aggregatesConfig: INFLOW_AGGREGATES_CONFIG, // NEW: Pass the config
         additionalFilters: dateFilters, // NEW: Apply date filters
     });
+
+    // Remove payment_date filter from columnFilters if present (it's already applied via dateFilters in fetch)
+    // This prevents double filtering: once at fetch level, once at table level
+    const hasRemovedDateFilter = useRef(false);
+    useEffect(() => {
+        if (!hasRemovedDateFilter.current) {
+            const hasDateFilter = columnFilters.some(f => f.id === 'payment_date');
+            if (hasDateFilter) {
+                // Remove only the payment_date filter, keep all others (like project filter)
+                setColumnFilters(prev => prev.filter(f => f.id !== 'payment_date'));
+                hasRemovedDateFilter.current = true;
+            }
+        }
+    }, [columnFilters, setColumnFilters]); // Watch columnFilters but only remove once
 
     const isLoadingOverall = projectsLoading || customersLoading || listIsLoading;
     const combinedErrorOverall = projectsError || customersError || listError;

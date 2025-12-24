@@ -292,7 +292,7 @@ export const MilestoneDailySummary = () => {
     if (!dailyReportDetails?.milestones) return [];
 
     const grouped = dailyReportDetails.milestones
-      .filter((milestone: any) => milestone.status !== "Not Applicable")
+      // .filter((milestone: any) => milestone.status !== "Not Applicable")
       .reduce((acc: any, milestone: any) => {
         (acc[milestone.work_header] = acc[milestone.work_header] || []).push(milestone);
         return acc;

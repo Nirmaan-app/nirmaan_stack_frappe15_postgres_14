@@ -16,7 +16,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { formatDate } from "@/utils/FormatDate";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatToRoundedIndianRupee, formatToApproxLakhs } from "@/utils/FormatPrice";
 import { getTotalInflowAmount, getPOSTotals, getPOTotal, getSRTotal, getTotalAmountPaid, getTotalExpensePaid } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 
@@ -273,22 +273,22 @@ export const Projects: React.FC<ProjectsProps> = ({
       cell: ({ row }) => <Badge variant={row.original.status === "Completed" ? "default" : (row.original.status === "Halted" ? "destructive" : "secondary")}>{row.original.status}</Badge>,
       enableColumnFilter: true,
     },
-    {
-      accessorKey: "project_type", header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
-      cell: ({ row }) => <div>{row.original.project_type || "--"}</div>,
-      enableColumnFilter: true,
-      meta: {
-        exportHeaderName: "Project Type",
-      }
-    },
-    {
-      id: "location", header: "Location",
-      accessorFn: row => `${row.project_city || ''}, ${row.project_state || ''}`.replace(/^, |, $/g, ''), // Clean leading/trailing commas
-      meta: {
-        exportHeaderName: "Project Location",
-        exportValue: (row) => `${row.project_city || ''}, ${row.project_state || ''}`.replace(/^, |, $/g, ''), // Clean leading/trailing commas
-      }
-    },
+    // {
+    //   accessorKey: "project_type", header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
+    //   cell: ({ row }) => <div>{row.original.project_type || "--"}</div>,
+    //   enableColumnFilter: true,
+    //   meta: {
+    //     exportHeaderName: "Project Type",
+    //   }
+    // },
+    // {
+    //   id: "location", header: "Location",
+    //   accessorFn: row => `${row.project_city || ''}, ${row.project_state || ''}`.replace(/^, |, $/g, ''), // Clean leading/trailing commas
+    //   meta: {
+    //     exportHeaderName: "Project Location",
+    //     exportValue: (row) => `${row.project_city || ''}, ${row.project_state || ''}`.replace(/^, |, $/g, ''), // Clean leading/trailing commas
+    //   }
+    // },
     // {
     //     id: "pr_status_counts", header: "PR Status",
     //     cell: ({ row }) => {
@@ -307,7 +307,7 @@ export const Projects: React.FC<ProjectsProps> = ({
 
     {
       accessorKey: "project_value", header: "Value (excl.GST)",
-      cell: ({ row }) => (<span className="tabular-nums">{formatToRoundedIndianRupee(row.original.project_value / 100000)} L</span>),
+      cell: ({ row }) => (<span className="tabular-nums">{formatToApproxLakhs(row.original.project_value)}</span>),
       size: 100,
       meta: {
         exportHeaderName: "Value ",
@@ -320,7 +320,7 @@ export const Projects: React.FC<ProjectsProps> = ({
         const financials = getProjectFinancials(row.original.name);
         return (
           <span className="tabular-nums">
-            {formatToRoundedIndianRupee(financials.calculatedTotalInvoiced / 100000)} L
+            {formatToApproxLakhs(financials.calculatedTotalInvoiced)}
           </span>
         );
       },
@@ -329,7 +329,7 @@ export const Projects: React.FC<ProjectsProps> = ({
         exportHeaderName: "PO Amount (Lakhs)",
         exportValue: (row) => {
           const financials = getProjectFinancials(row.name);
-          return formatToRoundedIndianRupee(financials.calculatedTotalInvoiced / 100000) + " L";
+          return formatToApproxLakhs(financials.calculatedTotalInvoiced);
         }
       }
     },
@@ -340,7 +340,7 @@ export const Projects: React.FC<ProjectsProps> = ({
         const financials = getProjectFinancials(row.original.name);
         return (
           <span className="text-green-600 tabular-nums">
-            {formatToRoundedIndianRupee(financials.calculatedTotalInflow / 100000)} L
+            {formatToApproxLakhs(financials.calculatedTotalInflow)}
           </span>
         );
       },
@@ -349,18 +349,18 @@ export const Projects: React.FC<ProjectsProps> = ({
         exportHeaderName: "Inflow (Lakhs)",
         exportValue: (row) => {
           const financials = getProjectFinancials(row.name);
-          return formatToRoundedIndianRupee(financials.calculatedTotalInflow / 100000) + " L";
+          return formatToApproxLakhs(financials.calculatedTotalInflow);
         }
       }
     },
     {
       id: "outflow",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Outflow (PO+SR)" />,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Outflow" />,
       cell: ({ row }) => {
         const financials = getProjectFinancials(row.original.name);
         return (
           <span className="text-red-600 tabular-nums">
-            {formatToRoundedIndianRupee(financials.calculatedTotalOutflow / 100000)} L
+            {formatToApproxLakhs(financials.calculatedTotalOutflow)}
           </span>
         );
       },
@@ -369,7 +369,7 @@ export const Projects: React.FC<ProjectsProps> = ({
         exportHeaderName: "Outflow (Lakhs)",
         exportValue: (row) => {
           const financials = getProjectFinancials(row.name);
-          return formatToRoundedIndianRupee(financials.calculatedTotalOutflow / 100000) + " L";
+          return formatToApproxLakhs(financials.calculatedTotalOutflow);
         }
       }
     },
@@ -381,7 +381,7 @@ export const Projects: React.FC<ProjectsProps> = ({
         const financials = getProjectFinancials(row.original.name);
         return (
           <span className="text-red-600 tabular-nums">
-            {formatToRoundedIndianRupee(financials.totalLiabilities / 100000)} L
+            {formatToApproxLakhs(financials.totalLiabilities)}
           </span>
         );
       },
@@ -390,7 +390,29 @@ export const Projects: React.FC<ProjectsProps> = ({
         exportHeaderName: "Current Liabilities",
         exportValue: (row) => {
           const financials = getProjectFinancials(row.name);
-          return formatToRoundedIndianRupee(financials.totalLiabilities / 100000) + " L";
+          return formatToApproxLakhs(financials.totalLiabilities);
+        }
+      }
+    },
+    {
+      id: "cashflow_gap",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Cashflow Gap" />,
+      cell: ({ row }) => {
+        const financials = getProjectFinancials(row.original.name);
+        const cashflowGap = financials.calculatedTotalOutflow + financials.totalLiabilities - financials.calculatedTotalInflow;
+        return (
+          <span className={`tabular-nums ${cashflowGap > 0 ? 'text-red-600' : 'text-green-600'}`}>
+            {formatToApproxLakhs(cashflowGap)}
+          </span>
+        );
+      },
+      size: 100,
+      meta: {
+        exportHeaderName: "Cashflow Gap (Lakhs)",
+        exportValue: (row) => {
+          const financials = getProjectFinancials(row.name);
+          const cashflowGap = financials.calculatedTotalOutflow + financials.totalLiabilities - financials.calculatedTotalInflow;
+          return formatToApproxLakhs(cashflowGap);
         }
       }
     },
@@ -401,7 +423,7 @@ export const Projects: React.FC<ProjectsProps> = ({
         const financials = getProjectFinancials(row.original.name);
         return (
           <span className="tabular-nums">
-            {formatToRoundedIndianRupee(parseNumber(financials.relatedTotalBalanceCredit) / 100000)} L
+            {formatToApproxLakhs(parseNumber(financials.relatedTotalBalanceCredit))}
           </span>
         );
       },
@@ -410,7 +432,7 @@ export const Projects: React.FC<ProjectsProps> = ({
         exportHeaderName: "Total Purchase Over Credit",
         exportValue: (row) => {
           const financials = getProjectFinancials(row.name);
-          return formatToRoundedIndianRupee(parseNumber(financials.relatedTotalBalanceCredit) / 100000) + " L";
+          return formatToApproxLakhs(parseNumber(financials.relatedTotalBalanceCredit));
         }
       }
     },

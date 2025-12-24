@@ -136,31 +136,41 @@ const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }
 
     const financialSummary = useMemo(() => {
         // Use the filtered ALL list, not the paginated table rows
-        const rowsToSum = filteredProjectsForSummary; 
+        const rowsToSum = filteredProjectsForSummary;
 
         return rowsToSum.reduce((acc, project) => {
             const calculated = getProjectCalculatedFields(project.name);
             if (calculated) {
-               
+
                 // ACCUMULATE ALL FIELDS
                 acc.projectValue += parseNumber(project.project_value); // From the Project Doc
                 acc.totalInvoiced += parseNumber(calculated.totalInvoiced); // Total PO+SR Value
-                acc.totalPoSrInvoiced += parseNumber(calculated.totalPoSrInvoiced); 
+                acc.totalPoSrInvoiced += parseNumber(calculated.totalPoSrInvoiced);
                 acc.totalProjectInvoiced += parseNumber(calculated.totalProjectInvoiced);
                 acc.totalInflow += parseNumber(calculated.totalInflow);
                 acc.totalOutflow += parseNumber(calculated.totalOutflow);
+                acc.totalLiabilities += parseNumber(calculated.totalLiabilities); // Added for Current Liabilities
                 acc.totalPurchaseOverCredit += parseNumber(calculated.TotalPurchaseOverCredit); // Added from your columns
-                acc.creditPaidAmount += parseNumber(calculated.CreditPaidAmount); // Added from your =
+                acc.creditPaidAmount += parseNumber(calculated.CreditPaidAmount); // Added from your columns
+
+                // Calculate cashflow gap: Outflow + Liabilities - Inflow
+                const cashflowGap = parseNumber(calculated.totalOutflow) + parseNumber(calculated.totalLiabilities) - parseNumber(calculated.totalInflow);
+                acc.totalCashflowGap += cashflowGap;
+
+                acc.projectCount += 1; // Count projects
             }
             return acc;
         }, {
             // INITIAL ACCUMULATOR STATE
+            projectCount: 0,
             projectValue: 0,
             totalInvoiced: 0,
             totalPoSrInvoiced: 0,
             totalProjectInvoiced: 0,
             totalInflow: 0,
             totalOutflow: 0,
+            totalLiabilities: 0,
+            totalCashflowGap: 0,
             totalCredit: 0,
             totalPurchaseOverCredit: 0,
             creditPaidAmount: 0,
@@ -214,29 +224,31 @@ const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }
 
         const dataToExport = projectsData.map(project => {
             const calculated = getProjectCalculatedFields(project.name);
-            const credit = undefined;
+            const cashflowGap = calculated ? calculated.totalOutflow + calculated.totalLiabilities - calculated.totalInflow : 0;
             return {
                 project_name: project.project_name,
-                creation: formatDate(project.creation),
                 project_value_lakhs: formatValueToLakhsString(project.project_value),
                 totalInvoiced_lakhs: calculated ? formatValueToLakhsString(calculated.totalInvoiced) : 'N/A',
                 totalPoSrInvoiced_lakhs: calculated ? formatValueToLakhsString(calculated.totalPoSrInvoiced) : 'N/A',
                 totalProjectInvoiced_lakhs: calculated ? formatValueToLakhsString(calculated.totalProjectInvoiced) : 'N/A',
                 totalInflow_lakhs: calculated ? formatValueToLakhsString(calculated.totalInflow) : 'N/A',
                 totalOutflow_lakhs: calculated ? formatValueToLakhsString(calculated.totalOutflow) : 'N/A',
-                totalCredit_lakhs: credit !== undefined ? formatValueToLakhsString(credit) : 'N/A',
+                totalLiabilities_lakhs: calculated ? formatValueToLakhsString(calculated.totalLiabilities) : 'N/A',
+                cashflowGap_lakhs: calculated ? formatValueToLakhsString(cashflowGap) : 'N/A',
+                totalPurchaseOverCredit_lakhs: calculated ? formatValueToLakhsString(calculated.TotalPurchaseOverCredit) : 'N/A',
             };
         });
         const exportColumns = [
             { header: "Project Name", accessorKey: "project_name" },
-            { header: "Creation Date", accessorKey: "creation" },
             { header: "Value (excl. GST)", accessorKey: "project_value_lakhs" },
             { header: "Total PO+SR Value(incl. GST)", accessorKey: "totalInvoiced_lakhs" },
-            { header: "Total PO+SR Invoiced (incl. GST)", accessorKey: "totalPoSrInvoiced_lakhs" },
+            { header: "Total PO+SR Invoice Received", accessorKey: "totalPoSrInvoiced_lakhs" },
             { header: "Total Project Invoiced (incl. GST)", accessorKey: "totalProjectInvoiced_lakhs" },
             { header: "Inflow", accessorKey: "totalInflow_lakhs" },
             { header: "Outflow", accessorKey: "totalOutflow_lakhs" },
-            { header: "Credit Outstanding", accessorKey: "totalCredit_lakhs" },
+            { header: "Current Liability", accessorKey: "totalLiabilities_lakhs" },
+            { header: "Cashflow Gap", accessorKey: "cashflowGap_lakhs" },
+            { header: "Total Purchase Over Credit", accessorKey: "totalPurchaseOverCredit_lakhs" },
         ];
 
         try {
@@ -383,9 +395,23 @@ const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }
                         </CardHeader>
                         <CardContent className="p-4 pt-0">
                             {/* --- Grid Layout with correct responsive columns --- */}
-                            <dl className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-8 gap-4">
-                                
-                               
+                            <dl className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-10 gap-4">
+
+                                {/* 1. Total Projects - Count (Purple/Info) */}
+                                <div className="flex justify-between sm:flex-col
+                                    border-r border-gray-200
+                                    pr-4
+                                    sm:pb-0
+                                    sm:border-b-0
+                                ">
+                                    <dt className="font-semibold text-gray-600 text-xs">
+                                        Total Projects
+                                    </dt>
+                                    <dd className="sm:text-left font-bold text-base sm:text-sm tabular-nums text-purple-700">
+                                        {financialSummary.projectCount}
+                                    </dd>
+                                </div>
+
                                 {/* 2. Total Client Invoiced - Income/Revenue (Blue) */}
                                 <div className="flex justify-between sm:flex-col
                                     border-r border-gray-200
@@ -431,7 +457,37 @@ const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }
                                     </dd>
                                 </div>
 
-                                {/* 5. Total PO+SR Value (Vendor Invoiced) - Vendor Liability (Gray/Neutral) */}
+                                {/* 5. Total Current Liabilities - Payable Amount (Red/Warning) */}
+                                <div className="flex justify-between sm:flex-col
+                                    border-r border-gray-200
+                                    pr-4
+                                    sm:pb-0
+                                    sm:border-b-0
+                                ">
+                                    <dt className="font-semibold text-gray-600 text-xs">
+                                        Total Current Liabilities
+                                    </dt>
+                                    <dd className="sm:text-left font-bold text-base sm:text-sm tabular-nums text-red-600">
+                                        {formatValueToLakhsString(financialSummary.totalLiabilities)}
+                                    </dd>
+                                </div>
+
+                                {/* 6. Total Cashflow Gap - Net Cash Position (Red/Green) */}
+                                <div className="flex justify-between sm:flex-col
+                                    border-r border-gray-200
+                                    pr-4
+                                    sm:pb-0
+                                    sm:border-b-0
+                                ">
+                                    <dt className="font-semibold text-gray-600 text-xs">
+                                        Total Cashflow Gap
+                                    </dt>
+                                    <dd className={`sm:text-left font-bold text-base sm:text-sm tabular-nums ${financialSummary.totalCashflowGap > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                        {formatValueToLakhsString(financialSummary.totalCashflowGap)}
+                                    </dd>
+                                </div>
+
+                                {/* 7. Total PO+SR Value (Vendor Invoiced) - Vendor Liability (Gray/Neutral) */}
                                 <div className="flex justify-between sm:flex-col
                                     border-r border-gray-200
                                     pr-4
@@ -446,7 +502,7 @@ const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }
                                     </dd>
                                 </div>
 
-                                {/* 6. Total PO+SR Invoiced - Vendor Liability (Gray/Neutral) */}
+                                {/* 8. Total PO+SR Invoiced - Vendor Liability (Gray/Neutral) */}
                                 <div className="flex justify-between sm:flex-col
                                     border-r border-gray-200
                                     pr-4
@@ -461,10 +517,9 @@ const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }
                                     </dd>
                                 </div>
 
-                                 {/* 1. Project Value (excl. GST) - Neutral */}
+                                 {/* 9. Project Value (excl. GST) - Neutral */}
                                 <div className="flex justify-between sm:flex-col
                                     border-r border-gray-200
-                                    md:pr-0
                                     sm:pb-0
                                     pr-4
                                 ">
@@ -476,11 +531,8 @@ const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }
                                     </dd>
                                 </div>
 
-
-
-                                {/* 8. Total Purchase Over Credit (New Credit Col 1) - Detail (Orange/Warning) */}
+                                {/* 10. Total Purchase Over Credit - Detail (Orange/Warning) */}
                                 <div className="flex justify-between sm:flex-col
-                                    border-r border-gray-200
                                     pr-4
                                     sm:pb-0
                                     sm:border-b-0
@@ -493,8 +545,8 @@ const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }
                                     </dd>
                                 </div>
 
-                                {/* 9. Total Credit Paid Amount (New Credit Col 2) - Detail (Teal/Neutral) */}
-                                <div className="flex justify-between sm:flex-col
+                                {/* 11. Total Credit Paid Amount (Commented Out) */}
+                                {/* <div className="flex justify-between sm:flex-col
                                     border-r border-gray-200
                                     pr-4
                                     sm:pb-0
@@ -506,7 +558,7 @@ const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }
                                     <dd className="sm:text-left font-bold text-base sm:text-sm tabular-nums text-teal-700">
                                         {formatValueToLakhsString(financialSummary.creditPaidAmount)}
                                     </dd>
-                                </div>
+                                </div> */}
 
                             </dl>
                         </CardContent>

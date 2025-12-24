@@ -331,7 +331,7 @@
 // };
 
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { Button } from "@/components/ui/button";
@@ -349,7 +349,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea"; // For photo remarks
 import { toast } from "@/components/ui/use-toast";
-import { Copy, Loader2, AlertCircle, Users, ListTodo, X, Camera } from "lucide-react";
+import { Copy, Loader2, AlertCircle, Users, ListTodo, X, Camera, AlertTriangle } from "lucide-react";
 import { formatDate } from "@/utils/FormatDate";
 
 // --- NEW IMPORTS FOR CAMERA FEATURE ---
@@ -358,6 +358,26 @@ import PhotoPermissionChecker from "./PhotoPermissionChecker"; // Adjust path if
 import { useFrappeGetDoc as useFrappeGetDocForMap } from "frappe-react-sdk"; // Aliased to avoid conflict if needed
 import { useWorkHeaderOrder } from "@/hooks/useWorkHeaderOrder";
 
+// --- NEW INTERFACES ---
+interface ProjectWorkHeaderChildEntry {
+  name: string;
+  idx: number;
+  project_work_header_name: string;
+  enabled: string;
+}
+
+interface ProjectData {
+  project_name: string;
+  enable_project_milestone_tracking: 0 | 1;
+  project_work_header_entries?: ProjectWorkHeaderChildEntry[];
+}
+
+interface WorkMilestoneFromFrappe {
+  name: string;
+  work_milestone_name: string;
+  work_header: string;
+  status: string;
+}
 
 // --- Interface for Photos ---
 interface ProjectProgressAttachment {
@@ -396,8 +416,29 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
   const [isCaptureDialogOpen, setIsCaptureDialogOpen] = useState(false);
   const [localPhotos, setLocalPhotos] = useState<ProjectProgressAttachment[]>([]);
 
+  // --- 2. NEW STATE FOR MILESTONE CHECK ---
+  const [isNewMilestonesWarningOpen, setIsNewMilestonesWarningOpen] = useState(false);
+  const [newMilestoneCount, setNewMilestoneCount] = useState(0);
+
   // Fetch Map API Key (Needed for PhotoPermissionChecker/CameraCapture)
   const { data: apiData } = useFrappeGetDocForMap("Map API", { fields: ["*"] });
+
+  // --- 3. FETCH PROJECT DATA ---
+  const { data: projectData, isLoading: projectDataLoading } = useFrappeGetDoc<ProjectData>(
+    "Projects",
+    selectedProject,
+    selectedProject ? undefined : null
+  );
+
+  // --- 4. FETCH ALL WORK MILESTONES ---
+  const { data: allWorkMilestones, isLoading: milestonesLoading } = useFrappeGetDocList<WorkMilestoneFromFrappe>(
+    "Work Milestones",
+    {
+      fields: ["name", "work_milestone_name", "work_header"],
+      limit: 0
+    }
+    // Always fetch - no conditional fetching needed since this is master data
+  );
 
   // Date Logic
   const today = new Date();
@@ -440,8 +481,42 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
   const { data: fullYesterdayReport, isLoading: isLoadingReport } = useFrappeGetDoc(
     "Project Progress Reports",
     yesterdayReportName,
-    yesterdayReportName && isDialogOpen ? undefined : null
+    yesterdayReportName ? undefined : null  // ← FIXED: Fetch as soon as report name is available (not waiting for dialog)
   );
+
+  // --- 5. CALCULATE TODAY'S APPLICABLE MILESTONES ---
+  const todaysApplicableMilestones = useMemo(() => {
+    if (!projectData || !allWorkMilestones) {
+      return [];
+    }
+
+    // Get enabled work headers
+    const enabledHeaders = projectData.enable_project_milestone_tracking === 1 && projectData.project_work_header_entries
+      ? projectData.project_work_header_entries
+          .filter(entry => entry.enabled === "True")
+          .map(entry => entry.project_work_header_name)
+      : [];
+
+    // Filter milestones by enabled headers
+    return allWorkMilestones.filter(milestone =>
+      enabledHeaders.includes(milestone.work_header)
+    );
+  }, [projectData, allWorkMilestones]);
+
+  // --- 6. CHECK IF NEW MILESTONES WERE ADDED ---
+  useEffect(() => {
+    if (fullYesterdayReport?.milestones && todaysApplicableMilestones.length > 0) {
+      const yesterdayCount = fullYesterdayReport.milestones.length;
+      const todayCount = todaysApplicableMilestones.length;
+
+      if (todayCount > yesterdayCount) {
+        const diff = todayCount - yesterdayCount;
+        setNewMilestoneCount(diff);
+      } else {
+        setNewMilestoneCount(0);
+      }
+    }
+  }, [fullYesterdayReport, todaysApplicableMilestones]);
 
   const groupedMilestones = useMemo(() => {
     if (!fullYesterdayReport?.milestones) return {};
@@ -450,7 +525,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
         (acc[header] = acc[header] || []).push(milestone);
         return acc;
       }, {});
-    
+
     // Sort keys based on workHeaderOrderMap, then alphabetically as fallback
     return Object.keys(groups).sort((a, b) => {
         const orderA = workHeaderOrderMap[a] ?? 9999;
@@ -462,6 +537,24 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
       return obj;
     }, {});
   }, [fullYesterdayReport, workHeaderOrderMap]);
+
+  // --- 7. BUTTON CLICK HANDLER WITH MILESTONE CHECK ---
+  const handleCopyButtonClick = () => {
+    if (newMilestoneCount > 0) {
+      // Show warning dialog for new milestones
+      setIsNewMilestonesWarningOpen(true);
+    } else {
+      // Proceed with copy dialog
+      setIsDialogOpen(true);
+    }
+  };
+
+  // --- 8. HANDLER TO CREATE NEW REPORT ---
+  const handleCreateNewReport = () => {
+    setIsNewMilestonesWarningOpen(false);
+    // Navigate to MilestoneTab to start new report creation
+    navigate(`/prs&milestones/milestone-report/${selectedProject}?zone=${selectedZone}`);
+  };
 
   // --- 2. CAMERA HANDLERS ---
   const handlePhotoCaptureSuccess = (photoData: ProjectProgressAttachment) => {
@@ -560,12 +653,60 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
       <Button
         variant="outline"
         className="text-sm w-full  border-blue-600 text-blue-600 hover:bg-blue-50 gap-2"
-        disabled={!canCopy || dailyReportDetailsDisable}
-        onClick={() => setIsDialogOpen(true)}
+        disabled={!canCopy || dailyReportDetailsDisable || projectDataLoading || milestonesLoading || isLoadingReport}
+        onClick={handleCopyButtonClick}
       >
-        <Copy className="w-4 h-4" />
-        Copy Yesterday's Report
+        {(projectDataLoading || milestonesLoading || isLoadingReport) ? (
+          <>
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Checking...
+          </>
+        ) : (
+          <>
+            <Copy className="w-4 h-4" />
+            Copy Yesterday's Report
+          </>
+        )}
       </Button>
+
+      {/* --- NEW MILESTONES WARNING DIALOG --- */}
+      <Dialog open={isNewMilestonesWarningOpen} onOpenChange={setIsNewMilestonesWarningOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-orange-600">
+              <AlertTriangle className="w-5 h-5" />
+              New Milestones Detected
+            </DialogTitle>
+            <DialogDescription className="pt-4">
+              <div className="space-y-3">
+                <p className="text-sm text-gray-700">
+                  <strong>{newMilestoneCount}</strong> new milestone{newMilestoneCount !== 1 ? 's have' : ' has'} been added to the project since yesterday's report.
+                </p>
+                <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3">
+                  <p className="text-xs text-yellow-800">
+                    <strong>Note:</strong> Copy Yesterday's Report is not available when new milestones are added.
+                    Please create a new report to include all current milestones.
+                  </p>
+                </div>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setIsNewMilestonesWarningOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateNewReport}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              Create New Report
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* MAIN COPY PREVIEW DIALOG */}
       <Dialog open={isDialogOpen} onOpenChange={(val) => {
