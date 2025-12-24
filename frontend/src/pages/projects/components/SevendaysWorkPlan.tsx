@@ -215,7 +215,7 @@ export const SevendaysWorkPlan = ({
     const { toast } = useToast();
     const { deleteDoc } = useFrappeDeleteDoc();
 
-    const shouldFetch = projectId && startDate && endDate;
+    const shouldFetch = projectId;
     // Response is Record<WorkHeader, WorkPlanItem[]>
     const { data: result, error, isLoading: loading, mutate } = useFrappeGetCall<{
         message: Record<string, WorkPlanItem[]>;
@@ -226,8 +226,8 @@ export const SevendaysWorkPlan = ({
         shouldFetch
             ? {
                   project: projectId,
-                  start_date: format(startDate, "yyyy-MM-dd"),
-                  end_date: format(endDate, "yyyy-MM-dd"),
+                  start_date: startDate ? format(startDate, "yyyy-MM-dd") : undefined,
+                  end_date: endDate ? format(endDate, "yyyy-MM-dd") : undefined,
               }
             : undefined
     );
@@ -337,14 +337,7 @@ export const SevendaysWorkPlan = ({
         setCreateTaskState((prev) => ({ ...prev, isOpen: false }));
     };
 
-    if (!startDate || !endDate) {
-        return (
-            <div className="flex h-40 items-center justify-center rounded-lg border border-dashed text-gray-500">
-                <Calendar className="mr-2 h-5 w-5" />
-                Select a date range to view the work plan.
-            </div>
-        );
-    }
+
 
     if (loading) {
         return (
@@ -396,7 +389,7 @@ export const SevendaysWorkPlan = ({
                     <div className="bg-gray-50/50 p-6 space-y-4">
                         {!hasData ? (
                             <div className="rounded-lg border bg-gray-50 p-8 text-center text-gray-500">
-                                No work plan items found for this period.
+                                No work plan items found.
                             </div>
                         ) : (
                             workHeaders.map((header) => {

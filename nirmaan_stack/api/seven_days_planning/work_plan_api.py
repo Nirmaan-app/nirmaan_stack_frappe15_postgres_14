@@ -3,7 +3,7 @@ from frappe.utils import getdate
 import json
 
 @frappe.whitelist()
-def get_work_plan(project, start_date, end_date):
+def get_work_plan(project, start_date=None, end_date=None):
     """
     Fetch Work Plans/Milestones for a project within a specific date range.
     Logic:
@@ -18,11 +18,14 @@ def get_work_plan(project, start_date, end_date):
     if not project:
         return []
 
-    try:
-        start = getdate(start_date)
-        end = getdate(end_date)
-    except Exception:
-        frappe.throw("Invalid Date Format")
+    start = None
+    end = None
+    if start_date and end_date:
+        try:
+            start = getdate(start_date)
+            end = getdate(end_date)
+        except Exception:
+            frappe.throw("Invalid Date Format")
 
     p_doc = frappe.get_doc("Projects", project)
     if not p_doc:
@@ -71,12 +74,30 @@ def get_work_plan(project, start_date, end_date):
                             "project": project,
                             "wp_zone": report_doc.report_zone,
                             "work_header": m.work_header,
-                            "work_milestone": m.work_milestone_name
+                            "work_milestone": m.work_milestone_name,
                         }
-                        # Using get_all to fetch details if needed, or just specific fields
-                        work_plans = frappe.get_all("Work Plan", filters=wp_filters, fields=["*"])
-                        if work_plans:
-                            m_dict["work_plan_doc"] = work_plans
+                        # Fetch all relevant work plans first, then filter by date in Python
+                        all_work_plans = frappe.get_all("Work Plan", filters=wp_filters, fields=["*"])
+
+                        # Filter for date overlap in Python
+                        # Overlap condition: task_start <= range_end AND task_end >= range_start
+                        filtered_plans = []
+                        if all_work_plans:
+                            if start and end:
+                                for wp in all_work_plans:
+                                    # Ensure dates are present
+                                    if wp.wp_start_date and wp.wp_end_date:
+                                        wp_start = getdate(wp.wp_start_date)
+                                        wp_end = getdate(wp.wp_end_date)
+                                        
+                                        if wp_start <= end and wp_end >= start:
+                                            filtered_plans.append(wp)
+                            else:
+                                # If no date range provided, include all
+                                filtered_plans = all_work_plans
+                        
+                        if filtered_plans:
+                            m_dict["work_plan_doc"] = filtered_plans
 
                     all_milestones.append(m_dict)
             

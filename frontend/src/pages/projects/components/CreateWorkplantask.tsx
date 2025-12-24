@@ -81,6 +81,17 @@ export const CreateWorkplantask = ({
             return;
         }
 
+        if (formData.wp_start_date && formData.wp_end_date) {
+            if (new Date(formData.wp_end_date) < new Date(formData.wp_start_date)) {
+                toast({
+                    title: "Error",
+                    description: "End Date cannot be before Start Date",
+                    variant: "destructive",
+                });
+                return;
+            }
+        }
+
         try {
             if (isEditMode && docName) {
                 await updateDoc("Work Plan", docName, {
@@ -182,16 +193,27 @@ export const CreateWorkplantask = ({
                                 id="wp_start_date"
                                 type="date"
                                 value={formData.wp_start_date}
-                                onChange={(e) => handleChange("wp_start_date", e.target.value)}
+                                onChange={(e) => {
+                                    handleChange("wp_start_date", e.target.value);
+                                    // Reset end date if it becomes invalid
+                                    if (formData.wp_end_date && e.target.value > formData.wp_end_date) {
+                                         handleChange("wp_end_date", "");
+                                    }
+                                }}
                             />
                         </div>
                         <div className="grid gap-2">
-                            <Label htmlFor="wp_end_date">End Date</Label>
+                            <Label htmlFor="wp_end_date" className={!formData.wp_start_date ? "text-gray-400" : ""}>
+                                End Date
+                            </Label>
                             <Input
                                 id="wp_end_date"
                                 type="date"
                                 value={formData.wp_end_date}
+                                min={formData.wp_start_date}
+                                disabled={!formData.wp_start_date}
                                 onChange={(e) => handleChange("wp_end_date", e.target.value)}
+                                title={!formData.wp_start_date ? "Please select a Start Date first" : ""}
                             />
                         </div>
                     </div>
