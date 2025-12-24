@@ -143,7 +143,7 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask }: {
                                     {workPlans.map((plan) => (
                                         <div key={plan.name} className="flex items-center justify-between rounded-lg border border-gray-200 bg-white p-4 shadow-[0_2px_4px_rgba(0,0,0,0.02)] hover:shadow-md transition-shadow">
                                             {/* Left: Title and Note */}
-                                            <div className="space-y-1.5 flex-1 min-w-0 pr-4">
+                                            <div className="space-y-1.5 w-[300px] shrink-0 pr-4">
                                                 <div className="font-semibold text-gray-900 text-sm leading-tight truncate" title={plan.wp_title}>{plan.wp_title}</div>
                                                 {plan.wp_description && (
                                                     <div className="text-xs italic text-gray-500 line-clamp-2 leading-relaxed">
@@ -439,8 +439,8 @@ export const SevendaysWorkPlan = ({
                                             <table className="w-full text-left text-sm">
                                                 <thead className="bg-gray-100/50">
                                                     <tr>
-                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[400px]">Work</th>
-                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[100px]">Zone</th>
+                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[300px]">Work</th>
+                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[150px]">Zone</th>
                                                         <th className="px-4 py-3 font-semibold text-gray-900 w-[120px]">Status</th>
                                                         <th className="px-4 py-3 font-semibold text-gray-900 w-[100px]">Progress</th>
                                                         <th className="px-4 py-3 font-semibold text-gray-900 w-[120px]">Start Date</th>
