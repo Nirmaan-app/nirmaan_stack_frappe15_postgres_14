@@ -11,6 +11,7 @@
   "work_milestone",
   "work_task_section",
   "wp_title",
+  "wp_zone",
   "wp_description",
   "wp_start_date",
   "wp_end_date",
@@ -36,7 +37,7 @@
   },
   {
    "fieldname": "work_milestone",
-   "fieldtype": "Link",
+   "fieldtype": "Data",
    "label": "Work Milestone",
    "options": "Work Milestones"
   },
@@ -69,12 +70,17 @@
    "fieldname": "wp_status",
    "fieldtype": "Data",
    "label": "WP Status"
+  },
+  {
+   "fieldname": "wp_zone",
+   "fieldtype": "Data",
+   "label": "WP Zone"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-12-23 17:02:50.632304",
+ "modified": "2025-12-24 12:47:51.875148",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Work Plan",
