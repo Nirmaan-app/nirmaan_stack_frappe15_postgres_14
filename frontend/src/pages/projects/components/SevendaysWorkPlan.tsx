@@ -114,7 +114,7 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask }: {
                 </td>
                 <td className="px-4 py-3 border-b-0">
                         <button 
-                        className="flex items-center rounded-full border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition-colors"
+                        className="flex items-center rounded-md border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition-colors"
                         onClick={() => onAddTask(item)}
                         >
                         <span className="mr-1 text-lg leading-none">+</span> Add Task
@@ -123,8 +123,8 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask }: {
             </tr>
             {hasWorkPlans && (
                 <tr>
-                    <td colSpan={7} className="px-4 pb-4 pt-0">
-                        <div className="rounded-md border bg-blue-50/30">
+                    <td colSpan={7} className=" pb-4 pt-0 m-0">
+                        <div className="rounded-md border-b bg-blue-50/30">
                             <button 
                                 className="flex w-full items-center justify-between px-4 py-2 text-sm text-blue-800 hover:bg-blue-50"
                                 onClick={() => setIsExpanded(!isExpanded)}
@@ -141,56 +141,63 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask }: {
                             {isExpanded && (
                                 <div className="space-y-3 p-4">
                                     {workPlans.map((plan) => (
-                                        <div key={plan.name} className="flex items-center justify-between rounded-lg border bg-white p-3 shadow-sm">
-                                            <div className="space-y-1">
-                                                <div className="font-semibold text-gray-900">{plan.wp_title}</div>
+                                        <div key={plan.name} className="flex items-center justify-between rounded-lg border border-gray-200 bg-white p-4 shadow-[0_2px_4px_rgba(0,0,0,0.02)] hover:shadow-md transition-shadow">
+                                            {/* Left: Title and Note */}
+                                            <div className="space-y-1.5 flex-1 min-w-0 pr-4">
+                                                <div className="font-semibold text-gray-900 text-sm leading-tight truncate" title={plan.wp_title}>{plan.wp_title}</div>
                                                 {plan.wp_description && (
-                                                    <div className="text-xs italic text-gray-500 line-clamp-1">
-                                                        Note: {plan.wp_description}
+                                                    <div className="text-xs italic text-gray-500 line-clamp-2 leading-relaxed">
+                                                        <span className="font-medium text-amber-600 not-italic">Note: </span>
+                                                        {plan.wp_description}
                                                     </div>
                                                 )}
                                             </div>
                                             
-                                            <div className="flex items-center gap-6">
-                                                <div className="flex flex-col items-center gap-1">
-                                                    <span className="text-[10px] font-semibold text-gray-500 uppercase">Status</span>
-                                                    <span className={`rounded px-2 py-0.5 text-xs font-medium border ${
+                                            {/* Center: Status and Date Metadata */}
+                                            <div className="flex items-center gap-2 shrink-0 mx-4">
+                                                <div className="flex flex-col items-center gap-1.5 w-[100px]">
+                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Status</span>
+                                                    <span className={`w-full text-center rounded-md px-2 py-1 text-xs font-semibold border truncate ${
                                                         plan.wp_status === 'Pending' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
                                                         plan.wp_status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' :
+                                                        plan.wp_status === 'In Progress' ? 'bg-orange-50 text-orange-700 border-orange-200' :
                                                         'bg-gray-50 text-gray-700 border-gray-200'
                                                     }`}>
                                                         {plan.wp_status || 'Pending'}
                                                     </span>
                                                 </div>
 
-                                                <div className="flex flex-col items-center gap-1">
-                                                    <span className="text-[10px] font-semibold text-gray-500 uppercase">Start Date</span>
-                                                    <div className="rounded border px-2 py-1 text-xs font-medium bg-gray-50">
+                                                <div className="flex flex-col items-center gap-1.5 w-[110px]">
+                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Start Date</span>
+                                                    <div className="w-full text-center rounded border px-2 py-1 text-xs font-semibold bg-white text-gray-700 shadow-sm truncate">
                                                         {plan.wp_start_date ? format(new Date(plan.wp_start_date), "dd/MM/yyyy") : "-"}
                                                     </div>
                                                 </div>
 
-                                                <div className="flex flex-col items-center gap-1">
-                                                    <span className="text-[10px] font-semibold text-gray-500 uppercase">End Date</span>
-                                                    <div className="rounded border px-2 py-1 text-xs font-medium bg-gray-50">
+                                                <div className="flex flex-col items-center gap-1.5 w-[110px]">
+                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">End Date</span>
+                                                    <div className="w-full text-center rounded border px-2 py-1 text-xs font-semibold bg-white text-gray-700 shadow-sm truncate">
                                                         {plan.wp_end_date ? format(new Date(plan.wp_end_date), "dd/MM/yyyy") : "-"}
                                                     </div>
                                                 </div>
+                                            </div>
 
-                                                <div className="flex items-center gap-2 pl-4 border-l">
-                                                    <button 
-                                                        className="text-gray-400 hover:text-blue-600 transition-colors"
-                                                        onClick={() => onEditTask(plan, item)}
-                                                    >
-                                                        <Pencil className="h-4 w-4" />
-                                                    </button>
-                                                    <button 
-                                                        className="text-gray-400 hover:text-red-600 transition-colors"
-                                                        onClick={() => onDeleteTask(plan.name)}
-                                                    >
-                                                        <Trash2 className="h-4 w-4" />
-                                                    </button>
-                                                </div>
+                                            {/* Right: Actions */}
+                                            <div className="flex items-center gap-1 pl-4 border-l border-gray-100 h-8">
+                                                <button 
+                                                    className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-all"
+                                                    onClick={() => onEditTask(plan, item)}
+                                                    title="Edit Task"
+                                                >
+                                                    <Pencil className="h-4 w-4" />
+                                                </button>
+                                                <button 
+                                                    className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all"
+                                                    onClick={() => onDeleteTask(plan.name)}
+                                                    title="Delete Task"
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </button>
                                             </div>
                                         </div>
                                     ))}
@@ -386,7 +393,7 @@ export const SevendaysWorkPlan = ({
                 </div>
                 
                 {isMainExpanded && (
-                    <div className="p-6 space-y-4">
+                    <div className="p-2 space-y-4">
                         {!hasData ? (
                             <div className="rounded-lg border bg-gray-50 p-8 text-center text-gray-500">
                                 No work plan items found.
@@ -401,14 +408,15 @@ export const SevendaysWorkPlan = ({
                                 const isExpanded = expandedHeaders[header] !== false;
 
                                 return (
-                                    <div key={header} className="overflow-hidden rounded-lg border bg-white shadow-sm">
+                                    <div key={header} className="overflow-hidden bg-white">
                                         <div 
-                                            className="flex cursor-pointer items-center justify-between border-b bg-gray-50/30 px-4 py-3 transition-colors hover:bg-gray-100"
+                                            className={`flex cursor-pointer items-center justify-between  ${isExpanded?"":"border bg-gray-100/50 px-2 rounded-md"} py-3 transition-colors `}
+                                            // hover:bg-gray-100
                                             onClick={() => toggleHeader(header)}
                                         >
                                             <div className="flex items-center gap-3">
                                                 <h4 className="font-bold text-gray-900">{header}</h4>
-                                                <span className="rounded-full bg-blue-100 px-3 py-0.5 text-xs font-medium text-blue-800 border border-blue-200">
+                                                <span className="rounded-full bg-blue-100  px-1 py-0.5 text-xs font-medium text-gray-600 border border-blue-200">
                                                     {plannedActivitiesCount} Planned Activities
                                                 </span>
                                             </div>
@@ -416,7 +424,7 @@ export const SevendaysWorkPlan = ({
                                                 <div className="text-sm text-gray-600 flex items-center gap-2">
                                                     Overall Progress: <span className={`font-bold ${getColorForProgress(avgProgress)}`}>{avgProgress}%</span>
                                                 </div>
-                                                <div className="flex h-8 w-8 items-center justify-center rounded border border-gray-200 bg-white shadow-sm">
+                                                <div className={`flex h-8 w-8 items-center justify-center  ${isExpanded?"":"bg-blue-100 rounded border border-gray-200 shadow-sm"}`}>
                                                     {isExpanded ? (
                                                         <ChevronUp className="h-4 w-4 text-gray-500" />
                                                     ) : (
@@ -426,33 +434,35 @@ export const SevendaysWorkPlan = ({
                                             </div>
                                         </div>
                                         {isExpanded && (
-                                            <div className="p-0">
-                                                <table className="w-full text-left text-sm">
-                                                    <thead className="bg-gray-100/50">
-                                                        <tr>
-                                                            <th className="px-4 py-3 font-semibold text-gray-900">Work</th>
-                                                            <th className="px-4 py-3 font-semibold text-gray-900">Zone</th>
-                                                            <th className="px-4 py-3 font-semibold text-gray-900">Status</th>
-                                                            <th className="px-4 py-3 font-semibold text-gray-900">Progress</th>
-                                                            <th className="px-4 py-3 font-semibold text-gray-900">Start Date</th>
-                                                            <th className="px-4 py-3 font-semibold text-gray-900">End Date</th>
-                                                            <th className="px-4 py-3 font-semibold text-gray-900">Admin Actions</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody className="divide-y divide-gray-100">
-                                                        {items.map((item, idx) => (
-                                                            <MilestoneRow 
-                                                                key={idx} 
-                                                                item={item} 
-                                                                onAddTask={handleAddTask}
-                                                                onEditTask={handleEditTask}
-                                                                onDeleteTask={handleDeleteTask}
-                                                            />
-                                                        ))}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        )}
+                                    <div className="overflow-hidden rounded-lg border bg-white shadow-sm mt-2 mx-2">
+                                        <div className="p-0">
+                                            <table className="w-full text-left text-sm">
+                                                <thead className="bg-gray-100/50">
+                                                    <tr>
+                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[400px]">Work</th>
+                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[100px]">Zone</th>
+                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[120px]">Status</th>
+                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[100px]">Progress</th>
+                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[120px]">Start Date</th>
+                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[120px]">End Date</th>
+                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[140px]">Admin Actions</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-gray-100">
+                                                    {items.map((item, idx) => (
+                                                        <MilestoneRow 
+                                                            key={idx} 
+                                                            item={item} 
+                                                            onAddTask={handleAddTask}
+                                                            onEditTask={handleEditTask}
+                                                            onDeleteTask={handleDeleteTask}
+                                                        />
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                )}
                                     </div>
                                 );
                             })
@@ -491,3 +501,6 @@ export const SevendaysWorkPlan = ({
         </div>
     );
 };
+
+
+

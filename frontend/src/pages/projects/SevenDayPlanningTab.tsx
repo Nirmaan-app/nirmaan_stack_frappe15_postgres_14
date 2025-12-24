@@ -46,9 +46,9 @@ export const SevenDayPlanningTab = () => {
   return (
     <div className="flex flex-col gap-6 p-4">
       {/* Header Section */}
-      <div className="flex flex-col gap-4 border rounded-xl p-6 bg-gray-50">
+      <div className="flex flex-col gap-4 border rounded-xl p-6 bg-white-50">
         <div>
-          <h2 className="text-2xl font-semibold text-red-600">7 Day Planning</h2>
+          <h2 className="text-2xl font-semibold">7 Day Planning</h2>
           <p className="text-gray-600">Track upcoming tasks for the next 7 days and add your follow-ups</p>
         </div>
 
@@ -75,7 +75,7 @@ export const SevenDayPlanningTab = () => {
                 className={cn(
                     activeDuration === duration 
                         ? "bg-red-600 hover:bg-red-700 text-white" 
-                        : "bg-white hover:bg-red-50 hover:text-red-600 hover:border-red-200"
+                        : "bg-white text-gray-400  hover:bg-red-50 hover:text-red-600 hover:border-red-200"
                 )}
                 onClick={() => setDaysRange(duration as number | "All")}
                 >
