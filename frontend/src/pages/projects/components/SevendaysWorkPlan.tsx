@@ -35,6 +35,7 @@ interface WorkPlanItem {
     expected_completion_date: string;
     work_plan_doc?: WorkPlanDoc[];
     source: string;
+    weightage?: number;
 }
 
 interface WorkPlanDoc {
@@ -401,9 +402,15 @@ export const SevendaysWorkPlan = ({
                         ) : (
                             workHeaders.map((header) => {
                                 const items = result?.message[header] || [];
-                                const avgProgress = Math.round(
-                                    items.reduce((acc, curr) => acc + (Number(curr.progress) || 0), 0) / (items.length || 1)
-                                );
+
+                                // Calculate Weighted Progress
+                                const totalWeightage = items.reduce((sum, item) => sum + (item.weightage || 1.0), 0);
+                                const totalWeightedProgress = items.reduce((sum, item) => sum + ((item.progress || 0) * (item.weightage || 1.0)), 0);
+                                
+                                const avgProgress = totalWeightage > 0 
+                                    ? Math.round(totalWeightedProgress / totalWeightage)
+                                    : 0;
+
                                 const plannedActivitiesCount = items.reduce((acc, item) => acc + (item.work_plan_doc?.length || 0), 0);
                                 const isExpanded = expandedHeaders[header] !== false;
 

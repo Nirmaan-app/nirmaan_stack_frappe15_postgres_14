@@ -41,8 +41,9 @@ def get_work_plan(project, start_date=None, end_date=None):
     headers_meta = frappe.get_all("Work Headers", fields=["work_header_name as name", "order"])
     header_map = {h.name: (h.order or 9999) for h in headers_meta}
 
-    milestones_meta = frappe.get_all("Work Milestones", fields=["work_milestone_name as name", "work_milestone_order"])
+    milestones_meta = frappe.get_all("Work Milestones", fields=["work_milestone_name as name", "work_milestone_order", "weightage"])
     milestone_map = {m.name: (m.work_milestone_order or 9999) for m in milestones_meta}
+    weightage_map = {m.name: (m.weightage or 0) for m in milestones_meta}
 
     all_milestones = []
     
@@ -79,6 +80,7 @@ def get_work_plan(project, start_date=None, end_date=None):
                     m_dict["zone"] = report_doc.report_zone
                     m_dict["header_order"] = header_map.get(m.work_header, 9999)
                     m_dict["milestone_order"] = milestone_map.get(m.work_milestone_name, 9999)
+                    m_dict["weightage"] = weightage_map.get(m.work_milestone_name, 1.0)
                     
                     # Check Work Plan DocType
                     if frappe.db.exists("DocType", "Work Plan"):
