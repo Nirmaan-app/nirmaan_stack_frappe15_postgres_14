@@ -46,7 +46,7 @@ export const SevenDayPlanningTab = () => {
   return (
     <div className="flex flex-col gap-6 p-4">
       {/* Header Section */}
-      <div className="flex flex-col gap-4 border rounded-xl p-6 bg-white-50">
+      <div className="flex flex-col gap-4 border border-[#D7D7EC] rounded-xl p-6 bg-white-50">
         <div>
           <h2 className="text-2xl font-semibold">7 Day Planning</h2>
           <p className="text-gray-600">Track upcoming tasks for the next 7 days and add your follow-ups</p>
@@ -67,7 +67,7 @@ export const SevenDayPlanningTab = () => {
           />
 
           {/* Duration Buttons */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {[3, 7, 14, "All"].map((duration) => (
                 <Button
                 key={duration}
@@ -75,7 +75,7 @@ export const SevenDayPlanningTab = () => {
                 className={cn(
                     activeDuration === duration 
                         ? "bg-red-600 hover:bg-red-700 text-white" 
-                        : "bg-white text-gray-400  hover:bg-red-50 hover:text-red-600 hover:border-red-200"
+                        : "bg-white text-gray-400  hover:bg-red-50 hover:text-red-600 hover:border-red-200 border border-[#D7D7EC]"
                 )}
                 onClick={() => setDaysRange(duration as number | "All")}
                 >
@@ -86,14 +86,14 @@ export const SevenDayPlanningTab = () => {
         </div>
       </div>
 
-      {/* Tabs Switcher - Matching the red/white visual from image */}
-      <div className="flex border rounded-md w-fit overflow-hidden border-red-100">
+      {/* Tabs Switcher - Matching the visual from image with custom border */}
+      <div className="flex border rounded-md w-fit overflow-hidden border-[#D7D7EC]">
         {[TABS.WORK_PLAN, TABS.MATERIAL_PLAN, TABS.FINANCIAL_PLAN].map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={cn(
-              "px-6 py-2 text-sm font-medium transition-colors border-r border-red-100 last:border-r-0",
+              "px-6 py-2 text-sm font-medium transition-colors border-r border-[#D7D7EC] last:border-r-0",
               activeTab === tab
                 ? "bg-red-600 text-white"
                 : "bg-white text-gray-800 hover:bg-gray-50"
@@ -105,7 +105,7 @@ export const SevenDayPlanningTab = () => {
       </div>
 
       {/* Tab Content Placeholder */}
-      <div className="min-h-[300px] border rounded-lg p-6 bg-white shadow-sm">
+      <div className="min-h-[300px] border rounded-lg p-6 bg-white shadow-sm border-[#D7D7EC]">
         {activeTab === TABS.WORK_PLAN && (
           <SevendaysWorkPlan 
             projectId={projectId} 

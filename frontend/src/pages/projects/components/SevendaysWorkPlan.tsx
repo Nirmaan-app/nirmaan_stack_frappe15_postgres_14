@@ -72,14 +72,14 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask }: {
                 <td className="px-4 py-3 text-gray-700 border-b-0">
                     <div className="font-medium text-gray-900">{item.work_milestone_name}</div>
                 </td>
-                <td className="px-4 py-3 font-medium text-gray-900 border-b-0">
-                    <span className="inline-block rounded border border-dashed border-gray-300 bg-gray-50 px-2 py-1 text-xs text-gray-600">
+                <td className="px-4 py-3 font-medium text-gray-900 border-b-0 text-center">
+                    <span className="inline-flex items-center justify-center h-6 w-[100px] rounded border border-dashed border-gray-300 bg-gray-50 px-2 text-xs text-gray-600 truncate">
                         {item.zone || "Zone 1"}
                     </span>
                 </td>
-                <td className="px-4 py-3 border-b-0">
+                <td className="px-4 py-3 border-b-0 text-center">
                         <span
-                        className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                        className={`inline-flex items-center justify-center h-6 w-[100px] rounded-full px-2 text-xs font-medium truncate ${
                             item.status === "Completed"
                                 ? "bg-green-100 text-green-800 border border-green-200"
                                 : item.status === "WIP" || item.status === "In Progress"
@@ -93,8 +93,8 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask }: {
                     </span>
                 </td>
 
-                <td className="px-4 py-3 text-gray-700 border-b-0">
-                    <div className="flex items-center gap-2">
+                <td className="px-4 py-3 text-gray-700 border-b-0 text-center">
+                    <div className="flex items-center justify-center gap-2">
                         <ProgressCircle 
                             value={item.progress} 
                             className={`size-10 ${getColorForProgress(item.progress)}`}
@@ -102,12 +102,12 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask }: {
                         />
                     </div>
                 </td>
-                <td className="px-4 py-3 text-xs font-medium text-gray-700 border-b-0">
+                <td className="px-4 py-3 text-xs font-medium text-gray-700 border-b-0 text-center">
                     {item.expected_starting_date ? (
                         <span className="text-red-600 font-bold">{format(new Date(item.expected_starting_date), "dd/MM/yyyy")}</span>
                     ) : "NA"}
                 </td>
-                <td className="px-4 py-3 text-xs font-medium text-gray-700 border-b-0">
+                <td className="px-4 py-3 text-xs font-medium text-gray-700 border-b-0 text-center">
                         {item.expected_completion_date ? (
                         <span className="text-red-600 font-bold">{format(new Date(item.expected_completion_date), "dd/MM/yyyy")}</span>
                     ) : "NA"}
@@ -123,7 +123,7 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask }: {
             </tr>
             {hasWorkPlans && (
                 <tr>
-                    <td colSpan={7} className=" pb-4 pt-0 m-0">
+                    <td colSpan={7} className=" pb-2 pt-0 m-0 p-0">
                         <div className="rounded-md border-b bg-blue-50/30">
                             <button 
                                 className="flex w-full items-center justify-between px-4 py-2 text-sm text-blue-800 hover:bg-blue-50"
@@ -410,21 +410,20 @@ export const SevendaysWorkPlan = ({
                                 return (
                                     <div key={header} className="overflow-hidden bg-white">
                                         <div 
-                                            className={`flex cursor-pointer items-center justify-between  ${isExpanded?"":"border bg-gray-100/50 px-2 rounded-md"} py-3 transition-colors `}
-                                            // hover:bg-gray-100
+                                            className={`flex cursor-pointer flex-col md:flex-row md:items-center justify-between gap-3 ${isExpanded?"":"border bg-gray-100/50 px-3 py-3 rounded-md"} py-3 transition-colors`}
                                             onClick={() => toggleHeader(header)}
                                         >
-                                            <div className="flex items-center gap-3">
-                                                <h4 className="font-bold text-gray-900">{header}</h4>
-                                                <span className="rounded-full bg-blue-100  px-1 py-0.5 text-xs font-medium text-gray-600 border border-blue-200">
+                                            <div className="flex flex-col items-start gap-3 md:flex-row md:items-center md:gap-3">
+                                                <h4 className="font-bold text-gray-900 text-base">{`${header} - ${items.length}`}</h4>
+                                                <span className="rounded-full bg-blue-200 px-2 py-0.5 text-xs font-medium text-gray-900 border border-blue-700 whitespace-nowrap">
                                                     {plannedActivitiesCount} Planned Activities
                                                 </span>
                                             </div>
-                                            <div className="flex items-center gap-4">
+                                            <div className="flex items-center justify-between w-full md:w-auto md:gap-4 md:justify-start">
                                                 <div className="text-sm text-gray-600 flex items-center gap-2">
                                                     Overall Progress: <span className={`font-bold ${getColorForProgress(avgProgress)}`}>{avgProgress}%</span>
                                                 </div>
-                                                <div className={`flex h-8 w-8 items-center justify-center  ${isExpanded?"":"bg-blue-100 rounded border border-gray-200 shadow-sm"}`}>
+                                                <div className={`flex h-8 w-8 items-center justify-center ${isExpanded?"":"bg-blue-100 rounded border border-gray-200 shadow-sm"}`}>
                                                     {isExpanded ? (
                                                         <ChevronUp className="h-4 w-4 text-gray-500" />
                                                     ) : (
@@ -434,17 +433,17 @@ export const SevendaysWorkPlan = ({
                                             </div>
                                         </div>
                                         {isExpanded && (
-                                    <div className="overflow-hidden rounded-lg border bg-white shadow-sm mt-2 mx-2">
+                                    <div className="overflow-x-auto rounded-lg border bg-white shadow-sm mt-2 mx-2 border-[#D7D7EC]">
                                         <div className="p-0">
                                             <table className="w-full text-left text-sm">
                                                 <thead className="bg-gray-100/50">
                                                     <tr>
                                                         <th className="px-4 py-3 font-semibold text-gray-900 w-[300px]">Work</th>
-                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[150px]">Zone</th>
-                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[120px]">Status</th>
-                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[100px]">Progress</th>
-                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[120px]">Start Date</th>
-                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[120px]">End Date</th>
+                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[140px] text-center">Zone</th>
+                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[140px] text-center">Status</th>
+                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[100px] text-center">Progress</th>
+                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[120px] text-center">Start Date</th>
+                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[120px] text-center">End Date</th>
                                                         <th className="px-4 py-3 font-semibold text-gray-900 w-[140px]">Admin Actions</th>
                                                     </tr>
                                                 </thead>
