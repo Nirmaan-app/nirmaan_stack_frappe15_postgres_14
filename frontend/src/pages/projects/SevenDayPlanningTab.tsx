@@ -6,6 +6,7 @@ import { DateRange } from "react-day-picker";
 import { addDays, startOfDay } from "date-fns";
 import { cn } from "@/lib/utils";
 import { SevendaysWorkPlan } from "./components/SevendaysWorkPlan";
+import { SevenDaysMaterialPlan } from "./components/SevenDaysMaterialPlan";
 
 // Sub-tab constants
 const TABS = {
@@ -114,10 +115,7 @@ export const SevenDayPlanningTab = () => {
           />
         )}
         {activeTab === TABS.MATERIAL_PLAN && (
-          <div>
-            <h3 className="text-lg font-medium mb-4">Material Plan Content</h3>
-            <p className="text-gray-500">Material plan details for the selected period will appear here.</p>
-          </div>
+          <SevenDaysMaterialPlan projectId={projectId} />
         )}
         {activeTab === TABS.FINANCIAL_PLAN && (
           <div>
