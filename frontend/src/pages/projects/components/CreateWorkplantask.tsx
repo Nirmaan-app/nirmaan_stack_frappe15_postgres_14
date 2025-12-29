@@ -44,7 +44,7 @@ export const CreateWorkplantask = ({
 
     const [formData, setFormData] = useState({
         wp_title: "",
-        wp_status: "Pending", // Default status
+        wp_status: "Not Started", // Default status
         wp_start_date: "",
         wp_end_date: "",
         wp_description: "",
@@ -54,7 +54,7 @@ export const CreateWorkplantask = ({
         if (initialData) {
             setFormData({
                 wp_title: initialData.wp_title || "",
-                wp_status: initialData.wp_status || "Pending",
+                wp_status: initialData.wp_status || "Not Started",
                 wp_start_date: initialData.wp_start_date || "",
                 wp_end_date: initialData.wp_end_date || "",
                 wp_description: initialData.wp_description || "",
@@ -121,7 +121,7 @@ export const CreateWorkplantask = ({
             if (!isEditMode) {
                 setFormData({
                     wp_title: "",
-                    wp_status: "Pending",
+                    wp_status: "Not Started",
                     wp_start_date: "",
                     wp_end_date: "",
                     wp_description: "",
@@ -178,6 +178,8 @@ export const CreateWorkplantask = ({
                                 <SelectValue placeholder="Select Status" />
                             </SelectTrigger>
                             <SelectContent>
+                                <SelectItem value="Not Started">Not Started</SelectItem>
+
                                 <SelectItem value="Pending">Pending</SelectItem>
                                 <SelectItem value="In Progress">In Progress</SelectItem>
                                 <SelectItem value="Completed">Completed</SelectItem>

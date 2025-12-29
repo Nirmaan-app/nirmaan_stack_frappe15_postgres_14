@@ -371,6 +371,15 @@ export const SevendaysWorkPlan = ({
     const workHeaders = result?.message ? Object.keys(result.message) : [];
     const hasData = workHeaders.length > 0;
 
+    let totalPlannedActivities = 0;
+    if (result?.message) {
+        Object.values(result.message).forEach((items) => {
+            items.forEach((item) => {
+                totalPlannedActivities += item.work_plan_doc?.length || 0;
+            });
+        });
+    }
+
     // Moved isMainExpanded state to top level to fix hook violation
 
     return (
@@ -381,14 +390,13 @@ export const SevendaysWorkPlan = ({
                     // onClick={() => setIsMainExpanded(!isMainExpanded)}
                 >
                     <div className="flex items-center gap-3">
-                        <h3 className="text-xl font-bold text-gray-900">Work Milestones</h3>
+                        <h3 className="text-xl font-bold text-gray-900">Work Plan</h3>
                         <Badge variant="secondary" className="bg-blue-700 text-white hover:bg-blue-800 h-6 w-6 p-0 flex items-center justify-center rounded-full text-[12px]">
-                             {workHeaders.length}
+                             {totalPlannedActivities}
                         </Badge>
                     </div>
                      {/* {isMainExpanded ? (
                         <ChevronUp className="h-5 w-5 text-gray-500" />
-                    ) : (
                         <ChevronDown className="h-5 w-5 text-gray-500" />
                     )} */}
                 </div>

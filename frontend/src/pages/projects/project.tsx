@@ -338,7 +338,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       key: PROJECT_PAGE_TABS.WORK_REPORT, // This is the unique key
     },
     { // ADD THIS NEW MENU ITEM
-      label: "7-Day Planning",
+      label: "Planning",
       key: PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
     },
     {

@@ -1,12 +1,14 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { StandaloneDateFilter } from "@/components/ui/StandaloneDateFilter";
 import { Button } from "@/components/ui/button";
 import { DateRange } from "react-day-picker";
-import { addDays, startOfDay } from "date-fns";
+import { addDays, startOfDay, parseISO, format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { SevendaysWorkPlan } from "./components/SevendaysWorkPlan";
 import { SevenDaysMaterialPlan } from "./components/SevenDaysMaterialPlan";
+import { useUrlParam } from "@/hooks/useUrlParam";
+import { urlStateManager } from "@/utils/urlStateManager";
 
 // Sub-tab constants
 const TABS = {
@@ -19,37 +21,87 @@ type TabValue = typeof TABS[keyof typeof TABS];
 
 export const SevenDayPlanningTab = () => {
   const { projectId } = useParams<{ projectId: string }>();
-  // Initialize with 3 days default
-  const [activeDuration, setActiveDuration] = useState<number | "All">(3);
-  
-  const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
-      const today = startOfDay(new Date());
-      return { from: today, to: addDays(today, 3) };
-  });
 
-  const [activeTab, setActiveTab] = useState<TabValue>(TABS.WORK_PLAN);
+  // --- URL State Management ---
 
-  // Helper to set date range based on days from today
-  const setDaysRange = (days: number | "All") => {
-    setActiveDuration(days);
-    if (days === "All") {
-       setDateRange(undefined); 
-       return;
-    }
-    const today = startOfDay(new Date());
-    const toDate = addDays(today, days); 
-    setDateRange({
-      from: today,
-      to: toDate
-    });
+  // 1. Active Tab
+  const activeTabParam = useUrlParam("planningTab");
+  const activeTab = (Object.values(TABS).includes(activeTabParam as TabValue) 
+      ? activeTabParam 
+      : TABS.WORK_PLAN) as TabValue;
+
+  const setActiveTab = (tab: TabValue) => {
+      urlStateManager.updateParam("planningTab", tab);
   };
+
+  // 2. Active Duration
+  const activeDurationParam = useUrlParam("planningDuration");
+  // Default to 3 if not present or invalid
+  const activeDuration = useMemo(() => {
+      if (activeDurationParam === "All") return "All";
+      // Check if it's a number
+      const num = Number(activeDurationParam);
+      if (!isNaN(num) && [3, 7, 14].includes(num)) return num;
+      if (activeDurationParam === "custom") return "custom";
+      return 3; 
+  }, [activeDurationParam]);
+
+  // 3. Date Range
+  const startDateParam = useUrlParam("startDate");
+  const endDateParam = useUrlParam("endDate");
+
+  const dateRange = useMemo<DateRange | undefined>(() => {
+      const today = startOfDay(new Date());
+
+      if (activeDuration === "All") {
+          return undefined;
+      }
+      
+      if (typeof activeDuration === 'number') {
+           return {
+               from: today,
+               to: addDays(today, activeDuration)
+           };
+      }
+
+      if (activeDuration === 'custom') {
+          if (startDateParam && endDateParam) {
+              return {
+                  from: parseISO(startDateParam),
+                  to: parseISO(endDateParam)
+              };
+          }
+           // Fallback if custom but no dates in URL (shouldn't happen ideally if controlled properly)
+           return undefined;
+      }
+
+      return undefined;
+  }, [activeDuration, startDateParam, endDateParam]);
+
+
+  // Helper to set duration (and update keys)
+  const setDaysRange = (days: number | "All" | "custom", customRange?: DateRange) => {
+    // 1. Update Duration Param
+    urlStateManager.updateParam("planningDuration", days.toString());
+
+    // 2. Handle Date Params
+    if (days === "custom" && customRange?.from && customRange?.to) {
+        urlStateManager.updateParam("startDate", format(customRange.from, 'yyyy-MM-dd'));
+        urlStateManager.updateParam("endDate", format(customRange.to, 'yyyy-MM-dd'));
+    } else {
+        // Clear custom dates if we switch to preset or All
+        urlStateManager.updateParam("startDate", null);
+        urlStateManager.updateParam("endDate", null);
+    }
+  };
+
 
   return (
     <div className="flex flex-col gap-6 p-4">
       {/* Header Section */}
       <div className="flex flex-col gap-4 border border-[#D7D7EC] rounded-xl p-6 bg-white-50">
         <div>
-          <h2 className="text-2xl font-semibold">7 Day Planning</h2>
+          <h2 className="text-2xl font-semibold">Planning</h2>
           <p className="text-gray-600">Track upcoming tasks for the next 7 days and add your follow-ups</p>
         </div>
 
@@ -58,12 +110,15 @@ export const SevenDayPlanningTab = () => {
           <StandaloneDateFilter
             value={dateRange}
             onChange={(val) => {
-                setDateRange(val);
-                setActiveDuration('custom' as any); // Reset buttons if custom range picked
+                // When picking from DatePicker, it's a "Custom" range
+                if (val?.from && val?.to) {
+                     setDaysRange('custom', val);
+                } else if (!val) {
+                    setDaysRange('All');
+                }
             }}
             onClear={() => {
-                setDateRange(undefined);
-                setActiveDuration("All");
+                setDaysRange("All");
             }}
           />
 
