@@ -1,10 +1,21 @@
 import React, { useState, useMemo } from "react";
-import { useFrappeGetCall, useFrappeGetDoc,useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList, useFrappeDeleteDoc } from "frappe-react-sdk";
 import { format } from "date-fns";
-import { Loader2, AlertCircle, ChevronDown, ChevronUp, Package, Calendar } from "lucide-react";
+import { Loader2, AlertCircle, ChevronDown, ChevronUp, Package, Calendar, Trash2 } from "lucide-react";
 // import { Badge } from "@/components/ui/badge"; // Commented out as unused in snippet
 import { AddMaterialPlanForm } from "./AddMaterialPlanForm";
 import { EditMaterialPlanForm } from "./EditMaterialPlanForm";
+import { useToast } from "@/components/ui/use-toast";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface SevenDaysMaterialPlanProps {
     projectId: string;
@@ -16,6 +27,39 @@ export const SevenDaysMaterialPlan = ({ projectId }: SevenDaysMaterialPlanProps)
     // State for Material Plans Form
     const [materialPlanForms, setMaterialPlanForms] = useState<number[]>([]);
     const [editingPlan, setEditingPlan] = useState<any>(null); // State for Edit Modal
+
+    const { toast } = useToast();
+    const { deleteDoc } = useFrappeDeleteDoc();
+
+    const [deleteDialogState, setDeleteDialogState] = useState<{
+        isOpen: boolean;
+        planName: string | null;
+    }>({
+        isOpen: false,
+        planName: null,
+    });
+
+    const confirmDelete = async () => {
+        if (deleteDialogState.planName) {
+            try {
+                await deleteDoc("Material Delivery Plan", deleteDialogState.planName);
+                toast({
+                    title: "Success",
+                    description: "Plan deleted successfully",
+                    variant: "default", // Using default as successful green variant might not be defined in toast types
+                });
+                refreshPlans();
+            } catch (error: any) {
+                toast({
+                    title: "Error",
+                    description: error.message || "Failed to delete plan",
+                    variant: "destructive",
+                });
+            } finally {
+                setDeleteDialogState({ isOpen: false, planName: null });
+            }
+        }
+    };
 
     const addPlanForm = () => {
         setMaterialPlanForms(prev => [...prev, Date.now()]);
@@ -174,7 +218,12 @@ export const SevenDaysMaterialPlan = ({ projectId }: SevenDaysMaterialPlanProps)
                                        >
                                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                                        </button>
-                                       <button className="hover:text-red-600"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
+                                       <button 
+                                            className="hover:text-red-600"
+                                            onClick={() => setDeleteDialogState({ isOpen: true, planName: plan.name })}
+                                       >
+                                           <Trash2 className="w-4 h-4" />
+                                       </button>
                                     </div>
                                 </div>
                             </div>
@@ -182,7 +231,23 @@ export const SevenDaysMaterialPlan = ({ projectId }: SevenDaysMaterialPlanProps)
                     );
                 })}
             </div>
-
+            
+            <AlertDialog open={deleteDialogState.isOpen} onOpenChange={(open) => setDeleteDialogState(prev => ({ ...prev, isOpen: open }))}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This action cannot be undone. This will permanently delete the Material Plan.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={confirmDelete} className="bg-red-600 hover:bg-red-700">
+                            Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 };

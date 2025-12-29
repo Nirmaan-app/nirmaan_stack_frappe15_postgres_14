@@ -1,7 +1,7 @@
 import frappe
 
 @frappe.whitelist()
-def get_material_plan_data(project=None, procurement_package=None, mode=None, po=None):
+def get_material_plan_data(project=None, procurement_package=None, mode=None, po=None, search_type="po"):
     if not project:
         return {"message": {} if not procurement_package else []}
 
@@ -48,6 +48,28 @@ def get_material_plan_data(project=None, procurement_package=None, mode=None, po
             "name": p.name,
             "package": p_pkg
         })
+
+    # SCENARIO: Search Type = "item"
+    # Return items belonging to the filtered POs
+    if search_type == "item":
+        po_names = [x["name"] for x in po_list_with_pkg]
+        if not po_names:
+            return []
+            
+        all_items = []
+        for po_name in po_names:
+            try:
+                doc = frappe.get_doc("Procurement Orders", po_name)
+                # doc.items is a list of child docs
+                for item in doc.items:
+                    item_dict = item.as_dict()
+                    # Ensure parent is set for frontend linking
+                    item_dict["parent"] = po_name 
+                    all_items.append(item_dict)
+            except Exception as e:
+                frappe.log_error(f"Error fetching PO items for {po_name}: {str(e)}")
+                
+        return all_items
 
     # 4. Fetch Full Docs for remaining POs
     # User requested `frappe.get_doc`
@@ -99,3 +121,14 @@ def get_material_plan_data(project=None, procurement_package=None, mode=None, po
         grouped_data[pkg]["orders"].append(po)
 
     return  grouped_data
+
+@frappe.whitelist()
+def get_po_items(po):
+    if not po:
+        return []
+        
+    items = frappe.get_all("Procurement Orders", 
+        filters={"parent": po},
+        fields=["name", "item_name", "item_code", "quantity", "uom", "rate"]
+    )
+    return items
