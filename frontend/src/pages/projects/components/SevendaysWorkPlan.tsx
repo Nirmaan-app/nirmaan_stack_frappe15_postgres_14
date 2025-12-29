@@ -22,6 +22,7 @@ interface SevendaysWorkPlanProps {
     projectId: string;
     startDate: Date | undefined;
     endDate: Date | undefined;
+    isOverview?: boolean;
 }
 
 interface WorkPlanItem {
@@ -216,6 +217,7 @@ export const SevendaysWorkPlan = ({
     projectId,
     startDate,
     endDate,
+    isOverview,
 }: SevendaysWorkPlanProps) => {
     // ... no change to props ...
 
@@ -368,7 +370,17 @@ export const SevendaysWorkPlan = ({
         );
     }
 
-    const workHeaders = result?.message ? Object.keys(result.message) : [];
+    let workHeaders = result?.message ? Object.keys(result.message) : [];
+    
+    // Filter headers if isOverview is true
+    if (isOverview && result?.message) {
+        workHeaders = workHeaders.filter(header => {
+            const items = result.message[header];
+            // Keep header only if it has at least one item with planned activities
+            return items?.some(item => item.work_plan_doc && item.work_plan_doc.length > 0);
+        });
+    }
+
     const hasData = workHeaders.length > 0;
 
     let totalPlannedActivities = 0;
@@ -409,7 +421,11 @@ export const SevendaysWorkPlan = ({
                             </div>
                         ) : (
                             workHeaders.map((header) => {
-                                const items = result?.message[header] || [];
+                                let items = result?.message[header] || [];
+                                
+                                if (isOverview) {
+                                  items = items.filter(item => item.work_plan_doc && item.work_plan_doc.length > 0);
+                                }
 
                                 // Calculate Weighted Progress
                                 const totalWeightage = items.reduce((sum, item) => sum + (item.weightage || 1.0), 0);

@@ -19,7 +19,7 @@ const TABS = {
 
 type TabValue = typeof TABS[keyof typeof TABS];
 
-export const SevenDayPlanningTab = () => {
+export const SevenDayPlanningTab = ({ isOverview }: { isOverview?: boolean }) => {
   const { projectId } = useParams<{ projectId: string }>();
 
   // --- URL State Management ---
@@ -101,7 +101,7 @@ export const SevenDayPlanningTab = () => {
       {/* Header Section */}
       <div className="flex flex-col gap-4 border border-[#D7D7EC] rounded-xl p-6 bg-white-50">
         <div>
-          <h2 className="text-2xl font-semibold">Planning</h2>
+          <h2 className="text-2xl font-semibold">{isOverview ? "Overview" : "Planning"}</h2>
           <p className="text-gray-600">Track upcoming tasks for the next 7 days and add your follow-ups</p>
         </div>
 
@@ -167,6 +167,7 @@ export const SevenDayPlanningTab = () => {
             projectId={projectId} 
             startDate={dateRange?.from} 
             endDate={dateRange?.to} 
+            isOverview={isOverview}
           />
         )}
         {activeTab === TABS.MATERIAL_PLAN && (

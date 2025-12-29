@@ -39,6 +39,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 // IMPORT THE NEW COMPONENT AND ITS INTERFACE
 import { AddCustomerPODialog, CustomerPODetail } from "./components/AddCustomerPODialog";
 import { CustomerPODetailsCard } from "./components/CustomerPODeatilsCard";
+import { SevenDayPlanningTab } from "./SevenDayPlanningTab";
 
 
 interface ProjectOverviewTabProps {
@@ -519,59 +520,10 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
           </CardDescription>
         </CardContent>
       </Card>
-      {/* 2. NEW: Customer PO Details Card */}
       <Card>
-        {/* <CardHeader>
-          <CardTitle className="flex justify-between items-center">
-            <p className="text-2xl">Customer PO Details</p>
-            <AddCustomerPODialog 
-                projectName={projectData.name}
-                // currentCustomerPODetails={[]}
-
-                currentCustomerPODetails={projectData.customer_po_details}
-                // refetchProjectData={refetchProjectData}
-            />
-          </CardTitle>
-        </CardHeader> */}
         <CustomerPODetailsCard projectId={projectData.name} />
-        {/* <CardContent>
-          {projectData?.customer_po_details?.length === 0? (
-            <p className="text-gray-500">No customer purchase orders recorded yet.</p>
-          ) : (
-            <div className="space-y-4">
-              {projectData?.customer_po_details?.map((po, index) => (
-                <div key={po.name || index} className="border p-4 rounded-lg shadow-sm">
-                  <div className="flex justify-between items-start">
-                    <div className="space-y-1">
-                      <p className="font-semibold text-lg">PO Number: {po.customer_po_number}</p>
-                      <p className="text-sm text-gray-700">Value (Incl. Tax): <span className="font-medium text-black">{formatToRoundedIndianRupee(po.customer_po_value_inctax)}</span></p>
-                      <p className="text-sm text-gray-700">Value (Excl. Tax): <span className="font-medium text-black">{formatToRoundedIndianRupee(po.customer_po_value_exctax)}</span></p>
-                    </div>
-                    <div className="flex gap-2">
-                        {po.customer_po_link && (
-                            <a href={po.customer_po_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 flex items-center text-sm">
-                                <LinkIcon className="w-4 h-4 mr-1"/> PO Link
-                            </a>
-                        )}
-                        {po.customer_po_attachment && (
-                            <a href={po.customer_po_attachment} target="_blank" rel="noopener noreferrer" className="text-green-600 hover:text-green-800 flex items-center text-sm">
-                                <ListChecks className="w-4 h-4 mr-1"/> Attachment
-                            </a>
-                        )}
-                    </div>
-                  </div>
-                  {po.payment_terms && (
-                    <div className="mt-3 pt-3 border-t">
-                        <p className="text-xs font-medium text-gray-500">Payment Terms:</p>
-                        <p className="text-sm whitespace-pre-wrap">{po.payment_terms}</p>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent> */}
       </Card>
+      <SevenDayPlanningTab isOverview={true} />
     </div>
   )
 }
