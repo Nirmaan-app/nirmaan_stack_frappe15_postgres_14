@@ -115,7 +115,11 @@ export const SevenDayPlanningTab = () => {
           />
         )}
         {activeTab === TABS.MATERIAL_PLAN && (
-          <SevenDaysMaterialPlan projectId={projectId} />
+          <SevenDaysMaterialPlan 
+            projectId={projectId} 
+            startDate={dateRange?.from} 
+            endDate={dateRange?.to}
+          />
         )}
         {activeTab === TABS.FINANCIAL_PLAN && (
           <div>

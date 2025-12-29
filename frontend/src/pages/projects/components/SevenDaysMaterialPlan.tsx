@@ -19,10 +19,12 @@ import {
 
 interface SevenDaysMaterialPlanProps {
     projectId: string;
+    startDate?: Date;
+    endDate?: Date;
 }
 
 
-export const SevenDaysMaterialPlan = ({ projectId }: SevenDaysMaterialPlanProps) => {
+export const SevenDaysMaterialPlan = ({ projectId, startDate, endDate }: SevenDaysMaterialPlanProps) => {
     
     // State for Material Plans Form
     const [materialPlanForms, setMaterialPlanForms] = useState<number[]>([]);
@@ -72,10 +74,24 @@ export const SevenDaysMaterialPlan = ({ projectId }: SevenDaysMaterialPlanProps)
     // 1. Fetch Project Document
     const { data: projectDoc } = useFrappeGetDoc("Projects", projectId);
 
+    const docListFilters = useMemo(() => {
+        const filters: any[] = [["project", "=", projectId]];
+        
+        if (startDate && endDate) {
+            filters.push([
+                "delivery_date", 
+                "Between", 
+                [format(startDate, "yyyy-MM-dd"), format(endDate, "yyyy-MM-dd")]
+            ]);
+        }
+        
+        return filters;
+    }, [projectId, startDate, endDate]);
+
     // 2. Fetch Existing Material Delivery Plans
     const { data: existingPlans, isLoading: isLoadingPlans, mutate: refreshPlans } = useFrappeGetDocList("Material Delivery Plan", {
-        fields: ["name", "po_link", "package_name", "delivery_date", "mp_items", "creation"],
-        filters: [["project", "=", projectId]],
+        fields: ["name", "po_link", "package_name", "delivery_date", "mp_items", "creation", "po_type"],
+        filters: docListFilters,
         orderBy: { field: "creation", order: "desc" }
     });
 
@@ -191,11 +207,15 @@ export const SevenDaysMaterialPlan = ({ projectId }: SevenDaysMaterialPlanProps)
                                 </div>
                                 <div className="col-span-2 flex flex-col justify-center">
                                     <span className="text-xs font-bold text-gray-900">PO ID</span>
-                                    <span className="text-sm text-gray-700 truncate" title={plan.po_link}>{plan.po_link}</span>
+                                    <span className="text-sm text-gray-700 break-all" title={plan.po_link}>
+                                        {plan.po_link || "--"}
+                                    </span>
                                 </div>
                                 <div className="col-span-2 flex flex-col justify-center">
                                     <span className="text-xs font-bold text-gray-900">PO Type</span>
-                                    <span className="text-sm text-gray-700">Existing PO</span>
+                                    <span className="text-sm text-gray-700">
+                                        {plan.po_type}
+                                    </span>
                                 </div>
                                 <div className="col-span-2 flex flex-col justify-center items-start">
                                     <span className="text-xs font-bold text-gray-900 mb-1">Materials</span>
