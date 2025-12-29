@@ -397,21 +397,23 @@ export const SevendaysWorkPlan = ({
     return (
         <div className="space-y-6">
              <div className="overflow-hidden bg-white">
-                <div 
-                    className="flex cursor-pointer items-center justify-between bg-white py-2"
-                    // onClick={() => setIsMainExpanded(!isMainExpanded)}
-                >
-                    <div className="flex items-center gap-3">
-                        <h3 className="text-xl font-bold text-gray-900">Work Plan</h3>
-                        <Badge variant="secondary" className="bg-blue-700 text-white hover:bg-blue-800 h-6 w-6 p-0 flex items-center justify-center rounded-full text-[12px]">
-                             {totalPlannedActivities}
-                        </Badge>
+                {!isOverview && (
+                    <div 
+                        className="flex cursor-pointer items-center justify-between bg-white py-2"
+                        // onClick={() => setIsMainExpanded(!isMainExpanded)}
+                    >
+                        <div className="flex items-center gap-3">
+                            <h3 className="text-xl font-bold text-gray-900">Work Plan</h3>
+                            <Badge variant="secondary" className="bg-blue-700 text-white hover:bg-blue-800 h-6 w-6 p-0 flex items-center justify-center rounded-full text-[12px]">
+                                 {totalPlannedActivities}
+                            </Badge>
+                        </div>
+                         {/* {isMainExpanded ? (
+                            <ChevronUp className="h-5 w-5 text-gray-500" />
+                            <ChevronDown className="h-5 w-5 text-gray-500" />
+                        )} */}
                     </div>
-                     {/* {isMainExpanded ? (
-                        <ChevronUp className="h-5 w-5 text-gray-500" />
-                        <ChevronDown className="h-5 w-5 text-gray-500" />
-                    )} */}
-                </div>
+                )}
                 
                 {isMainExpanded && (
                     <div className="p-2 space-y-4">
