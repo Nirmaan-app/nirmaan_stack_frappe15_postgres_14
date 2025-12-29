@@ -48,53 +48,45 @@ export const USER_ROLE_PROFILE_OPTIONS = [
 ];
 
 // --- Helper: UsersSummaryCard ---
-interface RoleCount {
-    label: string;
-    value: string;
-    count: number | undefined;
-    isLoading: boolean;
-}
-
 const UsersSummaryCard: React.FC = () => {
-    const [roleCounts, setRoleCounts] = useState<RoleCount[]>([]);
-    const [totalUsers, setTotalUsers] = useState<{ count: number | undefined, isLoading: boolean }>({ count: undefined, isLoading: true });
+    const [roleCounts, setRoleCounts] = useState<Record<string, number>>({});
+    const [isLoadingRoles, setIsLoadingRoles] = useState(true);
+    const [roleError, setRoleError] = useState<string | null>(null);
 
     // Fetch total users
     const { data: totalCountData, isLoading: totalCountLoading } = useFrappeGetDocCount(USER_DOCTYPE, undefined, true, false, `${USER_DOCTYPE}_total_count`);
 
-    // const {db, call} = useContext(FrappeContext) as FrappeConfig;
-    const { call } = useFrappePostCall("frappe.client.get_count")
+    // Fetch all role counts in single API call
+    const { call: getUserRoleCounts } = useFrappePostCall("nirmaan_stack.api.users.get_user_role_counts");
 
     useEffect(() => {
-        setTotalUsers({ count: totalCountData, isLoading: totalCountLoading });
-    }, [totalCountData, totalCountLoading]);
-
-    // Fetch counts for each role
-    // This will trigger multiple hooks. For a large number of roles, consider a single backend aggregate.
-    useEffect(() => {
-        const fetchCounts = async () => {
-            const countsPromises = USER_ROLE_PROFILE_OPTIONS.map(role =>
-                call({
-                    doctype: USER_DOCTYPE,
-                    filters: { role_profile: role.value },
-                    cache: true
-                    // cache: true // Consider caching on backend if Frappe supports it for get_count
-                },
-                ).then(res => ({
-                    ...role,
-                    count: res.message,
-                    isLoading: false,
-                })).catch(() => ({
-                    ...role,
-                    count: 0, // Default to 0 on error
-                    isLoading: false,
-                }))
-            );
-            const resolvedCounts = await Promise.all(countsPromises);
-            setRoleCounts(resolvedCounts as RoleCount[]);
+        const fetchRoleCounts = async () => {
+            try {
+                setIsLoadingRoles(true);
+                const result = await getUserRoleCounts({});
+                setRoleCounts(result.message || {});
+                setRoleError(null);
+            } catch (err) {
+                console.error("Failed to fetch role counts:", err);
+                setRoleError("Failed to load role statistics");
+                setRoleCounts({});
+            } finally {
+                setIsLoadingRoles(false);
+            }
         };
-        fetchCounts();
-    }, []); // Runs once
+
+        fetchRoleCounts();
+    }, []);
+
+    if (roleError) {
+        return (
+            <Card className="hover:animate-shadow-drop-center my-2 border-red-200 bg-red-50">
+                <CardContent className="pt-6">
+                    <p className="text-sm text-red-600">{roleError}</p>
+                </CardContent>
+            </Card>
+        );
+    }
 
     return (
         <Card className="hover:animate-shadow-drop-center my-2">
@@ -108,28 +100,25 @@ const UsersSummaryCard: React.FC = () => {
                 <div className="flex justify-between items-start">
                     <div>
                         <div className="text-2xl font-bold mb-2">
-                            {totalUsers.isLoading ? (
+                            {totalCountLoading ? (
                                 <TailSpin visible={true} height="28" width="28" color="#D03B45" radius="1" />
                             ) : (
-                                totalUsers.count ?? 'N/A'
+                                totalCountData ?? 'N/A'
                             )}
                         </div>
                         <p className="text-xs text-muted-foreground">Total Registered Users</p>
                     </div>
                     <div className="flex flex-col text-sm items-end">
-                        {roleCounts.length > 0 ? roleCounts.map(role => (
-                            <div key={role.value} className="flex justify-between w-full gap-4">
-                                <span className="text-muted-foreground">{role.label}:</span>
-                                <span className="font-medium">
-                                    {role.isLoading ? '...' : role.count ?? 0}
-                                </span>
-                            </div>
-                        )) : USER_ROLE_PROFILE_OPTIONS.map(role => ( // Show placeholders while loading
-                            <div key={role.value} className="flex justify-between w-full gap-4">
-                                <span className="text-muted-foreground">{role.label}:</span>
-                                <span className="font-medium">...</span>
-                            </div>
-                        ))}
+                        {isLoadingRoles ? (
+                            <div className="text-muted-foreground text-xs">Loading roles...</div>
+                        ) : (
+                            USER_ROLE_PROFILE_OPTIONS.map(role => (
+                                <div key={role.value} className="flex justify-between w-full gap-4">
+                                    <span className="text-muted-foreground">{role.label}:</span>
+                                    <span className="font-medium">{roleCounts[role.value] ?? 0}</span>
+                                </div>
+                            ))
+                        )}
                     </div>
                 </div>
             </CardContent>
