@@ -13,6 +13,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { useFrappePostCall, useFrappeCreateDoc } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
 
@@ -37,6 +38,7 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
     const [poDataMap, setPoDataMap] = useState<Record<string, any>>({});
     
     const [selectedItems, setSelectedItems] = useState<Record<string, boolean>>({});
+    const [manualItemsText, setManualItemsText] = useState<string>("");
     const [deliveryDate, setDeliveryDate] = useState<string>("");
     
     const { toast } = useToast();
@@ -123,6 +125,57 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
     };
 
     const processDelivery = async () => {
+        // Handle "Create New PO" Mode
+        if (poMode === "new") {
+             if (!manualItemsText.trim()) {
+                 toast({
+                     title: "No Materials",
+                     description: "Please enter at least one material.",
+                     variant: "destructive"
+                 });
+                 return false;
+             }
+             if (!deliveryDate) {
+                 toast({
+                     title: "Missing Delivery Date",
+                     description: "Please select a Delivery Date",
+                     variant: "destructive"
+                 });
+                 return false;
+             }
+
+             const lines = manualItemsText.split('\n').map(l => l.trim()).filter(Boolean);
+             if (lines.length === 0) {
+                 toast({
+                     title: "No Valid Materials",
+                     description: "Please enter valid material names.",
+                     variant: "destructive"
+                 });
+                 return false;
+             }
+
+             const manualItems = lines.map((line, idx) => ({
+                 name: `manual-${Date.now()}-${idx}`, // Temp ID not used by backend but needed for type
+                 item_name: line,
+                 procurement_package: selectedPackage,
+                 item_id: `TEMP-${Date.now()}-${idx}`,
+                //  unit: "", 
+                 category: ""
+             }));
+
+             const success = await submitPlan("", manualItems, deliveryDate);
+             if (success) {
+                 toast({
+                    title: "Success",
+                    description: "Successfully created Material Plan (New PO).",
+                    variant: "default"
+                });
+                onClose();
+                return true;
+             }
+             return false;
+        }
+
         // Logic split based on searchMode
         if (searchMode === "po") {
              if (!selectedPackage || !selectedPO) {
@@ -244,9 +297,8 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                 item_id: item.item_id || item.item_code,
                 item_name: item.item_name,
                 procurement_package: item.procurement_package || selectedPackage,
-                unit: item.unit || item.uom,
-                category: item.category,
-                quantity: item.quantity
+                // unit: item.unit || item.uom,
+                category: item.category
             }));
 
             await createDoc("Material Delivery Plan", {
@@ -254,6 +306,7 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                 po_link: poName,
                 package_name: selectedPackage,
                 delivery_date: date,
+                po_type: poMode === "new" ? "New PO" : "Existing PO",
                 mp_items: JSON.stringify({ list: minimalItems })
             });
             return true;
@@ -691,8 +744,46 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                                             </div>
                                         </div>
                                     ) : null}
-                                </div>
+                                </div> // Close the internal div of existing mode
                             )}
+                        {/* Create New PO Mode */}
+                        {poMode === "new" && (
+                            <div className="space-y-4 pt-2">
+                                <div className="space-y-2">
+                                    <Label className="text-xs font-bold text-gray-700">List Materials (One per line)</Label>
+                                    <Textarea 
+                                        placeholder="Enter material names here..."
+                                        value={manualItemsText}
+                                        onChange={(e) => setManualItemsText(e.target.value)}
+                                        className="h-32 text-sm"
+                                    />
+                                    <p className="text-[10px] text-gray-500">
+                                        Each line will be saved as a separate material item.
+                                    </p>
+                                </div>
+
+                                <div className="flex items-end gap-4 pt-2 border-t border-gray-100 mt-2">
+                                    <div className="space-y-1 flex-1">
+                                        <Label className="text-xs font-bold text-gray-700">Delivery Date <span className="text-red-500">*</span></Label>
+                                        <input 
+                                            type="date" 
+                                            required
+                                            value={deliveryDate}
+                                            onChange={(e) => setDeliveryDate(e.target.value)}
+                                            className="w-full flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors"
+                                        />
+                                    </div>
+                                    <button 
+                                        type="button"
+                                        onClick={handleConfirm}
+                                        disabled={isCreating || !deliveryDate || !manualItemsText.trim()}
+                                        className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium h-9 px-6 rounded transition-colors disabled:opacity-50"
+                                    >
+                                        {isCreating ? "Creating..." : "Create Plan"}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                         </>
                     )}
             </div>

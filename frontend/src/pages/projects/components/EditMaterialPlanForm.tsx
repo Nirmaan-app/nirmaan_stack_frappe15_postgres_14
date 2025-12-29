@@ -111,8 +111,7 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
                 item_name: item.item_name,
                 procurement_package: item.procurement_package,
                 unit: item.unit,
-                category: item.category,
-                quantity: item.quantity
+                category: item.category
             }));
 
         try {
