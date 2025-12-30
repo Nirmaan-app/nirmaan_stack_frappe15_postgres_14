@@ -176,37 +176,38 @@ export function DataTable<T>({
 
   /* ───────── UI ───────── */
   return (
-    <div className={cn("flex flex-col gap-4", className)}>
+    <div className={cn("flex flex-col h-full gap-2 overflow-hidden", className)}>
 
       {/* ───── NEW: Summary Card Slot ───── */}
       {summaryCard && (
-        <div>
+        <div className="flex-shrink-0">
           {summaryCard}
         </div>
       )}
 
       {/* ───── Toolbar ───── */}
-      <Toolbar
-        {...{
-          searchFieldOptions, selectedSearchField, onSelectedSearchFieldChange,
-          searchTerm, onSearchTermChange,
-          showExportButton, effectiveExport, toolbarActions, isLoading, table,
-           showSearchBar,
-          showRowSelection
-        }}
-      />
+      <div className="flex-shrink-0">
+        <Toolbar
+          {...{
+            searchFieldOptions, selectedSearchField, onSelectedSearchFieldChange,
+            searchTerm, onSearchTermChange,
+            showExportButton, effectiveExport, toolbarActions, isLoading, table,
+             showSearchBar,
+            showRowSelection
+          }}
+        />
+      </div>
 
       {/* error */}
       {error && (
-        <div className="p-4 text-center text-red-600 bg-red-100 border border-red-300 rounded-md">
+        <div className="flex-shrink-0 p-4 text-center text-red-600 bg-red-100 border border-red-300 rounded-md">
           Error fetching data: {error.message}
         </div>
       )}
 
       {/* ───── Table container ───── */}
       <div ref={parentRef}
-        className="rounded-md border overflow-auto relative"
-        style={{ maxHeight: tableHeight }}>
+        className={`rounded-md border overflow-x-auto flex-1 overflow-y-auto relative`}>
         {/* Setting position relative for proper stacking context */}
 
         <Table className="w-full table-fixed">
@@ -372,7 +373,9 @@ export function DataTable<T>({
       </div>
 
       {/* pagination */}
-      <DataTablePagination table={table} totalCount={totalCount} isLoading={isLoading} />
+      <div className="flex-shrink-0 border-t pt-2 mt-2">
+        <DataTablePagination table={table} totalCount={totalCount} isLoading={isLoading} />
+      </div>
     </div>
   );
 }

@@ -210,7 +210,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({ projec
     if (error) return <AlertDestructive error={error} />;
 
     return (
-        <div className="space-y-4">
+         <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'h-[calc(100vh-80px)] overflow-hidden' : ''}`}>
             <DataTable
                 table={table}
                 columns={columns}
