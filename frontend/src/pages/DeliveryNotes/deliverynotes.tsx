@@ -16,6 +16,7 @@ import { deriveDnIdFromPoId } from "./constants"
 interface ProcurementOrder {
     name: string;
     project: string;
+    vendor_name: string;
     dispatch_date: string;
     status: string;
     delivery_data?: unknown;
@@ -82,7 +83,7 @@ const DeliveryNotes: React.FC = () => {
 
     // --- DATA FETCHING HOOK (No change here) ---
     const { data: procurementOrdersList, isLoading } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
-        fields: ["name", "project", "dispatch_date", "status", "delivery_data"],
+        fields: ["name", "project", "vendor_name", "dispatch_date", "status", "delivery_data"],
         filters: filters,
         orderBy: { field: "creation", order: "desc" },
         limit: 1000,
@@ -145,21 +146,54 @@ const DeliveryNotes: React.FC = () => {
                     <CardContent>
                         <div className="mb-4"><ProjectSelect onChange={handleProjectChange} /></div>
                         {selectedProject && (
-                            <Table>
-                                <TableHeader><TableRow><TableHead>PO No.</TableHead><TableHead>Dispatch Date</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
-                                <TableBody>
-                                    {isLoading && <TableRow><TableCell colSpan={3} className="text-center">Loading...</TableCell></TableRow>}
+                            <>
+                                {/* Desktop Table View */}
+                                <Table className="hidden md:table">
+                                    <TableHeader><TableRow><TableHead>PO No.</TableHead><TableHead>Vendor</TableHead><TableHead>Dispatch Date</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
+                                    <TableBody>
+                                        {isLoading && <TableRow><TableCell colSpan={4} className="text-center">Loading...</TableCell></TableRow>}
+                                        {selectedProjectPOs.length > 0 ? (
+                                            selectedProjectPOs.map(po => (
+                                                <TableRow key={po.name}>
+                                                    <TableCell><Link className="underline text-blue-600 hover:text-blue-800" to={`/prs&milestones/delivery-notes/${po.name.replaceAll("/", "&=")}`}>{`PO-${po.name.split("/")[1]}`}</Link></TableCell>
+                                                    <TableCell>{po.vendor_name || 'N/A'}</TableCell>
+                                                    <TableCell>{formatDate(po.dispatch_date)}</TableCell>
+                                                    <TableCell><Badge variant={po.status === "Dispatched" ? "orange" : "green"}>{po.status}</Badge></TableCell>
+                                                </TableRow>
+                                            ))
+                                        ) : (<TableRow><TableCell colSpan={4} className="text-center text-red-500">No eligible Purchase Orders found for this project.</TableCell></TableRow>)}
+                                    </TableBody>
+                                </Table>
+
+                                {/* Mobile Card View */}
+                                <div className="md:hidden space-y-3">
+                                    {isLoading && <p className="text-center py-4">Loading...</p>}
                                     {selectedProjectPOs.length > 0 ? (
                                         selectedProjectPOs.map(po => (
-                                            <TableRow key={po.name}>
-                                                <TableCell><Link className="underline text-blue-600 hover:text-blue-800" to={`/prs&milestones/delivery-notes/${po.name.replaceAll("/", "&=")}`}>{`PO-${po.name.split("/")[1]}`}</Link></TableCell>
-                                                <TableCell>{formatDate(po.dispatch_date)}</TableCell>
-                                                <TableCell><Badge variant={po.status === "Dispatched" ? "orange" : "green"}>{po.status}</Badge></TableCell>
-                                            </TableRow>
+                                            <Link key={po.name} to={`/prs&milestones/delivery-notes/${po.name.replaceAll("/", "&=")}`} className="block">
+                                                <div className="border rounded-lg p-4 hover:bg-gray-50 active:bg-gray-100 transition-colors">
+                                                    <div className="flex items-start justify-between mb-2">
+                                                        <span className="font-semibold text-blue-600 text-lg">{`PO-${po.name.split("/")[1]}`}</span>
+                                                        <Badge variant={po.status === "Dispatched" ? "orange" : "green"}>{po.status}</Badge>
+                                                    </div>
+                                                    <div className="space-y-1.5 text-sm">
+                                                        <div className="flex items-start">
+                                                            <span className="text-gray-500 min-w-[80px]">Vendor:</span>
+                                                            <span className="font-medium text-gray-900 flex-1">{po.vendor_name || 'N/A'}</span>
+                                                        </div>
+                                                        <div className="flex items-center">
+                                                            <span className="text-gray-500 min-w-[80px]">Dispatch:</span>
+                                                            <span className="text-gray-900">{formatDate(po.dispatch_date)}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </Link>
                                         ))
-                                    ) : (<TableRow><TableCell colSpan={3} className="text-center text-red-500">No eligible Purchase Orders found for this project.</TableCell></TableRow>)}
-                                </TableBody>
-                            </Table>
+                                    ) : (
+                                        <p className="text-center text-red-500 py-4">No eligible Purchase Orders found for this project.</p>
+                                    )}
+                                </div>
+                            </>
                         )}
                     </CardContent>
                 </Card>
@@ -178,27 +212,67 @@ const DeliveryNotes: React.FC = () => {
                     <CardContent>
                         <div className="mb-4"><ProjectSelect onChange={handleProjectChange} /></div>
                         {selectedProject && (
-                            <Table>
-                                <TableHeader><TableRow><TableHead>DN NO.</TableHead><TableHead>Latest Delivery Update</TableHead><TableHead>Status</TableHead><TableHead>DN Count</TableHead></TableRow></TableHeader>
-                                <TableBody>
-                                    {isLoading && <TableRow><TableCell colSpan={4} className="text-center">Loading...</TableCell></TableRow>}
+                            <>
+                                {/* Desktop Table View */}
+                                <Table className="hidden md:table">
+                                    <TableHeader><TableRow><TableHead>DN NO.</TableHead><TableHead>Vendor</TableHead><TableHead>Latest Delivery Update</TableHead><TableHead>Status</TableHead><TableHead>DN Count</TableHead></TableRow></TableHeader>
+                                    <TableBody>
+                                        {isLoading && <TableRow><TableCell colSpan={5} className="text-center">Loading...</TableCell></TableRow>}
+                                        {selectedProjectPOs.length > 0 ? (
+                                            selectedProjectPOs.map(item => {
+                                                const deliveryInfo = processDeliveryData(item.delivery_data);
+                                                // Note: deriveDnIdFromPoId was not provided, but assuming it works as intended
+                                                // const DN_ID = deriveDnIdFromPoId(item.name)
+                                                return (
+                                                    <TableRow key={item.name}>
+                                                        <TableCell><Link className="underline text-blue-600 hover:text-blue-800" to={`/prs&milestones/delivery-notes/${item.name.replaceAll("/", "&=")}`}>{`DN/${item.name.split("/")[1]}/M`}</Link></TableCell>
+                                                        <TableCell>{item.vendor_name || 'N/A'}</TableCell>
+                                                        <TableCell>{deliveryInfo.latestUpdateDate ? formatDate(deliveryInfo.latestUpdateDate) : 'N/A'}</TableCell>
+                                                        <TableCell><Badge variant={item.status === "Delivered" ? "green" : "orange"}>{item.status}</Badge></TableCell>
+                                                        <TableCell>{`${deliveryInfo.totalNoteCount}`}</TableCell>
+                                                    </TableRow>
+                                                );
+                                            })
+                                        ) : (<TableRow><TableCell colSpan={5} className="text-center text-red-500">No eligible Purchase Orders found for this project.</TableCell></TableRow>)}
+                                    </TableBody>
+                                </Table>
+
+                                {/* Mobile Card View */}
+                                <div className="md:hidden space-y-3">
+                                    {isLoading && <p className="text-center py-4">Loading...</p>}
                                     {selectedProjectPOs.length > 0 ? (
                                         selectedProjectPOs.map(item => {
                                             const deliveryInfo = processDeliveryData(item.delivery_data);
-                                            // Note: deriveDnIdFromPoId was not provided, but assuming it works as intended
-                                            // const DN_ID = deriveDnIdFromPoId(item.name) 
                                             return (
-                                                <TableRow key={item.name}>
-                                                    <TableCell><Link className="underline text-blue-600 hover:text-blue-800" to={`/prs&milestones/delivery-notes/${item.name.replaceAll("/", "&=")}`}>{`DN/${item.name.split("/")[1]}/M`}</Link></TableCell>
-                                                    <TableCell>{deliveryInfo.latestUpdateDate ? formatDate(deliveryInfo.latestUpdateDate) : 'N/A'}</TableCell>
-                                                    <TableCell><Badge variant={item.status === "Delivered" ? "green" : "orange"}>{item.status}</Badge></TableCell>
-                                                    <TableCell>{`${deliveryInfo.totalNoteCount}`}</TableCell>
-                                                </TableRow>
+                                                <Link key={item.name} to={`/prs&milestones/delivery-notes/${item.name.replaceAll("/", "&=")}`} className="block">
+                                                    <div className="border rounded-lg p-4 hover:bg-gray-50 active:bg-gray-100 transition-colors">
+                                                        <div className="flex items-start justify-between mb-2">
+                                                            <span className="font-semibold text-blue-600 text-lg">{`DN/${item.name.split("/")[1]}/M`}</span>
+                                                            <Badge variant={item.status === "Delivered" ? "green" : "orange"}>{item.status}</Badge>
+                                                        </div>
+                                                        <div className="space-y-1.5 text-sm">
+                                                            <div className="flex items-start">
+                                                                <span className="text-gray-500 min-w-[100px]">Vendor:</span>
+                                                                <span className="font-medium text-gray-900 flex-1">{item.vendor_name || 'N/A'}</span>
+                                                            </div>
+                                                            <div className="flex items-center">
+                                                                <span className="text-gray-500 min-w-[100px]">Last Update:</span>
+                                                                <span className="text-gray-900">{deliveryInfo.latestUpdateDate ? formatDate(deliveryInfo.latestUpdateDate) : 'N/A'}</span>
+                                                            </div>
+                                                            <div className="flex items-center">
+                                                                <span className="text-gray-500 min-w-[100px]">DN Count:</span>
+                                                                <span className="font-medium text-gray-900">{deliveryInfo.totalNoteCount}</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </Link>
                                             );
                                         })
-                                    ) : (<TableRow><TableCell colSpan={4} className="text-center text-red-500">No eligible Purchase Orders found for this project.</TableCell></TableRow>)}
-                                </TableBody>
-                            </Table>
+                                    ) : (
+                                        <p className="text-center text-red-500 py-4">No eligible Purchase Orders found for this project.</p>
+                                    )}
+                                </div>
+                            </>
                         )}
                     </CardContent>
                 </Card>
