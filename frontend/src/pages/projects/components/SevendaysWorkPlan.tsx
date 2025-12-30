@@ -1,12 +1,13 @@
 import React, { useMemo, useState } from "react";
 import { useFrappeGetCall } from "frappe-react-sdk";
 import { format } from "date-fns";
-import { AlertCircle, Calendar, CheckCircle, Circle, Loader2, ChevronDown, ChevronUp, Pencil, Trash2 } from "lucide-react";
+import { AlertCircle, Calendar, CheckCircle, Circle, Loader2, ChevronDown, ChevronUp, Pencil, Trash2,Download } from "lucide-react";
 import { ProgressCircle } from "@/components/ui/ProgressCircle";
 import { CreateWorkplantask } from "./CreateWorkplantask";
 import { Badge } from "@/components/ui/badge";
 import { useFrappeDeleteDoc } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
+import { Button } from "@/components/ui/button";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -58,11 +59,12 @@ const getColorForProgress = (value: number): string => {
     return "text-green-500";
 };
 
-const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask }: { 
+const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, isOverview }: { 
     item: WorkPlanItem, 
     onAddTask: (item: WorkPlanItem) => void,
     onEditTask: (plan: WorkPlanDoc, item: WorkPlanItem) => void,
-    onDeleteTask: (planName: string) => void
+    onDeleteTask: (planName: string) => void,
+    isOverview?: boolean
 }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const workPlans = item.work_plan_doc || [];
@@ -114,18 +116,20 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask }: {
                         <span className="text-red-600 font-bold">{format(new Date(item.expected_completion_date), "dd/MM/yyyy")}</span>
                     ) : "NA"}
                 </td>
-                <td className="px-4 py-3 border-b-0">
-                        <button 
-                        className="flex items-center rounded-md border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition-colors"
-                        onClick={() => onAddTask(item)}
-                        >
-                        <span className="mr-1 text-lg leading-none">+</span> Add Task
-                        </button>
-                </td>
+                {!isOverview && (
+                    <td className="px-4 py-3 border-b-0">
+                            <button 
+                            className="flex items-center rounded-md border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition-colors"
+                            onClick={() => onAddTask(item)}
+                            >
+                            <span className="mr-1 text-lg leading-none">+</span> Add Task
+                            </button>
+                    </td>
+                )}
             </tr>
             {hasWorkPlans && (
                 <tr>
-                    <td colSpan={7} className=" pb-2 pt-0 m-0 p-0">
+                    <td colSpan={isOverview ? 6 : 7} className=" pb-2 pt-0 m-0 p-0">
                         <div className="rounded-md border-b bg-blue-50/30">
                             <button 
                                 className="flex w-full items-center justify-between px-4 py-2 text-sm text-blue-800 hover:bg-blue-50"
@@ -185,22 +189,24 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask }: {
                                             </div>
 
                                             {/* Right: Actions */}
-                                            <div className="flex items-center gap-1 pl-4 border-l border-gray-100 h-8">
-                                                <button 
-                                                    className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-all"
-                                                    onClick={() => onEditTask(plan, item)}
-                                                    title="Edit Task"
-                                                >
-                                                    <Pencil className="h-4 w-4" />
-                                                </button>
-                                                <button 
-                                                    className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all"
-                                                    onClick={() => onDeleteTask(plan.name)}
-                                                    title="Delete Task"
-                                                >
-                                                    <Trash2 className="h-4 w-4" />
-                                                </button>
-                                            </div>
+                                            {!isOverview && (
+                                                <div className="flex items-center gap-1 pl-4 border-l border-gray-100 h-8">
+                                                    <button 
+                                                        className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-all"
+                                                        onClick={() => onEditTask(plan, item)}
+                                                        title="Edit Task"
+                                                    >
+                                                        <Pencil className="h-4 w-4" />
+                                                    </button>
+                                                    <button 
+                                                        className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all"
+                                                        onClick={() => onDeleteTask(plan.name)}
+                                                        title="Delete Task"
+                                                    >
+                                                        <Trash2 className="h-4 w-4" />
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
                                     ))}
                                 </div>
@@ -343,6 +349,60 @@ export const SevendaysWorkPlan = ({
         }
     };
 
+    const [isDownloading, setIsDownloading] = useState(false);
+
+    const handleDownload = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        setIsDownloading(true);
+        try {
+            // Attempt to download using the "Work Plan" print format on the Project
+            // If the user meant a specific "Work Plan" document, this might need adjustment,
+            // but usually a summary print is done via the parent (Project).
+            const formatName = "Project Work Plan"; 
+            
+            const params = new URLSearchParams({
+                doctype: "Projects",
+                name: projectId,
+                format: formatName,
+                no_letterhead: "0",
+                _lang: "en",
+            });
+
+            if (startDate) {
+                params.append("start_date", format(startDate, "yyyy-MM-dd"));
+            }
+            if (endDate) {
+                params.append("end_date", format(endDate, "yyyy-MM-dd"));
+            }
+
+            const url = `/api/method/frappe.utils.print_format.download_pdf?${params.toString()}`;
+
+            console.log("params",params)
+            
+            const response = await fetch(url);
+            if (!response.ok) throw new Error("Network response was not ok");
+            
+            const blob = await response.blob();
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.download = `WorkPlan_${projectId}_${format(new Date(), "yyyy-MM-dd")}.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(downloadUrl);
+        } catch (error) {
+            console.error("Download failed:", error);
+            toast({
+                title: "Download Failed",
+                description: "Could not download the Work Plan PDF. Please check if the Print Format exists.",
+                variant: "destructive",
+            });
+        } finally {
+            setIsDownloading(false);
+        }
+    };
+
     const closeCreateTask = () => {
         setCreateTaskState((prev) => ({ ...prev, isOpen: false }));
     };
@@ -392,12 +452,12 @@ export const SevendaysWorkPlan = ({
         });
     }
 
-    // Moved isMainExpanded state to top level to fix hook violation
+
 
     return (
         <div className="space-y-6">
              <div className="overflow-hidden bg-white">
-                {!isOverview && (
+                {
                     <div 
                         className="flex cursor-pointer items-center justify-between bg-white py-2"
                         // onClick={() => setIsMainExpanded(!isMainExpanded)}
@@ -408,12 +468,22 @@ export const SevendaysWorkPlan = ({
                                  {totalPlannedActivities}
                             </Badge>
                         </div>
-                         {/* {isMainExpanded ? (
-                            <ChevronUp className="h-5 w-5 text-gray-500" />
-                            <ChevronDown className="h-5 w-5 text-gray-500" />
-                        )} */}
+                        <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="gap-2 h-8 text-xs border-gray-300 text-gray-700"
+                            onClick={handleDownload}
+                            disabled={isDownloading}
+                        >
+                            {isDownloading ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                                <Download className="h-3.5 w-3.5" />
+                            )}
+                            {isDownloading ? "Exporting..." : "Export"}
+                        </Button>
                     </div>
-                )}
+                }
                 
                 {isMainExpanded && (
                     <div className="p-2 space-y-4">
@@ -454,7 +524,7 @@ export const SevendaysWorkPlan = ({
                                             </div>
                                             <div className="flex items-center justify-between w-full md:w-auto md:gap-4 md:justify-start">
                                                 <div className="text-sm text-gray-600 flex items-center gap-2">
-                                                    Overall Progress: <span className={`font-bold ${getColorForProgress(avgProgress)}`}>{avgProgress}%</span>
+                                                    {/* Overall Progress: <span className={`font-bold ${getColorForProgress(avgProgress)}`}>{avgProgress}%</span> */}
                                                 </div>
                                                 <div className={`flex h-8 w-8 items-center justify-center ${isExpanded?"":"bg-blue-100 rounded border border-gray-200 shadow-sm"}`}>
                                                     {isExpanded ? (
@@ -477,7 +547,9 @@ export const SevendaysWorkPlan = ({
                                                         <th className="px-4 py-3 font-semibold text-gray-900 w-[100px] text-center">Progress</th>
                                                         <th className="px-4 py-3 font-semibold text-gray-900 w-[120px] text-center">Start Date</th>
                                                         <th className="px-4 py-3 font-semibold text-gray-900 w-[120px] text-center">End Date</th>
-                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[140px]">Admin Actions</th>
+                                                        {!isOverview && (
+                                                            <th className="px-4 py-3 font-semibold text-gray-900 w-[140px]">Admin Actions</th>
+                                                        )}
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-gray-100">
@@ -488,6 +560,7 @@ export const SevendaysWorkPlan = ({
                                                             onAddTask={handleAddTask}
                                                             onEditTask={handleEditTask}
                                                             onDeleteTask={handleDeleteTask}
+                                                            isOverview={isOverview}
                                                         />
                                                     ))}
                                                 </tbody>
