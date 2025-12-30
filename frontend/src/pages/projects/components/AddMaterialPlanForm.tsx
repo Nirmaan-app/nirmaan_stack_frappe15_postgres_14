@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from "react";
-import { X, ChevronDown } from "lucide-react";
-import ReactSelect from 'react-select';
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { X, ChevronDown, Check, ChevronsUpDown, PlusCircleIcon, Search } from "lucide-react";
+// import ReactSelect from 'react-select'; // Removing unused import
 import {
     Select,
     SelectContent,
@@ -14,8 +14,157 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { useFrappePostCall, useFrappeCreateDoc } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
+
+// Types for Search
+interface SearchItem {
+    name: string;
+    item_name: string;
+    [key: string]: any;
+}
+
+interface TokenSearchConfig {
+  searchFields: string[]; 
+  tokenSeparator: RegExp; 
+  minSearchLength: number; 
+  minTokenLength: number; 
+  minTokenMatches: number; 
+  caseSensitive: boolean;
+  partialMatch: boolean; 
+  fieldWeights: Record<string, number>; 
+}
+
+interface SearchMatch {
+  item: SearchItem;
+  score: number;
+  matchedFields: string[];
+  matchPositions: Record<string, number[]>;
+  isFullMatch: boolean;
+  matchedTokenCount: number;
+}
+
+const ITEM_SEARCH_CONFIG: TokenSearchConfig = {
+  searchFields: ["item_name", "name", "parent"], // Search item name, item code, and parent (PO)
+  tokenSeparator: /[\s\-_/()]+/, 
+  minSearchLength: 2, 
+  minTokenLength: 1, 
+  minTokenMatches: 1, 
+  caseSensitive: false,
+  partialMatch: true, 
+  fieldWeights: {
+    item_name: 2, 
+    name: 1, 
+    parent: 1.5,
+  },
+};
+
+// Helper to escape special regex characters
+function escapeRegex(str: string): string {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function calculateMatchScore(
+  item: SearchItem,
+  searchTokens: string[],
+  config: TokenSearchConfig
+): SearchMatch | null {
+  const { searchFields, caseSensitive, partialMatch, fieldWeights, minTokenMatches } = config; 
+  
+  let totalScore = 0;
+  const matchedFields: string[] = [];
+  const matchPositions: Record<string, number[]> = {};
+  
+  const tokenMatchStatus = new Array(searchTokens.length).fill(false);
+  let totalTokenMatches = 0;
+
+  for (const field of searchFields) {
+    const fieldValue = String(item[field] || ''); 
+    const searchableText = caseSensitive ? fieldValue : fieldValue.toLowerCase();
+    const fieldWeight = fieldWeights[field] || 1;
+    
+    let fieldMatchCount = 0;
+    const positions: number[] = [];
+
+    searchTokens.forEach((token, tokenIndex) => {
+        const searchToken = caseSensitive ? token : token.toLowerCase();
+        
+        if (partialMatch) {
+            const position = searchableText.indexOf(searchToken);
+            if (position !== -1) {
+                if (!tokenMatchStatus[tokenIndex]) {
+                    tokenMatchStatus[tokenIndex] = true;
+                    totalTokenMatches++;
+                }
+                fieldMatchCount++;
+                positions.push(position);
+            }
+        } else {
+            const wordBoundaryRegex = new RegExp(`\\b${escapeRegex(searchToken)}\\b`, 'i');
+            if (wordBoundaryRegex.test(searchableText)) {
+                if (!tokenMatchStatus[tokenIndex]) {
+                    tokenMatchStatus[tokenIndex] = true;
+                    totalTokenMatches++;
+                }
+                fieldMatchCount++;
+                const match = searchableText.match(wordBoundaryRegex);
+                if (match) positions.push(match.index || 0);
+            }
+        }
+    });
+
+    if (fieldMatchCount > 0) {
+      matchedFields.push(field);
+      matchPositions[field] = positions;
+      
+      // Score calculation
+      const matchRatio = fieldMatchCount / searchTokens.length;
+      const avgPosition = positions.length > 0 
+          ? positions.reduce((a, b) => a + b, 0) / positions.length 
+          : 0;
+      const positionScore = positions.length > 0 ? 1 / (avgPosition + 1) : 0;
+      
+      // Combine ratio and position score, weighted by the field's importance
+      totalScore += (matchRatio * 1000 + positionScore * 100) * fieldWeight;
+    }
+  }
+
+  // Check if minimum token matches requirement is met
+  if (totalTokenMatches < minTokenMatches) {
+      return null;
+  }
+
+  // Calculate if this is a full match (all tokens matched)
+  const isFullMatch = tokenMatchStatus.every(status => status);
+
+  // Bonus for full matches
+  if (isFullMatch) {
+      totalScore *= 1.5; // 50% bonus for full matches
+  }
+
+  return {
+      item,
+      score: totalScore,
+      matchedFields,
+      matchPositions,
+      isFullMatch,
+      matchedTokenCount: totalTokenMatches
+  };
+}
 
 interface AddMaterialPlanFormProps {
     planNumber: number;
@@ -32,8 +181,14 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
     
     const [selectedPackage, setSelectedPackage] = useState<string>("");
     const [selectedPO, setSelectedPO] = useState<string>("");
-    const [selectedItemSearch, setSelectedItemSearch] = useState<string>("");
     
+    // Advanced Search State
+    const [itemSearchInput, setItemSearchInput] = useState("");
+    const [debouncedSearchInput, setDebouncedSearchInput] = useState("");
+    const [filteredSuggestions, setFilteredSuggestions] = useState<SearchItem[]>([]);
+    const [isDropdownOpen, setDropdownOpen] = useState(false);
+    const searchWrapperRef = useRef<HTMLDivElement>(null);
+
     // We store the full PO object (with items) here to avoid re-fetching
     const [poDataMap, setPoDataMap] = useState<Record<string, any>>({});
     
@@ -53,9 +208,80 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
         "nirmaan_stack.api.seven_days_planning.material_plan_api.get_material_plan_data"
     );
 
+    // We uses the fetched items from the `fetchItems` call
+    const itemsByPackage = itemsResult?.message || [];
+
     // State for Search Mode Step
     const [formStep, setFormStep] = useState<"selection" | "review">("selection");
     const [planDeliveryDates, setPlanDeliveryDates] = useState<Record<string, string>>({});
+
+    // Debounce Effect
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            setDebouncedSearchInput(itemSearchInput);
+        }, 300);
+        return () => clearTimeout(handler);
+    }, [itemSearchInput]);
+
+    // Search Logic Effect
+    useEffect(() => {
+        const trimmedInput = debouncedSearchInput.trim();
+        const allOptions = itemsByPackage || [];
+
+        // If input is empty, show ALL available (unselected) items
+        if (!trimmedInput) {
+            const allAvailable = allOptions.filter(item => !selectedItems[item.name]);
+            setFilteredSuggestions(allAvailable);
+            return;
+        }
+
+        const searchTokens = trimmedInput
+            .split(ITEM_SEARCH_CONFIG.tokenSeparator)
+            .map(token => token.trim())
+            .filter(token => token.length >= ITEM_SEARCH_CONFIG.minTokenLength);
+
+        if (searchTokens.length === 0) {
+             const allAvailable = allOptions.filter(item => !selectedItems[item.name]);
+             setFilteredSuggestions(allAvailable);
+             return;
+        }
+
+        const matchResults: SearchMatch[] = [];
+        
+        for (const option of allOptions) {
+            const matchResult = calculateMatchScore(option, searchTokens, ITEM_SEARCH_CONFIG);
+            if (matchResult) {
+                matchResults.push(matchResult);
+            }
+        }
+
+        matchResults.sort((a, b) => {
+            if (a.isFullMatch !== b.isFullMatch) return a.isFullMatch ? -1 : 1;
+            if (a.matchedTokenCount !== b.matchedTokenCount) return b.matchedTokenCount - a.matchedTokenCount;
+            return b.score - a.score;
+        });
+
+        // Filter out already selected items
+        const finalSuggestions = matchResults
+            .map(result => result.item)
+            .filter(item => !selectedItems[item.name]);
+            
+        setFilteredSuggestions(finalSuggestions);
+
+    }, [debouncedSearchInput, itemsByPackage, selectedItems]);
+
+    // Click Outside to Close Dropdown
+    useEffect(() => {
+        function handleClickOutside(event: MouseEvent) {
+            if (searchWrapperRef.current && !searchWrapperRef.current.contains(event.target as Node)) {
+                setDropdownOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
+    }, []);
 
     // 3. Trigger Fetch & Reset Logic: When Package or Mode Changes
     useEffect(() => {
@@ -63,7 +289,8 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
         if (selectedPackage) {
             setSelectedPO("");
             setSelectedItems({});
-            setSelectedItemSearch("");
+            // setSelectedItemSearch(""); 
+            setItemSearchInput(""); // Reset search
             setFormStep("selection");
             setPlanDeliveryDates({});
             
@@ -323,7 +550,7 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
 
     const selectedCount = Object.values(selectedItems).filter(Boolean).length;
     // We uses the fetched items from the `fetchItems` call
-    const itemsByPackage = itemsResult?.message || [];
+    // const itemsByPackage = itemsResult?.message || []; // MOVED UP
 
     const totalItems = fullPO?.items?.length || 0;
     
@@ -348,7 +575,7 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
     const poGroupKeys = Object.keys(poGroups);
 
     return (
-        <div className="border border-indigo-100 rounded-lg bg-white shadow-sm overflow-hidden mb-4">
+        <div className="border border-indigo-100 rounded-lg bg-white shadow-sm mb-4">
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-2 bg-indigo-50/50 border-b border-indigo-100">
                 <h3 className="text-sm font-semibold text-gray-800">
@@ -517,6 +744,8 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                         {/* Existing PO Selection */}
                         {poMode === "existing" && (
                             <div className="space-y-4 pt-2">
+
+
                                     <div className="space-y-2">
                                         <Label className="text-xs font-bold text-gray-700">Search/ Select Materials and PR ID</Label>
                                         <p className="text-xs text-blue-800">
@@ -566,67 +795,71 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                                                 ) : isLoadingItems ? (
                                                     <Skeleton className="h-10 w-full rounded-md" />
                                                 ) : (
-                                                    <ReactSelect
-                                                        key={selectedPackage}
-                                                        isMulti
-                                                        classNamePrefix="react-select"
-                                                        placeholder="Search to add items..."
-                                                        components={{ 
-                                                            // Hide the selected value (chips) from the input
-                                                            MultiValue: () => null 
-                                                        }}
-                                                        closeMenuOnSelect={false}
-                                                        blurInputOnSelect={false}
-                                                        options={itemsByPackage
-                                                            .filter((item: any) => !selectedItems[item.name]) // Hide already selected
-                                                            .map((item: any) => ({
-                                                                label: `${item.item_name} - ${item.parent}`,
-                                                                value: item.name,
-                                                                parent: item.parent
-                                                            }))
-                                                        }
-                                                        value={[]} // Always empty to act as search-only
-                                                        onChange={(newValue: any) => {
-                                                            const selectedOptions = newValue || [];
-                                                            if (selectedOptions.length === 0) return;
-                                                            
-                                                            // Merge new selection with existing
-                                                            const newSelectedItems: Record<string, boolean> = { ...selectedItems };
-                                                            selectedOptions.forEach((opt: any) => {
-                                                                newSelectedItems[opt.value] = true;
-                                                            });
-                                                            setSelectedItems(newSelectedItems);
-                                                            
-                                                            // Optional: Update selectedPO context if needed (though we support multiple now)
-                                                            if (selectedOptions.length > 0) {
-                                                                 const lastSelected = selectedOptions[selectedOptions.length - 1];
-                                                                 setSelectedPO(lastSelected.parent);
-                                                            }
-                                                        }}
-                                                        styles={{
-                                                            control: (base) => ({
-                                                                ...base,
-                                                                borderColor: '#e5e7eb',
-                                                                fontSize: '0.875rem',
-                                                            }),
-                                                            menu: (base) => ({
-                                                                ...base,
-                                                                fontSize: '0.875rem',
-                                                                zIndex: 9999
-                                                            }),
-                                                            menuPortal: (base) => ({ 
-                                                                ...base, 
-                                                                zIndex: 9999 
-                                                             }),
-                                                            option: (base, state) => ({
-                                                                ...base,
-                                                                backgroundColor: state.isFocused ? '#e0e7ff' : 'white', // indigo-100 on hover
-                                                                color: '#1f2937', // gray-800
-                                                            })
-                                                        }}
-                                                        menuPortalTarget={document.body}
-                                                        menuPosition="fixed"
-                                                    />
+                                                    <div className="relative w-full" ref={searchWrapperRef}>
+                                                        <div className="relative">
+                                                             <input
+                                                                type="text"
+                                                                className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                                                placeholder="Search items (e.g. 'cement 50kg')..."
+                                                                value={itemSearchInput}
+                                                                onChange={(e) => {
+                                                                    setItemSearchInput(e.target.value);
+                                                                    setDropdownOpen(true);
+                                                                }}
+                                                                onFocus={() => {
+                                                                    setDropdownOpen(true);
+                                                                }}
+                                                             />
+                                                             <Search className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground opacity-50" />
+                                                        </div>
+
+                                                        {isDropdownOpen && (
+                                                            <div className="absolute z-50 w-full mt-1 overflow-hidden rounded-md border bg-white shadow-md">
+                                                                <div className="max-h-60 overflow-y-auto">
+                                                                    {filteredSuggestions.length === 0 ? (
+                                                                        <div className="py-6 text-center text-sm text-gray-500">
+                                                                            {itemSearchInput ? "No matching items found." : "No items available."}
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className="py-1">
+                                                                            {filteredSuggestions.map((item) => (
+                                                                                <div
+                                                                                    key={item.name}
+                                                                                    className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-slate-100 data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+                                                                                    onClick={() => {
+                                                                                        if (!selectedItems[item.name]) {
+                                                                                            setSelectedItems(prev => ({...prev, [item.name]: true}));
+                                                                                            setItemSearchInput(""); // Optional: clear after select? Or keep? clearing is standard for "add one by one"
+                                                                                            // Keep dropdown open? Usually better to modify focus logic or just keep it open.
+                                                                                            // For now, let's keep it open to add more?
+                                                                                        }
+                                                                                    }}
+                                                                                >
+                                                                                    <div className="flex flex-col flex-1">
+                                                                                        <span className="font-medium">{item.item_name}</span>
+                                                                                        <span className="text-[10px] text-gray-500">PO: {item.parent}</span>
+                                                                                    </div>
+                                                                                    <Button
+                                                                                        variant="ghost"
+                                                                                        size="icon"
+                                                                                        className="h-8 w-8 text-muted-foreground hover:text-green-600"
+                                                                                        onClick={(e) => {
+                                                                                            e.stopPropagation();
+                                                                                            if (!selectedItems[item.name]) {
+                                                                                                 setSelectedItems(prev => ({...prev, [item.name]: true}));
+                                                                                            }
+                                                                                        }}
+                                                                                    >
+                                                                                        <PlusCircleIcon className="h-5 w-5" />
+                                                                                    </Button>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 )}
                                             </div>
                                         </div>
