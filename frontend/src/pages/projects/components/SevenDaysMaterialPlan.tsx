@@ -102,6 +102,7 @@ export const SevenDaysMaterialPlan = ({ projectId, startDate, endDate }: SevenDa
         projectDoc.project_wp_category_makes.forEach((row: any) => {
             if (row.procurement_package) pkgs.add(row.procurement_package);
         });
+        pkgs.add("Custom");
         return Array.from(pkgs).sort();
     }, [projectDoc]);
 

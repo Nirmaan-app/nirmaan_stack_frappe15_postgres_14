@@ -34,9 +34,8 @@
   },
   {
    "fieldname": "package_name",
-   "fieldtype": "Link",
-   "label": "Package Name",
-   "options": "Procurement Packages"
+   "fieldtype": "Data",
+   "label": "Package Name"
   },
   {
    "fieldname": "material_plan_section",
@@ -62,7 +61,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-12-29 17:10:18.075539",
+ "modified": "2025-12-30 14:14:22.163262",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Material Delivery Plan",

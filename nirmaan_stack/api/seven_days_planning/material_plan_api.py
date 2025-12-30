@@ -12,7 +12,7 @@ def get_material_plan_data(project=None, procurement_package=None, mode=None, po
 
     pos = frappe.get_list("Procurement Orders", 
         filters=filters, 
-        fields=["name", "procurement_request", "creation"],
+        fields=["name", "procurement_request", "creation", "custom"],
         order_by="creation desc"
     )
     
@@ -38,7 +38,14 @@ def get_material_plan_data(project=None, procurement_package=None, mode=None, po
     po_list_with_pkg = []
     for p in pos:
         pkg = pr_package_map.get(p.procurement_request)
-        p_pkg = pkg if pkg else "Uncategorized"
+        
+        # Determine Package
+        if p.custom:
+            p_pkg = "Custom"
+        elif pkg:
+            p_pkg = pkg
+        else:
+            p_pkg = "Uncategorized"
         
         # If we are filtering by package, check now
         if procurement_package and p_pkg != procurement_package:
