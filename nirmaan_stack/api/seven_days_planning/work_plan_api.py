@@ -111,9 +111,9 @@ def get_work_plan(project, start_date=None, end_date=None):
                                         #     # For pending/WIP tasks, use the overlap logic
                                         #     if wp_start <= end and wp_end >= start:
                                         #         filtered_plans.append(wp)
-                                        # This Will show overlap of start and end within this field"
-                                        if wp_start <= end and wp_end >= start:
-                                        # if wp_start >= start and wp_start <= end: // Standard this will focusing on start date
+                                        # User requested: fetch all workplan matching on or before end date AND not Completed
+                                        # if wp_start <= end and wp_end >= start:
+                                        if wp_start <= end and wp.wp_status != "Completed":
                                             filtered_plans.append(wp)
 
                             else:
