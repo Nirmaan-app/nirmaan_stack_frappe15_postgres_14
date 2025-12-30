@@ -68,6 +68,7 @@ import { MilestonesSummary } from "@/pages/Manpower-and-WorkMilestones/Milestone
 import { MilestoneTab } from "@/pages/Manpower-and-WorkMilestones/MilestoneTab";
 import { WorkHeaderMilestones } from "@/components/workHeaderMilestones";
 import MilestoneDailySummary from "@/pages/Manpower-and-WorkMilestones/MilestoneDailySummary";
+import { DeliveryChallansAndMirs } from "@/pages/DeliveryChallansAndMirs";
 // --- End component imports ---
 
 
@@ -175,8 +176,12 @@ export const appRoutes: RouteObject[] = [
                   { path: "daily-summary", element: <MilestoneDailySummary /> },
                 ],
               },
+              {
+                path: "delivery-challans-and-mirs",
+                element: <DeliveryChallansAndMirs />,
+              },
 
-              
+
             ],
           },
 
