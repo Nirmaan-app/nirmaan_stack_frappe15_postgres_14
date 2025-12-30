@@ -173,7 +173,14 @@ export const SevenDaysMaterialPlan = ({ projectId, startDate, endDate, isOvervie
             {!isOverview ? (
                 <div className="border border-blue-100 rounded-lg p-6 bg-white shadow-sm">
                     <div className="flex justify-between items-start mb-2">
-                        <h2 className="text-lg font-bold text-gray-900">Material Plan</h2>
+                        <div className="flex items-center gap-2">
+                        <h3 className="text-xl font-bold text-gray-900">Material Plan</h3>
+                        {existingPlans && existingPlans.length > 0 && (
+                            <Badge variant="secondary" className="bg-blue-700 text-white hover:bg-blue-800 h-6 w-6 p-0 flex items-center justify-center rounded-full text-[12px]">
+                                {existingPlans.length }
+                            </Badge>
+                        )}
+                     </div>
                         <Button 
                             variant="outline" 
                             size="sm" 
