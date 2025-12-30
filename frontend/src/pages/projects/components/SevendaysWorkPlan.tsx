@@ -5,6 +5,7 @@ import { AlertCircle, Calendar, CheckCircle, Circle, Loader2, ChevronDown, Chevr
 import { ProgressCircle } from "@/components/ui/ProgressCircle";
 import { CreateWorkplantask } from "./CreateWorkplantask";
 import { Badge } from "@/components/ui/badge";
+import { WorkPlanOverview } from "./WorkPlanOverview";
 import { useFrappeDeleteDoc } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,7 @@ interface SevendaysWorkPlanProps {
     isOverview?: boolean;
 }
 
-interface WorkPlanItem {
+export interface WorkPlanItem {
     project: string;
     zone: string;
     work_milestone_name: string;
@@ -40,7 +41,7 @@ interface WorkPlanItem {
     weightage?: number;
 }
 
-interface WorkPlanDoc {
+export interface WorkPlanDoc {
     name: string;
     wp_title: string;
     wp_status: string;
@@ -49,7 +50,7 @@ interface WorkPlanDoc {
     wp_description: string;
 }
 
-const getColorForProgress = (value: number): string => {
+export const getColorForProgress = (value: number): string => {
     const val = Math.round(value);
     if (isNaN(val)) return "text-gray-500";
     if (val === 0) return "text-gray-400"; // Using gray-400 for 0 instead of black-500
@@ -509,6 +510,17 @@ export const SevendaysWorkPlan = ({
 
                                 const plannedActivitiesCount = items.reduce((acc, item) => acc + (item.work_plan_doc?.length || 0), 0);
                                 const isExpanded = expandedHeaders[header] !== false;
+
+                                if (isOverview) {
+                                    return (
+                                        <WorkPlanOverview 
+                                            key={header}
+                                            header={header}
+                                            items={items}
+                                            getHeaderStats={() => ({ avgProgress, plannedActivitiesCount })}
+                                        />
+                                    );
+                                }
 
                                 return (
                                     <div key={header} className="overflow-hidden bg-white">
