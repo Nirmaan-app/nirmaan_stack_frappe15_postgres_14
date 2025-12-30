@@ -1,6 +1,6 @@
 import { useContext, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useFrappeGetDocList, useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappeFileUpload, useFrappePostCall, useFrappeGetCall } from "frappe-react-sdk";
 import { UserContext } from "@/utils/auth/UserProvider";
 import { formatDate } from "@/utils/FormatDate";
 import { useUserData } from "@/hooks/useUserData";
@@ -13,13 +13,46 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { FileText, Upload, Eye, Download, CirclePlus } from "lucide-react";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { FileText, Upload, Eye, Download, CirclePlus, Filter, X } from "lucide-react";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { useToast } from "@/components/ui/use-toast";
 import { TailSpin } from "react-loader-spinner";
 
 // Types
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
+
+interface POItem {
+  item_id: string;
+  item_name: string;
+  category: string;
+  quantity: number;
+  received_quantity: number;
+  unit: string;
+  quote: number;
+  make: string;
+  tax: number;
+  tax_amount: number;
+  total_amount: number;
+  amount: number;
+  procurement_package: string;
+  comment: string;
+}
+
+interface EnrichedProcurementOrder extends ProcurementOrder {
+  categories: string[];
+  category_count: number;
+  items: POItem[];
+  item_count: number;
+  error?: string;
+}
+
+interface DeliveryChallanAPIResponse {
+  pos: EnrichedProcurementOrder[];
+  unique_categories: string[];
+  category_counts: Record<string, number>;
+  total_pos: number;
+}
 
 interface UploadDialogState {
   open: boolean;
@@ -59,17 +92,37 @@ export const DeliveryChallansAndMirs = () => {
     poId: "",
     poName: "",
   });
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
 
-  // Fetch all POs with Partially Delivered or Delivered status
-  const { data: procurementOrdersList, isLoading, mutate: mutatePOs } = useFrappeGetDocList<ProcurementOrder>(
-    "Procurement Orders",
+  // Fetch all POs with Partially Delivered or Delivered status using custom API
+  const { data: deliveryChallanData, isLoading, error: apiError, mutate: mutatePOs } = useFrappeGetCall<{message: DeliveryChallanAPIResponse}>(
+    "nirmaan_stack.api.delivery_challans_data.get_delivery_challan_pos_with_categories",
+    selectedProject ? { project_id: selectedProject } : undefined,
+    selectedProject ? undefined : null, // Only fetch when project is selected
     {
-      fields: ["name", "project", "vendor", "vendor_name", "dispatch_date", "latest_delivery_date", "status", "procurement_request"],
-      filters: [["status", "in", ["Partially Delivered", "Delivered"]]],
-      orderBy: { field: "latest_delivery_date", order: "desc" },
-      limit: 1000,
+      revalidateOnFocus: false,
+      revalidateIfStale: false,
     }
   );
+
+  // Log API errors
+  if (apiError) {
+    console.error("❌ API Error:", apiError);
+  }
+
+  // Extract data from API response (Frappe wraps response in 'message' key)
+  const procurementOrdersList = deliveryChallanData?.message?.pos || [];
+  const uniqueCategories = deliveryChallanData?.message?.unique_categories || [];
+  const categoryCounts = deliveryChallanData?.message?.category_counts || {};
+
+  // Debug logging
+  console.log("🔍 Delivery Challan Data Debug:", {
+    hasData: !!deliveryChallanData,
+    posCount: procurementOrdersList.length,
+    categoriesCount: uniqueCategories.length,
+    selectedProject,
+    rawData: deliveryChallanData,
+  });
 
   // Fetch all attachments for the selected project to show counts
   const { data: projectAttachmentsList, mutate: mutateProjectAttachments } = useFrappeGetDocList<NirmaanAttachment>(
@@ -111,6 +164,7 @@ export const DeliveryChallansAndMirs = () => {
   const handleProjectChange = (selectedItem: any) => {
     const projectValue = selectedItem ? selectedItem.value : null;
     setSelectedProject(projectValue);
+    setSelectedCategories([]); // Reset category filter when project changes
     if (projectValue) {
       sessionStorage.setItem("selectedProject", JSON.stringify(projectValue));
     } else {
@@ -138,11 +192,24 @@ export const DeliveryChallansAndMirs = () => {
     }
   };
 
-  // Filter POs by selected project
+  // Filter POs by selected categories (project filtering is done in API)
   const selectedProjectPOs = useMemo(() => {
-    if (!selectedProject || !procurementOrdersList) return [];
-    return procurementOrdersList.filter((po) => po.project === selectedProject);
-  }, [procurementOrdersList, selectedProject]);
+    if (!selectedProject) return [];
+    if (!procurementOrdersList || procurementOrdersList.length === 0) return [];
+
+    // API already filters by project, so use all returned POs
+    let filteredPOs = [...procurementOrdersList];
+
+    // Apply category filter if any categories are selected
+    if (selectedCategories.length > 0) {
+      filteredPOs = filteredPOs.filter((po) => {
+        // Check if PO has at least one of the selected categories
+        return po.categories && po.categories.length > 0 && po.categories.some((category) => selectedCategories.includes(category));
+      });
+    }
+
+    return filteredPOs;
+  }, [procurementOrdersList, selectedProject, selectedCategories]);
 
   // Get the latest delivery date (dispatch_date or latest_delivery_date)
   const getLatestDeliveryDate = (po: ProcurementOrder): string => {
@@ -292,6 +359,19 @@ export const DeliveryChallansAndMirs = () => {
     return `${slicedName}...${extension ? `.${extension}` : ""}`;
   };
 
+  // Category filter handlers
+  const handleToggleCategory = (category: string) => {
+    setSelectedCategories((prev) =>
+      prev.includes(category)
+        ? prev.filter((c) => c !== category)
+        : [...prev, category]
+    );
+  };
+
+  const handleClearCategoryFilters = () => {
+    setSelectedCategories([]);
+  };
+
   const isUploading = uploadLoading || createAttachmentLoading;
 
   return (
@@ -314,6 +394,68 @@ export const DeliveryChallansAndMirs = () => {
 
           {selectedProject && (
             <>
+              {/* Category Filter Section */}
+              {uniqueCategories.length > 0 && (
+                <Accordion type="single" collapsible className="mb-4">
+                  <AccordionItem value="category-filter" className="border rounded-lg">
+                    <AccordionTrigger className="px-4 hover:no-underline">
+                      <div className="flex items-center gap-2">
+                        <Filter className="h-4 w-4 text-muted-foreground" />
+                        <h3 className="text-sm font-semibold">Filter by Category</h3>
+                        {selectedCategories.length > 0 && (
+                          <Badge variant="secondary" className="ml-2">
+                            {selectedCategories.length} selected
+                          </Badge>
+                        )}
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent className="px-4 pb-4">
+                      <div className="flex items-center justify-end mb-3">
+                        {selectedCategories.length > 0 && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleClearCategoryFilters}
+                            className="h-7 text-xs"
+                          >
+                            <X className="h-3 w-3 mr-1" />
+                            Clear Filters
+                          </Button>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {uniqueCategories.map((category) => {
+                          const isSelected = selectedCategories.includes(category);
+                          const count = categoryCounts[category] || 0;
+                          return (
+                            <Button
+                              key={category}
+                              variant={isSelected ? "default" : "outline"}
+                              size="sm"
+                              onClick={() => handleToggleCategory(category)}
+                              className="h-8 text-xs"
+                            >
+                              {category}
+                              <Badge
+                                variant={isSelected ? "secondary" : "outline"}
+                                className="ml-2 h-5 px-1.5"
+                              >
+                                {count}
+                              </Badge>
+                            </Button>
+                          );
+                        })}
+                      </div>
+                      {selectedProjectPOs.length === 0 && selectedCategories.length > 0 && (
+                        <p className="text-xs text-muted-foreground mt-2">
+                          No POs found matching the selected categories
+                        </p>
+                      )}
+                    </AccordionContent>
+                  </AccordionItem>
+                </Accordion>
+              )}
+
               {/* Desktop Table View */}
               <div className="hidden md:block overflow-x-auto">
                 <Table>
@@ -321,6 +463,7 @@ export const DeliveryChallansAndMirs = () => {
                     <TableRow>
                       <TableHead className="w-[120px]">PO No.</TableHead>
                       <TableHead>Vendor</TableHead>
+                      <TableHead>Categories</TableHead>
                       <TableHead>Latest Delivery Date</TableHead>
                       <TableHead className="text-center w-[140px]">Actions</TableHead>
                     </TableRow>
@@ -328,7 +471,7 @@ export const DeliveryChallansAndMirs = () => {
                   <TableBody>
                     {isLoading && (
                       <TableRow>
-                        <TableCell colSpan={4} className="text-center py-8">
+                        <TableCell colSpan={5} className="text-center py-8">
                           Loading...
                         </TableCell>
                       </TableRow>
@@ -347,6 +490,23 @@ export const DeliveryChallansAndMirs = () => {
                               </span>
                             </TableCell>
                             <TableCell>{po.vendor_name || "N/A"}</TableCell>
+                            <TableCell>
+                              <div className="flex flex-wrap gap-1">
+                                {po.categories && po.categories.length > 0 ? (
+                                  po.categories.map((category) => (
+                                    <Badge
+                                      key={category}
+                                      variant="outline"
+                                      className="text-xs"
+                                    >
+                                      {category}
+                                    </Badge>
+                                  ))
+                                ) : (
+                                  <span className="text-muted-foreground text-sm">No categories</span>
+                                )}
+                              </div>
+                            </TableCell>
                             <TableCell>{getLatestDeliveryDate(po)}</TableCell>
                             <TableCell>
                               <div className="flex flex-col gap-1.5 items-center">
@@ -396,8 +556,10 @@ export const DeliveryChallansAndMirs = () => {
                       })
                     ) : !isLoading ? (
                       <TableRow>
-                        <TableCell colSpan={4} className="text-center text-red-500 py-8">
-                          No Purchase Orders found for this project.
+                        <TableCell colSpan={5} className="text-center text-red-500 py-8">
+                          {selectedCategories.length > 0
+                            ? "No Purchase Orders found matching the selected categories."
+                            : "No Purchase Orders found for this project."}
                         </TableCell>
                       </TableRow>
                     ) : null}
@@ -436,6 +598,24 @@ export const DeliveryChallansAndMirs = () => {
                             <div className="flex items-start">
                               <span className="text-gray-500 min-w-[120px] font-medium">Delivery Date:</span>
                               <span className="text-gray-900">{getLatestDeliveryDate(po)}</span>
+                            </div>
+                            <div className="flex items-start">
+                              <span className="text-gray-500 min-w-[120px] font-medium">Categories:</span>
+                              <div className="flex-1 flex flex-wrap gap-1">
+                                {po.categories && po.categories.length > 0 ? (
+                                  po.categories.map((category) => (
+                                    <Badge
+                                      key={category}
+                                      variant="outline"
+                                      className="text-xs"
+                                    >
+                                      {category}
+                                    </Badge>
+                                  ))
+                                ) : (
+                                  <span className="text-muted-foreground text-xs">No categories</span>
+                                )}
+                              </div>
                             </div>
                           </div>
 
@@ -487,7 +667,9 @@ export const DeliveryChallansAndMirs = () => {
                   })
                 ) : !isLoading ? (
                   <div className="text-center text-red-500 py-8">
-                    No Purchase Orders found for this project.
+                    {selectedCategories.length > 0
+                      ? "No Purchase Orders found matching the selected categories."
+                      : "No Purchase Orders found for this project."}
                   </div>
                 ) : null}
               </div>
