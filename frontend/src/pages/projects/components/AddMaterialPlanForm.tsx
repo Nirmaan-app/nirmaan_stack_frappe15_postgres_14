@@ -972,7 +972,7 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                                                     onClick={() => setFormStep('review')}
                                                     className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium h-9 px-6 rounded transition-colors"
                                                 >
-                                                    Configure Plans &rarr;
+                                                    Confirm Plans &rarr;
                                                 </button>
                                             </div>
                                         </div>
