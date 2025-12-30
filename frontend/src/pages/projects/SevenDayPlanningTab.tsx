@@ -122,9 +122,10 @@ export const SevenDayPlanningTab = ({ isOverview }: { isOverview?: boolean }) =>
         )}
         {activeTab === PLANNING_TABS.MATERIAL_PLAN && (
           <SevenDaysMaterialPlan 
-            projectId={projectId} 
+            projectId={projectId!} 
             startDate={dateRange?.from} 
             endDate={dateRange?.to}
+            isOverview={isOverview}
           />
         )}
         {activeTab === PLANNING_TABS.FINANCIAL_PLAN && (
