@@ -3,12 +3,12 @@ import { useParams } from "react-router-dom";
 import { DateRange } from "react-day-picker";
 import { addDays, startOfDay, parseISO, format } from "date-fns";
 import { cn } from "@/lib/utils";
-import { SevendaysWorkPlan } from "./components/SevendaysWorkPlan";
-import { SevenDaysMaterialPlan } from "./components/SevenDaysMaterialPlan";
+import { SevendaysWorkPlan } from "./components/planning/SevendaysWorkPlan";
+import { SevenDaysMaterialPlan } from "./components/planning/SevenDaysMaterialPlan";
 import { useUrlParam } from "@/hooks/useUrlParam";
 import { urlStateManager } from "@/utils/urlStateManager";
-import { SevenDayPlanningHeader } from "./components/SevenDayPlanningHeader";
-import { SevenDayPlanningTabs, PLANNING_TABS, PlanningTabValue } from "./components/SevenDayPlanningTabs";
+import { SevenDayPlanningHeader } from "./components/planning/SevenDayPlanningHeader";
+import { SevenDayPlanningTabs, PLANNING_TABS, PlanningTabValue } from "./components/planning/SevenDayPlanningTabs";
 
 export const SevenDayPlanningTab = ({ isOverview }: { isOverview?: boolean }) => {
   const { projectId } = useParams<{ projectId: string }>();

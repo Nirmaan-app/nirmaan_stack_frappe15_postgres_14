@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { WorkPlanItem, WorkPlanDoc, getColorForProgress } from "./SevendaysWorkPlan";
 import { ChevronDown, ChevronUp, ChevronRight } from "lucide-react";
 import { format } from "date-fns";
+import { safeFormatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
@@ -94,9 +95,9 @@ const OverviewMilestoneItem = ({ item }: { item: WorkPlanItem }) => {
                                         )}
                                     </div>
                                     <div className="text-xs text-gray-500 font-medium flex-1 text-center">
-                                        {plan.wp_start_date ? format(new Date(plan.wp_start_date), "do MMM, yyyy") : "-"} 
+                                        {safeFormatDate(plan.wp_start_date, "do MMM, yyyy")} 
                                         {" - "}
-                                        {plan.wp_end_date ? format(new Date(plan.wp_end_date), "do MMM, yyyy") : "-"}
+                                        {safeFormatDate(plan.wp_end_date, "do MMM, yyyy")}
                                     </div>
                                     <div className="shrink-0 w-[15%] flex justify-end">
                                          <Badge variant="outline" className={`px-2 py-0 h-5 text-[10px] ${

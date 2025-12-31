@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { useFrappeGetCall } from "frappe-react-sdk";
 import { format } from "date-fns";
+import { safeFormatDate } from "@/lib/utils";
 import { AlertCircle, Calendar, CheckCircle, Circle, Loader2, ChevronDown, ChevronUp, Pencil, Trash2,Download } from "lucide-react";
 import { ProgressCircle } from "@/components/ui/ProgressCircle";
 import { CreateWorkplantask } from "./CreateWorkplantask";
@@ -109,12 +110,12 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, isOverview }:
                 </td>
                 <td className="px-4 py-3 text-xs font-medium text-gray-700 border-b-0 text-center">
                     {item.expected_starting_date ? (
-                        <span className="text-red-600 font-bold">{format(new Date(item.expected_starting_date), "dd/MM/yyyy")}</span>
+                        <span className="text-red-600 font-bold">{safeFormatDate(item.expected_starting_date)}</span>
                     ) : "NA"}
                 </td>
                 <td className="px-4 py-3 text-xs font-medium text-gray-700 border-b-0 text-center">
                         {item.expected_completion_date ? (
-                        <span className="text-red-600 font-bold">{format(new Date(item.expected_completion_date), "dd/MM/yyyy")}</span>
+                        <span className="text-red-600 font-bold">{safeFormatDate(item.expected_completion_date)}</span>
                     ) : "NA"}
                 </td>
                 {!isOverview && (
@@ -177,14 +178,14 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, isOverview }:
                                                 <div className="flex flex-col items-center gap-1.5 w-[110px]">
                                                     <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Start Date</span>
                                                     <div className="w-full text-center rounded border px-2 py-1 text-xs font-semibold bg-white text-gray-700 shadow-sm truncate">
-                                                        {plan.wp_start_date ? format(new Date(plan.wp_start_date), "dd/MM/yyyy") : "-"}
+                                                        {safeFormatDate(plan.wp_start_date)}
                                                     </div>
                                                 </div>
 
                                                 <div className="flex flex-col items-center gap-1.5 w-[110px]">
                                                     <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">End Date</span>
                                                     <div className="w-full text-center rounded border px-2 py-1 text-xs font-semibold bg-white text-gray-700 shadow-sm truncate">
-                                                        {plan.wp_end_date ? format(new Date(plan.wp_end_date), "dd/MM/yyyy") : "-"}
+                                                        {safeFormatDate(plan.wp_end_date)}
                                                     </div>
                                                 </div>
                                             </div>

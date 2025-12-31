@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList, useFrappeDeleteDoc } from "frappe-react-sdk";
 import { format } from "date-fns";
+import { safeFormatDate } from "@/lib/utils";
 import { Loader2, AlertCircle, ChevronDown, ChevronUp, Package, Calendar, Trash2, Download } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,21 @@ interface SevenDaysMaterialPlanProps {
     endDate?: Date;
     isOverview?: boolean;
 }
+
+
+// Helper to safely parse mp_items
+const getMaterialItems = (plan: any): any[] => {
+    try {
+        const rawItems = plan.mp_items;
+        if (!rawItems) return [];
+        const parsed = typeof rawItems === 'string' ? JSON.parse(rawItems) : rawItems;
+        const list = parsed?.list || parsed;
+        return Array.isArray(list) ? list : (Array.isArray(parsed) ? parsed : []);
+    } catch (e) {
+        console.error("Failed to parse material items for plan:", plan.name, e);
+        return [];
+    }
+};
 
 
 export const SevenDaysMaterialPlan = ({ projectId, startDate, endDate, isOverview }: SevenDaysMaterialPlanProps) => {
@@ -287,27 +303,17 @@ export const SevenDaysMaterialPlan = ({ projectId, startDate, endDate, isOvervie
 
                 {existingPlans?.map((plan: any, index: number) => {
                     // Parse mp_items safely to get count
-                    let itemsCount = 0;
-                    try {
-                        const rawItems = plan.mp_items;
-                        const parsed = typeof rawItems === 'string' ? JSON.parse(rawItems) : rawItems;
-                        const items = parsed?.list || parsed; 
-                        if (Array.isArray(items)) itemsCount = items.length;
-                    } catch (e) {
-                         // ignore errors
-                    }
+                    const itemsList = getMaterialItems(plan);
+                    const itemsCount = itemsList.length;
 
                     // Calculate Plan Number (Oldest is Plan 1 if we sort desc)
                     const planNum = existingPlans.length - index;
                     const isExpanded = isOverview || expandedPlans.includes(plan.name);
 
                     // Parse items for display in expanded view
-                    let itemsList: any[] = [];
-                    try {
-                        const rawItems = plan.mp_items;
-                        const parsed = typeof rawItems === 'string' ? JSON.parse(rawItems) : rawItems;
-                        itemsList = Array.isArray(parsed?.list) ? parsed.list : (Array.isArray(parsed) ? parsed : []);
-                    } catch (e) { }
+                    // const itemsList = getMaterialItems(plan); // Already parsed above
+                    // Re-using itemsList from above scope if I can, but wait it's in the same scope?
+                    // Yes, I defined itemsList in the first replacement chunk. So I can just remove this block.
 
                     return (
                         <div key={plan.name} className="border border-gray-100 rounded-lg overflow-hidden shadow-sm transition-all bg-[#F5F7F9]">
@@ -361,7 +367,7 @@ export const SevenDaysMaterialPlan = ({ projectId, startDate, endDate, isOvervie
                                     <div className={`${isOverview ? "col-span-1 md:col-span-3" : "col-span-1 md:col-span-2"} flex flex-col justify-center`}>
                                         <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">Delivery Date</span>
                                         <span className="text-sm font-medium text-gray-800 whitespace-nowrap">
-                                            {plan.delivery_date ? format(new Date(plan.delivery_date), "dd/MM/yyyy") : "-"}
+                                            {safeFormatDate(plan.delivery_date)}
                                         </span>
                                     </div>
                                     {!isOverview && (

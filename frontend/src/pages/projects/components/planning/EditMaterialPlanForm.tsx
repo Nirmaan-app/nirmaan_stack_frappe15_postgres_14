@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { useFrappeGetDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { format } from "date-fns";
 import { Input } from "@/components/ui/input";
+import { useToast } from "@/components/ui/use-toast";
 
 interface EditMaterialPlanFormProps {
     plan: any;
@@ -27,6 +28,7 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
     }, [plan]);
 
     const isNewPO = plan.po_type === "New PO";
+    const { toast } = useToast();
 
     // State
     const [deliveryDate, setDeliveryDate] = useState<string>(plan.delivery_date || "");
@@ -96,7 +98,11 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
 
     const handleConfirm = async () => {
         if (!deliveryDate) {
-            alert("Please select a delivery date");
+            toast({
+                title: "Validation Error",
+                description: "Please select a delivery date",
+                variant: "destructive",
+            });
             return;
         }
 
@@ -105,7 +111,11 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
         if (isNewPO) {
              const lines = manualItemsText.split('\n').map(l => l.trim()).filter(Boolean);
              if (lines.length === 0) {
-                 alert("Please enter at least one item (one per line).");
+                 toast({
+                    title: "Validation Error",
+                    description: "Please enter at least one item (one per line).",
+                    variant: "destructive",
+                 });
                  return;
              }
              
@@ -124,7 +134,11 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
 
         } else {
             if (selectedCount === 0) {
-                alert("Please select at least one item");
+                toast({
+                    title: "Validation Error",
+                    description: "Please select at least one item",
+                    variant: "destructive",
+                });
                 return;
             }
              // Prepare items list with minimal fields
@@ -145,11 +159,20 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
                 delivery_date: deliveryDate,
                 mp_items: JSON.stringify({ list: itemsToSave })
             });
+            toast({
+                title: "Success",
+                description: "Material plan updated successfully",
+                variant: "default", // or "success" if you have it configured
+            });
             onSuccess();
             onClose();
         } catch (e) {
             console.error("Failed to update plan", e);
-            alert("Failed to update plan");
+            toast({
+                title: "Error",
+                description: "Failed to update plan. Please try again.",
+                variant: "destructive",
+            });
         }
     };
     

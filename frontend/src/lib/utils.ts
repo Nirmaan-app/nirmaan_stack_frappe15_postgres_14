@@ -7,8 +7,16 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 
+import { format, isValid } from "date-fns";
+
 export function getValidChildren(children: React.ReactNode) {
   return React.Children.toArray(children).filter((child) =>
     React.isValidElement(child)
   ) as React.ReactElement[];
+}
+
+export function safeFormatDate(date: string | Date | undefined | null, dateFormat: string = "dd/MM/yyyy"): string {
+    if (!date) return "-";
+    const d = new Date(date);
+    return isValid(d) ? format(d, dateFormat) : "-";
 }
