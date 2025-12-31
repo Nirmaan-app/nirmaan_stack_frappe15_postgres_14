@@ -16,7 +16,10 @@ def get_work_plan(project, start_date=None, end_date=None):
     """
     
     if not project:
-        return []
+        return {
+            "data": {},
+            "reason": "Project ID is missing"
+        }
 
     start = None
     end = None
@@ -29,13 +32,26 @@ def get_work_plan(project, start_date=None, end_date=None):
 
     p_doc = frappe.get_doc("Projects", project)
     if not p_doc:
-        return []
+        return {
+            "data": {},
+            "reason": "Project not found"
+        }
+
+    # Check if Project Milestone Tracking is enabled
+    if not p_doc.get("enable_project_milestone_tracking"):
+        return {
+            "data": {},
+            "reason": "This Project Not Enabled setup of Project Milestone Tracking"
+        }
 
     # Get Zones
     zones = [z.zone_name for z in p_doc.project_zones] if p_doc.get("project_zones") else []
 
     if not zones:
-        return []
+        return {
+            "data": {},
+            "reason": "No Zones linked to this Project"
+        }
 
     # Get sorting metadata
     headers_meta = frappe.get_all("Work Headers", fields=["work_header_name as name", "order"])
@@ -66,6 +82,9 @@ def get_work_plan(project, start_date=None, end_date=None):
             limit=1
         )
         
+        if not reports:
+            continue # Try next zone
+
         if reports:
             # Fetch full document to get child table data
             report_name = reports[0].name
@@ -140,4 +159,13 @@ def get_work_plan(project, start_date=None, end_date=None):
                 grouped_milestones[m.work_header] = []
             grouped_milestones[m.work_header].append(m)
 
-    return grouped_milestones
+    if not grouped_milestones:
+        return {
+            "data": {},
+            "reason": "No Milestones found in the Progress Reports for this Project."
+        }
+
+    return {
+        "data": grouped_milestones,
+        "reason": None
+    }
