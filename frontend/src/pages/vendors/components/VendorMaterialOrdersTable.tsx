@@ -1,9 +1,9 @@
-import React, { useCallback, useMemo, useState, useEffect } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { DataTable, SearchFieldOption } from '@/components/data-table/new-data-table'; // Your new DataTable
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { Badge } from "@/components/ui/badge";
-import { ProcurementOrder, PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders";
+import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { ColumnDef } from "@tanstack/react-table";
@@ -11,8 +11,6 @@ import { Link } from "react-router-dom";
 import { useServerDataTable } from '@/hooks/useServerDataTable'; // Your main hook
 import { formatDate } from '@/utils/FormatDate';
 import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
-import { useOrderTotals } from '@/hooks/useOrderTotals';
-import { useOrderPayments } from '@/hooks/useOrderPayments';
 import { PO_STATUS_OPTIONS } from '@/pages/ProcurementOrders/purchase-order/config/purchaseOrdersTable.config';
 
 // src/components/cells/OrderCategoriesCell.tsx
@@ -27,7 +25,7 @@ interface VendorMaterialOrdersTableProps {
 
 // Fields needed for this specific table
 const PO_TABLE_FIELDS: (keyof ProcurementOrder | 'name')[] = [
-    "name", "status", "creation", "project", "project_name", "procurement_request", "amount", "tax_amount", "total_amount", "po_amount_delivered",
+    "name", "status", "creation", "project", "project_name", "procurement_request", "amount", "tax_amount", "total_amount", "amount_paid",
 ];
 const PO_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "name", label: "PO ID", default: true },
@@ -56,9 +54,6 @@ export const VendorMaterialOrdersTable: React.FC<VendorMaterialOrdersTableProps>
         if (!prName || !procurementRequests) return "--";
         return procurementRequests.find(pr => pr.name === prName)?.work_package || "--";
     }, [procurementRequests]);
-
-    const { getTotalAmount } = useOrderTotals();
-    const { getAmount } = useOrderPayments();
 
 
     const facetFilterOptions = useMemo(() => ({
@@ -192,7 +187,7 @@ export const VendorMaterialOrdersTable: React.FC<VendorMaterialOrdersTableProps>
         {
 
             accessorKey: "amount",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Amount (Excl. GST)" className="justify-end" />,
+            header: ({ column }) => <DataTableColumnHeader column={column} title="PO Amount (Excl. GST)" className="justify-end" />,
 
             cell: ({ row }) => (
                 <div className="text-center font-medium">
@@ -203,7 +198,7 @@ export const VendorMaterialOrdersTable: React.FC<VendorMaterialOrdersTableProps>
         },
         {
             accessorKey: "total_amount",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Amount (Incl. GST)" className="justify-end" />,
+            header: ({ column }) => <DataTableColumnHeader column={column} title="PO Amount (Incl. GST)" className="justify-end" />,
             cell: ({ row }) => (
                 <div className="text-center font-medium">
                     {formatToRoundedIndianRupee(row.original.total_amount)}
@@ -222,16 +217,14 @@ export const VendorMaterialOrdersTable: React.FC<VendorMaterialOrdersTableProps>
         //     size: 180,
         // },
         {
-            id: "amount_paid",
-            header: "Amount Paid",
-            cell: ({ row }) => {
-                const totalPaid = getAmount(row.original.name, ["Paid"]);
-                return (
-                    <div className="text-center font-medium text-green-700">
-                        {formatToRoundedIndianRupee(totalPaid)}
-                    </div>
-                );
-            }, size: 180,
+            accessorKey: "amount_paid",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Amount Paid" className="justify-end" />,
+            cell: ({ row }) => (
+                <div className="text-center font-medium text-green-700">
+                    {formatToRoundedIndianRupee(row.original.amount_paid || 0)}
+                </div>
+            ),
+            size: 180,
         }
         // --- CHANGE END ---
         // {
@@ -264,7 +257,7 @@ export const VendorMaterialOrdersTable: React.FC<VendorMaterialOrdersTableProps>
         fetchFields: PO_TABLE_FIELDS as string[],
         searchableFields: PO_SEARCHABLE_FIELDS,
         urlSyncKey: `vendor_po_list_${vendorId}`,
-        additionalFilters: [["vendor", "=", vendorId], ["status", "not in", ["Merged","Inactive", "PO Amendment"]]],
+        additionalFilters: [["vendor", "=", vendorId], ["status", "not in", ["Merged", "Inactive", "PO Amendment"]]],
     });
 
     if (tableError) return <AlertDestructive error={tableError} />;
