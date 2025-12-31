@@ -12,6 +12,7 @@ import { TailSpin } from "react-loader-spinner";
 
 // UI Components
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 // Types
@@ -145,12 +146,18 @@ export const DocumentAttachments = <T extends DocumentType>({
 
   // --- Memoized Data ---
   const dcAttachments = useMemo(
-    () =>
-      attachmentsData?.filter(
+    () => {
+      const filtered = attachmentsData?.filter(
         (att) =>
-          att.attachment_type === "po delivery challan" ||
-          att.attachment_type === "dc attachment"
-      ) || [], // Add more DC types if needed
+          att.attachment_type === "delivery challan" ||
+          att.attachment_type === "material inspection report"
+      ) || [];
+
+      // Sort by creation date (newest first)
+      return filtered.sort((a, b) =>
+        new Date(b.creation).getTime() - new Date(a.creation).getTime()
+      );
+    },
     [attachmentsData]
   );
 
@@ -402,7 +409,12 @@ export const DocumentAttachments = <T extends DocumentType>({
         {/* Subtle styling */}
         <CardHeader className="border-b border-gray-200">
           <CardTitle className="flex justify-between items-center">
-            <p className="text-xl max-sm:text-lg text-red-600">Invoices</p>
+            <div className="flex items-center gap-2">
+              <p className="text-xl max-sm:text-lg text-red-600">Invoices</p>
+              <Badge variant="secondary" className="text-sm">
+                {documentData?.invoice_data?.data?.length || 0}
+              </Badge>
+            </div>
             <div className="flex gap-2 items-center">
               {docType === "Service Requests" &&
                 (documentData as ServiceRequests)?.gst !== "true" && (
@@ -459,10 +471,13 @@ export const DocumentAttachments = <T extends DocumentType>({
         !isPMUserChallans && (
  <Card className="rounded-md shadow-sm border border-gray-200 overflow-hidden">
           <CardHeader className="border-b border-gray-200">
-            <CardTitle>
+            <CardTitle className="flex items-center gap-2">
               <p className="text-lg font-semibold text-red-600">
-                Delivery Challans
+                Delivery Challans & MIRs
               </p>
+              <Badge variant="secondary" className="text-sm">
+                {dcAttachments.length}
+              </Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">

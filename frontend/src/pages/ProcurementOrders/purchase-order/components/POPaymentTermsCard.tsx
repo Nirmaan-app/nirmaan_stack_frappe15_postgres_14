@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { usePOValidation } from "@/hooks/usePOValidation";
+import { useUserData } from "@/hooks/useUserData";
 import {
   Tooltip,
   TooltipContent,
@@ -753,7 +754,9 @@ const RequestPaymentDialog = ({
   );
 };
 
-const PaymentTermRow = ({ term, onReques_tPayment }) => {
+const PaymentTermRow = ({ term, onReques_tPayment, role }) => {
+  const canRequestPayment = ["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role);
+
   return (
     <li className="flex justify-between items-center py-2.5 border-b border-gray-100 last:border-b-0">
       <div className="flex items-center gap-x-4 flex-1">
@@ -800,7 +803,7 @@ const PaymentTermRow = ({ term, onReques_tPayment }) => {
             canceled
           </Badge>
         )}
-        {term?.term_status === "Scheduled" && term.payment_type === "Credit" && (
+        {term?.term_status === "Scheduled" && term.payment_type === "Credit" && canRequestPayment && (
           <Button
             size="sm"
             className="bg-yellow-400 hover:bg-yellow-500 text-red text-xs h-7 px-3"
@@ -817,7 +820,7 @@ const PaymentTermRow = ({ term, onReques_tPayment }) => {
             {term.due_date}
           </Badge>
         )}
-        {term?.term_status === "Created" && term.payment_type !== "Credit" && (
+        {term?.term_status === "Created" && term.payment_type !== "Credit" && canRequestPayment && (
           <Button
             size="sm"
             className="bg-yellow-400 hover:bg-yellow-500 text-red text-xs h-7 px-3"
@@ -859,6 +862,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
   );
   const { updateDoc, loading: isUpdatingDoc } = useFrappeUpdateDoc();
   const { errors, isValid, hasVendorIssues } = usePOValidation(PO);
+  const { role } = useUserData();
   const {
     call: CreatePPApi,
     loading: CreatePPApiLoading,
@@ -902,7 +906,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
   
   
 
-  const isReadOnly = accountsPage || estimatesViewing || summaryPage|| PO.status ==="Inactive";
+  const isReadOnly = accountsPage || estimatesViewing || PO.status === "Inactive" || !["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role);
 
   // const isPaymentTermsEditable = useMemo(() => {
   //   if (
@@ -1116,6 +1120,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
                     term={term}
                     // displayStatus={term?.term_status}
                     onReques_tPayment={handleOpenRequestDialog}
+                    role={role}
                   />
                 ))
               ) : (

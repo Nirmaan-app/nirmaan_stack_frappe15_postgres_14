@@ -37,14 +37,24 @@ export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({ atta
         return 'View File'; // Default fallback
     };
 
+    // Helper to convert attachment_type to camel case
+    const toCamelCase = (str: string | undefined): string => {
+        if (!str) return 'N/A';
+        return str
+            .split(' ')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+            .join(' ');
+    };
+
 
     return (
         <Table>
             <TableHeader>
                 <TableRow>
                     <TableHead className="w-[60px] text-gray-700 font-semibold">S.No.</TableHead>
+                    <TableHead className="text-gray-700 font-semibold">Type</TableHead>
                     <TableHead className="text-gray-700 font-semibold">Date Added</TableHead>
-                    <TableHead className="text-gray-700 font-semibold">Delivery Challan</TableHead>
+                    <TableHead className="text-gray-700 font-semibold">Attachment</TableHead>
                 </TableRow>
             </TableHeader>
             <TableBody>
@@ -52,13 +62,14 @@ export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({ atta
                     attachments.map((att, index) => (
                         <TableRow key={att.name}>
                             <TableCell>{index + 1}</TableCell>
-                            <TableCell>{formatDate(new Date(att.creation), "dd-MMM-yyyy")}</TableCell> {/* Use consistent date format */}
+                            <TableCell className="font-medium">{toCamelCase(att.attachment_type)}</TableCell>
+                            <TableCell>{formatDate(new Date(att.creation), "dd-MMM-yyyy")}</TableCell>
                             <TableCell>
                                 <Button
                                     variant="link"
-                                    className="p-0 h-auto text-blue-600 hover:underline" // Allow more width
-                                    asChild // Use asChild to make the whole button the link
-                                    title={`View Delivery Challan added on ${formatDate(new Date(att.creation), "dd-MMM-yyyy")}`}
+                                    className="p-0 h-auto text-blue-600 hover:underline"
+                                    asChild
+                                    title={`View ${toCamelCase(att.attachment_type)} added on ${formatDate(new Date(att.creation), "dd-MMM-yyyy")}`}
                                 >
                                     <a href={`${SITEURL}${att.attachment}`} target="_blank" rel="noreferrer noopener">
                                         <LinkIcon className="h-4 w-4 mr-1 inline-block" />
@@ -70,8 +81,8 @@ export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({ atta
                     ))
                 ) : (
                     <TableRow>
-                        <TableCell colSpan={3} className="text-center py-4 text-gray-500">
-                            No Delivery Challans Found
+                        <TableCell colSpan={4} className="text-center py-4 text-gray-500">
+                            No Delivery Challans or MIRs Found
                         </TableCell>
                     </TableRow>
                 )}

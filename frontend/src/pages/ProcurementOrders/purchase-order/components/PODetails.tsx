@@ -393,54 +393,67 @@ const PoPaymentTermsValidationSafe = poPayments?.some(
     <div>
       <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
         <CardHeader>
-          {/* Main flex container for the two-column layout */}
-          <div className="flex justify-between items-start gap-4">
-            {/* --- Column 1: Title and Status --- */}
-            <div className="space-y-2">
-              <h1 className="text-2xl font-bold text-red-600">
-                PO Details
-                {/* Validation Warning Icon */}
-                {!isValid && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button>
-                        <TriangleAlert className="inline-block ml-2 text-primary max-sm:w-4 max-sm:h-4" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent
-                      side="bottom"
-                      className="bg-background border border-border text-foreground w-80"
-                    >
-                      <ValidationMessages
-                        title="Required Before Proceeding"
-                        errors={errors}
-                      />
-                    </TooltipContent>
-                  </Tooltip>
-                )}
-              </h1>
-              <div className="flex items-center gap-2">
+          {/* Responsive Layout - Stack on mobile, side-by-side on desktop */}
+          <div className="space-y-4">
+
+            {/* Row 1: Title, Status & Approved By */}
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3">
+              {/* Title and Status */}
+              <div className="space-y-2">
+                <h1 className="text-2xl max-sm:text-xl font-bold text-red-600">
+                  PO Details
+                  {/* Validation Warning Icon */}
+                  {!isValid && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button>
+                          <TriangleAlert className="inline-block ml-2 text-primary w-5 h-5 max-sm:w-4 max-sm:h-4" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent
+                        side="bottom"
+                        className="bg-background border border-border text-foreground w-80"
+                      >
+                        <ValidationMessages
+                          title="Required Before Proceeding"
+                          errors={errors}
+                        />
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                </h1>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-700">
+                    Status:
+                  </span>
+                  <Badge
+                    variant={
+                      po?.status === "PO Approved"
+                        ? "default"
+                        : po?.status === "Dispatched"
+                        ? "orange"
+                        : po?.status === "Inactive" ? "red" : "green"
+                    }
+                  >
+                    {po?.status}
+                  </Badge>
+                </div>
+              </div>
+
+              {/* Approved By - Desktop Only */}
+              <div className="hidden sm:flex items-center gap-2">
                 <span className="text-sm font-medium text-gray-700">
-                  Status:
+                  Approved By:
                 </span>
-                <Badge
-                  variant={
-                    po?.status === "PO Approved"
-                      ? "default"
-                      : po?.status === "Dispatched"
-                      ? "orange"
-                      :po?.status ==="Inactive"?"red":"green"
-                  }
-                >
-                  {po?.status}
-                </Badge>
+                <Badge variant="default">{po?.owner}</Badge>
               </div>
             </div>
 
-            {/* --- Column 2: Action Buttons and Approver Info --- */}
-            <div className="flex flex-col items-end gap-2">
-              {/* Container for all action buttons */}
-              <div className="flex items-center gap-2 flex-wrap justify-end">
+            {/* Row 2: Action Buttons */}
+            <div className="w-full">
+              {/* Container for all action buttons - horizontal scroll on mobile */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-2 sm:pb-0 sm:flex-wrap sm:justify-end">
+                {/* Buttons will scroll horizontally on mobile, wrap on desktop */}
                 {/* --- All Existing Button Logic is Preserved and Moved Here --- */}
 
                 {/* Request Payment Button */}
@@ -476,7 +489,7 @@ const PoPaymentTermsValidationSafe = poPayments?.some(
                 {po?.status !== "PO Approved" && po?.status !== "Inactive" && (
                   <Button
                     variant="outline"
-                    className="text-primary border-primary"
+                    className="text-primary border-primary shrink-0"
                     onClick={toggleNewInvoiceDialog}
                   >
                     Add Invoice
@@ -488,11 +501,12 @@ const PoPaymentTermsValidationSafe = poPayments?.some(
                   !accountsPage &&
                   !estimatesViewing &&
                   po?.status === "Dispatched" &&
-                  !((poPayments || [])?.length > 0) && (
+                  !((poPayments || [])?.length > 0) &&
+                  ["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) && (
                     <Button
                       variant="outline"
                       onClick={toggleRevertDialog}
-                      className="flex items-center gap-1 border-primary text-primary"
+                      className="flex items-center gap-1 border-primary text-primary shrink-0"
                     >
                       <Undo2 className="w-4 h-4" />
                       Revert
@@ -531,11 +545,12 @@ const PoPaymentTermsValidationSafe = poPayments?.some(
                 </Dialog>
 
                 {/* Update DN Button */}
-                {["Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) && (
+                {["Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) &&
+                  ["Nirmaan Admin Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) && (
                   <Button
                     onClick={toggleDeliveryNoteSheet}
                     variant="outline"
-                    className="flex items-center gap-1 border-primary text-primary"
+                    className="flex items-center gap-1 border-primary text-primary shrink-0"
                   >
                     Update Delivery
                   </Button>
@@ -585,7 +600,7 @@ const PoPaymentTermsValidationSafe = poPayments?.some(
                         variant="outline"
                         disabled={!isValid}
                         onClick={isValid ? togglePoPdfSheet : undefined}
-                        className="flex items-center gap-1 border-primary text-primary"
+                        className="flex items-center gap-1 border-primary text-primary shrink-0"
                       >
                         <Eye className="w-4 h-4" />
                         Preview
@@ -611,11 +626,12 @@ const PoPaymentTermsValidationSafe = poPayments?.some(
                   !accountsPage &&
                   !estimatesViewing &&
                   po?.status === "PO Approved" &&
-                  !((poPayments || [])?.length > 0) && (
+                  !((poPayments || [])?.length > 0) &&
+                  ["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) && (
                     <Button
                       onClick={toggleDeleteDialog}
                       variant="destructive"
-                      className="flex items-center gap-1"
+                      className="flex items-center gap-1 shrink-0"
                     >
                       <Trash2Icon className="w-4 h-4" />
                       Delete
@@ -659,13 +675,14 @@ const PoPaymentTermsValidationSafe = poPayments?.some(
                 {!summaryPage &&
                   !accountsPage &&
                   !estimatesViewing &&
-                  po?.status === "PO Approved" && (
+                  po?.status === "PO Approved" &&
+                  ["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) && (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
                           disabled={!isValid}
                           onClick={isValid ? toggleDispatchPODialog : undefined}
-                          className="flex items-center gap-1"
+                          className="flex items-center gap-1 shrink-0"
                         >
                           <Send className="h-4 w-4" />
                           Dispatch PO
@@ -1028,19 +1045,18 @@ const PoPaymentTermsValidationSafe = poPayments?.some(
                   </SheetContent>
                 </Sheet>
               </div>
-
-              {/* Approver Information */}
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-gray-700">
-                  Approved By:
-                </span>
-                <Badge variant={"default"}>{po?.owner}</Badge>
-              </div> 
-                        
             </div>
-            
-          </div>
-          <div className=" m-0 p-0">
+
+            {/* Row 3: Approved By - Mobile Only */}
+            <div className="sm:hidden flex items-center gap-2">
+              <span className="text-sm font-medium text-gray-700">
+                Approved By:
+              </span>
+              <Badge variant="default">{po?.owner}</Badge>
+            </div>
+
+            {/* Row 4: Mark Inactive Button (conditional) */}
+            <div className="m-0 p-0">
             {po &&
                 po.status !== "Inactive" &&
                 po.status !== "Cancelled" &&
@@ -1057,9 +1073,10 @@ const PoPaymentTermsValidationSafe = poPayments?.some(
                     <CircleX className="w-4 h-4 mr-1" />
                     Mark Inactive
                   </Button>
-                )} 
-          </div>
-             
+                )}
+            </div>
+
+          </div> {/* Close space-y-4 container */}
         </CardHeader>
 
         {/* <CardContent className="max-sm:text-xs">
@@ -1129,86 +1146,83 @@ const PoPaymentTermsValidationSafe = poPayments?.some(
           </div>
         </CardContent> */}
 
-        <CardContent className="max-sm:text-xs p-4"> {/* Added padding for better spacing */}
-    {/*
-        - Default (mobile): A 2-column grid.
-        - `sm` screens and up: A 3-column grid.
-        - `gap-x-4`: Horizontal space between columns.
-        - `gap-y-4`: Vertical space between rows.
-    */}
-    <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-4">
+        <CardContent className="p-4">
+          {/* Mobile: Single column with label-value rows | Desktop: 3-column grid */}
+          <div className="space-y-3 sm:space-y-0 sm:grid sm:grid-cols-3 sm:gap-x-6 sm:gap-y-4">
 
-        {/* --- Column 1 Items --- */}
-        <div className="flex flex-col gap-2">
-            <Label className="text-red-700">Vendor</Label>
-            <div>
+            {/* Vendor */}
+            <div className="flex justify-between sm:flex-col sm:gap-2">
+              <Label className="text-red-700 text-sm font-medium">Vendor</Label>
+              <div className="text-right sm:text-left">
                 <VendorHoverCard vendor_id={po?.vendor} />
                 {hasVendorIssues && (
-                    <ValidationIndicator
-                        error={errors.find((e) => e.code === "INCOMPLETE_VENDOR")}
-                    />
+                  <ValidationIndicator
+                    error={errors.find((e) => e.code === "INCOMPLETE_VENDOR")}
+                  />
                 )}
+              </div>
             </div>
-        </div>
-        <div className="flex flex-col gap-2 text-end sm:text-start sm:items-center">
-       <Label className="text-red-700">Total (Incl. GST)</Label>
-            <span>{formatToRoundedIndianRupee(po?.total_amount)}</span>
-            
-        </div>
-        <div className="flex flex-col gap-2 text-end sm:text-start sm:items-end">
-           
-             <Label className="text-red-700">Date Created</Label>
-           <span>{po?.creation?formatDate(po?.creation):"--"}</span>
-        </div>
-        
-        {/* --- Column 2 Items --- */}
-        <div className="flex flex-col gap-2">
-            <Label className="text-red-700">Package</Label>
-            <span>{pr?.work_package || "Custom"}</span>
-        </div>
-        <div className="flex flex-col gap-2 text-end sm:text-start sm:items-center">
-            <Label className="text-red-700">Total Invoiced Amount</Label>
-            <span>{totalInvoice ? formatToRoundedIndianRupee(totalInvoice) : "--"}</span>
-        </div>
-        <div className="flex flex-col gap-2 text-end sm:text-start sm:items-end">
-          <Label className="text-red-700">Date Dispatched</Label>
-            <span>{po?.dispatch_date?formatDate(po?.dispatch_date):"--"}</span>
-           
-        </div>
 
-         {/* --- Column 3 Items --- */}
-        <div className="flex flex-col gap-2">
-     <Label className="text-red-700">Total (Excl. GST)</Label>
-            <span>{formatToRoundedIndianRupee(po?.amount)}</span>
-        </div>
-        <div className="flex flex-col gap-2 text-end sm:text-start sm:items-center">
-             <Label className="text-red-700">Total Amount Paid</Label>
-            <span className="text-green-600"> {/* Added color for consistency */}
+            {/* Total (Incl. GST) */}
+            <div className="flex justify-between sm:flex-col sm:gap-2">
+              <Label className="text-red-700 text-sm font-medium">Total (Incl. GST)</Label>
+              <span className="font-semibold text-sm sm:text-base">{formatToRoundedIndianRupee(po?.total_amount)}</span>
+            </div>
+
+            {/* Date Created */}
+            <div className="flex justify-between sm:flex-col sm:gap-2">
+              <Label className="text-red-700 text-sm font-medium">Date Created</Label>
+              <span className="text-sm sm:text-base">{po?.creation ? formatDate(po?.creation) : "--"}</span>
+            </div>
+
+            {/* Package */}
+            <div className="flex justify-between sm:flex-col sm:gap-2">
+              <Label className="text-red-700 text-sm font-medium">Package</Label>
+              <span className="text-sm sm:text-base">{pr?.work_package || "Custom"}</span>
+            </div>
+
+            {/* Total Invoiced Amount */}
+            <div className="flex justify-between sm:flex-col sm:gap-2">
+              <Label className="text-red-700 text-sm font-medium">Total Invoiced Amount</Label>
+              <span className="text-sm sm:text-base">{totalInvoice ? formatToRoundedIndianRupee(totalInvoice) : "--"}</span>
+            </div>
+
+            {/* Date Dispatched */}
+            <div className="flex justify-between sm:flex-col sm:gap-2">
+              <Label className="text-red-700 text-sm font-medium">Date Dispatched</Label>
+              <span className="text-sm sm:text-base">{po?.dispatch_date ? formatDate(po?.dispatch_date) : "--"}</span>
+            </div>
+
+            {/* Total (Excl. GST) */}
+            <div className="flex justify-between sm:flex-col sm:gap-2">
+              <Label className="text-red-700 text-sm font-medium">Total (Excl. GST)</Label>
+              <span className="text-sm sm:text-base">{formatToRoundedIndianRupee(po?.amount)}</span>
+            </div>
+
+            {/* Total Amount Paid */}
+            <div className="flex justify-between sm:flex-col sm:gap-2">
+              <Label className="text-red-700 text-sm font-medium">Total Amount Paid</Label>
+              <span className="text-sm sm:text-base text-green-600 font-medium">
                 {amountPaid ? formatToRoundedIndianRupee(amountPaid) : "--"}
-            </span>
-        </div>
-        <div className="flex flex-col gap-2 text-end sm:text-start sm:items-end">
-            <Label className="text-red-700">Latest Delivery Date</Label>
-           <span>{po?.latest_delivery_date?formatDate(po?.latest_delivery_date):"--"}</span>
-        </div>
+              </span>
+            </div>
 
-        {/* --- Column 4 Items --- */}
-        <div className="flex flex-col gap-2">
-            {/* <Label className="text-red-700">Date Created</Label>
-           <span>{formatDate(po?.creation || "--")}</span> */}
-        </div>
-        <div className="flex flex-col gap-2 text-end sm:text-start sm:items-center">
-            {/* <Label className="text-red-700">Date Dispatched</Label>
-            <span>{formatDate(po?.dispatch_date || "--")}</span> */}
-        </div>
-        <div className="flex flex-col gap-2 text-end sm:text-start sm:items-end">
-            <Label className="text-red-700">Latest Payment Date</Label>
-           <span>{po?.latest_payment_date?formatDate(po?.latest_payment_date):"--"}</span>
-        </div>
-        
-       
-    </div>
-</CardContent>
+            {/* Latest Delivery Date */}
+            <div className="flex justify-between sm:flex-col sm:gap-2">
+              <Label className="text-red-700 text-sm font-medium">Latest Delivery Date</Label>
+              <span className="text-sm sm:text-base">{po?.latest_delivery_date ? formatDate(po?.latest_delivery_date) : "--"}</span>
+            </div>
+
+            {/* Latest Payment Date (only show if exists) */}
+            {po?.latest_payment_date && (
+              <div className="flex justify-between sm:flex-col sm:gap-2 sm:col-start-3">
+                <Label className="text-red-700 text-sm font-medium">Latest Payment Date</Label>
+                <span className="text-sm sm:text-base">{formatDate(po?.latest_payment_date)}</span>
+              </div>
+            )}
+
+          </div>
+        </CardContent>
 
        
       </Card>
