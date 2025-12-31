@@ -95,7 +95,7 @@ export const DeliveryChallansAndMirs = () => {
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
 
   // Fetch all POs with Partially Delivered or Delivered status using custom API
-  const { data: deliveryChallanData, isLoading, error: apiError, mutate: mutatePOs } = useFrappeGetCall<{message: DeliveryChallanAPIResponse}>(
+  const { data: deliveryChallanData, isLoading, error: apiError, mutate: mutatePOs } = useFrappeGetCall<{ message: DeliveryChallanAPIResponse }>(
     "nirmaan_stack.api.delivery_challans_data.get_delivery_challan_pos_with_categories",
     selectedProject ? { project_id: selectedProject } : undefined,
     selectedProject ? undefined : null, // Only fetch when project is selected
@@ -781,7 +781,7 @@ export const DeliveryChallansAndMirs = () => {
                                     <Eye className="h-4 w-4" />
                                     View
                                   </Button>
-                                  <Button
+                                  {/* <Button
                                     variant="outline"
                                     size="sm"
                                     onClick={() =>
@@ -793,7 +793,7 @@ export const DeliveryChallansAndMirs = () => {
                                     className="flex items-center gap-1"
                                   >
                                     <Download className="h-4 w-4" />
-                                  </Button>
+                                  </Button> */}
                                 </div>
                               </div>
                             </CardContent>
@@ -845,7 +845,7 @@ export const DeliveryChallansAndMirs = () => {
                                     <Eye className="h-4 w-4" />
                                     View
                                   </Button>
-                                  <Button
+                                  {/* <Button
                                     variant="outline"
                                     size="sm"
                                     onClick={() =>
@@ -857,7 +857,7 @@ export const DeliveryChallansAndMirs = () => {
                                     className="flex items-center gap-1"
                                   >
                                     <Download className="h-4 w-4" />
-                                  </Button>
+                                  </Button> */}
                                 </div>
                               </div>
                             </CardContent>
