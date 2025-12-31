@@ -2,18 +2,20 @@ import { usePOValidation } from "@/hooks/usePOValidation";
 import { useUserData } from "@/hooks/useUserData";
 import DeliveryHistoryTable from "@/pages/DeliveryNotes/components/DeliveryHistory";
 import { DeliveryNoteItemsDisplay } from "@/pages/DeliveryNotes/components/deliveryNoteItemsDisplay";
-import { ProcurementOrder,DeliveryDataType } from "@/types/NirmaanStack/ProcurementOrders";
+import { ProcurementOrder, DeliveryDataType } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { formatDate } from "@/utils/FormatDate";
 import { useDeliveryNoteData } from "../../../DeliveryNotes/hooks/useDeliveryNoteData";
-import {  ROUTE_PATHS,
+import {
+  ROUTE_PATHS,
   STATUS_BADGE_VARIANT,
   DOCUMENT_PREFIX,
   encodeFrappeId,
   formatDisplayId,
   safeJsonParse,
-  deriveDnIdFromPoId} from "@/pages/DeliveryNotes/constants";
+  deriveDnIdFromPoId
+} from "@/pages/DeliveryNotes/constants";
 import formatToIndianRupee, {
   formatToRoundedIndianRupee,
 } from "@/utils/FormatPrice";
@@ -37,7 +39,7 @@ import {
   TriangleAlert,
   Undo2,
 } from "lucide-react";
-import React, { useCallback, useRef, useState ,useMemo} from "react";
+import React, { useCallback, useRef, useState, useMemo } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate } from "react-router-dom";
 import { VendorHoverCard } from "@/components/helpers/vendor-hover-card";
@@ -127,7 +129,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
   const navigate = useNavigate();
 
   // console.log("po", po);
-  
+
   const { data: pr } = useFrappeGetDoc<ProcurementRequest>(
     "Procurement Requests",
     po?.procurement_request,
@@ -146,9 +148,9 @@ export const PODetails: React.FC<PODetailsProps> = ({
 
   const [inactiveDialog, setInactiveDialog] = useState(false);
 
-const toggleInactiveDialog = useCallback(() => {
+  const toggleInactiveDialog = useCallback(() => {
     setInactiveDialog((prevState) => !prevState);
-}, []); // No dependencies needed for simple toggle
+  }, []); // No dependencies needed for simple toggle
 
   const { toggleNewInvoiceDialog } = useDialogStore();
 
@@ -287,15 +289,15 @@ const toggleInactiveDialog = useCallback(() => {
 
 
   const {
-      deliveryNoteId,
-      poId,
-      data: deliveryNoteData,
-      isLoading,
-      error,
-      mutate: refetchDeliveryNoteData
-    } = useDeliveryNoteData();
+    deliveryNoteId,
+    poId,
+    data: deliveryNoteData,
+    isLoading,
+    error,
+    mutate: refetchDeliveryNoteData
+  } = useDeliveryNoteData();
 
-    
+
   // --- (Indicator) STEP 1: Implement the print logic hooks ---
   const printComponentRef = useRef<HTMLDivElement>(null);
   const { triggerHistoryPrint, PrintableHistoryComponent } = usePrintHistory(deliveryNoteData);
@@ -311,15 +313,15 @@ const toggleInactiveDialog = useCallback(() => {
   });
 
   const deliveryHistory = useMemo(() =>
-      safeJsonParse<{ data: DeliveryDataType }>(deliveryNoteData?.delivery_data, { data: {} }),
-      [deliveryNoteData?.delivery_data]
-    );
-    const displayDnId = useMemo(() =>
-        formatDisplayId(deliveryNoteId, DOCUMENT_PREFIX.DELIVERY_NOTE),
-        [deliveryNoteId]
-      );
+    safeJsonParse<{ data: DeliveryDataType }>(deliveryNoteData?.delivery_data, { data: {} }),
+    [deliveryNoteData?.delivery_data]
+  );
+  const displayDnId = useMemo(() =>
+    formatDisplayId(deliveryNoteId, DOCUMENT_PREFIX.DELIVERY_NOTE),
+    [deliveryNoteId]
+  );
 
-      
+
   const downloadurl =
     "http://localhost:8000/api/method/frappe.utils.print_format.download_pdf";
 
@@ -359,35 +361,35 @@ const toggleInactiveDialog = useCallback(() => {
 
   // ... existing functions (handleDispatchPO, handleRevertPO, handleDeleteCustomPO) ...
 
-const handleInactivePO = async () => {
+  const handleInactivePO = async () => {
     try {
-        await updateDoc("Procurement Orders", po.name, {
-            status: "Inactive", // Set the new status
-        });
+      await updateDoc("Procurement Orders", po.name, {
+        status: "Inactive", // Set the new status
+      });
 
-        await poMutate(); // Re-fetch PO data to update the UI
+      await poMutate(); // Re-fetch PO data to update the UI
 
-        toast({
-            title: "Success!",
-            description: `PO: ${po.name} has been marked as 'Inactive'.`,
-            variant: "success",
-        });
-        toggleInactiveDialog(); // Close the dialog whether successful or not
-        // Redirect to a suitable page, e.g., the main purchase orders list
-        navigate(`/purchase-orders`); // Or specific tab if applicable, e.g., /purchase-orders?tab=Inactive+PO
+      toast({
+        title: "Success!",
+        description: `PO: ${po.name} has been marked as 'Inactive'.`,
+        variant: "success",
+      });
+      toggleInactiveDialog(); // Close the dialog whether successful or not
+      // Redirect to a suitable page, e.g., the main purchase orders list
+      navigate(`/purchase-orders`); // Or specific tab if applicable, e.g., /purchase-orders?tab=Inactive+PO
     } catch (error: any) { // Type 'any' for error caught from Frappe hook
-        console.error("Error while inactivating PO:", error);
-        toast({
-            title: "Failed!",
-            description: `Failed to mark PO: ${po.name} as Inactive. Error: ${error.message || 'Unknown error'}`,
-            variant: "destructive",
-        });
-    } 
-};
+      console.error("Error while inactivating PO:", error);
+      toast({
+        title: "Failed!",
+        description: `Failed to mark PO: ${po.name} as Inactive. Error: ${error.message || 'Unknown error'}`,
+        variant: "destructive",
+      });
+    }
+  };
 
-const PoPaymentTermsValidationSafe = poPayments?.some(
-  (term) => term.status === "Requested" || term.status === "Approved"
-) || false;
+  const PoPaymentTermsValidationSafe = poPayments?.some(
+    (term) => term.status === "Requested" || term.status === "Approved"
+  ) || false;
 
   return (
     <div>
@@ -431,8 +433,8 @@ const PoPaymentTermsValidationSafe = poPayments?.some(
                       po?.status === "PO Approved"
                         ? "default"
                         : po?.status === "Dispatched"
-                        ? "orange"
-                        : po?.status === "Inactive" ? "red" : "green"
+                          ? "orange"
+                          : po?.status === "Inactive" ? "red" : "green"
                     }
                   >
                     {po?.status}
@@ -547,14 +549,14 @@ const PoPaymentTermsValidationSafe = poPayments?.some(
                 {/* Update DN Button */}
                 {["Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) &&
                   ["Nirmaan Admin Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) && (
-                  <Button
-                    onClick={toggleDeliveryNoteSheet}
-                    variant="outline"
-                    className="flex items-center gap-1 border-primary text-primary shrink-0"
-                  >
-                    Update Delivery
-                  </Button>
-                )}
+                    <Button
+                      onClick={toggleDeliveryNoteSheet}
+                      variant="outline"
+                      className="flex items-center gap-1 border-primary text-primary shrink-0"
+                    >
+                      Update Delivery
+                    </Button>
+                  )}
                 <Sheet
                   open={deliveryNoteSheet}
                   onOpenChange={toggleDeliveryNoteSheet}
@@ -576,13 +578,13 @@ const PoPaymentTermsValidationSafe = poPayments?.some(
                     </SheetHeader>
                     <div className="space-y-4">
                       <DeliveryNoteItemsDisplay
-                              data={deliveryNoteData}
-            poMutate={refetchDeliveryNoteData}
+                        data={deliveryNoteData}
+                        poMutate={refetchDeliveryNoteData}
                       />
 
                       <DeliveryHistoryTable
-                         deliveryData={deliveryHistory.data}
-            onPrintHistory={triggerHistoryPrint}
+                        deliveryData={deliveryHistory.data}
+                        onPrintHistory={triggerHistoryPrint}
                       />
                     </div>
                   </SheetContent>
@@ -594,31 +596,31 @@ const PoPaymentTermsValidationSafe = poPayments?.some(
                   accountsPage ||
                   estimatesViewing ||
                   role !== "Nirmaan Procurement Executive Profile") && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="outline"
-                        disabled={!isValid}
-                        onClick={isValid ? togglePoPdfSheet : undefined}
-                        className="flex items-center gap-1 border-primary text-primary shrink-0"
-                      >
-                        <Eye className="w-4 h-4" />
-                        Preview
-                      </Button>
-                    </TooltipTrigger>
-                    {!isValid && (
-                      <TooltipContent
-                        side="bottom"
-                        className="bg-background border border-border text-foreground w-80"
-                      >
-                        <ValidationMessages
-                          title="Required Before Preview"
-                          errors={errors}
-                        />
-                      </TooltipContent>
-                    )}
-                  </Tooltip>
-                )}
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="outline"
+                          disabled={!isValid}
+                          onClick={isValid ? togglePoPdfSheet : undefined}
+                          className="flex items-center gap-1 border-primary text-primary shrink-0"
+                        >
+                          <Eye className="w-4 h-4" />
+                          Preview
+                        </Button>
+                      </TooltipTrigger>
+                      {!isValid && (
+                        <TooltipContent
+                          side="bottom"
+                          className="bg-background border border-border text-foreground w-80"
+                        >
+                          <ValidationMessages
+                            title="Required Before Preview"
+                            errors={errors}
+                          />
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
+                  )}
 
                 {/* Delete Custom PO Button */}
                 {po?.custom === "true" &&
@@ -1057,12 +1059,12 @@ const PoPaymentTermsValidationSafe = poPayments?.some(
 
             {/* Row 4: Mark Inactive Button (conditional) */}
             <div className="m-0 p-0">
-            {po &&
+              {po &&
                 po.status !== "Inactive" &&
                 po.status !== "Cancelled" &&
                 po.status !== "Merged" &&
                 po.status !== "PO Approved" &&
-                po?.amount_paid <=100 &&
+                po?.amount_paid <= 100 &&
                 !PoPaymentTermsValidationSafe &&
                 (["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role)) && (
                   <Button
@@ -1165,7 +1167,7 @@ const PoPaymentTermsValidationSafe = poPayments?.some(
 
             {/* Total (Incl. GST) */}
             <div className="flex justify-between sm:flex-col sm:gap-2">
-              <Label className="text-red-700 text-sm font-medium">Total (Incl. GST)</Label>
+              <Label className="text-red-700 text-sm font-medium">PO Amount(Incl. GST)</Label>
               <span className="font-semibold text-sm sm:text-base">{formatToRoundedIndianRupee(po?.total_amount)}</span>
             </div>
 
@@ -1195,7 +1197,7 @@ const PoPaymentTermsValidationSafe = poPayments?.some(
 
             {/* Total (Excl. GST) */}
             <div className="flex justify-between sm:flex-col sm:gap-2">
-              <Label className="text-red-700 text-sm font-medium">Total (Excl. GST)</Label>
+              <Label className="text-red-700 text-sm font-medium">PO Amount(Excl. GST)</Label>
               <span className="text-sm sm:text-base">{formatToRoundedIndianRupee(po?.amount)}</span>
             </div>
 
@@ -1224,43 +1226,43 @@ const PoPaymentTermsValidationSafe = poPayments?.some(
           </div>
         </CardContent>
 
-       
+
       </Card>
 
 
-   
-  {/* NEW: Inactive Confirmation Dialog */}  
-<Dialog open={inactiveDialog} onOpenChange={toggleInactiveDialog}>
-  <DialogContent>
-    <DialogHeader>
-      <DialogTitle>Are you sure?</DialogTitle>
-      <DialogDescription>
-        Clicking on Confirm will mark this PO as{" "}
-        <span className="text-destructive font-semibold">Inactive</span>.
-         {/* This action can be reversed if needed. */}
-      </DialogDescription>
-    </DialogHeader>
 
-    <div className="flex items-center justify-end gap-2">
-      {update_loading ? ( // Use update_loading from useFrappeUpdateDoc
-        <TailSpin color="red" height={40} width={40} />
-      ) : (
-        <>
-          <DialogClose asChild>
-            <Button variant={"outline"}>
-              <CircleX className="h-4 w-4 mr-1" />
-              Cancel
-            </Button>
-          </DialogClose>
-          <Button onClick={handleInactivePO} variant="destructive">
-            <CheckCheck className="h-4 w-4 mr-1" />
-            Confirm Inactive
-          </Button>
-        </>
-      )}
-    </div>
-  </DialogContent>
-</Dialog>
+      {/* NEW: Inactive Confirmation Dialog */}
+      <Dialog open={inactiveDialog} onOpenChange={toggleInactiveDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Are you sure?</DialogTitle>
+            <DialogDescription>
+              Clicking on Confirm will mark this PO as{" "}
+              <span className="text-destructive font-semibold">Inactive</span>.
+              {/* This action can be reversed if needed. */}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex items-center justify-end gap-2">
+            {update_loading ? ( // Use update_loading from useFrappeUpdateDoc
+              <TailSpin color="red" height={40} width={40} />
+            ) : (
+              <>
+                <DialogClose asChild>
+                  <Button variant={"outline"}>
+                    <CircleX className="h-4 w-4 mr-1" />
+                    Cancel
+                  </Button>
+                </DialogClose>
+                <Button onClick={handleInactivePO} variant="destructive">
+                  <CheckCheck className="h-4 w-4 mr-1" />
+                  Confirm Inactive
+                </Button>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
       {/* --- (Indicator) STEP 3: Add the hidden printable components to the JSX --- */}
       <div className="hidden">
         {/* This is for the overall DN print */}
