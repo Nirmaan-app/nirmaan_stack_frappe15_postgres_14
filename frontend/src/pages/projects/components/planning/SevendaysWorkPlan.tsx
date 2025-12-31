@@ -153,12 +153,18 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, isOverview }:
                                             {/* Left: Title and Note */}
                                             <div className="space-y-1.5 w-[300px] shrink-0 pr-4">
                                                 <div className="font-semibold text-gray-900 text-sm leading-tight truncate" title={plan.wp_title}>{plan.wp_title}</div>
-                                                {plan.wp_description && (
+                                                {/* {plan.wp_description && (
                                                     <div className="text-xs italic text-gray-500 line-clamp-2 leading-relaxed">
                                                         <span className="font-medium text-amber-600 not-italic">Note: </span>
                                                         {plan.wp_description}
                                                     </div>
-                                                )}
+                                                )} */}
+                                                 {plan.wp_description && (
+                                            <div className="text-xs text-gray-500 whitespace-normal break-words leading-relaxed" title={plan.wp_description}>
+                                                <span className="font-semibold text-yellow-600">Note: </span>
+                                                {plan.wp_description}
+                                            </div>
+                                        )}
                                             </div>
                                             
                                             {/* Center: Status and Date Metadata */}
