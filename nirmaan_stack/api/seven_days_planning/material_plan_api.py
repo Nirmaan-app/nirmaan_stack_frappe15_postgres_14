@@ -6,7 +6,10 @@ def get_material_plan_data(project=None, procurement_package=None, mode=None, po
         return {"message": {} if not procurement_package else []}
 
     # 1. Fetch Basic PO List to identify relevant POs and their PR links
-    filters = {"project": project, "status": ["!=", "Cancelled"]}
+    filters = {
+        "project": project, 
+        "status": ["not in", ["Cancelled", "Merged", "Inactive", "PO Amendment"]]
+    }
     if po:
         filters["name"] = po
 
