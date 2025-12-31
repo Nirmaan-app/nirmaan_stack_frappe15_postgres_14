@@ -1,0 +1,87 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-12-26 16:43:11.877729",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "links_section",
+  "project",
+  "po_link",
+  "package_name",
+  "material_plan_section",
+  "mp_items",
+  "delivery_date",
+  "po_type"
+ ],
+ "fields": [
+  {
+   "fieldname": "links_section",
+   "fieldtype": "Section Break",
+   "label": "Links"
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Projects"
+  },
+  {
+   "fieldname": "po_link",
+   "fieldtype": "Link",
+   "label": "PO Link",
+   "options": "Procurement Orders"
+  },
+  {
+   "fieldname": "package_name",
+   "fieldtype": "Data",
+   "label": "Package Name"
+  },
+  {
+   "fieldname": "material_plan_section",
+   "fieldtype": "Section Break",
+   "label": "Material Plan"
+  },
+  {
+   "fieldname": "mp_items",
+   "fieldtype": "JSON",
+   "label": "MP_Items"
+  },
+  {
+   "fieldname": "delivery_date",
+   "fieldtype": "Date",
+   "label": "Delivery Date"
+  },
+  {
+   "fieldname": "po_type",
+   "fieldtype": "Data",
+   "label": "PO Type"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-12-30 14:14:22.163262",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Material Delivery Plan",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
