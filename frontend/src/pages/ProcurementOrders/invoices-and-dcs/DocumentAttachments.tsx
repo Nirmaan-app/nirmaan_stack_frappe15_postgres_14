@@ -149,7 +149,7 @@ export const DocumentAttachments = <T extends DocumentType>({
     () => {
       const filtered = attachmentsData?.filter(
         (att) =>
-          att.attachment_type === "delivery challan" ||
+          att.attachment_type === "po delivery challan" ||
           att.attachment_type === "material inspection report"
       ) || [];
 
@@ -412,7 +412,7 @@ export const DocumentAttachments = <T extends DocumentType>({
             <div className="flex items-center gap-2">
               <p className="text-xl max-sm:text-lg text-red-600">Invoices</p>
               <Badge variant="secondary" className="text-sm">
-                {documentData?.invoice_data?.data?.length || 0}
+                {documentData?.invoice_data?.data ? Object.keys(documentData.invoice_data.data).length : 0}
               </Badge>
             </div>
             <div className="flex gap-2 items-center">

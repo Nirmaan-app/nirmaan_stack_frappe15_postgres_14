@@ -1068,7 +1068,7 @@ export const PurchaseOrder = ({
 
   // Calculate invoice count
   const invoiceCount = useMemo(
-    () => invoicePO?.invoice_data?.data?.length || 0,
+    () => (invoicePO?.invoice_data?.data ? Object.keys(invoicePO.invoice_data.data).length : 0),
     [invoicePO]
   );
 
@@ -1077,7 +1077,7 @@ export const PurchaseOrder = ({
     () =>
       poAttachmentsData?.filter(
         (att) =>
-          att.attachment_type === "delivery challan" ||
+          att.attachment_type === "po delivery challan" ||
           att.attachment_type === "material inspection report"
       ).length || 0,
     [poAttachmentsData]

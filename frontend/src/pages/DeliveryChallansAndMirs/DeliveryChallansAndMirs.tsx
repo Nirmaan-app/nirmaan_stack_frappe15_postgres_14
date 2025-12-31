@@ -132,7 +132,7 @@ export const DeliveryChallansAndMirs = () => {
       filters: [
         ["project", "=", selectedProject],
         ["associated_doctype", "=", "Procurement Orders"],
-        ["attachment_type", "in", ["delivery challan", "material inspection report"]],
+        ["attachment_type", "in", ["po delivery challan", "material inspection report"]],
       ],
       limit: 10000,
     },
@@ -147,7 +147,7 @@ export const DeliveryChallansAndMirs = () => {
       filters: [
         ["associated_doctype", "=", "Procurement Orders"],
         ["associated_docname", "=", viewAttachmentsDialog.poId],
-        ["attachment_type", "in", ["delivery challan", "material inspection report"]],
+        ["attachment_type", "in", ["po delivery challan", "material inspection report"]],
       ],
       orderBy: { field: "creation", order: "desc" },
       limit: 1000,
@@ -268,7 +268,7 @@ export const DeliveryChallansAndMirs = () => {
       }
 
       // Step 3: Create Nirmaan Attachments record
-      const attachmentType = uploadDialog.type === "DC" ? "delivery challan" : "material inspection report";
+      const attachmentType = uploadDialog.type === "DC" ? "po delivery challan" : "material inspection report";
 
       const attachmentDoc = {
         doctype: "Nirmaan Attachments",
@@ -322,7 +322,7 @@ export const DeliveryChallansAndMirs = () => {
   const groupedAttachments = useMemo(() => {
     if (!attachmentsList) return { dc: [], mir: [] };
 
-    const dc = attachmentsList.filter((att) => att.attachment_type === "delivery challan");
+    const dc = attachmentsList.filter((att) => att.attachment_type === "po delivery challan");
     const mir = attachmentsList.filter((att) => att.attachment_type === "material inspection report");
 
     return { dc, mir };
@@ -333,7 +333,7 @@ export const DeliveryChallansAndMirs = () => {
     if (!projectAttachmentsList) return { dc: 0, mir: 0, total: 0 };
 
     const poAttachments = projectAttachmentsList.filter((att) => att.associated_docname === poName);
-    const dc = poAttachments.filter((att) => att.attachment_type === "delivery challan").length;
+    const dc = poAttachments.filter((att) => att.attachment_type === "po delivery challan").length;
     const mir = poAttachments.filter((att) => att.attachment_type === "material inspection report").length;
 
     return { dc, mir, total: dc + mir };

@@ -374,7 +374,7 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
           {/* {data?.status !== "Delivered" && ( */}
           {showEdit ? (
             <div className="flex flex-wrap gap-2 items-center">
-              <CustomAttachment maxFileSize={20 * 1024 * 1024} selectedFile={selectedAttachment} onFileSelect={setSelectedAttachment} label="Attach DC" className="w-auto" />
+              {/* <CustomAttachment maxFileSize={20 * 1024 * 1024} selectedFile={selectedAttachment} onFileSelect={setSelectedAttachment} label="Attach DC" className="w-auto" /> */}
               <div className="flex gap-2">
                 <Button onClick={() => setProceedDialog(true)} disabled={!hasChanges} size="sm" className="gap-1"><ListChecks className="h-4 w-4" /> Update</Button>
                 <Button onClick={() => setShowEdit(false)} variant="secondary" size="sm" className="gap-1"><X className="h-4 w-4" /> Cancel</Button>
