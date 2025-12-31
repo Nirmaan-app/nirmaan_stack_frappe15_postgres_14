@@ -126,8 +126,8 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
                  name: `manual-${Date.now()}-${idx}`, // New temp names
                  item_name: line,
                  item_id: `TEMP-${Date.now()}-${idx}`,
-                 quantity: 0, // Default or ignored
-                 unit: "",
+                //  quantity: 0, // Default or ignored
+                //  unit: "",
                  procurement_package: plan.package_name,
                  category: ""
              }));
@@ -149,7 +149,7 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
                     item_id: item.item_id,
                     item_name: item.item_name,
                     procurement_package: item.procurement_package,
-                    unit: item.unit,
+                    // unit: item.unit,
                     category: item.category
                 }));
         }
@@ -288,7 +288,7 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
                                                     {item.item_name}
                                                 </label>
                                                 <div className="flex gap-4 mt-1 text-xs text-gray-500">
-                                                    <span>Qty: {item.quantity} {item.unit}</span>
+                                                    {/* <span>Qty: {item.quantity} {item.unit}</span> */}
                                                     {/* <span>Rate: ₹{item.rate}</span> */}
                                                 </div>
                                             </div>

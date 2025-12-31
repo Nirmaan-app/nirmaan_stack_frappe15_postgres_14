@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 export const PLANNING_TABS = {
   WORK_PLAN: "Work Plan",
   MATERIAL_PLAN: "Material Plan",
-  FINANCIAL_PLAN: "Financial Plan",
+  // FINANCIAL_PLAN: "Financial Plan",
 } as const;
 
 export type PlanningTabValue = typeof PLANNING_TABS[keyof typeof PLANNING_TABS];
@@ -21,7 +21,9 @@ export const SevenDayPlanningTabs = ({
 }: SevenDayPlanningTabsProps) => {
   return (
     <div className="flex border rounded-md w-fit overflow-hidden border-[#D7D7EC]">
-      {[PLANNING_TABS.WORK_PLAN, PLANNING_TABS.MATERIAL_PLAN, PLANNING_TABS.FINANCIAL_PLAN].map((tab) => (
+      {/* {[PLANNING_TABS.WORK_PLAN, PLANNING_TABS.MATERIAL_PLAN, PLANNING_TABS.FINANCIAL_PLAN].map((tab) => ( */}
+      {[PLANNING_TABS.WORK_PLAN, PLANNING_TABS.MATERIAL_PLAN].map((tab) => (
+
         <button
           key={tab}
           onClick={() => setActiveTab(tab)}

@@ -153,12 +153,18 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, isOverview }:
                                             {/* Left: Title and Note */}
                                             <div className="space-y-1.5 w-[300px] shrink-0 pr-4">
                                                 <div className="font-semibold text-gray-900 text-sm leading-tight truncate" title={plan.wp_title}>{plan.wp_title}</div>
-                                                {plan.wp_description && (
+                                                {/* {plan.wp_description && (
                                                     <div className="text-xs italic text-gray-500 line-clamp-2 leading-relaxed">
                                                         <span className="font-medium text-amber-600 not-italic">Note: </span>
                                                         {plan.wp_description}
                                                     </div>
-                                                )}
+                                                )} */}
+                                                 {plan.wp_description && (
+                                            <div className="text-xs text-gray-500 whitespace-normal break-words leading-relaxed" title={plan.wp_description}>
+                                                <span className="font-semibold text-yellow-600">Note: </span>
+                                                {plan.wp_description}
+                                            </div>
+                                        )}
                                             </div>
                                             
                                             {/* Center: Status and Date Metadata */}
@@ -236,7 +242,10 @@ export const SevendaysWorkPlan = ({
     const shouldFetch = projectId;
     // Response is Record<WorkHeader, WorkPlanItem[]>
     const { data: result, error, isLoading: loading, mutate } = useFrappeGetCall<{
-        message: Record<string, WorkPlanItem[]>;
+        message: {
+            data: Record<string, WorkPlanItem[]>;
+            reason: string | null;
+        }
     }>(
         shouldFetch
             ? "nirmaan_stack.api.seven_days_planning.work_plan_api.get_work_plan"
@@ -432,12 +441,12 @@ export const SevendaysWorkPlan = ({
         );
     }
 
-    let workHeaders = result?.message ? Object.keys(result.message) : [];
+    let workHeaders = result?.message?.data ? Object.keys(result.message.data) : [];
     
     // Filter headers if isOverview is true
-    if (isOverview && result?.message) {
+    if (isOverview && result?.message?.data) {
         workHeaders = workHeaders.filter(header => {
-            const items = result.message[header];
+            const items = result.message.data[header];
             // Keep header only if it has at least one item with planned activities
             return items?.some(item => item.work_plan_doc && item.work_plan_doc.length > 0);
         });
@@ -446,8 +455,8 @@ export const SevendaysWorkPlan = ({
     const hasData = workHeaders.length > 0;
 
     let totalPlannedActivities = 0;
-    if (result?.message) {
-        Object.values(result.message).forEach((items) => {
+    if (result?.message?.data) {
+        Object.values(result.message.data).forEach((items) => {
             items.forEach((item) => {
                 totalPlannedActivities += item.work_plan_doc?.length || 0;
             });
@@ -491,11 +500,11 @@ export const SevendaysWorkPlan = ({
                     <div className="p-2 space-y-4">
                         {!hasData ? (
                             <div className="rounded-lg border bg-gray-50 p-8 text-center text-gray-500">
-                                No work plan items found.
+                                {result?.message?.reason || "No work plan items found."}
                             </div>
                         ) : (
                             workHeaders.map((header) => {
-                                let items = result?.message[header] || [];
+                                let items = result?.message?.data[header] || [];
                                 
                                 if (isOverview) {
                                   items = items.filter(item => item.work_plan_doc && item.work_plan_doc.length > 0);

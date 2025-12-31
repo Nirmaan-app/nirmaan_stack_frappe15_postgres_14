@@ -24,7 +24,7 @@ export const SevenDayPlanningHeader = ({
     )}>
       <div>
         <h2 className="text-2xl font-semibold">{isOverview ? "Planning Overview" : "Planning"}</h2>
-        <p className="text-gray-600">Track upcoming tasks for the next 7 days and add your follow-ups</p>
+        <p className="text-gray-500 text-sm mt-1">Filters by date range or quick duration.</p>
       </div>
 
       <div className="flex items-center gap-4 flex-wrap">
