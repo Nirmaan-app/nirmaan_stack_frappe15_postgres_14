@@ -189,14 +189,22 @@ def on_trash(doc, method):
     Also handles cleanup of notifications and comments.
     """
     # Determine the correct status to revert to.
-    reverted_status = "Created" 
+    reverted_status = "Created"
     try:
         term_details = frappe.db.get_value("PO Payment Terms", {"project_payment": doc.name}, ["due_date", "payment_type"], as_dict=True)
-        if term_details and term_details.get('payment_type') == 'Credit' and term_details.get('due_date') and frappe.utils.getdate(term_details.get('due_date')) > nowdate():
-            reverted_status = "Scheduled"
+        if term_details and term_details.get('payment_type') == 'Credit' and term_details.get('due_date'):
+            due_date = frappe.utils.getdate(term_details.get('due_date'))
+            today = frappe.utils.getdate(nowdate())
+
+            # If due date is today or in the past, set to "Scheduled" (ready to request)
+            # If due date is in the future, set to "Created" (not ready yet)
+            if due_date <= today:
+                reverted_status = "Scheduled"
+            else:
+                reverted_status = "Created"
     except Exception:
         pass # Ignore if lookup fails, default to "Created"
-        
+
     # Call the helper to find the term and reset it.
     _find_and_update_po_term(doc, reverted_status, clear_link=True)
 
