@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { CircleDollarSign, ClipboardMinus,Milestone, HandPlatter, HardHat, ShoppingCart, Truck } from "lucide-react";
+import { CircleDollarSign, ClipboardMinus, ClipboardPlus, Milestone, HandPlatter, HardHat, ShoppingCart, Truck } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 function DashboardCard({ title, icon, onClick, className, beta = false }: any) {
@@ -29,7 +29,7 @@ export const ProjectManager = () => {
         {/* <div className="flex items-center justify-between space-y-2">
                     <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
                 </div> */}
-        <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-3">
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
           <DashboardCard
             title="Create Procurement Request"
             icon={<ShoppingCart className="h-8 w-8 text-white" />}
@@ -48,7 +48,7 @@ export const ProjectManager = () => {
                             onClick={() => navigate("/prs&milestones/milestone-report")}
                             className="bg-red-600"
           />
-          
+
           <DashboardCard
             title="Delivery Notes"
             icon={<Truck className="h-8 w-8 text-white" />}
@@ -65,6 +65,12 @@ export const ProjectManager = () => {
             title="View Service Requests"
             icon={<HandPlatter className="h-8 w-8 text-white" />}
             onClick={() => navigate("/service-requests-list")}
+            className="bg-red-600"
+          />
+          <DashboardCard
+            title="Upload Delivery Challans & MIR"
+            icon={<ClipboardPlus className="h-8 w-8 text-white" />}
+            onClick={() => navigate("/prs&milestones/delivery-challans-and-mirs")}
             className="bg-red-600"
           />
           {/* <DashboardCard

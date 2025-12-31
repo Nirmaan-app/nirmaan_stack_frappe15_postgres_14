@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button"; // Import Button
 import { NirmaanAttachment } from '@/types/NirmaanStack/NirmaanAttachment'; // Adjust import path
 import SITEURL from '@/constants/siteURL'; // Adjust import path
 import { formatDate } from 'date-fns';
-import { LinkIcon } from 'lucide-react'; // Use a link icon
+import { Eye } from 'lucide-react'; // Use Eye icon for view
 
 interface DeliveryChallanTableProps {
     attachments: NirmaanAttachment[];
@@ -37,32 +37,44 @@ export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({ atta
         return 'View File'; // Default fallback
     };
 
+    // Helper to convert attachment_type to camel case
+    const toCamelCase = (str: string | undefined): string => {
+        if (!str) return 'N/A';
+        return str
+            .split(' ')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+            .join(' ');
+    };
+
 
     return (
         <Table>
-            <TableHeader>
+            <TableHeader className="bg-red-100">
                 <TableRow>
-                    <TableHead className="w-[60px] text-gray-700 font-semibold">S.No.</TableHead>
-                    <TableHead className="text-gray-700 font-semibold">Date Added</TableHead>
-                    <TableHead className="text-gray-700 font-semibold">Delivery Challan</TableHead>
+                    <TableHead className="w-[80px] text-black font-bold">S.No.</TableHead>
+                    <TableHead className="text-black font-bold">Type</TableHead>
+                    <TableHead className="w-[150px] text-black font-bold">Date Added</TableHead>
+                    <TableHead className="w-[120px] text-center text-black font-bold">Actions</TableHead>
                 </TableRow>
             </TableHeader>
             <TableBody>
                 {attachments.length > 0 ? (
                     attachments.map((att, index) => (
                         <TableRow key={att.name}>
-                            <TableCell>{index + 1}</TableCell>
-                            <TableCell>{formatDate(new Date(att.creation), "dd-MMM-yyyy")}</TableCell> {/* Use consistent date format */}
-                            <TableCell>
+                            <TableCell className="text-center">{index + 1}</TableCell>
+                            <TableCell className="font-medium">{toCamelCase(att.attachment_type)}</TableCell>
+                            <TableCell>{formatDate(new Date(att.creation), "dd-MMM-yyyy")}</TableCell>
+                            <TableCell className="text-center">
                                 <Button
-                                    variant="link"
-                                    className="p-0 h-auto text-blue-600 hover:underline" // Allow more width
-                                    asChild // Use asChild to make the whole button the link
-                                    title={`View Delivery Challan added on ${formatDate(new Date(att.creation), "dd-MMM-yyyy")}`}
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-blue-600 hover:text-blue-800"
+                                    asChild
+                                    title={`View ${toCamelCase(att.attachment_type)}`}
                                 >
                                     <a href={`${SITEURL}${att.attachment}`} target="_blank" rel="noreferrer noopener">
-                                        <LinkIcon className="h-4 w-4 mr-1 inline-block" />
-                                        <p className='truncate max-w-[150px]'>{getFileName(att.attachment)}</p>
+                                        <Eye className="h-4 w-4 mr-1" />
+                                        View
                                     </a>
                                 </Button>
                             </TableCell>
@@ -70,8 +82,8 @@ export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({ atta
                     ))
                 ) : (
                     <TableRow>
-                        <TableCell colSpan={3} className="text-center py-4 text-gray-500">
-                            No Delivery Challans Found
+                        <TableCell colSpan={4} className="text-center py-4 text-gray-500">
+                            No Delivery Challans or MIRs Found
                         </TableCell>
                     </TableRow>
                 )}

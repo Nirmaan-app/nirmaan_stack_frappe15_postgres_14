@@ -139,7 +139,7 @@ export default function CustomersPage() {
     // }), []);
 
     return (
-        <div className="flex-1 space-y-4">
+        <div className="h-[calc(100vh-80px)] flex flex-col gap-2 overflow-hidden">
             {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"> */}
             <CustomersSummaryCard />
             {/* </div> */}

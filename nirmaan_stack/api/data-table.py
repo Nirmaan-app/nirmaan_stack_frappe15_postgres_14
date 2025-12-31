@@ -613,25 +613,35 @@ def get_list_with_count_enhanced(
                 searchable_child_fields = search_config["searchable_child_fields"]
                 child_status_field = search_config.get("status_field") # Get status field for optional pending check
 
-                # --- FIX START: Use positional placeholders for robust LIKE search ---
-                search_term_like = f"%{search_term}%"
+                # --- FIX START: Use positional placeholders for robust JUMBLE search ---
+                search_tokens = search_term.split() if search_term else []
 
-                # 1. Generate OR conditions with positional placeholders (%s)
-                #    and collect the search term parameter for each condition.
-                child_item_search_conditions = []
+                # 1. Generate OR conditions for each token, and AND them together.
+                #    Each token must match AT LEAST ONE of the searchable fields.
+                #    (Token1 in (FieldA OR FieldB)) AND (Token2 in (FieldA OR FieldB)) ...
+                
                 child_item_search_params = []
-                for field in searchable_child_fields:
-                    child_item_search_conditions.append(f"`tab{child_doctype_name}`.`{field}` ILIKE %s")
-                    child_item_search_params.append(search_term_like)
+                token_conditions_groups = []
 
-                child_item_search_conditions_sql = " OR ".join(child_item_search_conditions)
+                if searchable_child_fields:
+                    # Optimized: Pre-calculate the OR-clause template to avoid inner loop repetition
+                    or_clause_template = " OR ".join([f"`tab{child_doctype_name}`.`{field}` ILIKE %s" for field in searchable_child_fields])
+                    
+                    for token in search_tokens:
+                        token_like = f"%{token}%"
+                        token_conditions_groups.append(f"({or_clause_template})")
+                        child_item_search_params.extend([token_like] * len(searchable_child_fields))
+
+                child_item_search_conditions_sql = " AND ".join(token_conditions_groups)
                 
                 # 2. Build the final SQL string and parameter tuple using positional placeholders.
                 sql_where_parts = [
                     f"`tab{child_doctype_name}`.`{child_link_field}` IN %s",
-                    f"`tab{child_doctype_name}`.`parenttype` = %s",
-                    f"({child_item_search_conditions_sql})"
+                    f"`tab{child_doctype_name}`.`parenttype` = %s"
                 ]
+                
+                if child_item_search_conditions_sql:
+                     sql_where_parts.append(f"({child_item_search_conditions_sql})")
 
                 # Optional: Add pending status filter
                 if require_pending_items_bool and child_status_field:
@@ -737,11 +747,27 @@ def get_list_with_count_enhanced(
                     if not item_path_parts or len(item_path_parts) < 2 or item_path_parts[-2] != "*":
                         frappe.throw(_(f"Invalid JSON search config for {target_search_field_name}: {item_path_parts}"))
                     json_array_key = item_path_parts[0]
+                    
+                    # Jumble Search logic for JSON: Split search term and ensure ALL tokens are present
+                    search_tokens = search_term.split() if search_term else []
+                    token_conditions = []
+                    token_params = {}
+
+                    for idx, token in enumerate(search_tokens):
+                        param_key = f"token_{idx}"
+                        # Check each token against the item field
+                        token_conditions.append(f"item_obj->>'{item_name_key_in_json}' ILIKE %({param_key})s")
+                        token_params[param_key] = f"%{token}%"
+                    
+                    json_search_conditions_sql = " AND ".join(token_conditions) if token_conditions else "1=1"
+
                     json_search_sql_where_part = f"""EXISTS(
                         SELECT 1 FROM jsonb_array_elements(COALESCE(`tab{doctype}`.`{json_field_name}`::jsonb->'{json_array_key}','[]'::jsonb)) AS item_obj
-                        WHERE item_obj->>'{item_name_key_in_json}' ILIKE %(search_term)s
+                        WHERE {json_search_conditions_sql}
                     )"""
-                    sql_params = {"search_term": escaped_search_term_for_like, "names_tuple": tuple(potential_parent_names)}
+                    
+                    sql_params = {"names_tuple": tuple(potential_parent_names)}
+                    sql_params.update(token_params)
                     count_sql = f"SELECT COUNT(DISTINCT name) FROM `tab{doctype}` WHERE name IN %(names_tuple)s AND ({json_search_sql_where_part})"
                     count_result = frappe.db.sql(count_sql, sql_params)
                     total_records = count_result[0][0] if count_result and count_result[0] else 0
@@ -806,7 +832,10 @@ def get_list_with_count_enhanced(
             else: # Standard Targeted Search / No Search (Ultimate Fallback)
                 print(f"--- Executing Standard Targeted Search / Fetch (Ultimate Fallback) for '{doctype}' ---")
                 if search_term and target_search_field_name:
-                    final_and_filters.append([doctype, target_search_field_name, "like", f"%{search_term}%"])
+                    # Jumble Search: Add a LIKE filter for EACH token in the search term
+                    tokens = search_term.split()
+                    for token in tokens:
+                        final_and_filters.append([doctype, target_search_field_name, "like", f"%{token}%"])
                 
                 data_args = frappe._dict({
                     "doctype": doctype, "fields": parsed_select_fields_str_list,

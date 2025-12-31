@@ -601,7 +601,7 @@ export const Projects: React.FC<ProjectsProps> = ({
   }
 
   return (
-    <div className="flex-1 space-y-4">
+    <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'max-h-[calc(100vh-80px)] overflow-hidden' : ''}`}>
       {!customersView && (
         <Card className="hover:animate-shadow-drop-center max-md:w-full my-2 w-[60%]">
           <CardHeader className="flex flex-row items-center justify-between">
@@ -638,10 +638,11 @@ export const Projects: React.FC<ProjectsProps> = ({
           </CardContent>
         </Card>
       )}
-      {isLoadingOverall && !projectsDataForTable?.length ? (
-        <TableSkeleton />
-      ) : (
-        <DataTable<ProjectsType>
+       <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'h-[calc(100vh-80px)] overflow-hidden' : ''}`}>
+        {isLoadingOverall && !projectsDataForTable?.length ? (
+          <TableSkeleton />
+        ) : (
+          <DataTable<ProjectsType>
           table={table} // The table instance from useServerDataTable, now operating on clientData
           columns={columns} // Your defined display columns
           isLoading={listIsLoading} //isLoading for the table data itself
@@ -658,7 +659,8 @@ export const Projects: React.FC<ProjectsProps> = ({
           onExport={'default'}
           exportFileName="Projects_Report"
         />
-      )}
+        )}
+      </div>
     </div>
   );
 };

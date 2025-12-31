@@ -323,14 +323,22 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
             <TableRow>
               <TableHead className="text-black font-bold">Amount</TableHead>
               <TableHead className="text-black font-bold">UTR No.</TableHead>
-              <TableHead className="text-black font-bold">Date</TableHead>
+              <TableHead className="text-black font-bold">Payment Date</TableHead>
               <TableHead className="text-black font-bold w-[5%]">Status</TableHead>
               <TableHead ></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {(poPayments || [])?.length > 0 ? (
-              poPayments?.map((payment) => {
+              poPayments
+                ?.sort((a, b) => {
+                  // Sort by payment_date in descending order
+                  // Entries without payment_date go to the end
+                  const dateA = a.payment_date ? new Date(a.payment_date).getTime() : 0;
+                  const dateB = b.payment_date ? new Date(b.payment_date).getTime() : 0;
+                  return dateB - dateA;
+                })
+                ?.map((payment) => {
                 return (
                   <TableRow key={payment?.name}>
                     <TableCell>
@@ -344,7 +352,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                           rel="noreferrer"
                         >
                           {payment?.utr}
-                         
+
                         </a>}
                       </TableCell>
                     ) : (
@@ -353,11 +361,17 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                       </TableCell>
                     )}
                     <TableCell>
-                      {formatDate(
-                        payment?.payment_date || payment?.creation
+                      {payment?.payment_date ? formatDate(payment.payment_date) : "--"}
+                    </TableCell>
+                    <TableCell className="whitespace-normal">
+                      {payment?.status === "Requested" ? (
+                        <span className="text-xs leading-tight">
+                          Requested on {formatDate(payment?.creation)}
+                        </span>
+                      ) : (
+                        payment?.status
                       )}
                     </TableCell>
-                    <TableCell>{payment?.status}</TableCell>
                     <TableCell className="text-red-500 text-end w-[5%]">
                       {!["Paid", "Approved"].includes(payment?.status) && !estimatesViewing && !summaryPage &&
                         <Button

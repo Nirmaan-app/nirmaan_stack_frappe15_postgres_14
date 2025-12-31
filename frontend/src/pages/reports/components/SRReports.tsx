@@ -182,7 +182,7 @@ export default function SRReports() {
     }
 
     return (
-        <div className="space-y-4">
+        <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'h-[calc(100vh-130px)] overflow-hidden' : ''}`}>
             {isLoadingInitialData && !allSRsForReports ? (
                 <LoadingFallback />
             ) : (

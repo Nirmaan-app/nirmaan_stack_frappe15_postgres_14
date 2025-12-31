@@ -56,14 +56,14 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
 
     return (
         <Table>
-            <TableHeader>
+            <TableHeader className="bg-red-100">
                 <TableRow>
-                    <TableHead className="text-gray-700 font-semibold">Date</TableHead>
-                    <TableHead className="text-gray-700 font-semibold">Amount</TableHead>
-                    <TableHead className="text-gray-700 font-semibold">Invoice No.</TableHead>
-                    <TableHead className="text-gray-700 font-semibold">Status</TableHead>
+                    <TableHead className="w-[150px] text-black font-bold">Date</TableHead>
+                    <TableHead className="w-[150px] text-black font-bold">Amount</TableHead>
+                    <TableHead className="text-black font-bold">Invoice No.</TableHead>
+                    <TableHead className="w-[120px] text-black font-bold">Status</TableHead>
                     {/* Conditionally render action headers */}
-                    <TableHead className="text-right text-gray-700 font-semibold">Actions</TableHead>
+                    <TableHead className="w-[100px] text-center text-black font-bold">Actions</TableHead>
                 </TableRow>
             </TableHeader>
             <TableBody>
@@ -96,7 +96,7 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
                                          {invoice?.status || 'Approved'}
                                      </Badge>
                                 </TableCell>
-                                <TableCell className="text-right space-x-1">
+                                <TableCell className="text-center space-x-1">
                                     {/* View Button (optional, if link isn't enough) */}
                                      {/* <Button
                                         variant="ghost"

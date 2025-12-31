@@ -398,6 +398,20 @@ export const PurchaseOrder = ({
     poId ? undefined : null
   );
 
+  // Fetch PO Attachments for counter in header
+  const { data: poAttachmentsData } = useFrappeGetDocList(
+    "Nirmaan Attachments",
+    {
+      fields: ["name", "attachment_type"],
+      filters: [
+        ["associated_doctype", "=", "Procurement Orders"],
+        ["associated_docname", "=", poId],
+      ],
+      limit: 1000,
+    },
+    poId ? `Nirmaan Attachments-${poId}-counter` : null
+  );
+
   const { data: AllPoPaymentsList, mutate: AllPoPaymentsListMutate } =
     useFrappeGetDocList<ProjectPayments>("Project Payments", {
       fields: ["*"],
@@ -1052,6 +1066,23 @@ export const PurchaseOrder = ({
     [PO]
   );
 
+  // Calculate invoice count
+  const invoiceCount = useMemo(
+    () => (invoicePO?.invoice_data?.data ? Object.keys(invoicePO.invoice_data.data).length : 0),
+    [invoicePO]
+  );
+
+  // Calculate DC & MIR count
+  const dcMirCount = useMemo(
+    () =>
+      poAttachmentsData?.filter(
+        (att) =>
+          att.attachment_type === "po delivery challan" ||
+          att.attachment_type === "material inspection report"
+      ).length || 0,
+    [poAttachmentsData]
+  );
+
   const AMENDPOVALIDATION = useMemo(
     () =>
       !summaryPage &&
@@ -1516,9 +1547,18 @@ export const PurchaseOrder = ({
             <AccordionItem key="poattachments" value="poattachments">
               {/* {tab === "Delivered PO" && ( */}
               <AccordionTrigger>
-                <p className="font-semibold text-lg text-red-600 pl-6">
-                  PO Attachments
-                </p>
+                <div className="flex items-center gap-3 pl-6">
+                  <p className="font-semibold text-lg text-red-600">
+                    PO Attachments
+                  </p>
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-gray-600">Invoices:</span>
+                    <Badge variant="secondary">{invoiceCount}</Badge>
+                    <span className="text-gray-400">|</span>
+                    <span className="text-gray-600">DC & MIRs:</span>
+                    <Badge variant="secondary">{dcMirCount}</Badge>
+                  </div>
+                </div>
               </AccordionTrigger>
               {/* )} */}
               <AccordionContent>
@@ -1562,163 +1602,126 @@ export const PurchaseOrder = ({
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="relative overflow-hidden">
-            {/* Synchronized Table Layout */}
+          {/* Desktop Table View (≥1024px) */}
+          <div className="hidden lg:block">
             <div className="overflow-x-auto">
-              {/* Header Table */}
-              <table className="w-full border-collapse order-details-table">
-                <colgroup>
-                  <col className="w-[5%]" />
-                  <col className="w-[50%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[10%]" />
-                  {["Partially Delivered", "Delivered"].includes(
-                    PO?.status
-                  ) && <col className="w-[5%]" />}
-                  <col className="w-[10%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[10%]" />
-                </colgroup>
+              <table className="w-full min-w-[800px] border-collapse">
                 <thead className="bg-red-100">
                   <tr className="text-sm font-semibold text-gray-700">
-                    <th className="sticky top-0 z-10 text-left pl-2 py-3 bg-red-100">
-                      S.No.
-                    </th>
-                    <th className="sticky top-0 z-10 text-left pl-2 py-3 bg-red-100">
-                      Item Name
-                    </th>
-                    <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
-                      Unit
-                    </th>
-                    <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
-                      Qty
-                    </th>
-                    {["Partially Delivered", "Delivered"].includes(
-                      PO?.status
-                    ) && (
-                        <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
-                          Delivered Quantity
-                        </th>
-                      )}
-                    <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
-                      Rate
-                    </th>
-                    <th className="sticky top-0 z-10 text-center py-3 bg-red-100">
-                      Tax
-                    </th>
-                    <th className="sticky top-0 z-10 text-center pr-4 py-3 bg-red-100">
-                      Amount
-                    </th>
-                    <th className="sticky top-0 z-10 text-center pr-4 py-3 bg-red-100">
-                      Amount (incl.GST)
-                    </th>
-
+                    <th className="text-left pl-4 py-3">S.No.</th>
+                    <th className="text-left pl-2 py-3">Item Name</th>
+                    <th className="text-center py-3">Unit</th>
+                    <th className="text-center py-3">Qty</th>
+                    {["Partially Delivered", "Delivered"].includes(PO?.status) && (
+                      <th className="text-center py-3">Delivered Qty</th>
+                    )}
+                    <th className="text-center py-3">Rate</th>
+                    <th className="text-center py-3">Tax</th>
+                    <th className="text-center py-3">Amount</th>
+                    <th className="text-center pr-4 py-3">Amount (incl.GST)</th>
                   </tr>
                 </thead>
-              </table>
-            </div>
-
-            {/* Body Table with Synchronized Columns */}
-            <div
-              // className={`overflow-y-auto ${!summaryPage ? 'max-h-32' : ''} border-t border-gray-200`}
-              className={`overflow-y-auto border-t border-gray-200`}
-              role="region"
-              aria-labelledby="order-details-table"
-              tabIndex={0}
-            >
-              <table className="w-full border-collapse order-details-table">
-                <colgroup>
-                  <col className="w-[5%]" />
-                  <col className="w-[50%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[10%]" />
-                  {["Partially Delivered", "Delivered"].includes(
-                    PO?.status
-                  ) && <col className="w-[5%]" />}
-                  <col className="w-[10%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[10%]" />
-
-                </colgroup>
                 <tbody className="divide-y divide-gray-200">
                   {PO?.items?.map((item, index) => (
-                    <tr
-                      key={index}
-                      className="hover:bg-gray-50 transition-colors text-sm text-gray-600"
-                    >
-                      {/* S.No. */}
-                      <td className="pl-4 py-2 align-top">{index + 1}</td>
-
-                      {/* Item Name */}
-                      <td className="pl-2 py-2 align-top">
+                    <tr key={index} className="hover:bg-gray-50 transition-colors text-sm text-gray-600">
+                      <td className="pl-4 py-3 align-top">{index + 1}</td>
+                      <td className="pl-2 py-3 align-top">
                         <div className="flex flex-col gap-1">
-                          {item.item_name}
-                          <small className="font-medium text-red-700 truncate">
-                            {item?.make}
-                          </small>
+                          <span>{item.item_name}</span>
+                          <small className="font-medium text-red-700">{item?.make}</small>
                           {item.comment && (
-                            <div className="flex gap-1 items-start bg-gray-50 rounded p-1.5">
+                            <div className="flex gap-1 items-start bg-gray-50 rounded p-1.5 mt-1">
                               <MessageCircleMore className="w-4 h-4 flex-shrink-0 mt-0.5 text-gray-400" />
-                              <div className="text-xs text-gray-600 leading-snug">
-                                {item.comment}
-                              </div>
+                              <div className="text-xs text-gray-600 leading-snug">{item.comment}</div>
                             </div>
                           )}
                         </div>
                       </td>
-
-                      {/* Unit */}
-                      <td className="text-center py-2 align-top">
-                        {item.unit}
+                      <td className="text-center py-3 align-top">{item.unit}</td>
+                      <td className="text-center py-3 align-top">{item.quantity}</td>
+                      {["Partially Delivered", "Delivered"].includes(PO?.status) && (
+                        <td className={`text-center py-3 align-top ${
+                          item?.received_quantity === item?.quantity ? "text-green-600" : "text-red-700"
+                        }`}>
+                          {item?.received_quantity || 0}
+                        </td>
+                      )}
+                      <td className="text-center py-3 align-top">{formatToIndianRupee(item?.quote)}</td>
+                      <td className="text-center py-3 align-top">{item?.tax}%</td>
+                      <td className="text-center py-3 align-top font-medium">{formatToIndianRupee(item?.amount)}</td>
+                      <td className="text-center pr-4 py-3 align-top font-medium">
+                        {formatToIndianRupee(item?.quote * item?.quantity * (1 + item?.tax / 100))}
                       </td>
-
-                      {/* Quantity */}
-                      <td className="text-center py-2 align-top">
-                        {item.quantity}
-                      </td>
-                      {/* OD (Conditional) */}
-                      {["Partially Delivered", "Delivered"].includes(
-                        PO?.status
-                      ) && (
-                          <td
-                            className={`text-center py-2 align-top ${item?.received_quantity === item?.quantity
-                              ? "text-green-600"
-                              : "text-red-700"
-                              }`}
-                          >
-                            {item?.received_quantity || 0}
-                          </td>
-                        )}
-                      {/* Rate */}
-                      <td className="text-center py-2 align-top">
-                        {formatToIndianRupee(item?.quote)}
-                      </td>
-
-                      {/* Tax */}
-                      <td className="text-center py-2 align-top">
-                        {item?.tax}%
-                      </td>
-
-                      {/* Amount */}
-                      <td className="pr-4 text-center py-2 align-top font-medium">
-                        {formatToIndianRupee(item?.amount)}
-                      </td>
-
-                      {/* Amount (Incl GST) */}
-                      <td className="pr-4 text-center py-2 align-top font-medium">
-                        {formatToIndianRupee(
-                          item?.quote * item?.quantity * (1 + item?.tax / 100)
-                        )}
-                      </td>
-
-
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+          </div>
+
+          {/* Mobile/Tablet Card View (<1024px) */}
+          <div className="lg:hidden divide-y divide-gray-200">
+            {PO?.items?.map((item, index) => (
+              <div key={index} className="p-4 hover:bg-gray-50 transition-colors">
+                {/* Item Header */}
+                <div className="flex items-start justify-between gap-2 mb-3">
+                  <div className="flex-1">
+                    <div className="flex items-start gap-2">
+                      <Badge variant="outline" className="shrink-0">{index + 1}</Badge>
+                      <div className="flex-1">
+                        <p className="font-medium text-gray-900 text-sm leading-tight">{item.item_name}</p>
+                        <p className="text-xs text-red-700 font-medium mt-1">{item?.make}</p>
+                      </div>
+                    </div>
+                    {item.comment && (
+                      <div className="flex gap-1 items-start bg-gray-100 rounded p-2 mt-2">
+                        <MessageCircleMore className="w-4 h-4 flex-shrink-0 mt-0.5 text-gray-400" />
+                        <div className="text-xs text-gray-600 leading-snug">{item.comment}</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Item Details Grid */}
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Unit:</span>
+                    <span className="font-medium text-gray-900">{item.unit}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Qty:</span>
+                    <span className="font-medium text-gray-900">{item.quantity}</span>
+                  </div>
+
+                  {["Partially Delivered", "Delivered"].includes(PO?.status) && (
+                    <div className="flex justify-between col-span-2">
+                      <span className="text-gray-500">Delivered:</span>
+                      <span className={`font-medium ${
+                        item?.received_quantity === item?.quantity ? "text-green-600" : "text-red-700"
+                      }`}>
+                        {item?.received_quantity || 0} / {item.quantity}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Rate:</span>
+                    <span className="font-medium text-gray-900">{formatToIndianRupee(item?.quote)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Tax:</span>
+                    <span className="font-medium text-gray-900">{item?.tax}%</span>
+                  </div>
+
+                  <div className="flex justify-between col-span-2 pt-2 border-t border-gray-200 mt-1">
+                    <span className="text-gray-700 font-medium">Total (incl. GST):</span>
+                    <span className="font-semibold text-gray-900">
+                      {formatToIndianRupee(item?.quote * item?.quantity * (1 + item?.tax / 100))}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>
