@@ -85,6 +85,7 @@ const ProjectPOSummaryTable = React.lazy(() => import("./components/ProjectPOSum
 const ProjectMaterialUsageTab = React.lazy(() => import("./components/ProjectMaterialUsageTab"));
 const ProjectDesignTrackerDetail = React.lazy(() => import("@/pages/ProjectDesignTracker/project-design-tracker-details").then(module => ({ default: module.ProjectDesignTrackerDetail })));
 const NoDesignTrackerView = React.lazy(() => import("@/pages/ProjectDesignTracker/components/NoDesignTrackerView").then(module => ({ default: module.NoDesignTrackerView })));
+const CriticalPOTasksTab = React.lazy(() => import("./CriticalPOTasks/CriticalPOTasksTab").then(module => ({ default: module.CriticalPOTasksTab })));
 import { ProjectExpensesTab } from "./components/ProjectExpenseTab"; // NEW
 import { ProjectWorkReportTab } from "./ProjectWorkReportTab";
 import { SevenDayPlanningTab } from "./SevenDayPlanningTab";
@@ -238,6 +239,7 @@ export const PROJECT_PAGE_TABS = {
   OVERVIEW: 'overview',
   WORK_REPORT: 'workreport', // ADD THIS NEW KEY
   SEVEN_DAY_PLANNING: '7dayplanning', // ADD THIS NEW KEY
+  CRITICAL_POS: 'criticalpos', // Critical PO Tasks Tab
   DESIGN_TRACKER: 'designtracker',
   PR_SUMMARY: 'prsummary',
   SR_SUMMARY: 'srsummary',
@@ -340,6 +342,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     { // ADD THIS NEW MENU ITEM
       label: "Planning",
       key: PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
+    },
+    {
+      label: "Critical POs",
+      key: PROJECT_PAGE_TABS.CRITICAL_POS,
     },
     {
       label: "Design Tracker",
@@ -985,6 +991,8 @@ const advanceAgainstPO = useMemo(() => {
             return <ProjectWorkReportTab projectData={data} project_mutate={project_mutate} current_role={role}/>;
       case PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING:
             return <SevenDayPlanningTab />;
+      case PROJECT_PAGE_TABS.CRITICAL_POS:
+            return <CriticalPOTasksTab projectId={projectId} projectData={data} />;
       case PROJECT_PAGE_TABS.DESIGN_TRACKER:
             return designTrackerId ? (
               <ProjectDesignTrackerDetail trackerId={designTrackerId} />

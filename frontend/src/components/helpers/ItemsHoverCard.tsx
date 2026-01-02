@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { BookOpen, Loader2 } from "lucide-react"; // Added Loader2
+import { BookOpen, Loader2, X } from "lucide-react"; // Added Loader2 and X
 import { useFrappeGetDoc, FrappeDoc } from "frappe-react-sdk"; // Import useFrappeGetDoc
+import { Button } from "@/components/ui/button";
 
 
 interface ItemsHoverCardProps {
@@ -35,47 +36,78 @@ export const ItemsHoverCard: React.FC<ItemsHoverCardProps> = ({
   const [isOpen, setIsOpen] = useState(false);
 
   // Fetch the parent document when the card is open
-
-  const { data: parentDocData, isLoading, error } = useFrappeGetDoc(
+  const { data: parentDocData, isLoading, error, mutate } = useFrappeGetDoc(
     parentDoctype,
     parentDocId?.name,
     // SWR key - make it unique per document
-    isOpen ? `${parentDoctype}-${parentDocId}` : null,
+    isOpen ? `${parentDoctype}-${parentDocId?.name}` : null,
     {
-      enabled: isOpen, // Only fetch when isOpen is true
       revalidateOnFocus: false, // Optional: prevent re-fetching on window focus
+      revalidateOnReconnect: false,
     }
   );
 
   // console.log(parentDoctype, parentDocId?.name,parentDocData)
   // Extract the child table items once the parent data is loaded
-let itemsToDisplay:any;
-  if(parentDoctype === "Service Requests"){
+  // Only use parentDocData if it matches the current parentDocId to prevent stale data
+  let itemsToDisplay: any;
+  const isCorrectData = parentDocData?.name === parentDocId?.name;
+
+  if (parentDoctype === "Service Requests") {
     // console.log(parentDocData)
     itemsToDisplay = Array.isArray(parentDocId?.service_order_list?.list)
-  ? parentDocId[childTableName].list // If true, use the dynamic childTableName
-  : []; // If false, default to an empty array
+      ? parentDocId[childTableName].list // If true, use the dynamic childTableName
+      : []; // If false, default to an empty array
 
     // console.log(itemsToDisplay)
-  }else{
-   itemsToDisplay = parentDocData?.[childTableName];
-
+  } else {
+    itemsToDisplay = isCorrectData ? parentDocData?.[childTableName] : undefined;
   }
 
 
+
+  // Close popover and reset when parentDocId changes
+  useEffect(() => {
+    setIsOpen(false);
+  }, [parentDocId?.name]);
 
   const handleOpenChange = (open: boolean) => {
     setIsOpen(open);
   };
 
+  const handleClick = () => {
+    setIsOpen(!isOpen);
+  };
+
   return (
-    <HoverCard open={isOpen} onOpenChange={handleOpenChange}>
-      <HoverCardTrigger asChild>
-        <button aria-label="View items" className="p-1"> {/* Make it a button for accessibility */}
+    <Popover open={isOpen} onOpenChange={handleOpenChange}>
+      <PopoverTrigger asChild>
+        <button
+          aria-label="View items"
+          className="p-1 rounded hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 cursor-pointer"
+          onClick={handleClick}
+          tabIndex={0}
+          type="button"
+        >
           <BookOpen className="w-4 h-4 text-blue-500" />
         </button>
-      </HoverCardTrigger>
-      <HoverCardContent className="p-2 w-80 overflow-auto max-h-[50vh]">
+      </PopoverTrigger>
+      <PopoverContent className="w-[550px] max-h-[60vh] overflow-auto p-0 relative">
+        {/* Close Button */}
+        <div className="sticky top-0 bg-white z-20 flex justify-between items-center px-3 py-2 border-b">
+          <h4 className="font-semibold text-sm">Order Items</h4>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6 p-0 rounded-full hover:bg-gray-100"
+            onClick={() => setIsOpen(false)}
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <div className="p-2">
         {isLoading && (
           <div className="flex items-center justify-center p-4">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -91,35 +123,38 @@ let itemsToDisplay:any;
           <div className="text-gray-500 p-4 text-center">No items to display.</div>
         )}
         {!isLoading && !error && itemsToDisplay && itemsToDisplay.length > 0 && (
-          <Table>
-            <TableHeader className="bg-gray-200">
-              <TableRow>
-                <TableHead>{isSR ? "Category" : "Item"}</TableHead>
-                {isSR && <TableHead>Description</TableHead>}
-                <TableHead>Unit</TableHead>
-                <TableHead>Qty</TableHead>
-                <TableHead>Rate</TableHead>
-                {/* Add Make column back if needed, data should be in fetched child items */}
-                {(!isSR && (isPR || isSB)) && <TableHead>Make</TableHead>}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {itemsToDisplay?.map((item: any) => (
-                <TableRow key={item?.name || item?.id}> {/* Child table rows have a 'name' */}
-                  <TableCell>{isSR ? item.category : item.item_name}</TableCell>
-                  {isSR && <TableCell className="truncate max-w-[100px]">{item.description}</TableCell>}
-                  <TableCell>{isSR ? item.uom : item.unit}</TableCell>
-                  <TableCell>{item.quantity}</TableCell>
-                  <TableCell>{formatToIndianRupee(isSR ? item?.rate : item?.quote)}</TableCell>
-                  {(!isSR && (isPR || isSB)) && (
-                    <TableCell>{item?.make || "--"}</TableCell>
-                  )}
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader className="bg-gray-100">
+                <TableRow>
+                  <TableHead className="min-w-[180px]">{isSR ? "Category" : "Item"}</TableHead>
+                  {isSR && <TableHead className="min-w-[120px]">Description</TableHead>}
+                  <TableHead className="w-[70px]">Unit</TableHead>
+                  <TableHead className="w-[60px]">Qty</TableHead>
+                  <TableHead className="w-[80px]">Rate</TableHead>
+                  {/* Add Make column back if needed, data should be in fetched child items */}
+                  {(!isSR && (isPR || isSB)) && <TableHead className="min-w-[100px]">Make</TableHead>}
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {itemsToDisplay?.map((item: any) => (
+                  <TableRow key={item?.name || item?.id}> {/* Child table rows have a 'name' */}
+                    <TableCell className="font-medium text-sm">{isSR ? item.category : item.item_name}</TableCell>
+                    {isSR && <TableCell className="text-sm max-w-[120px] break-words">{item.description}</TableCell>}
+                    <TableCell className="text-sm">{isSR ? item.uom : item.unit}</TableCell>
+                    <TableCell className="text-sm text-center">{item.quantity}</TableCell>
+                    <TableCell className="text-sm">{formatToIndianRupee(isSR ? item?.rate : item?.quote)}</TableCell>
+                    {(!isSR && (isPR || isSB)) && (
+                      <TableCell className="text-sm">{item?.make || "--"}</TableCell>
+                    )}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         )}
-      </HoverCardContent>
-    </HoverCard>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 };

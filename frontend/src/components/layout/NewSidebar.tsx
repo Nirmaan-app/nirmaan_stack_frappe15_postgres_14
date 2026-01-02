@@ -25,7 +25,7 @@ import {
   CreditCard,
   BanknoteIcon,
   Dices,
-  Landmark,PencilRuler
+  Landmark, PencilRuler
 } from "lucide-react";
 
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
@@ -215,7 +215,9 @@ export function NewSidebar() {
             { key: "/product-packages", label: "Product Packages" },
             { key: "/milestone-packages", label: "Milestone Packages" },
             { key: "/design-packages", label: "Design Packages" },
-
+            ...(user_id == "Administrator" || role == "Nirmaan Project Lead Profile"
+              ? [{ key: "/critical-po-categories", label: "Critical PO Categories" }]
+              : []),
             // { key: "/all-AQs", label: "Approved Quotations" },
             //  { key: "/vendors-aq2", label: "AQ2 Vendors" },
           ],
@@ -320,7 +322,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-         
+
     ...([
       "Nirmaan Procurement Executive Profile",
       "Nirmaan Admin Profile",
@@ -357,10 +359,10 @@ export function NewSidebar() {
         },
       ]
       : []),
-        ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
       ? [
-        
-         {
+
+        {
           key: "/service-requests",
           icon: SquareSquare,
           label: "Work Orders",
@@ -463,7 +465,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-      ...(user_id == "Administrator" || ["Nirmaan Design Lead Profile", "Nirmaan Admin Profile", "Nirmaan Design Executive Profile","Nirmaan Project Lead Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Design Lead Profile", "Nirmaan Admin Profile", "Nirmaan Design Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
       ? [
         {
           key: '/design-tracker',
@@ -485,6 +487,7 @@ export function NewSidebar() {
     "product-packages",
     "milestone-packages",
     "design-packages",
+    "critical-po-categories",
     "all-AQs",
     "item-price",
     // 'vendors-aq2', new tab ui-fix
@@ -523,7 +526,7 @@ export function NewSidebar() {
 
 
   const groupMappings = useMemo(() => ({
-    "admin-actions": ["users", "products", "vendors", "customers", "product-packages","milestone-packages","design-packages", "all-AQs"],
+    "admin-actions": ["users", "products", "vendors", "customers", "product-packages", "milestone-packages", "design-packages", "critical-po-categories", "all-AQs"],
     // "admin-actions": ["users", "products", "vendors", "customers", "product-packages", "approved-quotes","vendors-aq2"],
     // "pl-actions": [
     //   "prs&milestones", "approve-po", "approve-sent-back",
@@ -614,7 +617,7 @@ export function NewSidebar() {
                 <SidebarMenuItem>
 
                   {new Set(["Dashboard", "Item Price Search", "Procurement Requests", "Purchase Orders", "Project Payments", "Credit Payments", "Sent Back Requests", "Projects", "Work Orders", "In-Flow Payments", "Invoice Recon", "Reports",
-                  "Design Tracker","Project Invoices", "Misc. Project Expenses", "Non Project Expenses"]).has(item?.label) ? (
+                    "Design Tracker", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
                         ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"
