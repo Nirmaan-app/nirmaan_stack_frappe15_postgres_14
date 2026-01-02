@@ -627,6 +627,7 @@ interface ProjectDesignTrackerDetailProps {
 export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProps> = ({ trackerId: propTrackerId }) => {
     const { role, user_id } = useUserData();
     const isDesignExecutive = role === "Nirmaan Design Executive Profile";
+    const isProjectManager = role === "Nirmaan Project Manager Profile";
     const hasEditStructureAccess = role === "Nirmaan Design Lead Profile" || role === "Nirmaan Admin Profile" || user_id === "Administrator";
 
     const checkIfUserAssigned = (task: DesignTrackerTask) => {
@@ -1017,10 +1018,10 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                 </header>
 
                 <div className="flex flex-col md:flex-row w-full md:w-auto space-y-2 md:space-y-0 md:space-x-3">
-                    {hasEditStructureAccess && (
-                    <Button 
-                        variant="outline" 
-                        size="sm" 
+                    {hasEditStructureAccess && !isProjectManager && (
+                    <Button
+                        variant="outline"
+                        size="sm"
                         className="flex items-center gap-2 text-red-700 border-red-700 hover:bg-red-50/50 w-full md:w-auto"
                         onClick={() => setIsAddCategoryModalOpen(true)}
                         disabled={availableNewCategories.length === 0}
@@ -1028,10 +1029,10 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                         <Plus className="h-4 w-4" /> Add New Categories
                     </Button>
                     )}
-                    {hasEditStructureAccess && (
-                    <Button 
-                        variant="outline" 
-                        size="sm" 
+                    {hasEditStructureAccess && !isProjectManager && (
+                    <Button
+                        variant="outline"
+                        size="sm"
                         className="flex items-center justify-center gap-1 text-red-700 border-red-700 hover:bg-red-50/50 w-full md:w-auto"
                         onClick={() => setIsAddZoneModalOpen(true)}
                     >
@@ -1100,25 +1101,25 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
     <div className="space-y-1">
         {/* 1. Label and Edit Button Container */}
         <div className="flex items-center justify-start">
-            
+
             <Label className="uppercase text-xs font-medium text-muted-foreground tracking-wider">
                 Deadline
             </Label>
-            
-            {!isDesignExecutive && (
+
+            {!isDesignExecutive && !isProjectManager && (
                 <Button
-                    variant="ghost" 
+                    variant="ghost"
                     size="icon"
                     onClick={() => setIsProjectOverviewModalOpen(true)}
                     className="h-6 w-6 p-1 text-primary/70 hover:text-primary transition-colors"
                     title="Edit Overall Deadline"
                 >
-                    <Edit className="h-3 w-3" /> 
+                    <Edit className="h-3 w-3" />
                 </Button>
             )}
-            
+
         </div>
-        
+
         {/* 2. Value: DEADLINE DATE */}
         <p className="text-md font-bold text-red-700 tracking-tight"> {/* MATCHED TEXT-XL FONT-BOLD */}
             {formatDeadlineShort(trackerDoc.overall_deadline)}
@@ -1130,7 +1131,7 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
             {/* --- ON-BOARDING SECTION --- */}
             <div className="flex justify-between items-center pt-4">
                 <h2 className="text-2xl font-bold text-gray-800">Task List</h2>
-                {!isDesignExecutive && (
+                {!isDesignExecutive && !isProjectManager && (
                 <Button
                     variant="outline"
                     className="text-red-700 border-red-700 hover:bg-red-50/50"
@@ -1161,8 +1162,8 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                             {uniqueZones.map(zone => (
                                 <TabsTrigger key={zone} value={zone!} className="relative group pr-8">
                                     {zone}
-                                    {hasEditStructureAccess && (
-                                        <Edit 
+                                    {hasEditStructureAccess && !isProjectManager && (
+                                        <Edit
                                             className="w-3 h-3 absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer text-gray-400 hover:text-gray-900"
                                             onClick={(e) => {
                                                 e.stopPropagation();
@@ -1315,7 +1316,7 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
 
                                                                     {/* Actions */}
                                                                     <td className="px-4 py-3 text-center">
-                                                                        {(!isDesignExecutive || (isDesignExecutive && checkIfUserAssigned(task))) ? (
+                                                                        {!isProjectManager && (!isDesignExecutive || (isDesignExecutive && checkIfUserAssigned(task))) ? (
                                                                             <Button variant="outline" size="sm" onClick={() => setEditingTask(task)} className="h-8">
                                                                                 <Edit className="h-3 w-3 mr-1" /> Edit
                                                                             </Button>
