@@ -1056,7 +1056,7 @@ export const POPdf: React.FC<POPdfProps> = ({
 
   const [images, setImages] = useState([]);
   const [isPrinting, setIsPrinting] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadingFormat, setDownloadingFormat] = useState<string | null>(null);
 
   // Helper to process a single attachment and return list of image URLs (or data URLs for PDF pages)
   const getImagesFromAttachment = async (att) => {
@@ -1177,7 +1177,7 @@ export const POPdf: React.FC<POPdfProps> = ({
 
   const handleDownloadPdf = async (formatName: string) => {
     if (!po?.name) return;
-    setIsDownloading(true);
+    setDownloadingFormat(formatName);
     try {
       // Use custom API to download merged PDF (PO + Attachments)
       const params = new URLSearchParams({
@@ -1215,7 +1215,7 @@ export const POPdf: React.FC<POPdfProps> = ({
       const url = `/api/method/frappe.utils.print_format.download_pdf?doctype=Procurement Orders&name=${po?.name}&format=${formatName}&no_letterhead=0`;
       window.open(url, '_blank');
     } finally {
-      setIsDownloading(false);
+      setDownloadingFormat(null);
     }
   };
 
@@ -1280,19 +1280,19 @@ export const POPdf: React.FC<POPdfProps> = ({
           </Button>
           <Button
             onClick={() => handleDownloadPdf("PO Invoice")}
-            disabled={isDownloading}
+            disabled={!!downloadingFormat}
             className="flex items-center gap-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Download className={`h-4 w-4 ${isDownloading ? "animate-bounce" : ""}`} />
-            {isDownloading ? "Downloading..." : "Download"}
+            <Download className={`h-4 w-4 ${downloadingFormat === "PO Invoice" ? "animate-bounce" : ""}`} />
+            {downloadingFormat === "PO Invoice" ? "Downloading..." : "Download"}
           </Button>
           <Button
             onClick={() => handleDownloadPdf("PO Orders Without Rate")}
-            disabled={isDownloading}
+            disabled={!!downloadingFormat}
             className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Download className={`h-4 w-4 ${isDownloading ? "animate-bounce" : ""}`} />
-            {isDownloading ? "Downloading..." : "Without Rate"}
+            <Download className={`h-4 w-4 ${downloadingFormat === "PO Orders Without Rate" ? "animate-bounce" : ""}`} />
+            {downloadingFormat === "PO Orders Without Rate" ? "Downloading..." : "Download Without Rate"}
           </Button>
         </div>
         <div className={`w-full border mt-6`}>
