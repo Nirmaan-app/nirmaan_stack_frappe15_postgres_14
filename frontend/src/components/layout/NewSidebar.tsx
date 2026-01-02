@@ -465,7 +465,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Design Lead Profile", "Nirmaan Admin Profile", "Nirmaan Design Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Design Lead Profile", "Nirmaan Admin Profile", "Nirmaan Design Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role)
       ? [
         {
           key: '/design-tracker',
