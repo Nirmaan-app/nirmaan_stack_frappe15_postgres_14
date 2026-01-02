@@ -1,10 +1,11 @@
 import { useMemo, useCallback, useState, useEffect } from "react";
-import { KeyedMutator } from "swr";
+import { KeyedMutator, mutate as globalMutate } from "swr";
 import {
   FrappeDoc,
   useFrappeGetDocList,
   useFrappePostCall,
   useFrappeUpdateDoc,
+  useFrappeFileUpload,
 } from "frappe-react-sdk";
 import { useDialogStore } from "@/zustand/useDialogStore"; // Adjust import path
 import { useToast } from "@/components/ui/use-toast"; // Adjust import path
@@ -40,8 +41,9 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { RefreshCcw } from "lucide-react";
+import { RefreshCcw, CirclePlus, Upload } from "lucide-react";
 import { Projects } from "@/types/NirmaanStack/Projects";
+import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 
 // Define a union type for the document data
 type DocumentType = ProcurementOrder | ServiceRequests;
@@ -58,6 +60,7 @@ interface DocumentAttachmentsProps<T extends DocumentType> {
   // Mutator specifically for the *parent* document (PO or SR)
   docMutate: KeyedMutator<T[]>; // Use 'any' for flexibility or define a more specific SWRResponse type if possible
   project?: FrappeDoc<Projects>;
+  isPMUserChallans?: boolean;
   disabledAddInvoice?:boolean;
 }
 
@@ -70,6 +73,11 @@ const initialSrInvoiceDialogData: SrInvoiceDialogData = {
   invoice_no: "",
   invoice_date: formatDate(new Date(), "yyyy-MM-dd"), // Default to today
 };
+
+interface UploadDialogState {
+  open: boolean;
+  type: "DC" | "MIR" | null;
+}
 
 export const DocumentAttachments = <T extends DocumentType>({
   docType,
@@ -91,10 +99,23 @@ export const DocumentAttachments = <T extends DocumentType>({
 
   const [isGeneratingInvNo, setIsGeneratingInvNo] = useState(false);
 
+  // Upload DC/MIR state
+  const [uploadDialog, setUploadDialog] = useState<UploadDialogState>({
+    open: false,
+    type: null,
+  });
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
   const { updateDoc, loading: update_loading } = useFrappeUpdateDoc();
   // Hook for fetching new invoice number
   const { call: generateInvoiceNumberAPI } = useFrappePostCall(
     "nirmaan_stack.api.invoice_utils.generate_next_invoice_number" // Path to your new Python API
+  );
+
+  // Upload hooks
+  const { upload, loading: uploadLoading } = useFrappeFileUpload();
+  const { call: createAttachmentDoc, loading: createAttachmentLoading } = useFrappePostCall(
+    "frappe.client.insert"
   );
 
   // Pre-fill dialog if invoice_no and invoice_date exist on orderData
@@ -119,6 +140,7 @@ export const DocumentAttachments = <T extends DocumentType>({
     data: attachmentsData,
     isLoading: attachmentsLoading,
     error: attachmentsError,
+    mutate: mutateAttachments,
   } = useFrappeGetDocList<NirmaanAttachment>(
     "Nirmaan Attachments",
     {
@@ -252,6 +274,106 @@ export const DocumentAttachments = <T extends DocumentType>({
     // Only allow deletion if status is Pending or Rejected (or other statuses you define)
     return ["Pending", "Rejected"].includes(item?.status || "");
   }, []);
+
+  // --- Upload DC/MIR Handlers ---
+  const handleOpenUploadDialog = useCallback((type: "DC" | "MIR") => {
+    setUploadDialog({
+      open: true,
+      type,
+    });
+    setSelectedFile(null);
+  }, []);
+
+  const handleCloseUploadDialog = useCallback(() => {
+    setUploadDialog({ open: false, type: null });
+    setSelectedFile(null);
+  }, []);
+
+  const handleUploadFile = useCallback(async () => {
+    if (!selectedFile || !uploadDialog.type) {
+      toast({
+        title: "No File Selected",
+        description: "Please select a file to upload",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!documentData) {
+      toast({
+        title: "Error",
+        description: "Document data not available",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      // Step 1: Upload file to Frappe
+      const uploadResult = await upload(selectedFile, {
+        doctype: docType,
+        docname: docName,
+        fieldname: "attachment",
+        isPrivate: true,
+      });
+
+      if (!uploadResult?.file_url) {
+        throw new Error("File upload failed");
+      }
+
+      // Step 2: Create Nirmaan Attachments record
+      const attachmentType = uploadDialog.type === "DC" ? "po delivery challan" : "material inspection report";
+
+      const attachmentDoc = {
+        doctype: "Nirmaan Attachments",
+        project: documentData.project,
+        attachment: uploadResult.file_url,
+        attachment_type: attachmentType,
+        associated_doctype: docType,
+        associated_docname: docName,
+        attachment_link_doctype: "Vendors",
+        attachment_link_docname: (documentData as ProcurementOrder).vendor,
+      };
+
+      await createAttachmentDoc({ doc: attachmentDoc });
+
+      // Success
+      toast({
+        title: "Upload Successful",
+        description: `${uploadDialog.type} uploaded successfully`,
+        variant: "success",
+      });
+
+      // Refresh data and close dialog
+      await docMutate();
+      await mutateAttachments(); // Refresh attachments list in this component
+
+      // Refresh all attachment queries globally (including parent component counts)
+      // SWR keys in frappe-react-sdk are arrays, so we need to check array keys
+      await globalMutate(
+        (key) => {
+          if (Array.isArray(key)) {
+            // Serialize the key and check if it contains 'Nirmaan Attachments'
+            return JSON.stringify(key).includes('Nirmaan Attachments');
+          }
+          return false;
+        },
+        undefined,
+        { revalidate: true }
+      );
+
+      handleCloseUploadDialog();
+    } catch (error: any) {
+      console.error("Upload error:", error);
+      toast({
+        title: "Upload Failed",
+        description: error.message || "Failed to upload file",
+        variant: "destructive",
+      });
+    }
+  }, [selectedFile, uploadDialog.type, documentData, docType, docName, upload, createAttachmentDoc, toast, docMutate, mutateAttachments, handleCloseUploadDialog]);
+
+  const isUploading = uploadLoading || createAttachmentLoading;
 
   // --- Loading and Error States ---
   if (attachmentsLoading) {
@@ -471,13 +593,37 @@ export const DocumentAttachments = <T extends DocumentType>({
         !isPMUserChallans && (
  <Card className="rounded-md shadow-sm border border-gray-200 overflow-hidden">
           <CardHeader className="border-b border-gray-200">
-            <CardTitle className="flex items-center gap-2">
-              <p className="text-lg font-semibold text-red-600">
-                Delivery Challans & MIRs
-              </p>
-              <Badge variant="secondary" className="text-sm">
-                {dcAttachments.length}
-              </Badge>
+            <CardTitle className="flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <p className="text-lg font-semibold text-red-600">
+                  Delivery Challans & MIRs
+                </p>
+                <Badge variant="secondary" className="text-sm">
+                  {dcAttachments.length}
+                </Badge>
+              </div>
+              {isPO && showDcTable && (
+                <div className="flex gap-2 items-center">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleOpenUploadDialog("DC")}
+                    className="text-primary border-primary hover:bg-primary/5"
+                  >
+                    <CirclePlus className="h-4 w-4 mr-1" />
+                    Upload DC
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleOpenUploadDialog("MIR")}
+                    className="text-primary border-primary hover:bg-primary/5"
+                  >
+                    <Upload className="h-4 w-4 mr-1" />
+                    Upload MIR
+                  </Button>
+                </div>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
@@ -572,6 +718,47 @@ export const DocumentAttachments = <T extends DocumentType>({
             >
               Download PDF
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Upload DC/MIR Dialog */}
+      <Dialog open={uploadDialog.open} onOpenChange={handleCloseUploadDialog}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>
+              Upload {uploadDialog.type === "DC" ? "Delivery Challan" : "Material Inspection Report"}
+            </DialogTitle>
+            <DialogDescription>
+              Upload {uploadDialog.type} for {docName ? `PO-${docName.split("/")[1]}` : "this Purchase Order"}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4">
+            <CustomAttachment
+              selectedFile={selectedFile}
+              onFileSelect={setSelectedFile}
+              label={`Select ${uploadDialog.type} File`}
+              maxFileSize={20 * 1024 * 1024}
+              acceptedTypes={["application/pdf", "image/*"]}
+            />
+          </div>
+
+          <DialogFooter>
+            {isUploading ? (
+              <div className="flex justify-center w-full">
+                <TailSpin color="#3b82f6" width={40} height={40} />
+              </div>
+            ) : (
+              <>
+                <Button variant="outline" onClick={handleCloseUploadDialog}>
+                  Cancel
+                </Button>
+                <Button onClick={handleUploadFile} disabled={!selectedFile}>
+                  Upload
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
