@@ -92,6 +92,8 @@ export interface ProcurementOrder {
 	vendor: string
 	/**	Procurement Request : Link - Procurement Requests	*/
 	procurement_request: string
+	/**	Work Package : Data	*/
+	work_package?: string
 	/**	Category : Link - Category	*/
 	category?: string
 	/**	Merged : Data	*/
