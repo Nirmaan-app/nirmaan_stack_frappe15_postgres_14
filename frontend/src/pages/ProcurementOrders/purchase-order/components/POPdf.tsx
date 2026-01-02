@@ -758,9 +758,26 @@
 //   );
 // };
 
+// {# --- ATTACHMENT SECTION --- #}
+  
+//     {% if doc.attachment %}
+//         {% set image_list = frappe.call("nirmaan_stack.api.pdf_to_image.get_attachments_for_print", file_url=doc.attachment) %}
+//         {% if image_list and image_list | length > 0 %}
+//             <div style="page-break-before: always;"></div>
 
+//             <!--<div class="section-title">ATTACHMENT</div>-->
+//             <div style="width:100%; text-align:center; margin: -10mm -12mm -15mm -12mm !important; position: relative;">
+//                 {% for img_data in image_list %}
+//                     <div class="converted-image-container">
+//                         <img src="{{ img_data }}" alt="Attachment Page {{ loop.index }}">
+//                     </div>
+//                     {% if not loop.last %}<div style="page-break-after: always;"></div>{% endif %}
+//                 {% endfor %}
+//             </div>
+//         {% endif %}
+//     {% endif %}
 
-//-------Popdf will custom item also there make dynamically ---
+// //-------Popdf will custom item also there make dynamically ---
 
 import logo from "@/assets/logo-svg.svg";
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
@@ -1039,7 +1056,7 @@ export const POPdf: React.FC<POPdfProps> = ({
 
   const [images, setImages] = useState([]);
   const [isPrinting, setIsPrinting] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadingFormat, setDownloadingFormat] = useState<string | null>(null);
 
   // Helper to process a single attachment and return list of image URLs (or data URLs for PDF pages)
   const getImagesFromAttachment = async (att) => {
@@ -1158,12 +1175,19 @@ export const POPdf: React.FC<POPdfProps> = ({
     },
   });
 
-  const handlePrintFormatPdf = async () => {
+  const handleDownloadPdf = async (formatName: string) => {
     if (!po?.name) return;
-    setIsDownloading(true);
+    setDownloadingFormat(formatName);
     try {
-      // Fetch the PDF blob
-      const url = `/api/method/frappe.utils.print_format.download_pdf?doctype=Procurement Orders&name=${po.name}&format=PO Invoice&no_letterhead=0`;
+      // Use custom API to download merged PDF (PO + Attachments)
+      const params = new URLSearchParams({
+        doctype: "Procurement Orders",
+        docname: po.name,
+        print_format: formatName, // Dynamic format
+      });
+
+      const url = `/api/method/nirmaan_stack.api.pdf_helper.print_integration.download_merged_pdf?${params.toString()}`;
+      
       const response = await fetch(url);
       if (!response.ok) throw new Error("Network response was not ok");
       
@@ -1173,11 +1197,11 @@ export const POPdf: React.FC<POPdfProps> = ({
       // Create temporary link to trigger download with custom filename
       const link = document.createElement('a');
       link.href = downloadUrl;
-      // Custom Filename: [PO Number]_[Project Name]_CR.pdf
-      // Sanitizing filename just in case (replacing slashes with underscores if any)
+      // Custom Filename: [PO Number]_[Project Name]_[Format].pdf
       const safeName = po.name.replace(/\//g, "_");
       const safeProjectName = (po.project_name || "Project").replace(/\//g, "_");
-      link.download = `${safeName}_${safeProjectName}_CR.pdf`;
+      const suffix = formatName === "PO Orders Without rate" ? "_NoRate" : "";
+      link.download = `${safeName}_${safeProjectName}${suffix}.pdf`;
       
       document.body.appendChild(link);
       link.click();
@@ -1187,11 +1211,11 @@ export const POPdf: React.FC<POPdfProps> = ({
       window.URL.revokeObjectURL(downloadUrl);
     } catch (error) {
       console.error("Download failed:", error);
-      // Fallback to old method if fetch fails
-      const url = `/api/method/frappe.utils.print_format.download_pdf?doctype=Procurement Orders&name=${po?.name}&format=PO Invoice&no_letterhead=0`;
+      // Fallback -> Standard Print
+      const url = `/api/method/frappe.utils.print_format.download_pdf?doctype=Procurement Orders&name=${po?.name}&format=${formatName}&no_letterhead=0`;
       window.open(url, '_blank');
     } finally {
-      setIsDownloading(false);
+      setDownloadingFormat(null);
     }
   };
 
@@ -1255,12 +1279,20 @@ export const POPdf: React.FC<POPdfProps> = ({
             Print
           </Button>
           <Button
-            onClick={handlePrintFormatPdf}
-            disabled={isDownloading}
+            onClick={() => handleDownloadPdf("PO Invoice")}
+            disabled={!!downloadingFormat}
             className="flex items-center gap-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Download className={`h-4 w-4 ${isDownloading ? "animate-bounce" : ""}`} />
-            {isDownloading ? "Downloading..." : "Download"}
+            <Download className={`h-4 w-4 ${downloadingFormat === "PO Invoice" ? "animate-bounce" : ""}`} />
+            {downloadingFormat === "PO Invoice" ? "Downloading..." : "Download"}
+          </Button>
+          <Button
+            onClick={() => handleDownloadPdf("PO Orders Without Rate")}
+            disabled={!!downloadingFormat}
+            className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Download className={`h-4 w-4 ${downloadingFormat === "PO Orders Without Rate" ? "animate-bounce" : ""}`} />
+            {downloadingFormat === "PO Orders Without Rate" ? "Downloading..." : "Download Without Rate"}
           </Button>
         </div>
         <div className={`w-full border mt-6`}>

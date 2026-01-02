@@ -173,7 +173,7 @@ useEffect(() => {
     }
 
     return (
-        <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'max-h-[calc(100vh-110px)] overflow-hidden' : ''}`}>
+        <div className={`flex flex-col gap-2 mt-6 ${totalCount > 0 ? 'max-h-[calc(100vh-150px)] overflow-hidden' : ''}`}>
             {isLoadingOverall && !tasks?.length ? ( // Show skeleton if main list is loading and no data yet
                 <TableSkeleton />
             ) : (
