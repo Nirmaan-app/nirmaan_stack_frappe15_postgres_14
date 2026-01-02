@@ -349,7 +349,8 @@ export const DesignTrackerList: React.FC = () => {
     // console.log("role-Nirmaan Design Executive Profile",role,user_id)
     const isDesignExecutive = role === "Nirmaan Design Executive Profile";
     const hasEditStructureAccess = role === "Nirmaan Design Lead Profile" || role === "Nirmaan Admin Profile" || user_id === "Administrator";
-    
+    const isProjectManager = role === "Nirmaan Project Manager Profile";
+
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedProjectFilters, setSelectedProjectFilters] = useState<string[]>([]);
@@ -360,9 +361,9 @@ export const DesignTrackerList: React.FC = () => {
     const [activeStatusTab, setActiveStatusTab] = useState<string>("All");
 
     const onClick = useCallback((value: string) => {
-        if (activeTab === value) return;
+        if (activeTab === value || isProjectManager) return; // Disable tab switching for Project Managers
         setActiveTab(value)
-    }, [activeTab]);
+    }, [activeTab, isProjectManager]);
 
     useEffect(() => {
         if (urlStateManager.getParam("tab") !== activeTab) {
@@ -444,149 +445,164 @@ export const DesignTrackerList: React.FC = () => {
     if (error) return <AlertDestructive error={error} />;
 
     return (
-        <div className="flex-1 space-y-6 p-2 md:p-2">
-            <header className="flex justify-between items-center">
-                {/* <h1 className="text-2xl font-bold text-red-700">Design Tracker</h1> */}
-                <div className="flex space-x-0 border border-gray-300 rounded-md overflow-hidden w-fit">
+        <div className="flex-1 space-y-5 p-4 md:p-6">
+            {/* Header Section */}
+            <header className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+                {/* Tab Switcher - Hidden for Project Managers */}
+                {!isProjectManager && (
+                    <div className="inline-flex border border-gray-300 rounded-lg overflow-hidden shadow-sm bg-white">
+                        <Button
+                            variant="primary"
+                            onClick={() => onClick(DESIGN_TABS.PROJECT_WISE)}
+                            className={`
+                                px-5 py-2.5 text-sm font-medium h-auto shadow-none rounded-none
+                                transition-all duration-200
+                                ${activeTab === DESIGN_TABS.PROJECT_WISE
+                                    ? 'bg-primary text-white'
+                                    : 'bg-white text-gray-700 hover:bg-gray-50'}
+                                cursor-pointer
+                                border-r border-gray-300
+                            `}
+                        >
+                            Project Wise
+                        </Button>
 
-
-
-                    <Button
-                    variant="primary"
-                        onClick={() => onClick(DESIGN_TABS.PROJECT_WISE)}
-                        className={`px-4 py-2 text-sm font-medium h-auto shadow-none 
-            ${activeTab === DESIGN_TABS.PROJECT_WISE ? 'bg-primary text-white' : 'bg-white text-gray-700 '}
-            
-            /* Apply border-right to create the visual divider */
-            border-r border-gray-300 
-            
-            /* Ensure right side is square, left side gets rounding from parent div */
-            rounded-r-none 
-        `}
-                    >
-                       Project Wise
-                       {/* {trackerDocs?.length > 0 && (
-                           <span className="ml-2 bg-white text-red-700 px-2 rounded-full text-xs py-1">
-                               {trackerDocs?.length || 0}
-                           </span>
-                       )} */}
-                    </Button>
-
-                    <Button
-                    variant="primary"
-
-                        onClick={() => onClick(DESIGN_TABS.TASK_WISE)}
-                        className={`px-4 py-2 text-sm font-medium h-auto shadow-none 
-            ${activeTab === DESIGN_TABS.TASK_WISE ? 'bg-primary text-white' : 'bg-white text-gray-800 '}
-            
-            /* Ensure left side is square, right side gets rounding from parent div */
-            rounded-l-none 
-        `}
-                    >
-                        Task Wise
-                    </Button>
-                </div>
-                {activeTab === DESIGN_TABS.PROJECT_WISE && hasEditStructureAccess && (
-                    <Button onClick={() => setIsModalOpen(true)} className="">
-                        <CirclePlus className="h-5 w-5 pr-1" /> Track New Project
-                    </Button>
+                        <Button
+                            variant="primary"
+                            onClick={() => onClick(DESIGN_TABS.TASK_WISE)}
+                            className={`
+                                px-5 py-2.5 text-sm font-medium h-auto shadow-none rounded-none
+                                transition-all duration-200
+                                ${activeTab === DESIGN_TABS.TASK_WISE
+                                    ? 'bg-primary text-white'
+                                    : 'bg-white text-gray-700 hover:bg-gray-50'}
+                                cursor-pointer
+                            `}
+                        >
+                            Task Wise
+                        </Button>
+                    </div>
                 )}
 
+                {/* Action Button */}
+                {activeTab === DESIGN_TABS.PROJECT_WISE && hasEditStructureAccess && (
+                    <Button onClick={() => setIsModalOpen(true)} className="whitespace-nowrap">
+                        <CirclePlus className="h-4 w-4 mr-2" />
+                        Track New Project
+                    </Button>
+                )}
             </header>
 
-
-            {/* Search and Filter */}
-            {
-                activeTab === DESIGN_TABS.PROJECT_WISE && (
-                    <div className="flex items-center space-x-3">
-                        <div className="relative flex-grow">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
-                            <Input
-                                placeholder="Search Projects"
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                className="pl-10 h-10 border-gray-300"
-                            />
-                        </div>
-                        <Popover>
-                             <PopoverTrigger asChild>
-                                 <Button variant="outline" className="flex items-center gap-2 h-10 border-gray-300 text-gray-700">
-                                     <Filter className="h-4 w-4" /> Filter
-                                    {selectedProjectFilters.length > 0 && (
-                                        <Badge variant="secondary" className="ml-1 h-5 px-1 bg-gray-200 text-xs">
-                                            {selectedProjectFilters.length}
-                                        </Badge>
-                                    )}
-                                 </Button>
-                             </PopoverTrigger>
-                             <PopoverContent className="w-[250px] p-0" align="start">
-                                 <Command>
-                                     <CommandInput placeholder="Filter Project..." />
-                                     <CommandList>
-                                         <CommandEmpty>No project found.</CommandEmpty>
-                                         <CommandGroup>
-                                             {projectFilterOptions.map(option => {
-                                                  const isSelected = selectedProjectFilters.includes(option);
-                                                  return (
-                                                      <CommandItem
-                                                         key={option}
-                                                         onSelect={() => {
-                                                             if (isSelected) {
-                                                                 setSelectedProjectFilters(prev => prev.filter(p => p !== option));
-                                                             } else {
-                                                                 setSelectedProjectFilters(prev => [...prev, option]);
-                                                             }
-                                                         }}
-                                                      >
-                                                         <div className={cn("mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary",
-                                                             isSelected ? "bg-primary text-primary-foreground" : "opacity-50 [&_svg]:invisible"
-                                                         )}>
-                                                             <Check className={cn("h-4 w-4")} />
-                                                         </div>
-                                                         <span>{option}</span>
-                                                      </CommandItem>
-                                                  )
-                                             })}
-                                         </CommandGroup>
-                                     </CommandList>
-                                     {selectedProjectFilters.length > 0 && (
-                                        <div className="p-1 border-t bg-white sticky bottom-0 z-10">
-                                            <Button 
-                                                variant="ghost" 
-                                                size="sm"
-                                                className="w-full justify-center text-xs h-7 font-normal hover:bg-transparent text-red-600 hover:text-red-700 hover:underline"
-                                                onClick={() => setSelectedProjectFilters([])}
-                                            >
-                                                Clear
-                                            </Button>
-                                        </div>
-                                     )}
-                                 </Command>
-                             </PopoverContent>
-                        </Popover>
+            {/* Search and Filter Section */}
+            {activeTab === DESIGN_TABS.PROJECT_WISE && (
+                <div className="flex flex-col sm:flex-row gap-3">
+                    {/* Search Input */}
+                    <div className="relative flex-1 min-w-0">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none" />
+                        <Input
+                            placeholder="Search by project name or ID..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="pl-10 h-10 border-gray-300 focus:ring-2 focus:ring-primary/20"
+                        />
                     </div>
-                )
-            }
+
+                    {/* Filter Button */}
+                    <Popover>
+                        <PopoverTrigger asChild>
+                            <Button
+                                variant="outline"
+                                className="flex items-center gap-2 h-10 border-gray-300 text-gray-700 hover:bg-gray-50 whitespace-nowrap"
+                            >
+                                <Filter className="h-4 w-4" />
+                                <span className="hidden sm:inline">Filter</span>
+                                {selectedProjectFilters.length > 0 && (
+                                    <Badge variant="secondary" className="h-5 min-w-[20px] px-1.5 bg-primary text-white text-xs">
+                                        {selectedProjectFilters.length}
+                                    </Badge>
+                                )}
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[280px] p-0" align="end">
+                            <Command>
+                                <CommandInput placeholder="Search projects..." className="h-9" />
+                                <CommandList>
+                                    <CommandEmpty>No project found.</CommandEmpty>
+                                    <CommandGroup>
+                                        {projectFilterOptions.map(option => {
+                                            const isSelected = selectedProjectFilters.includes(option);
+                                            return (
+                                                <CommandItem
+                                                    key={option}
+                                                    onSelect={() => {
+                                                        if (isSelected) {
+                                                            setSelectedProjectFilters(prev => prev.filter(p => p !== option));
+                                                        } else {
+                                                            setSelectedProjectFilters(prev => [...prev, option]);
+                                                        }
+                                                    }}
+                                                    className="cursor-pointer"
+                                                >
+                                                    <div className={cn(
+                                                        "mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary",
+                                                        isSelected
+                                                            ? "bg-primary text-primary-foreground"
+                                                            : "opacity-50 [&_svg]:invisible"
+                                                    )}>
+                                                        <Check className="h-4 w-4" />
+                                                    </div>
+                                                    <span className="flex-1 truncate">{option}</span>
+                                                </CommandItem>
+                                            )
+                                        })}
+                                    </CommandGroup>
+                                </CommandList>
+                                {selectedProjectFilters.length > 0 && (
+                                    <div className="p-2 border-t bg-gray-50">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="w-full h-8 text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50"
+                                            onClick={() => setSelectedProjectFilters([])}
+                                        >
+                                            Clear filters
+                                        </Button>
+                                    </div>
+                                )}
+                            </Command>
+                        </PopoverContent>
+                    </Popover>
+                </div>
+            )}
 
 
 
             {/* Content based on Active Tab */}
             {activeTab === DESIGN_TABS.PROJECT_WISE && (
-                <div className="space-y-3">
-                    {/* New Grid View Logic */}
-                     {/* Use useFrappeGetCall instead of GetDocList for Custom API */}
-                     {/* Note: I'm casting the fetched data to match the expected structure */}
-                  
-                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="space-y-4">
+                    {/* Project Cards Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 md:gap-5">
                         {filteredDocs.length === 0 ? (
-                            <div className="col-span-full text-center text-gray-500 p-10">
-                                No design trackers found matching your search criteria.
+                            <div className="col-span-full">
+                                <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+                                    <div className="w-16 h-16 mb-4 rounded-full bg-gray-100 flex items-center justify-center">
+                                        <Search className="h-8 w-8 text-gray-400" />
+                                    </div>
+                                    <h3 className="text-lg font-medium text-gray-900 mb-1">
+                                        No trackers found
+                                    </h3>
+                                    <p className="text-sm text-gray-500 max-w-sm">
+                                        {searchTerm || selectedProjectFilters.length > 0
+                                            ? "Try adjusting your search or filters"
+                                            : "No design trackers available"}
+                                    </p>
+                                </div>
                             </div>
                         ) : (
                             filteredDocs.map((doc: any) => (
                                 <div key={doc.name} className="h-full">
-                                    <ProjectWiseCard 
-                                        tracker={doc} 
+                                    <ProjectWiseCard
+                                        tracker={doc}
                                         onClick={() => navigate(`/design-tracker/${doc.name}`)}
                                     />
                                 </div>
@@ -692,37 +708,42 @@ export const DesignTrackerList: React.FC = () => {
             )}
 
             {activeTab === DESIGN_TABS.TASK_WISE && (
-                <div className="space-y-4">
-                     <Tabs value={activeStatusTab} onValueChange={setActiveStatusTab} className="w-full">
-                        <TabsList className="w-full justify-start h-auto flex-wrap gap-2 bg-transparent p-0">
-                             <TabsTrigger 
-                                value="All" 
-                                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground border bg-white min-w-[100px]"
+                <div className="space-y-5">
+                    {/* Status Filter Tabs */}
+                    <Tabs value={activeStatusTab} onValueChange={setActiveStatusTab} className="w-full">
+                        <TabsList className="w-full justify-start h-auto flex-wrap gap-2 bg-transparent p-0 border-b pb-3">
+                            <TabsTrigger
+                                value="All"
+                                className="data-[state=active]:bg-primary data-[state=active]:text-white border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 min-w-[100px] rounded-md shadow-sm transition-all"
                             >
                                 All
                             </TabsTrigger>
-                            <TabsTrigger 
+                            <TabsTrigger
                                 value="Approved"
-                                className="data-[state=active]:bg-green-600 data-[state=active]:text-white border bg-white min-w-[100px]"
+                                className="data-[state=active]:bg-green-600 data-[state=active]:text-white border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 min-w-[100px] rounded-md shadow-sm transition-all"
                             >
                                 Approved
                             </TabsTrigger>
-                             {/* Add more specific tabs if needed, or map from statusOptions */}
-                             {statusOptions?.filter(s => s.value !== 'Approved' && s.value !== 'Not Applicable').sort((a,b) => a.label.localeCompare(b.label)).map((option) => (
-                                 <TabsTrigger
-                                    key={option.value}
-                                    value={option.value}
-                                    className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground border bg-white min-w-[100px]"
-                                >
-                                    {option.label}
-                                </TabsTrigger>
-                             ))}
+                            {/* Dynamic Status Tabs */}
+                            {statusOptions
+                                ?.filter(s => s.value !== 'Approved' && s.value !== 'Not Applicable')
+                                .sort((a, b) => a.label.localeCompare(b.label))
+                                .map((option) => (
+                                    <TabsTrigger
+                                        key={option.value}
+                                        value={option.value}
+                                        className="data-[state=active]:bg-primary data-[state=active]:text-white border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 min-w-[100px] rounded-md shadow-sm transition-all"
+                                    >
+                                        {option.label}
+                                    </TabsTrigger>
+                                ))}
                         </TabsList>
                     </Tabs>
 
-                    <TaskWiseTable 
-                        refetchList={refetchList} 
-                        searchTerm={searchTerm} 
+                    {/* Task Table */}
+                    <TaskWiseTable
+                        refetchList={refetchList}
+                        searchTerm={searchTerm}
                         onSearchTermChange={setSearchTerm}
                         user_id={user_id}
                         isDesignExecutive={isDesignExecutive}

@@ -1,101 +1,120 @@
 import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Badge } from "@/components/ui/badge";
-import { format } from "date-fns";
-import { Link } from "react-router-dom";
+import { ProgressCircle } from "@/components/ui/ProgressCircle";
 import { ArrowUpRight } from "lucide-react";
 import { getUnifiedStatusStyle } from "../utils";
 
 interface ProjectWiseCardProps {
-    tracker: any; // Using any for now to match flexible API response, typically ProjectDesignTracker + stats
+    tracker: any;
     onClick?: () => void;
 }
 
 export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onClick }) => {
-    
-    // Status counts provided by the new API
+
     const statusCounts = tracker.status_counts || {};
     const totalTasks = tracker.total_tasks || 0;
+    const completedTasks = tracker.completed_tasks || 0;
+    const completionPercentage = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
-    // Helper to format date
-    const formatDate = (dateString: string) => {
-        try {
-            return format(new Date(dateString), "dd MMM, yyyy");
-        } catch {
-            return dateString;
-        }
+    // Determine color based on completion percentage
+    const getProgressColor = (percentage: number): string => {
+        if (percentage === 100) return 'text-green-600';
+        if (percentage >= 76) return 'text-green-600';
+        if (percentage >= 26) return 'text-yellow-500';
+        return 'text-red-600';
     };
 
+    const progressColor = getProgressColor(completionPercentage);
+
     return (
-        <Card 
-            className="hover:shadow-lg transition-shadow duration-200 cursor-pointer border-l-4 border-l-primary h-full flex flex-col"
+        <Card
+            className="
+                group h-full flex flex-col
+                border border-gray-200 bg-white
+                transition-all duration-200
+                hover:shadow-md hover:border-primary/40
+                cursor-pointer
+            "
             onClick={onClick}
         >
-            <CardHeader className="pb-2">
-                <div className="flex justify-between items-start">
-                    <div className="space-y-1">
-                         <CardTitle className="text-lg font-bold text-gray-800 line-clamp-1" title={tracker.project_name}>
-                            {tracker.project_name}
-                        </CardTitle>
-                         {/* <p className="text-xs text-muted-foreground">
-                            Created: {formatDate(tracker.creation)}
-                        </p> */}
-                    </div>
-                   {/* <Badge 
-                        variant="outline" 
-                        className={`capitalize ${getUnifiedStatusStyle(tracker.status)}`}
+            <CardHeader className="pb-3 space-y-0">
+                <div className="flex items-start justify-between gap-3">
+                    <CardTitle
+                        className="text-base font-semibold text-gray-900 line-clamp-2 leading-snug flex-1"
+                        title={tracker.project_name}
                     >
-                        {tracker.status}
-                    </Badge> */}
+                        {tracker.project_name}
+                    </CardTitle>
+
+                    {/* Progress Circle - Single indicator with color-coded progress */}
+                    <ProgressCircle
+                        value={completionPercentage}
+                        className={`size-12 flex-shrink-0 ${progressColor}`}
+                        textSizeClassName="text-[10px]"
+                    />
                 </div>
             </CardHeader>
-            <CardContent className="flex-1 flex flex-col justify-end pt-2">
-                 <div className="space-y-3">
-                    {/* Total Tasks Count */}
-                    {/* Total Tasks Count */}
-                    <div className="flex justify-between items-end border-b pb-2">
-                        <span className="text-sm font-medium text-gray-600">Tasks (Approved/Total)</span>
-                        <div className="flex items-baseline gap-1">
-                             <span className={`text-2xl font-bold ${(tracker.completed_tasks || 0) === totalTasks && totalTasks > 0 ? "text-green-600" : "text-primary"}`}>
-                                {tracker.completed_tasks || 0}
-                             </span>
-                             <span className="text-sm font-medium text-gray-500">/ {totalTasks}</span>
-                        </div>
-                    </div>
 
-                    {/* Status Breakdown (Top 3 or Grid?) */}
-                    {totalTasks > 0 ? (
-                        <div className="grid grid-cols-2 gap-2 text-xs">
-                             {Object.entries(statusCounts).map(([status, count]) => (
-                                <div key={status} className={`flex justify-between items-center px-2 py-1 rounded ${getUnifiedStatusStyle(status)} border-0`}> 
-                                    <TooltipProvider>
-                                        <Tooltip delayDuration={300}>
-                                            <TooltipTrigger asChild>
-                                                <span className="truncate max-w-[70%] cursor-default">
+            <CardContent className="flex-1 flex flex-col justify-between pt-0 pb-4">
+                {/* Task Counter */}
+                <div className="mb-4">
+                    <div className="text-xs text-gray-500 mb-1">Drawings Approved</div>
+                    <div className="flex items-baseline gap-1.5">
+                        <span className={`text-2xl font-bold tabular-nums ${progressColor}`}>
+                            {completedTasks}
+                        </span>
+                        <span className="text-lg text-gray-400">/</span>
+                        <span className="text-lg font-semibold text-gray-600 tabular-nums">
+                            {totalTasks}
+                        </span>
+                    </div>
+                </div>
+
+                {/* Status Breakdown */}
+                {totalTasks > 0 ? (
+                    <div className="flex-1">
+                        <div className="grid grid-cols-2 gap-2">
+                            {Object.entries(statusCounts).map(([status, count]) => (
+                                <TooltipProvider key={status}>
+                                    <Tooltip delayDuration={300}>
+                                        <TooltipTrigger asChild>
+                                            <div
+                                                className={`
+                                                    flex items-center justify-between px-2.5 py-1.5 rounded-md
+                                                    ${getUnifiedStatusStyle(status)}
+                                                    cursor-default
+                                                `}
+                                            >
+                                                <span className="text-[11px] font-medium truncate pr-1">
                                                     {status}
                                                 </span>
-                                            </TooltipTrigger>
-                                            <TooltipContent>
-                                                <p>{status}</p>
-                                            </TooltipContent>
-                                        </Tooltip>
-                                    </TooltipProvider>
-                                    <span className="font-semibold">{count as number}</span>
-                                </div>
+                                                <span className="text-xs font-bold tabular-nums">
+                                                    {count as number}
+                                                </span>
+                                            </div>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="top" className="text-xs">
+                                            {status}: {count as number} {(count as number) === 1 ? 'task' : 'tasks'}
+                                        </TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
                             ))}
                         </div>
-                    ) : (
-                        <p className="text-xs text-gray-400 italic py-2">No tasks created yet.</p>
-                    )}
-                 </div>
-                 
-                 {/* View Details Link (Visual cue) */}
-                 <div className="mt-4 flex justify-end">
-                     <span className="text-xs text-primary flex items-center gap-1 font-medium hover:underline">
-                        View Details <ArrowUpRight className="h-3 w-3" />
-                     </span>
-                 </div>
+                    </div>
+                ) : (
+                    <div className="flex-1 flex items-center justify-center py-4">
+                        <p className="text-xs text-gray-400 italic">No tasks created yet</p>
+                    </div>
+                )}
+
+                {/* View Details Link */}
+                <div className="mt-3 pt-3 border-t border-gray-100">
+                    <div className="flex items-center justify-end gap-1 text-primary font-medium text-xs transition-gap group-hover:gap-1.5">
+                        <span>View Details</span>
+                        <ArrowUpRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                    </div>
+                </div>
             </CardContent>
         </Card>
     );
