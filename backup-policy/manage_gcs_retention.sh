@@ -1,62 +1,81 @@
 #!/bin/bash
-# Script: manage_gcs_retention.sh (Version 7 - Single API Call via JSON/JQ)
-# Purpose: Enforces retention (7 days daily, then alternate days).
+# Script: manage_gcs_retention.sh
+# Purpose: DELETE all backups older than 7 days from GCS bucket
 
 set -euo pipefail
 
 # --- CONFIGURATION ---
-readonly GCS_BUCKET_NAME="nirmaan-stack-backups" # <--- ENSURE THIS IS CORRECT
+readonly GCS_BUCKET_NAME="nirmaan-stack-backups"
+readonly RETENTION_DAYS=7
 # ---------------------
 
 readonly BUCKET_URI="gs://${GCS_BUCKET_NAME}"
-log() { 
-    echo "[RETENTION] $*" | tee -a "/var/log/nirmaan_backup.log" 2>/dev/null || echo "[RETENTION] $*"
+readonly LOG_FILE="/var/log/nirmaan_backup.log"
+
+log() {
+    echo "[RETENTION] $*" | tee -a "$LOG_FILE" 2>/dev/null || echo "[RETENTION] $*"
 }
 
 readonly NOW_SECONDS=$(date +%s)
-readonly SEVEN_DAYS_AGO_SECONDS=$((NOW_SECONDS - 7 * 86400))
-readonly FOURTEEN_DAYS_AGO_SECONDS=$((NOW_SECONDS - 14 * 86400))
+readonly CUTOFF_SECONDS=$((NOW_SECONDS - RETENTION_DAYS * 86400))
+readonly CUTOFF_DATE=$(date -d "@${CUTOFF_SECONDS}" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date -r "${CUTOFF_SECONDS}" '+%Y-%m-%d %H:%M:%S')
 
+log "=== GCS Retention: Keep last ${RETENTION_DAYS} days ==="
+log "Cutoff: ${CUTOFF_DATE} (deleting older backups)"
 log "Listing objects in ${BUCKET_URI}..."
 
-# FIX: Get name AND time in one call using JSON output.
-# This prevents the "Invalid Azure URL" error and is much faster.
-gcloud storage objects list "${BUCKET_URI}" --format="json" | jq -r '.[] | "\(.name)\t\(.timeCreated)"' | while IFS=$'\t' read -r object_name creation_time_str; do
-    
-    # 1. Skip objects with invalid/missing time (like folders)
-    if [[ "$creation_time_str" == "null" ]] || [[ -z "$creation_time_str" ]]; then
-        log "SKIP: Object has no creation time: ${object_name}"
+# Get all objects with metadata using long listing format
+# This gives us: size, creation_time, storage_uri
+kept_count=0
+deleted_count=0
+
+while IFS= read -r line; do
+    # Skip empty lines and header lines
+    [[ -z "$line" ]] && continue
+    [[ "$line" == *"TOTAL:"* ]] && continue
+
+    # Parse the line - format is: SIZE  CREATION_TIME  gs://bucket/object
+    # Example: 60554321  2026-01-03T14:26:30Z  gs://nirmaan-stack-backups/nirmaan-backup-2026-01-03_14-26-30.tar.gz
+
+    # Extract object URI (last field)
+    object_uri=$(echo "$line" | awk '{print $NF}')
+
+    # Skip if not a valid gs:// URI
+    [[ "$object_uri" != gs://* ]] && continue
+
+    # Extract object name from URI
+    object_name="${object_uri#gs://${GCS_BUCKET_NAME}/}"
+
+    # Extract creation time (second field, ISO format)
+    creation_time_str=$(echo "$line" | awk '{print $2}')
+
+    # Skip if no valid timestamp
+    if [[ -z "$creation_time_str" ]] || [[ "$creation_time_str" == "gs://"* ]]; then
+        log "SKIP (no timestamp): ${object_name}"
         continue
     fi
 
-    # 2. Construct the full GS URI for deletion later
-    object_uri="gs://${GCS_BUCKET_NAME}/${object_name}"
+    # Parse creation time to epoch seconds
+    creation_time_seconds=$(date -d "$creation_time_str" +%s 2>/dev/null || echo "0")
 
-    # 3. Parse time
-    creation_time_seconds=$(date -d "$creation_time_str" +%s)
-    backup_day=$(date -d "$creation_time_str" +'%d')
-    backup_day_no_zero=$((10#$backup_day))
-
-    # Rule 1: Keep recent backups (last 7 days)
-    if (( creation_time_seconds > SEVEN_DAYS_AGO_SECONDS )); then
-        log "KEEP (recent): ${object_name}"
+    if [[ "$creation_time_seconds" == "0" ]]; then
+        log "SKIP (cannot parse date '$creation_time_str'): ${object_name}"
         continue
     fi
 
-    # Rule 2: Alternate days for older backups (8-14 days)
-    if (( creation_time_seconds > FOURTEEN_DAYS_AGO_SECONDS )); then
-        if (( backup_day_no_zero % 2 == 0 )); then
-            log "KEEP (alternate day): ${object_name}"
+    # Simple rule: Keep if within 7 days, delete if older
+    if (( creation_time_seconds > CUTOFF_SECONDS )); then
+        log "KEEP: ${object_name}"
+        ((kept_count++))
+    else
+        log "DELETE (older than ${RETENTION_DAYS} days): ${object_name}"
+        if gcloud storage rm "${object_uri}" --quiet 2>/dev/null; then
+            ((deleted_count++))
         else
-            log "DELETE (alternate day rule): ${object_name}"
-            gcloud storage rm "${object_uri}" --quiet
+            log "ERROR: Failed to delete ${object_name}"
         fi
-        continue
     fi
-    
-    # Rule 3: Delete old backups (>14 days)
-    log "DELETE (too old): ${object_name}"
-    gcloud storage rm "${object_uri}" --quiet
-done
 
-log "Retention policy enforcement complete."
+done < <(gcloud storage ls -l "${BUCKET_URI}")
+
+log "=== Retention Complete: Kept ${kept_count}, Deleted ${deleted_count} ==="
