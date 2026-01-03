@@ -132,6 +132,12 @@ export const getProjectColumns = (): ColumnDef<Projects>[] => [
     size: 200, // Adjust size as needed
     meta: { exportHeaderName: "Project Name", exportValue: (row: Projects) => row.project_name || row.name }
   },
+   {
+    accessorKey: "project_value",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Value (excl. GST)" />,
+    cell: ({ row }) => <div className="tabular-nums">{formatDisplayValueToLakhs(row.original.project_value)}</div>,
+    meta: { exportHeaderName: "Value (excl. GST)", exportValue: (row: Projects) => formatValueToLakhsString(row.project_value), isNumeric: true }
+  },
   {
     id: "totalProjectInvoiced", // Use ID for columns not directly on `Projects`
     header: ({ column }) => <DataTableColumnHeader column={column} title="Client Invoiced (incl. GST)" />,
@@ -200,12 +206,7 @@ export const getProjectColumns = (): ColumnDef<Projects>[] => [
     cell: (props) => <CalculatedCell {...props} accessor="totalPoSrInvoiced" formatter={formatDisplayValueToLakhs} />,
     meta: { exportHeaderName: "Total PO+SR Invoice Received", isNumeric: true }
   },
-  {
-    accessorKey: "project_value",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Value (excl. GST)" />,
-    cell: ({ row }) => <div className="tabular-nums">{formatDisplayValueToLakhs(row.original.project_value)}</div>,
-    meta: { exportHeaderName: "Value (excl. GST)", exportValue: (row: Projects) => formatValueToLakhsString(row.project_value), isNumeric: true }
-  },
+ 
   // --- ✨ THIS IS THE FIX FOR YOUR NEW COLUMNS ---
   {
     id: "TotalPurchaseOverCredit", // A unique ID for the column
