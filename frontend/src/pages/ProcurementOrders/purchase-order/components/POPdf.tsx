@@ -790,7 +790,9 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { MessageCircleMore, Printer, Download } from "lucide-react";
-import * as pdfjsLib from "pdfjs-dist";
+// REMOVED: pdfjs-dist dependency - PDF preview in browser disabled
+// PDF download still works via backend API (handleDownloadPdf)
+// import * as pdfjsLib from "pdfjs-dist";
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useReactToPrint } from "react-to-print";
 import { AddressView } from "@/components/address-view";
@@ -807,8 +809,9 @@ interface POPdfProps {
   togglePoPdfSheet: () => void;
 }
 
-pdfjsLib.GlobalWorkerOptions.workerSrc =
-  "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+// REMOVED: pdfjs worker config
+// pdfjsLib.GlobalWorkerOptions.workerSrc =
+//   "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
 
 const gstAddressMap = {
   "29ABFCS9095N1Z9": "1st Floor, 234, 9th Main, 16th Cross, Sector 6, HSR Layout, Bengaluru - 560102, Karnataka",
@@ -1087,7 +1090,13 @@ export const POPdf: React.FC<POPdfProps> = ({
       console.log("Detected File Type:", fileType);
 
       if (["pdf"].includes(fileType)) {
-        // Handle PDF files
+        // DISABLED: PDF preview in browser - pdfjs-dist removed
+        // PDF attachments are now handled via backend download (handleDownloadPdf)
+        // which merges PDFs server-side and provides a single download
+        console.log("PDF preview disabled - use Download button for PDF with attachments");
+        return [];
+
+        /* REMOVED: pdfjs-based PDF rendering
         console.log("Fetching PDF...");
         const response = await fetch(fileUrl, { method: "GET" });
 
@@ -1101,7 +1110,7 @@ export const POPdf: React.FC<POPdfProps> = ({
 
         const loadingTask = pdfjsLib.getDocument({ data: pdfArrayBuffer });
         const pdf = await loadingTask.promise;
-        
+
         const pages = [];
         for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
           const page = await pdf.getPage(pageNum);
@@ -1116,6 +1125,7 @@ export const POPdf: React.FC<POPdfProps> = ({
           pages.push(imgData);
         }
         return pages;
+        */
       } else if (["png", "jpg", "jpeg", "gif", "webp"].includes(fileType)) {
         return [fileUrl];
       } else {

@@ -1,3 +1,14 @@
+/**
+ * @deprecated RETIRED COMPONENT - January 2026
+ *
+ * This component has been retired and is no longer in use.
+ * Reason: Replaced by NewSidebar.tsx in components/layout/
+ *
+ * If you need sidebar functionality, use:
+ * - src/components/layout/NewSidebar.tsx
+ */
+
+/*
 import {
     Building2,
     LayoutGrid,
@@ -106,8 +117,8 @@ export function Sidebar({ className, isSidebarOpen, setIsSidebarOpen, toggleSide
                                             className={cn("w-full justify-start", { "bg-red-400": isActive("/wp") })}>
                                             <span className={cn({ "text-white": isActive("/wp") })}>Work Packages</span>
                                         </Button>
-                                    </Link> */}
-                                    <Link to="/items">
+                                    </Link> */
+{/*<Link to="/items">
                                         <Button
                                             variant="ghost"
                                             size="sm"
@@ -210,17 +221,8 @@ export function Sidebar({ className, isSidebarOpen, setIsSidebarOpen, toggleSide
                                             <span className={cn({ "text-white": isActive("/new-procure-request") })}>New PR Request</span>
                                         </Button>
                                     </Link>
-                                    <Link to="/update-quote">
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => handleSetSidebarOpen(false)}
-                                            disabled={isActive("/update-quote")}
-                                            className={cn("w-full justify-start", { "bg-red-400": isActive("/update-quote") })}>
-                                            <span className={cn({ "text-white": isActive("/update-quote") })}>Update Quote</span>
-                                        </Button>
-                                    </Link>
-                                    <Link to="/choose-vendor">
+                                    {/* REMOVED: Dead link to /update-quote - component retired Jan 2026 */}
+{/*<Link to="/choose-vendor">
                                         <Button
                                             variant="ghost"
                                             size="sm"
@@ -259,7 +261,7 @@ export function Sidebar({ className, isSidebarOpen, setIsSidebarOpen, toggleSide
             </div >
 
             {/* Backdrop for closing sidebar on mobile view */}
-            {
+{/*{
                 isSidebarOpen && (
                     <div
                         className="fixed inset-0 overflow-hidden bg-black opacity-50 z-30 md:hidden"
@@ -270,10 +272,12 @@ export function Sidebar({ className, isSidebarOpen, setIsSidebarOpen, toggleSide
         </>
     );
 }
+*/}
 
+// Export nothing - file is retired
+export { }
 
-
-
+/*
 // import { useState } from "react";
 // import { Link, useLocation } from "react-router-dom";
 // import { cn } from "@/lib/utils";
@@ -542,3 +546,4 @@ export function Sidebar({ className, isSidebarOpen, setIsSidebarOpen, toggleSide
 //         </>
 //     );
 // }
+*/
