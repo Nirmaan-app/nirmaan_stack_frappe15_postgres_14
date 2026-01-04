@@ -1,3 +1,17 @@
+/**
+ * @deprecated RETIRED COMPONENT - January 2026
+ *
+ * This component has been retired and is no longer in use.
+ * Reason: No active route or import - dead code
+ *
+ * Depended on:
+ * - PrintRFQ from rfq-pdf.tsx (also retired)
+ *
+ * If you need vendor quote update functionality, use:
+ * - src/pages/ProcurementRequests/VendorQuotesSelection/
+ */
+
+/*
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Button } from "@/components/ui/button";
 import {
@@ -500,218 +514,222 @@ export const UpdateQuote = () => {
     <>
       <div className="flex-1 space-y-4">
         <div className="flex items-center">
-          {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */}
-          <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">
-            Input Quotes
-          </h2>
-        </div>
-        <ProcurementHeaderCard orderData={orderData} />
-        <div className="flex justify-between">
-          <div className="p-2 sm:pl-7 font-light underline text-red-700">
-            Selected Vendor List
-          </div>
-          <div className="p-2 sm:pl-7 font-light underline text-red-700 pr-10 sm:pr-32">
-            Options
-          </div>
-        </div>
-        {uniqueVendors.list.map((item) => {
-          return (
-            <div key={item} className="sm:px-4 max-sm:py-2 flex justify-between items-center max-sm:border-b">
-              <div className="sm:pl-4 pl-2 py-4">
-                <strong>{getVendorName(item)}</strong>
-                {uniqueVendors?.list?.length > 1 && (
-                  <Dialog open={deleteDialog} onOpenChange={toggleDeleteDialog}>
-                    <DialogTrigger onClick={() => setDeleteVendor(item)}>
-                      <Trash className="h-4 w-4 ml-2 fill-primary text-primary inline cursor-pointer" />
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>Are you sure?</DialogTitle>
-                      </DialogHeader>
-                        <DialogDescription>Click on Confirm to delete vendor: <strong>{getVendorName(deleteVendor)}</strong> from this PR!</DialogDescription>
-                        <div className="flex items-center justify-end gap-2">
-                          {delete_loading ? <TailSpin color="red" height={40} width={40} /> : (
-                            <>
-                            <DialogClose asChild>
-                              <Button variant={"outline"}>Cancel</Button>
-                            </DialogClose>
-                            <Button onClick={handleDeleteVendor}>
-                              Confirm
-                            </Button>
-                            </>
-                          )}
-                          </div>
-                    </DialogContent>
-                  </Dialog>
+          {/* <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} /> */
+/*<h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">
+  Input Quotes
+</h2>
+</div>
+<ProcurementHeaderCard orderData={orderData} />
+<div className="flex justify-between">
+<div className="p-2 sm:pl-7 font-light underline text-red-700">
+  Selected Vendor List
+</div>
+<div className="p-2 sm:pl-7 font-light underline text-red-700 pr-10 sm:pr-32">
+  Options
+</div>
+</div>
+{uniqueVendors.list.map((item) => {
+return (
+  <div key={item} className="sm:px-4 max-sm:py-2 flex justify-between items-center max-sm:border-b">
+    <div className="sm:pl-4 pl-2 py-4">
+      <strong>{getVendorName(item)}</strong>
+      {uniqueVendors?.list?.length > 1 && (
+        <Dialog open={deleteDialog} onOpenChange={toggleDeleteDialog}>
+          <DialogTrigger onClick={() => setDeleteVendor(item)}>
+            <Trash className="h-4 w-4 ml-2 fill-primary text-primary inline cursor-pointer" />
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Are you sure?</DialogTitle>
+            </DialogHeader>
+              <DialogDescription>Click on Confirm to delete vendor: <strong>{getVendorName(deleteVendor)}</strong> from this PR!</DialogDescription>
+              <div className="flex items-center justify-end gap-2">
+                {delete_loading ? <TailSpin color="red" height={40} width={40} /> : (
+                  <>
+                  <DialogClose asChild>
+                    <Button variant={"outline"}>Cancel</Button>
+                  </DialogClose>
+                  <Button onClick={handleDeleteVendor}>
+                    Confirm
+                  </Button>
+                  </>
                 )}
-              </div>
-              <div className="flex space-x-2 max-sm:flex-col items-center justify-center max-sm:gap-2">
-                <Sheet>
-                  <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 py-2 rounded-lg">
-                    <div className="flex">
-                      <Download className="h-5 w-5 mt-0.5 mr-1" />
-                      RFQ PDF
-                    </div>
-                  </SheetTrigger>
-                  <SheetContent className="overflow-auto">
-                    {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */}
-                    <SheetHeader>
-                      <SheetTitle className="text-center">
-                        Print PDF
-                      </SheetTitle>
-                      <SheetDescription>
-                        <PrintRFQ
-                          vendor_id={item}
-                          pr_id={orderData.name}
-                          itemList={orderData?.procurement_list || []}
-                        />
-                      </SheetDescription>
-                    </SheetHeader>
-                    {/* </ScrollArea> */}
-                  </SheetContent>
-                </Sheet>
-                {/* <button><ReleasePO vendorId = {vendorId}/></button> */}
-                <Sheet>
-                  <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-2 py-2 rounded-lg flex items-center gap-1">
-                    <span className="hover:underline">Enter Price(s) </span>
-                    <HoverCard>
-                      <HoverCardTrigger>
-                        <div
-                          className={`w-2 h-2 ${checkItemQuoteStatus(item) === "All Filled"
-                              ? "bg-green-500"
-                              : checkItemQuoteStatus(item) === "Not filled"
-                                ? "bg-red-500"
-                                : "bg-yellow-500"
-                            }  rounded-full`}
-                        />
-                      </HoverCardTrigger>
-                      <HoverCardContent className="mr-14 bg-gray-800 text-white p-2 rounded-md shadow-lg">
-                        {checkItemQuoteStatus(item) === "All Filled"
-                          ? "All items(s) quotes are filled"
-                          : checkItemQuoteStatus(item) === "Not filled"
-                            ? "No item quote is filled"
-                            : "Partially Filled"}
-                      </HoverCardContent>
-                    </HoverCard>
-                  </SheetTrigger>
-                  <SheetContent className="overflow-auto">
-                    {/* <ScrollArea className="h-[90%] w-[600px] p-2"> */}
-                    <SheetHeader className="text-start">
-                      <div className="flex items-center gap-1">
-                        <SheetTitle className="text-xl">
-                          Enter Price(s)
-                        </SheetTitle>
-                        <PencilLine className="w-5 h-5 text-primary" />
-                      </div>
-                      <SheetDescription className="py-2">
-                        {/* <Card className="p-5"> */}
-                        <QuotationForm
-                          vendor_id={item}
-                          pr_id={orderData.name}
-                        />
-                        {/* </Card> */}
-                      </SheetDescription>
-                    </SheetHeader>
-                    {/* </ScrollArea> */}
-                  </SheetContent>
-                </Sheet>
-              </div>
-            </div>
-          );
-        })}
-        <div className="font-light text-sm text-slate-500 max-sm:px-2 px-8 py-6">
-          <span className="text-red-700">Notes:</span> You can download RFQ
-          PDFs for individual vendors for getting quotes
-        </div>
-        <div className="flex items-center justify-between">
-          <Sheet>
-            <SheetTrigger className="text-blue-500">
-              <div className="sm:pl-8 pl-2">
-                <CirclePlus className="w-4 h-4 inline mr-1 mb-1" />
-                Add New Vendor
-              </div>
-            </SheetTrigger>
-            <SheetContent className="overflow-auto">
-              <SheetHeader className="text-start">
-                <SheetTitle>Add New Vendor for "{orderData.name}"</SheetTitle>
-                <SheetDescription>
-                  <div className="flex-1">
-                    <span className=" text-slim text-sm text-red-700">
-                      Note:
-                    </span>
-                    <p className="text-xs">
-                      {" "}
-                      - This will add a new vendor entry within the system.
-                      Only add new vendors here.
-                    </p>
-                    <p className="text-xs">
-                      {" "}
-                      - This form will automatically add vendors categories
-                      from this PR/SB to the vendor.
-                    </p>
-                  </div>
-                  <NewVendor
-                    dynamicCategories={
-                      orderData?.category_list?.list?.map(
-                        (item) => item.name
-                      ) || []
-                    }
-                    prData={orderData}
-                    renderCategorySelection={false}
-                    navigation={false}
-                  />
-                </SheetDescription>
-              </SheetHeader>
-            </SheetContent>
-          </Sheet>
-          <Button
-            className="flex items-center gap-1"
-            onClick={handleUpdateQuote}
-          >
-            <ListChecks className="h-4 w-4" />
-            Update Quote
-          </Button>
-        </div>
-        <Accordion type="multiple" defaultValue={["Vendors"]}>
-          <AccordionItem value="Vendors">
-            <AccordionTrigger>
-              <div className="md:mb-2 text-base md:text-lg px-2  w-full text-left">
-                <div className="flex-1">
-                  <span className=" text-base mb-0.5 md:text-lg font-slim">
-                    Recently Added Vendors List
-                  </span>
-                  <div className="text-sm text-gray-400">
-                    Here you can add previosuly added vendors to this PR. You
-                    can also update a previously added vendor`s{" "}
-                    <span className="text-red-700 italic">category</span>{" "}
-                  </div>
                 </div>
-              </div>
-            </AccordionTrigger>
-            <AccordionContent>
-              <Card className="max-md:p-0">
-                <CardHeader className="max-md:p-0">
-                  <div className="pl-6 flex gap-1 items-center pt-10 max-md:pt-6 flex-wrap">
-                    <span className="font-light max-md:text-sm">
-                      PR Categories:{" "}
-                    </span>
-                    {orderData?.category_list?.list.map((cat) => (
-                      <Badge>{cat.name}</Badge>
-                    ))}
-                  </div>
-                  <CardContent>
-                    <DataTable
-                      columns={columns}
-                      data={filteredVendorList || []}
-                      category_options={categoryOptions}
-                    />
-                  </CardContent>
-                </CardHeader>
-              </Card>
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
-      </div>
-    </>
-  );
+          </DialogContent>
+        </Dialog>
+      )}
+    </div>
+    <div className="flex space-x-2 max-sm:flex-col items-center justify-center max-sm:gap-2">
+      <Sheet>
+        <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 py-2 rounded-lg">
+          <div className="flex">
+            <Download className="h-5 w-5 mt-0.5 mr-1" />
+            RFQ PDF
+          </div>
+        </SheetTrigger>
+        <SheetContent className="overflow-auto">
+          {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */
+/*<SheetHeader>
+  <SheetTitle className="text-center">
+    Print PDF
+  </SheetTitle>
+  <SheetDescription>
+    <PrintRFQ
+      vendor_id={item}
+      pr_id={orderData.name}
+      itemList={orderData?.procurement_list || []}
+    />
+  </SheetDescription>
+</SheetHeader>
+{/* </ScrollArea> */
+/*</SheetContent>
+</Sheet>
+{/* <button><ReleasePO vendorId = {vendorId}/></button> */
+/*<Sheet>
+  <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-2 py-2 rounded-lg flex items-center gap-1">
+    <span className="hover:underline">Enter Price(s) </span>
+    <HoverCard>
+      <HoverCardTrigger>
+        <div
+          className={`w-2 h-2 ${checkItemQuoteStatus(item) === "All Filled"
+              ? "bg-green-500"
+              : checkItemQuoteStatus(item) === "Not filled"
+                ? "bg-red-500"
+                : "bg-yellow-500"
+            }  rounded-full`}
+        />
+      </HoverCardTrigger>
+      <HoverCardContent className="mr-14 bg-gray-800 text-white p-2 rounded-md shadow-lg">
+        {checkItemQuoteStatus(item) === "All Filled"
+          ? "All items(s) quotes are filled"
+          : checkItemQuoteStatus(item) === "Not filled"
+            ? "No item quote is filled"
+            : "Partially Filled"}
+      </HoverCardContent>
+    </HoverCard>
+  </SheetTrigger>
+  <SheetContent className="overflow-auto">
+    {/* <ScrollArea className="h-[90%] w-[600px] p-2"> */
+/*<SheetHeader className="text-start">
+  <div className="flex items-center gap-1">
+    <SheetTitle className="text-xl">
+      Enter Price(s)
+    </SheetTitle>
+    <PencilLine className="w-5 h-5 text-primary" />
+  </div>
+  <SheetDescription className="py-2">
+    {/* <Card className="p-5"> */
+/*<QuotationForm
+  vendor_id={item}
+  pr_id={orderData.name}
+/>
+{/* </Card> */
+/*</SheetDescription>
+</SheetHeader>
+{/* </ScrollArea> */
+/*</SheetContent>
+</Sheet>
+</div>
+</div>
+);
+})}
+<div className="font-light text-sm text-slate-500 max-sm:px-2 px-8 py-6">
+<span className="text-red-700">Notes:</span> You can download RFQ
+PDFs for individual vendors for getting quotes
+</div>
+<div className="flex items-center justify-between">
+<Sheet>
+<SheetTrigger className="text-blue-500">
+<div className="sm:pl-8 pl-2">
+<CirclePlus className="w-4 h-4 inline mr-1 mb-1" />
+Add New Vendor
+</div>
+</SheetTrigger>
+<SheetContent className="overflow-auto">
+<SheetHeader className="text-start">
+<SheetTitle>Add New Vendor for "{orderData.name}"</SheetTitle>
+<SheetDescription>
+<div className="flex-1">
+  <span className=" text-slim text-sm text-red-700">
+    Note:
+  </span>
+  <p className="text-xs">
+    {" "}
+    - This will add a new vendor entry within the system.
+    Only add new vendors here.
+  </p>
+  <p className="text-xs">
+    {" "}
+    - This form will automatically add vendors categories
+    from this PR/SB to the vendor.
+  </p>
+</div>
+<NewVendor
+  dynamicCategories={
+    orderData?.category_list?.list?.map(
+      (item) => item.name
+    ) || []
+  }
+  prData={orderData}
+  renderCategorySelection={false}
+  navigation={false}
+/>
+</SheetDescription>
+</SheetHeader>
+</SheetContent>
+</Sheet>
+<Button
+className="flex items-center gap-1"
+onClick={handleUpdateQuote}
+>
+<ListChecks className="h-4 w-4" />
+Update Quote
+</Button>
+</div>
+<Accordion type="multiple" defaultValue={["Vendors"]}>
+<AccordionItem value="Vendors">
+<AccordionTrigger>
+<div className="md:mb-2 text-base md:text-lg px-2  w-full text-left">
+<div className="flex-1">
+<span className=" text-base mb-0.5 md:text-lg font-slim">
+  Recently Added Vendors List
+</span>
+<div className="text-sm text-gray-400">
+  Here you can add previosuly added vendors to this PR. You
+  can also update a previously added vendor`s{" "}
+  <span className="text-red-700 italic">category</span>{" "}
+</div>
+</div>
+</div>
+</AccordionTrigger>
+<AccordionContent>
+<Card className="max-md:p-0">
+<CardHeader className="max-md:p-0">
+<div className="pl-6 flex gap-1 items-center pt-10 max-md:pt-6 flex-wrap">
+  <span className="font-light max-md:text-sm">
+    PR Categories:{" "}
+  </span>
+  {orderData?.category_list?.list.map((cat) => (
+    <Badge>{cat.name}</Badge>
+  ))}
+</div>
+<CardContent>
+  <DataTable
+    columns={columns}
+    data={filteredVendorList || []}
+    category_options={categoryOptions}
+  />
+</CardContent>
+</CardHeader>
+</Card>
+</AccordionContent>
+</AccordionItem>
+</Accordion>
+</div>
+</>
+);
 };
+*/
+
+// Export nothing - file is retired
+export { }

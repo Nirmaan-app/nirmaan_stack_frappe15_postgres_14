@@ -1,0 +1,106 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-12-23 16:43:30.329546",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "links_section",
+  "project",
+  "work_header",
+  "work_milestone",
+  "work_task_section",
+  "wp_title",
+  "wp_zone",
+  "wp_description",
+  "wp_start_date",
+  "wp_end_date",
+  "wp_status"
+ ],
+ "fields": [
+  {
+   "fieldname": "links_section",
+   "fieldtype": "Section Break",
+   "label": "Links"
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Projects"
+  },
+  {
+   "fieldname": "work_header",
+   "fieldtype": "Link",
+   "label": "Work Header",
+   "options": "Work Headers"
+  },
+  {
+   "fieldname": "work_milestone",
+   "fieldtype": "Data",
+   "label": "Work Milestone",
+   "options": "Work Milestones"
+  },
+  {
+   "fieldname": "work_task_section",
+   "fieldtype": "Section Break",
+   "label": "Work Task"
+  },
+  {
+   "fieldname": "wp_title",
+   "fieldtype": "Data",
+   "label": "WP Title"
+  },
+  {
+   "fieldname": "wp_description",
+   "fieldtype": "Text",
+   "label": "WP Description"
+  },
+  {
+   "fieldname": "wp_start_date",
+   "fieldtype": "Date",
+   "label": "WP Start Date"
+  },
+  {
+   "fieldname": "wp_end_date",
+   "fieldtype": "Date",
+   "label": "WP End Date"
+  },
+  {
+   "fieldname": "wp_status",
+   "fieldtype": "Data",
+   "label": "WP Status"
+  },
+  {
+   "fieldname": "wp_zone",
+   "fieldtype": "Data",
+   "label": "WP Zone"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-12-24 12:47:51.875148",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Work Plan",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

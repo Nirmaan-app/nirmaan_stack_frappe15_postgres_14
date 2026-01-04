@@ -367,7 +367,7 @@ export function InvoiceDialog<T extends DocumentType>({
           </div>
           {/* Date */}
           <div className="grid grid-cols-3 items-center gap-4">
-            <Label htmlFor="invoice_date" className="text-right col-span-1">Date<sup className="text-red-500">*</sup></Label>
+            <Label htmlFor="invoice_date" className="text-right col-span-1">Invoice Date<sup className="text-red-500">*</sup></Label>
             <Input
               id="invoice_date"
               type="date"
@@ -380,12 +380,12 @@ export function InvoiceDialog<T extends DocumentType>({
           </div>
           {/* Amount */}
           <div className="grid grid-cols-3 items-center gap-4">
-            <Label htmlFor="invoice_amount" className="text-right col-span-1">Amount<sup className="text-red-500">*</sup></Label>
+            <Label htmlFor="invoice_amount" className="text-right col-span-1">Invoice Amount (incl. GST)<sup className="text-red-500">*</sup></Label>
             <Input
               id="invoice_amount"
               type="text" // Use text to allow better validation/parsing if needed
               inputMode="decimal" // Hint for mobile keyboards
-              placeholder="Enter Amount"
+              placeholder="Enter Invoice Amount (incl. GST)"
               value={invoiceData.amount}
               onChange={(e) => {
                 // Allow only numbers and one decimal point

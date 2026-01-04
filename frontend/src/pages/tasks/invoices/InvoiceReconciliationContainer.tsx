@@ -108,9 +108,12 @@ export default function InvoiceReconciliationContainer() {
         }, [tab]);
 
     return (
-        <div 
+        <div
         >
-                {tabs && (
+
+             <div className="space-x-8"
+        >
+            {tabs && (
                     <Radio.Group
                         options={tabs}
                         defaultValue="pending"
@@ -129,6 +132,8 @@ export default function InvoiceReconciliationContainer() {
                         onChange={(e) => onClick(e.target.value)}
                     />
                 )}
+                
+        </div>
                 
 
                 <Suspense fallback={

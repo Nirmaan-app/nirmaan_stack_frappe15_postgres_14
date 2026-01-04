@@ -1,3 +1,17 @@
+/**
+ * @deprecated RETIRED COMPONENT - January 2026
+ *
+ * This component has been retired and is no longer in use.
+ * Reason: No active route or import - dead code
+ *
+ * Depended on:
+ * - PrintRFQ from rfq-pdf.tsx (also retired)
+ *
+ * If you need sent-back quote functionality, use:
+ * - src/pages/ProcurementRequests/VendorQuotesSelection/ (handles both PR and SentBack)
+ */
+
+/*
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import {
     Card,
@@ -472,8 +486,8 @@ export const SentBackUpdateQuote = () => {
         {/* <div className="flex items-center">
                         <ArrowLeft className="cursor-pointer" onClick={() => navigate(-1)} />
                         <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Add Vendors/Update Quote</h2>
-                    </div> */}
-        <ProcurementHeaderCard orderData={orderData} sentBack />
+                    </div> */
+{/* <ProcurementHeaderCard orderData={orderData} sentBack />
         <div className="flex justify-between">
           <div className="p-2 sm:pl-7 font-light underline text-red-700">
             Selected Vendor List
@@ -523,7 +537,7 @@ export const SentBackUpdateQuote = () => {
                   </SheetTrigger>
                   <SheetContent className="overflow-auto">
                     {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */}
-                    <SheetHeader>
+{/*<SheetHeader>
                       <SheetTitle className="text-center">Print PDF</SheetTitle>
                       <SheetDescription>
                         <PrintRFQ
@@ -534,7 +548,7 @@ export const SentBackUpdateQuote = () => {
                       </SheetDescription>
                     </SheetHeader>
                     {/* </ScrollArea> */}
-                  </SheetContent>
+{/*</SheetContent>
                 </Sheet>
                 <Sheet>
                   <SheetTrigger className="border-2 border-opacity-50 border-red-500 text-red-500 bg-white font-normal px-4 my-2 rounded-lg">
@@ -542,7 +556,7 @@ export const SentBackUpdateQuote = () => {
                   </SheetTrigger>
                   <SheetContent className="overflow-auto">
                     {/* <ScrollArea className="h-[90%] w-[600px] rounded-md border p-4"> */}
-                    <SheetHeader className="text-start">
+{/*<SheetHeader className="text-start">
                       <div className="flex items-center gap-1">
                         <SheetTitle className="text-xl">
                           Enter Price(s)
@@ -551,16 +565,16 @@ export const SentBackUpdateQuote = () => {
                       </div>
                       <SheetDescription className="py-2">
                         {/* <Card className="p-5"> */}
-                        <SentBackQuotationForm
+{/*<SentBackQuotationForm
                           vendor_id={item}
                           pr_id={orderData.procurement_request}
                           sb_id={id}
                         />
                         {/* </Card> */}
-                      </SheetDescription>
+{/*</SheetDescription>
                     </SheetHeader>
                     {/* </ScrollArea> */}
-                  </SheetContent>
+{/*</SheetContent>
                 </Sheet>
               </div>
             </div>
@@ -594,7 +608,7 @@ export const SentBackUpdateQuote = () => {
                     </p>
                   </div>
                   {/* <SentBackVendorForm quotation_request_list_mutate={quotation_request_list_mutate} sent_back_data={orderData} vendor_list_mutate={vendor_list_mutate} /> */}
-                  <NewVendor
+{/*<NewVendor
                     dynamicCategories={
                       orderData?.category_list?.list?.map(
                         (item) => item.name
@@ -654,5 +668,7 @@ export const SentBackUpdateQuote = () => {
         </Accordion>
       </div>
     </>
-  );
-};
+  );*/}
+
+// Export nothing - file is retired
+export {}

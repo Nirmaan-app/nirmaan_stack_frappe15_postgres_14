@@ -1,20 +1,28 @@
 import { useFrappeGetDocCount } from "frappe-react-sdk";
-import { LucideIcon, Boxes, HardHat, Package, ShoppingCart, SquareUserRound, UsersRound,Milestone } from "lucide-react";
+import {
+  LucideIcon,
+  Boxes,
+  HardHat,
+  Package,
+  ShoppingCart,
+  SquareUserRound,
+  UsersRound,
+  Milestone,
+  PencilRuler,
+  AlertTriangle,
+  ArrowUpRight,
+} from "lucide-react";
 import { Link } from "react-router-dom";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TailSpin } from "react-loader-spinner";
 
-
 export interface DashboardMetric {
-  id: string; // Unique key for mapping
+  id: string;
   title: string;
   doctype: string;
   linkTo: string;
   Icon: LucideIcon;
-  dataCy?: string; // For cypress testing
+  dataCy?: string;
 }
-
-
 
 export const DASHBOARD_METRICS_CONFIG: DashboardMetric[] = [
   {
@@ -34,7 +42,7 @@ export const DASHBOARD_METRICS_CONFIG: DashboardMetric[] = [
     dataCy: "admin-dashboard-users-card",
   },
   {
-    id: "products", // Assuming "Items" are products
+    id: "products",
     title: "Products",
     doctype: "Items",
     linkTo: "/products",
@@ -73,81 +81,80 @@ export const DASHBOARD_METRICS_CONFIG: DashboardMetric[] = [
     Icon: Milestone,
     dataCy: "admin-dashboard-proc-packages-card",
   },
-  // {
-  //   id: "approved-quotations",
-  //   title: "Approved Quotations",
-  //   doctype: "Approved Quotations",
-  //   linkTo: "/all-AQs",
-  //   Icon: Boxes,
-  //   dataCy: "admin-dashboard-approved-quotes-card",
-  // },
+  {
+    id: "design-packages",
+    title: "Design Packages",
+    doctype: "Design Tracker Category",
+    linkTo: "/design-packages",
+    Icon: PencilRuler,
+    dataCy: "admin-dashboard-design-packages-card",
+  },
+  {
+    id: "critical-po-categories",
+    title: "Critical PO Categories",
+    doctype: "Critical PO Category",
+    linkTo: "/critical-po-categories",
+    Icon: AlertTriangle,
+    dataCy: "admin-dashboard-critical-po-categories-card",
+  },
 ];
 
-
-// Helper hook to encapsulate useFrappeGetDocCount logic if needed, or use directly
-// const useMetricCount = (doctype: string) => {
-//   return useFrappeGetDocCount(doctype, {
-//     // Optional: Add caching or other options here if the hook supports it
-//     // staleTime: 1000 * 60 * 5, // Example: 5 minutes stale time
-//   });
-// };
-
-// You can create a wrapper if you need to call this hook multiple times in a loop,
-// but React rules say hooks must be called at the top level.
-// So, we will call them individually for now, driven by the config.
-
 export default function DefaultDashboard() {
-  // Fetch data for each metric. This is still multiple hooks, but managed.
-  // This is okay for a limited number of metrics.
-  // For many (>10-15), consider a custom hook that fetches all in one go if backend supports.
-  const metricDataHooks = DASHBOARD_METRICS_CONFIG.map(metric => ({
+  const metricDataHooks = DASHBOARD_METRICS_CONFIG.map((metric) => ({
     ...metric,
-    ...useFrappeGetDocCount(metric.doctype, undefined, true, false, `${metric.doctype}_total_count`)
+    ...useFrappeGetDocCount(
+      metric.doctype,
+      undefined,
+      true,
+      false,
+      `${metric.doctype}_total_count`
+    ),
   }));
 
   return (
-    <div className="flex-1 space-y-4"> {/* Added padding */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-3xl font-bold tracking-tight" style={{ color: "#D03B45" }}>
+    <div className="flex-1 space-y-8">
+      {/* Header */}
+      <div className="space-y-1">
+        <h2
+          className="text-2xl font-semibold tracking-tight"
+          style={{ color: "#1a1a1a" }}
+        >
           Modules
         </h2>
-        {/* Optional: Add a global refresh button or date range selector here */}
+        <p className="text-sm text-gray-400">
+          Quick access to all system modules
+        </p>
       </div>
 
-      <div
-        //   className="grid gap-4 md:gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
-        className="grid gap-4 md:gap-6 md:grid-cols-2"
-      > {/* Responsive grid */}
-        {metricDataHooks.map(({ id, title, linkTo, Icon, dataCy, data, isLoading, error }) => (
-          <DashboardMetricCard
-            key={id}
-            title={title}
-            linkTo={linkTo}
-            Icon={Icon}
-            count={data}
-            isLoading={isLoading}
-            error={error}
-            dataCy={dataCy}
-          // You can add custom colors here if needed, e.g., based on metric type
-          // iconColor={id === 'projects' ? 'text-blue-500' : undefined}
-          />
-        ))}
+      {/* Grid */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {metricDataHooks.map(
+          ({ id, title, linkTo, Icon, dataCy, data, isLoading, error }) => (
+            <DashboardMetricCard
+              key={id}
+              title={title}
+              linkTo={linkTo}
+              Icon={Icon}
+              count={data}
+              isLoading={isLoading}
+              error={error}
+              dataCy={dataCy}
+            />
+          )
+        )}
       </div>
     </div>
   );
-};
-
+}
 
 interface DashboardMetricCardProps {
   title: string;
   linkTo: string;
   Icon: LucideIcon;
-  count?: number | string; // Allow string if API returns it as such sometimes
+  count?: number | string;
   isLoading: boolean;
-  error?: any; // Can be more specific if you know the error type from frappe-react-sdk
+  error?: unknown;
   dataCy?: string;
-  iconColor?: string; // Optional: if you want to customize icon color per card
-  countColor?: string; // Optional: if you want to customize count color
 }
 
 export const DashboardMetricCard: React.FC<DashboardMetricCardProps> = ({
@@ -158,45 +165,149 @@ export const DashboardMetricCard: React.FC<DashboardMetricCardProps> = ({
   isLoading,
   error,
   dataCy,
-  iconColor = "text-muted-foreground", // Default color
-  countColor = "#D03B45", // Your specified red color
 }) => {
   const renderContent = () => {
     if (isLoading) {
       return (
         <TailSpin
           visible={true}
-          height="30"
-          width="30"
-          color={countColor}
+          height="32"
+          width="32"
+          color="#D03B45"
           ariaLabel="metric-loading"
           radius="1"
         />
       );
     }
     if (error) {
-      // Consider a more user-friendly error display or icon
-      return <p className="text-sm text-destructive">Error loading</p>;
+      return <span className="text-sm text-gray-300">--</span>;
     }
-    return count !== undefined ? count : "-"; // Display '-' if count is undefined but not loading/error
+    return count !== undefined ? count : "--";
   };
 
   return (
-    <Card className="hover:animate-shadow-drop-center transition-shadow duration-300 hover:shadow-lg" data-cy={dataCy}>
-      <Link to={linkTo} className="block h-full"> {/* Make entire card clickable and fill height */}
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium text-foreground">
-            {title}
-          </CardTitle>
-          <Icon className={`h-4 w-4 ${iconColor}`} />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold" style={{ color: countColor }}>
-            {renderContent()}
+    <Link
+      to={linkTo}
+      className="group relative block"
+      data-cy={dataCy}
+    >
+      {/* Card Container */}
+      <div
+        className="
+          relative
+          h-[140px]
+          overflow-hidden
+          rounded-xl
+          border
+          border-gray-100
+          bg-white
+          p-5
+          transition-all
+          duration-300
+          ease-out
+          hover:border-gray-200
+          hover:shadow-[0_8px_30px_rgb(0,0,0,0.04)]
+          dark:border-gray-800
+          dark:bg-gray-900
+          dark:hover:border-gray-700
+        "
+      >
+        {/* Watermark Icon - Large, Faded, Positioned Bottom-Right */}
+        <div
+          className="
+            pointer-events-none
+            absolute
+            -bottom-6
+            -right-6
+            transition-all
+            duration-500
+            ease-out
+            group-hover:-bottom-4
+            group-hover:-right-4
+            group-hover:opacity-[0.12]
+          "
+          style={{ opacity: 0.06 }}
+        >
+          <Icon
+            className="
+              h-32
+              w-32
+              text-gray-900
+              dark:text-gray-100
+            "
+            strokeWidth={1}
+          />
+        </div>
+
+        {/* Content */}
+        <div className="relative z-10 flex h-full flex-col justify-between">
+          {/* Top Section - Title with Arrow */}
+          <div className="flex items-start justify-between">
+            <span
+              className="
+                text-sm
+                font-medium
+                tracking-wide
+                text-gray-500
+                transition-colors
+                duration-200
+                group-hover:text-gray-700
+                dark:text-gray-400
+                dark:group-hover:text-gray-200
+              "
+            >
+              {title}
+            </span>
+            <ArrowUpRight
+              className="
+                h-4
+                w-4
+                -translate-x-1
+                translate-y-1
+                text-gray-300
+                opacity-0
+                transition-all
+                duration-300
+                group-hover:translate-x-0
+                group-hover:translate-y-0
+                group-hover:text-[#D03B45]
+                group-hover:opacity-100
+              "
+            />
           </div>
-          {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
-        </CardContent>
-      </Link>
-    </Card>
+
+          {/* Bottom Section - Count */}
+          <div className="flex items-end justify-between">
+            <span
+              className="
+                text-4xl
+                font-semibold
+                tabular-nums
+                tracking-tight
+                transition-colors
+                duration-200
+              "
+              style={{ color: "#D03B45" }}
+            >
+              {renderContent()}
+            </span>
+
+            {/* Subtle indicator line */}
+            <div
+              className="
+                mb-2
+                h-[2px]
+                w-0
+                rounded-full
+                bg-[#D03B45]
+                transition-all
+                duration-300
+                group-hover:w-8
+              "
+            />
+          </div>
+        </div>
+      </div>
+    </Link>
   );
 };

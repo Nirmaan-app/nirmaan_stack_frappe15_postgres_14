@@ -199,19 +199,26 @@ def _process_filters_for_query(filters_list: list, doctype: str) -> list:
                     # --- START CUSTOM CHECK (AS REQUESTED) ---
                     # Only try to detect date in Data field if we're using date-specific operators
                     if field_meta.fieldtype == "Data" and operator in ["Timespan", "Is", "IsNot", "Between", "<=", ">="]:
-                        # Only attempt date parsing if value looks date-like (not empty and not obviously non-date)
+                        # Handle String Values
                         if isinstance(value, str) and value.strip() and not value.strip() == "":
                             try:
-                                # Attempt to parse the value as a date
                                 getdate(value)
-                                # If successful, treat it as a date for the purpose of this processing block
                                 is_date_type = True
                                 print(f"DEBUG: Setting is_date_type=True for Data field '{field}' as value '{value}' is a valid date.")
                             except Exception:
-                                # If it fails (e.g., value is "Credit" or "N/A"), keep is_date_type = False
-                                is_date_type = False
-                                is_datetime_type = False
-                                # Silently skip - this is expected for non-date strings in Data fields
+                                pass
+
+                        # Handle List Values (e.g. for Between)
+                        elif isinstance(value, list) and len(value) > 0:
+                            try:
+                                # Check if the first element is a valid date
+                                # We assume if the first element is a date, likely it is a date filter
+                                first_val = value[0]
+                                if isinstance(first_val, str) and first_val.strip():
+                                    getdate(first_val)
+                                    is_date_type = True
+                                    print(f"DEBUG: Setting is_date_type=True for Data field '{field}' as list value '{value}' contains valid dates.")
+                            except Exception:
                                 pass
                     # --- END CUSTOM CHECK ---
 
@@ -227,9 +234,10 @@ def _process_filters_for_query(filters_list: list, doctype: str) -> list:
                     dt_range = frappe.utils.data.get_timespan_date_range(value)
                     start_dt_str = dt_range[0].strftime(sql_date_format)
                     end_dt_str = dt_range[1].strftime(sql_date_format)
-                    val_for_query = [start_dt_str, end_dt_str]
-                    if is_datetime_type: val_for_query = [start_dt_str + " 00:00:00.000000", end_dt_str + " 23:59:59.999999"]
-                    processed_filters.append([original_filter_doctype, field, "Between", val_for_query])
+                    val_start = start_dt_str + " 00:00:00.000000" if is_datetime_type else start_dt_str
+                    val_end = end_dt_str + " 23:59:59.999999" if is_datetime_type else end_dt_str
+                    processed_filters.append([original_filter_doctype, field, ">=", val_start])
+                    processed_filters.append([original_filter_doctype, field, "<=", val_end])
                     filter_processed_correctly = True
                 except Exception as e: print(f"ERROR: Processing Timespan '{value}' for '{field}': {e}")
 
@@ -247,7 +255,8 @@ def _process_filters_for_query(filters_list: list, doctype: str) -> list:
                         if is_datetime_type:
                             start_dt_str = target_date_str + " 00:00:00.000000"
                             end_dt_str = target_date_str + " 23:59:59.999999"
-                            processed_filters.append([original_filter_doctype, field, "Between", [start_dt_str, end_dt_str]])
+                            processed_filters.append([original_filter_doctype, field, ">=", start_dt_str])
+                            processed_filters.append([original_filter_doctype, field, "<=", end_dt_str])
                         else: processed_filters.append([original_filter_doctype, field, "=", target_date_str])
                         filter_processed_correctly = True
                     except Exception as e:
@@ -278,10 +287,10 @@ def _process_filters_for_query(filters_list: list, doctype: str) -> list:
                     if start_date_obj and end_date_obj:
                         start_str = start_date_obj.strftime(sql_date_format)
                         end_str = end_date_obj.strftime(sql_date_format)
-                        value_for_query = [start_str, end_str]
-                        if is_datetime_type: 
-                            value_for_query = [start_str + " 00:00:00.000000", end_str + " 23:59:59.999999"]
-                        processed_filters.append([original_filter_doctype, field, "Between", value_for_query])
+                        val_start = start_str + " 00:00:00.000000" if is_datetime_type else start_str
+                        val_end = end_str + " 23:59:59.999999" if is_datetime_type else end_str
+                        processed_filters.append([original_filter_doctype, field, ">=", val_start])
+                        processed_filters.append([original_filter_doctype, field, "<=", val_end])
                         filter_processed_correctly = True
                     else: print(f"WARNING: Skipping 'Between' for '{field}' due to invalid values: {value}")
                 except Exception as e:

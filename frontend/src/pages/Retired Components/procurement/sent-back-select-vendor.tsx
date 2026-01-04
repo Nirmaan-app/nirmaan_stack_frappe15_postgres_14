@@ -1,3 +1,15 @@
+/**
+ * @deprecated RETIRED COMPONENT - January 2026
+ *
+ * This component has been retired and is no longer in use.
+ * Reason: No active route or import - dead code
+ * Also references retired /update-quote route
+ *
+ * If you need sent-back vendor selection, use:
+ * - src/pages/ProcurementRequests/VendorQuotesSelection/ (handles both PR and SentBack)
+ */
+
+/*
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -596,8 +608,8 @@ export const SentBackSelectVendor = () => {
                     {/* <div className="flex items-center">
                         <ArrowLeft onClick={() => navigate(-1)} />
                         <h2 className="text-base pl-2 font-bold tracking-tight">Choose Vendor Quotes</h2>
-                    </div> */}
-                    <ProcurementHeaderCard orderData={orderData} sentBack />
+                    </div> */
+{/*<ProcurementHeaderCard orderData={orderData} sentBack />
                     {orderData?.category_list?.list.map((cat) => {
                         const curCategory = cat.name;
                         return <div>
@@ -610,7 +622,7 @@ export const SentBackSelectVendor = () => {
                                         {/* <CardTitle className="font-bold text-xl">
                                             {getSelectedVendor(curCategory)}
                                         </CardTitle> */}
-                                    </div>
+{/*</div>
                                     <table className="w-full min-w-[600px]">
                                         <thead className="w-full border-b border-black bg-gray-200">
                                             <tr className='w-full'>
@@ -707,7 +719,7 @@ export const SentBackSelectVendor = () => {
                         </div>
                     })}
                     {/* <div className="pt-10"></div> */}
-                    <div className='pt-6 flex justify-between'>
+{/*<div className='pt-6 flex justify-between'>
                         <Button variant={"outline"} className="text-red-500 border-red-500 flex items-center gap-1" onClick={() => {
                             // navigate(`/${orderData?.type?.toLowerCase()}-sb/${orderData?.name}/update-quote`)
                             navigate(`/sent-back-requests/${orderData?.name}/update-quote`)
@@ -718,7 +730,7 @@ export const SentBackSelectVendor = () => {
                         {/* </div>
                         <div className="flex flex-col justify-end items-end fixed bottom-4 right-4"> */}
 
-                        <Dialog>
+{/*<Dialog>
                             <DialogTrigger asChild>
                                 <Button className='flex items-center gap-1'>
                                     <CheckCheck className="h-4 w-4" />
@@ -786,7 +798,7 @@ export const SentBackSelectVendor = () => {
                         {/* <Button onClick={() => handleUpdateOrderData()}>
                                 Confirm
                             </Button> */}
-                    </div>
+{/*</div>
                 </div>}
             {page == 'approvequotation' &&
                 <>
@@ -798,7 +810,7 @@ export const SentBackSelectVendor = () => {
                         <ProcurementHeaderCard orderData={orderData} sentBack />
                         <div className="w-full">
                             {/* <div className="font-bold text-xl py-2">{curCategory}</div> */}
-                            {/* <Card className="flex w-1/2 shadow-none border border-grey-500" >
+{/* <Card className="flex w-1/2 shadow-none border border-grey-500" >
                                 <CardHeader className="w-full">
                                     <CardTitle>
                                         <div className="flex justify-between border-b">
@@ -863,7 +875,7 @@ export const SentBackSelectVendor = () => {
 
 
 
-                        </div>
+{/*</div>
                     </div>
                     <div className='overflow-x-auto'>
                         <ConfigProvider
@@ -928,3 +940,7 @@ export const SentBackSelectVendor = () => {
         </>
     )
 }
+*/}
+
+// Export nothing - file is retired
+export { }

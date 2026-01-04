@@ -74,8 +74,8 @@ export function StandaloneDateFilter({ value, onChange, onClear, className }: St
   }
 
   return (
-    <div className='flex items-center gap-2'>
-      <div>Selected Date Range:</div>
+    <div className='flex flex-col sm:flex-row sm:items-center gap-2'>
+      <div className="whitespace-nowrap text-sm font-medium">Selected Date Range:</div>
       <Popover open={isOpen} onOpenChange={setIsOpen}>
         <PopoverTrigger asChild>
           <Button

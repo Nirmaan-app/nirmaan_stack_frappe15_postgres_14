@@ -10,8 +10,7 @@ dynamic = ["version"]
 dependencies = [
     # "frappe~=15.0.0" # Installed and managed by bench.
     "firebase-admin~=6.5.0",
-    "python-dotenv~=1.0.1",
-    "pdf2image~=1.17.0"
+    "python-dotenv~=1.0.1"
 ]
 
 [build-system]

@@ -412,6 +412,20 @@ const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }
                                     </dd>
                                 </div>
 
+                                 {/* 9. Project Value (excl. GST) - Neutral */}
+                                <div className="flex justify-between sm:flex-col
+                                    border-r border-gray-200
+                                    sm:pb-0
+                                    pr-4
+                                ">
+                                    <dt className="font-semibold text-gray-600 text-xs">
+                                        Project Value (excl. GST)
+                                    </dt>
+                                    <dd className="sm:text-left font-bold text-base sm:text-sm tabular-nums text-gray-700">
+                                        {formatValueToLakhsString(financialSummary.projectValue)}
+                                    </dd>
+                                </div>
+
                                 {/* 2. Total Client Invoiced - Income/Revenue (Blue) */}
                                 <div className="flex justify-between sm:flex-col
                                     border-r border-gray-200
@@ -517,19 +531,7 @@ const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }
                                     </dd>
                                 </div>
 
-                                 {/* 9. Project Value (excl. GST) - Neutral */}
-                                <div className="flex justify-between sm:flex-col
-                                    border-r border-gray-200
-                                    sm:pb-0
-                                    pr-4
-                                ">
-                                    <dt className="font-semibold text-gray-600 text-xs">
-                                        Project Value (excl. GST)
-                                    </dt>
-                                    <dd className="sm:text-left font-bold text-base sm:text-sm tabular-nums text-gray-700">
-                                        {formatValueToLakhsString(financialSummary.projectValue)}
-                                    </dd>
-                                </div>
+                                
 
                                 {/* 10. Total Purchase Over Credit - Detail (Orange/Warning) */}
                                 <div className="flex justify-between sm:flex-col
