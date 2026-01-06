@@ -30,6 +30,7 @@ import {
 import {
   CalendarIcon,
   CirclePlus,
+  Info,
   ListChecks,
   MessageCircleWarning
 } from "lucide-react";
@@ -757,9 +758,13 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
                     </FormLabel>
                     <div className="flex flex-col items-start md:basis-2/4">
                       <FormControl>
-                        <Input {...field} />
+                        <Input placeholder="Auto-calculated" disabled={true} {...field} />
                       </FormControl>
                       <FormMessage />
+                      <FormDescription className="text-amber-600 flex items-center gap-1">
+                        <Info className="h-3 w-3" />
+                        Auto-calculated from Customer PO details.
+                      </FormDescription>
                     </div>
                   </FormItem>
                 );
@@ -777,9 +782,13 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
                     </FormLabel>
                     <div className="flex flex-col items-start md:basis-2/4">
                       <FormControl>
-                        <Input {...field} />
+                        <Input placeholder="Auto-calculated" disabled={true} {...field} />
                       </FormControl>
                       <FormMessage />
+                      <FormDescription className="text-amber-600 flex items-center gap-1">
+                        <Info className="h-3 w-3" />
+                        Auto-calculated from Customer PO details.
+                      </FormDescription>
                     </div>
                   </FormItem>
                 );
