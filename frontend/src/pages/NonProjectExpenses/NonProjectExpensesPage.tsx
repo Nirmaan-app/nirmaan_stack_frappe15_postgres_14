@@ -70,11 +70,7 @@ const NPE_AGGREGATES_CONFIG: AggregationConfig[] = [
     { field: 'amount', function: 'sum' }
 ];
 
-// Date range configuration
-const getDefaultDateRange = (): DateRange => ({
-    from: startOfDay(new Date('2024-04-01')),
-    to: endOfDay(new Date()),
-});
+// Date range configuration - default to "ALL" (no date filtering)
 
 // NEW: Configuration for the "Top 5" group by request
 const NPE_GROUP_BY_CONFIG: GroupByConfig = {
@@ -135,7 +131,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
                 console.error("Error parsing date from URL:", e);
             }
         }
-        return getDefaultDateRange();
+        return undefined;  // Default to "ALL" (no date filtering)
     });
 
     // 2. Effect to sync state changes back to the URL
@@ -424,7 +420,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
     });
 
     const handleClearDateFilter = useCallback(() => {
-        setDateRange(getDefaultDateRange());
+        setDateRange(undefined);  // Reset to "ALL" (no date filtering)
     }, []);
 
 

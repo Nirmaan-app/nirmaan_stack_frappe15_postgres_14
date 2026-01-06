@@ -4,7 +4,7 @@ import { startOfDay, endOfDay, subDays, startOfMonth, endOfMonth, startOfYear, e
 
 export interface DatePreset {
   label: string;
-  getRange: () => DateRange;
+  getRange: () => DateRange | undefined;
 }
 
 const today = new Date();
@@ -37,24 +37,23 @@ export const datePresets: DatePreset[] = [
     label: 'This year',
     getRange: () => ({ from: startOfYear(today), to: endOfYear(today) }),
   },
-   // --- 👇 NEW PRESET ADDED HERE ---
   {
-    label: 'Financial Year',
-    getRange: () => {
-        // The start date is fixed as per your requirement - use startOfDay for consistency
-        const financialYearStart = startOfDay(new Date('2025-04-01'));
-        // The end date is always the end of the current day.
-        const today = new Date();
-        return { from: financialYearStart, to: endOfDay(today) };
-    },},
-     {
+    label: 'FY 25-26',
+    getRange: () => ({
+        from: startOfDay(new Date('2025-04-01')),
+        to: endOfDay(new Date('2026-03-31')),
+    }),
+  },
+  {
+    label: 'FY 26-27',
+    getRange: () => ({
+        from: startOfDay(new Date('2026-04-01')),
+        to: endOfDay(new Date('2027-03-31')),
+    }),
+  },
+  {
     label: 'ALL',
-    getRange: () => {
-        // The start date is fixed as per your requirement - use startOfDay for consistency
-        const financialYearStart = startOfDay(new Date('2024-04-01'));
-        // The end date is always the end of the current day.
-        const today = new Date();
-        return { from: financialYearStart, to: endOfDay(today) };
-    },}
+    getRange: () => undefined,  // Returns undefined to disable date filtering entirely
+  }
 ,
 ];

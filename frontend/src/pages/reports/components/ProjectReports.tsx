@@ -49,10 +49,6 @@ const projectReportListOptions = () => ({
 });
 
 const URL_SYNC_KEY = "project_case_sheet"; // Use a specific key for URL state
-const getDefaultDateRange = (): DateRange => ({
-    from: startOfDay(new Date('2024-04-01')),
-    to: endOfDay(new Date()),
-});
 
 // Component for the existing Cash Sheet report
 function CashSheetReport() {
@@ -71,7 +67,7 @@ function CashSheetReport() {
                 // Fall through to default if parsing fails
             }
         }
-        return getDefaultDateRange()
+        return undefined;  // Default to "ALL" (no date filtering)
     });
     
 
@@ -294,7 +290,7 @@ function CashSheetReport() {
     }
 
       const handleClearDateFilter = useCallback(() => {
-            setDateRange(getDefaultDateRange());
+            setDateRange(undefined);  // Set to undefined to disable date filtering entirely
         }, []);
     
 
