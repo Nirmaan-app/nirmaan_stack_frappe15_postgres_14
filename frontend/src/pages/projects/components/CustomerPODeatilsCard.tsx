@@ -622,6 +622,7 @@ const getCustomerPOColumns = (
                  <div className="text-left">{formatDate(row.original.customer_po_creation_date)}</div>
                ),
                enableColumnFilter: true,
+               enableSorting: true,
              },
         {
             accessorKey: "customer_po_number",
@@ -632,7 +633,7 @@ const getCustomerPOColumns = (
                 <div className="font-medium truncate">{row.original.customer_po_number}</div>
             ),
             enableColumnFilter: false,
-            enableSorting: false, 
+            enableSorting: true, 
             size: 150,
         },
         {
@@ -648,7 +649,7 @@ const getCustomerPOColumns = (
                 </div>
             ),
             enableColumnFilter: false,
-            enableSorting: false, 
+            enableSorting: true, 
             size: 150,
         },
         {
@@ -665,7 +666,7 @@ const getCustomerPOColumns = (
                 </div>
             ),
             enableColumnFilter: false,
-            enableSorting: false, 
+            enableSorting: true, 
             size: 150,
         },
        {
@@ -801,26 +802,24 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
         { enabled: !!projectId } 
     );
     
-    const poListForDialog = projectDataForDialog?.customer_po_details || [];
+    // Ensure we have an array, even if undefined
+    const poListForDialog: CustomerPOTableRow[] = useMemo(() => {
+        return (projectDataForDialog?.customer_po_details || []) as CustomerPOTableRow[];
+    }, [projectDataForDialog]);
+
     const projectNameForDialog = projectDataForDialog?.name;
 
     // --- Aggregate Calculation ---
     const calculatedAggregates = useMemo(() => {
-        const totalIncl = poListForDialog.reduce((sum, po: CustomerPODetail) => 
+        const totalIncl = poListForDialog.reduce((sum, po) => 
             sum + parseNumber(po.customer_po_value_inctax, 0), 0);
-        const totalExcl = poListForDialog.reduce((sum, po: CustomerPODetail) => 
+        const totalExcl = poListForDialog.reduce((sum, po) => 
             sum + parseNumber(po.customer_po_value_exctax, 0), 0);
         return { total_incl_tax: totalIncl, total_excl_tax: totalExcl };
     }, [poListForDialog]);
 
-    // --- Filtering ---
-    const additionalFilters = useMemo(() => {
-        const filters: Array<[string, string, any]> = [];
-        if (projectId) {
-            filters.push(['name', '=', projectId]);
-        }
-        return filters;
-    }, [projectId]);
+    // --- Filtering (Not used for client-side mode, but kept for reference) ---
+    // const additionalFilters = useMemo(() => { ... }, [projectId]);
 
 
     // --- Edit Handlers Implementation ---
@@ -845,7 +844,8 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
         setDeletingPO(null);
     }, []);
 
-    // --- useServerDataTable Hook ---
+    // --- useServerDataTable Hook (Client-Side Mode) ---
+    // We pass `clientData` and `clientTotalCount` to enable client-side processing
     const {
         table,
         data: poDataForPage,
@@ -858,33 +858,41 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
         selectedSearchField,
         setSelectedSearchField,
     } = useServerDataTable<CustomerPOTableRow>({
-        doctype: CUSTOMER_PO_CHILD_TABLE_DOCTYPE,
-        columns: useMemo(() => getCustomerPOColumns(projectId, handleEditClick, handleDeleteClick,isAdmin), [projectId]), // PASS BOTH HANDLERS
+        doctype: CUSTOMER_PO_CHILD_TABLE_DOCTYPE, // Kept as 'Projects' but not used for fetch
+        columns: useMemo(() => getCustomerPOColumns(projectId, handleEditClick, handleDeleteClick,isAdmin), [projectId, isAdmin]), 
         fetchFields: CUSTOMER_PO_LIST_FIELDS_TO_FETCH as string[],
         searchableFields: CUSTOMER_PO_SEARCHABLE_FIELDS,
-        defaultSort: '`tabCustomer PO Child Table`.customer_po_creation_date',
+        defaultSort: 'customer_po_creation_date desc', // Client-side sort field
         urlSyncKey: projectId ? `po_child_list_${projectId}` : "po_child_list_all",
-        additionalFilters: additionalFilters,
+        
+        // --- Client-Side Configuration ---
+        clientData: poListForDialog,
+        clientTotalCount: poListForDialog.length,
+        shouldCache: false // Rely on useFrappeGetDoc's cache
     });
 
     // --- Refetch Handler (Shared for Add/Edit/Delete Success) ---
     const handleRefetchAllData = async () => {
-        await refetch();
+        // Since we are using clientData derived from projectDataForDialog,
+        // we just need to re-fetch the project document.
         await projectMutateForDialog(); 
+        // We can also call refetch() but it might not do much in client-mode unless it resets states
+        refetch();
     }
     const handlePoAdded = handleRefetchAllData; 
 
-
-
-     const isDataInvalid = useMemo(() => {
-        if (!listIsLoading && poDataForPage?.length > 0) {
+    const isDataInvalid = useMemo(() => {
+        if (!listIsLoading && !projectDocLoading && poDataForPage?.length > 0) {
+            // Check validity of first item if needed, or generally if data seems malformed
             const firstPo = poDataForPage[0];
-            if (!firstPo.customer_po_number) {
-                return true;
+            if (!firstPo.customer_po_number && !firstPo.name) {
+                 return true;
             }
         }
         return false;
-    }, [poDataForPage, listIsLoading]);
+    }, [poDataForPage, listIsLoading, projectDocLoading]);
+
+    const combinedLoading = listIsLoading || projectDocLoading;
 
     return (
         <Card>
@@ -925,7 +933,7 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
                 {/* Aggregates Summary Card */}
                 <CardDescription className="pt-2">
                     <div className="grid grid-cols-2 gap-4 text-sm font-semibold p-3 border rounded-md bg-gray-50">
-                        {projectDocLoading ? (
+                        {combinedLoading ? (
                             <div className="col-span-2 flex justify-center py-2"><TailSpin height={20} width={20} color="#4f46e5" /></div>
                         ) : (
                             <>
@@ -948,7 +956,7 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
 
             </CardHeader>
             <CardContent>
-               {listIsLoading && !poDataForPage?.length ? (
+               {combinedLoading && !poDataForPage?.length ? (
                     <div className="flex items-center justify-center p-8"><TailSpin color={"red"} height={20} width={20} /></div>
                 ) : (isDataInvalid ? (
                     <div className="flex items-center justify-center p-8 text-gray-500 font-semibold">
@@ -959,7 +967,7 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
                     <DataTable<CustomerPOTableRow>
                         table={table}
                         columns={table.options.columns}
-                        isLoading={listIsLoading}
+                        isLoading={combinedLoading}
                         error={listError}
                         totalCount={totalCount}
                         searchFieldOptions={CUSTOMER_PO_SEARCHABLE_FIELDS}
