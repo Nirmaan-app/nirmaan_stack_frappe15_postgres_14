@@ -5,7 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { Steps } from "antd"
 import { format } from "date-fns"
 import { useFrappeDocTypeEventListener, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk"
-import { BadgeIndianRupee, CalendarIcon, CirclePlus, ListChecks, Pencil, Undo2 } from "lucide-react"
+import { BadgeIndianRupee, CalendarIcon, CirclePlus, Info, ListChecks, Pencil, Undo2 } from "lucide-react"
 import React, { useCallback, useEffect, useState } from "react"
 import { Controller, useForm } from "react-hook-form"
 import { useNavigate } from "react-router-dom"
@@ -702,9 +702,13 @@ export const ProjectForm = () => {
                                             <FormLabel className="md:basis-2/12">Project Value (excl. GST)</FormLabel>
                                             <div className="flex flex-col items-start md:basis-2/4">
                                                 <FormControl className="">
-                                                    <Input placeholder="Enter Project Value without GST" {...field} />
+                                                    <Input placeholder="Auto-calculated" disabled={true} {...field} />
                                                 </FormControl>
                                                 <FormMessage />
+                                                <FormDescription className="text-amber-600 flex items-center gap-1">
+                                                    <Info className="h-3 w-3" />
+                                                    Auto-calculated. Update Customer PO after project creation.
+                                                </FormDescription>
                                             </div>
                                         </FormItem>
                                     )}
@@ -717,9 +721,13 @@ export const ProjectForm = () => {
                                             <FormLabel className="md:basis-2/12">Project Value (incl. GST)</FormLabel>
                                             <div className="flex flex-col items-start md:basis-2/4">
                                                 <FormControl className="">
-                                                    <Input placeholder="Enter Project Value with GST" {...field} />
+                                                    <Input placeholder="Auto-calculated" disabled={true} {...field} />
                                                 </FormControl>
                                                 <FormMessage />
+                                                <FormDescription className="text-amber-600 flex items-center gap-1">
+                                                    <Info className="h-3 w-3" />
+                                                    Auto-calculated. Update Customer PO after project creation.
+                                                </FormDescription>
                                             </div>
                                         </FormItem>
                                     )}
@@ -1706,12 +1714,8 @@ const ReviewDetails: React.FC<ReviewDetailsProps> = ({ form, duration, company, 
                     <Detail label="Project Name" value={form.getValues("project_name")} />
                     <Detail label="Project Type" value={form.getValues("project_type")} />
                     <Detail label="Customer" value={form.getValues("customer") ? company?.find(c => c.name === form.getValues("customer"))?.company_name : ""} />
-                    <Detail label="Project Value(excl. GST)" value={form.getValues("project_value")} />
-                    <Detail label="Project Value(incl. GST)" value={form.getValues("project_value_gst")} />
-                     <Detail label="Carpet Area(Sqft)" value={form.getValues("carpet_area")} />
+                    <Detail label="Carpet Area(Sqft)" value={form.getValues("carpet_area")} />
                     <Detail label="Selected GST List" value={form.getValues("project_gst_number").list.map(item => item.location).join(', ')} />
-                    
-
                 </Section>
 
                 <Section sectionKey="projectAddressDetails">

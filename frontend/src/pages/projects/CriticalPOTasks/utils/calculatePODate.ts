@@ -1,5 +1,5 @@
 /**
- * Calculate PO Release Date by adding offset days to project start date
+ * Calculate PO Release Deadline by adding offset days to project start date
  * @param projectStartDate - ISO date string (YYYY-MM-DD)
  * @param offsetDays - Number of days to add
  * @returns ISO date string (YYYY-MM-DD)

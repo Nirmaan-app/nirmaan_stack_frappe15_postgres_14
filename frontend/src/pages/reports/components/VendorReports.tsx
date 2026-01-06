@@ -26,10 +26,6 @@ const VENDOR_REPORTS_SEARCHABLE_FIELDS: SearchFieldOption[] = [
 ];
 
 const URL_SYNC_KEY = "vendor_ledger_report"; // Use a specific key for URL state
-const getDefaultDateRange = (): DateRange => ({
-    from: new Date('2025-04-01'),
-    to: startOfDay(new Date()),
-});
 
 
 export default function VendorReports() {
@@ -48,8 +44,7 @@ export default function VendorReports() {
                 // Fall through to default if parsing fails
             }
         }
-        // Default date range: April 1, 2025 to today
-        return getDefaultDateRange()
+        return undefined;  // Default to "ALL" (no date filtering)
     });
 
     // 2. Pass the date range state into the calculation hook.
@@ -156,7 +151,7 @@ export default function VendorReports() {
     console.log("dateRange", dateRange)
 
      const handleClearDateFilter = useCallback(() => {
-        setDateRange(getDefaultDateRange());
+        setDateRange(undefined);  // Reset to "ALL" (no date filtering)
     }, []);
 
     if (error) {

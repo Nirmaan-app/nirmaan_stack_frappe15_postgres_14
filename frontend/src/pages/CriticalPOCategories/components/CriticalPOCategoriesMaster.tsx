@@ -3,7 +3,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/use-toast";
 import { TailSpin } from "react-loader-spinner";
-import { Pencil, PlusCircle, Trash2, FileEdit } from "lucide-react";
+import { Pencil, PlusCircle, Trash2, FileEdit, AlertTriangle } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Dialog,
   DialogContent,
@@ -66,7 +67,7 @@ type CategoryFormValues = z.infer<typeof categoryFormSchema>;
 const itemFormSchema = z.object({
   item_name: z.string().min(1, "Item Name is required."),
   sub_category: z.string().optional(),
-  release_timeline_offset: z.coerce.number().min(0, "Offset must be positive").optional(),
+  release_timeline_offset: z.coerce.number().min(1, "Offset must be at least 1 day"),
 });
 type ItemFormValues = z.infer<typeof itemFormSchema>;
 
@@ -318,7 +319,7 @@ const CreateItemDialog: React.FC<CreateItemDialogProps> = ({ categoryId, mutate 
 
   const form = useForm<ItemFormValues>({
     resolver: zodResolver(itemFormSchema),
-    defaultValues: { item_name: "", sub_category: "", release_timeline_offset: 0 },
+    defaultValues: { item_name: "", sub_category: "", release_timeline_offset: undefined },
   });
 
   const onSubmit = async (values: ItemFormValues) => {
@@ -412,7 +413,9 @@ const EditItemDialog: React.FC<EditItemDialogProps> = ({ item, mutate }) => {
     defaultValues: {
       item_name: item.item_name,
       sub_category: item.sub_category || "",
-      release_timeline_offset: item.release_timeline_offset || 0
+      release_timeline_offset: item.release_timeline_offset && item.release_timeline_offset >= 1
+        ? item.release_timeline_offset
+        : undefined
     },
   });
 
@@ -442,6 +445,13 @@ const EditItemDialog: React.FC<EditItemDialogProps> = ({ item, mutate }) => {
         <DialogHeader>
           <DialogTitle>Edit Critical PO Item</DialogTitle>
         </DialogHeader>
+        <Alert variant="destructive" className="bg-amber-50 border-amber-200">
+          <AlertTriangle className="h-4 w-4 text-amber-600" />
+          <AlertDescription className="text-amber-800 text-sm">
+            Changes will be applied to all existing Critical PO Tasks across projects.
+            Modifying the release timeline offset will recalculate PO release deadlines.
+          </AlertDescription>
+        </Alert>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
@@ -521,9 +531,25 @@ const DeleteItemDialog: React.FC<DeleteItemDialogProps> = ({ item, mutate }) => 
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Delete Item?</AlertDialogTitle>
-          <AlertDialogDescription>
-            Are you sure you want to delete "<span className="font-bold">{item.item_name}</span>"?
-            This action cannot be undone.
+          <AlertDialogDescription asChild>
+            <div className="space-y-3">
+              <p>
+                Are you sure you want to delete "<span className="font-semibold">{item.item_name}</span>"?
+              </p>
+              <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-amber-800 text-sm">
+                <div className="flex gap-2">
+                  <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                  <div className="space-y-1">
+                    <p className="font-medium">This will affect all projects:</p>
+                    <ul className="list-disc list-inside text-xs space-y-0.5">
+                      <li>All linked POs will be unlinked from this task type</li>
+                      <li>This entry will be removed from all existing Critical PO setups</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs text-gray-500">This action cannot be undone.</p>
+            </div>
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

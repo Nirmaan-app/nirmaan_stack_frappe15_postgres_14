@@ -45,7 +45,7 @@ import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
 import { omit } from "lodash";
 import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
-import { useCredits } from "@/pages/credits/hooks/useCredits";
+import { useProjectAllCredits } from "../hooks/useProjectAllCredits";
 
 // Fields to fetch for the PO Summary table list view
 export const PO_SUMMARY_LIST_FIELDS_TO_FETCH: (
@@ -274,19 +274,16 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
         !!projectId ? `PaidPaymentsForPOSummary_${projectId || "all"}` : null
     );
 
-    const { data: CreditData } = useCredits()
+    const { totals: creditTotals } = useProjectAllCredits(projectId);
 
-    const TotalCredit = memoize((projId: string) => CreditData.filter(cr => cr.project == projId));
+    const TotalPurchaseOverCredit = creditTotals.totalPurchase;
+    const CreditDueAmount = creditTotals.due;
+    const CreditPaidAmount = creditTotals.paid;
 
+    console.log("Credit Totals:", TotalPurchaseOverCredit);
+    console.log("Credit Totals:", CreditDueAmount);
+    console.log("Credit Totals:", CreditPaidAmount);
 
-    const DueAmount = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status !== "Created"));
-
-    const PaidAmount = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status == "Paid"));
-
-    const TotalPurchaseOverCredit = TotalCredit(projectId).reduce((sum, term) => sum + parseNumber(term.amount), 0);
-
-    const CreditDueAmount = DueAmount(projectId).reduce((sum, term) => sum + parseNumber(term.amount), 0);
-    const CreditPaidAmount = PaidAmount(projectId).reduce((sum, term) => sum + parseNumber(term.amount), 0);
 
     const vendorOptions = useMemo(
         () =>

@@ -31,12 +31,22 @@ export function StandaloneDateFilter({ value, onChange, onClear, className }: St
   }, [isOpen, value]);
 
   const selectedPresetLabel = useMemo(() => {
-    if (!value?.from || !value?.to) return null;
+    // If value is undefined, check if it matches the "ALL" preset (which returns undefined)
+    if (!value?.from || !value?.to) {
+      // Find a preset that returns undefined (like "ALL")
+      const allPreset = datePresets.find(preset => preset.getRange() === undefined);
+      if (!value && allPreset) {
+        return allPreset.label;
+      }
+      return null;
+    }
     const fromStr = format(value.from, 'yyyy-MM-dd');
     const toStr = format(value.to, 'yyyy-MM-dd');
     for (const preset of datePresets) {
       const range = preset.getRange();
-      if (format(range.from!, 'yyyy-MM-dd') === fromStr && format(range.to!, 'yyyy-MM-dd') === toStr) {
+      // Skip presets that return undefined (like "ALL")
+      if (!range?.from || !range?.to) continue;
+      if (format(range.from, 'yyyy-MM-dd') === fromStr && format(range.to, 'yyyy-MM-dd') === toStr) {
         return preset.label;
       }
     }

@@ -39,6 +39,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 // IMPORT THE NEW COMPONENT AND ITS INTERFACE
 import { AddCustomerPODialog, CustomerPODetail } from "./components/AddCustomerPODialog";
 import { CustomerPODetailsCard } from "./components/CustomerPODeatilsCard";
+import { ProjectDriveLink } from "./components/ProjectDriveLink";
 import { SevenDayPlanningTab } from "./SevenDayPlanningTab";
 
 
@@ -522,6 +523,9 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
       </Card>
       <Card>
         <CustomerPODetailsCard projectId={projectData.name} />
+      </Card>
+      <Card>
+        <ProjectDriveLink projectId={projectData.name} />
       </Card>
       <SevenDayPlanningTab isOverview={true} />
     </div>

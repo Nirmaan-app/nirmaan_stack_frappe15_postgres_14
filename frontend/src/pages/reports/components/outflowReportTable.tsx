@@ -35,10 +35,6 @@ const OUTFLOW_AGGREGATES_CONFIG: AggregationConfig[] = [
 
 // URL state management for date range
 const URL_SYNC_KEY = "outflow_project_report";
-const getDefaultDateRange = (): DateRange => ({
-    from: startOfDay(new Date('2024-04-01')),
-    to: endOfDay(new Date()),
-});
 
 // Helper to display active filters, same as in InflowReport
 const AppliedFiltersDisplay = ({ filters, search }) => {
@@ -96,8 +92,8 @@ export function OutflowReportTable() {
             }
         }
 
-        // PRIORITY 3: Use default date range
-        return getDefaultDateRange();
+        // PRIORITY 3: Default to "ALL" (no date filtering)
+        return undefined;
     });
 
     // 2. Effect to sync state changes back to the URL
@@ -233,7 +229,7 @@ export function OutflowReportTable() {
     const combinedErrorOverall = initialDataError || tableHookError;
 
     const handleClearDateFilter = useCallback(() => {
-        setDateRange(getDefaultDateRange());
+        setDateRange(undefined);  // Reset to "ALL" (no date filtering)
     }, []);
 
     if (combinedErrorOverall) {

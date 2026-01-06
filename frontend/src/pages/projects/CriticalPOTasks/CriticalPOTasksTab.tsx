@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useFrappeGetDocList, useFrappeDeleteDoc } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappeDeleteDoc, useFrappeDocumentEventListener } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
 import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
 import { Projects } from "@/types/NirmaanStack/Projects";
@@ -48,6 +48,12 @@ export const CriticalPOTasksTab: React.FC<CriticalPOTasksTabProps> = ({
   });
 
   const hasTasks = tasks && tasks.length > 0;
+
+  // Listen for project document updates (e.g., project_start_date changes)
+  // When project is updated, refetch Critical PO Tasks as deadlines may have been recalculated
+  useFrappeDocumentEventListener("Projects", projectId, () => {
+    mutate();
+  });
 
   const handleTasksCreated = () => {
     mutate();

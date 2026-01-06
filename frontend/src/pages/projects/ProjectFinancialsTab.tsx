@@ -21,7 +21,7 @@ import { Radio } from "antd"
 import { useFrappeGetDocList } from "frappe-react-sdk"
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import { AmountBreakdownHoverCard } from "./components/AmountBreakdownHoverCard"
-import { useCredits } from "../credits/hooks/useCredits";
+import { useProjectAllCredits } from "./hooks/useProjectAllCredits";
 const AllPayments = React.lazy(() => import("../ProjectPayments/AllPayments"));
 const ProjectPaymentsList = React.lazy(() => import("../ProjectPayments/project-payments-list"));
 const ProjectWiseInvoices = React.lazy(() => import("./ProjectWiseInvoices"));
@@ -77,14 +77,25 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
     return unsubscribe; // Cleanup subscription
   }, [initialTab]); // Depend on `tab` to avoid stale closures
 
-  const { data: CreditData } = useCredits()
+  // const { data: CreditData } = useCredits()
   // console.log("CreditData financials",CreditData)
-  const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId));
-  const dueByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status == "Paid"));
+  // const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId));
+  // const dueByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status == "Paid"));
 
-  const relatedTotalBalanceCredit = creditsByProject(projectData?.name).reduce((sum, term) => sum + parseNumber(term.amount), 0);
+  // const relatedTotalBalanceCredit = creditsByProject(projectData?.name).reduce((sum, term) => sum + parseNumber(term.amount), 0);
+  // const relatedTotalCreditPaid = dueByProject(projectData?.name).reduce((sum, term) => sum + parseNumber(term.amount), 0);
 
-  const relatedTotalCreditPaid = dueByProject(projectData?.name).reduce((sum, term) => sum + parseNumber(term.amount), 0);
+  const { creditTerms } = useProjectAllCredits(projectData?.name);
+
+  const relatedTotalBalanceCredit = useMemo(() => 
+    creditTerms.reduce((sum, term) => sum + parseNumber(term.amount), 0), 
+  [creditTerms]);
+
+  const relatedTotalCreditPaid = useMemo(() => 
+    creditTerms
+      .filter(cr => cr.term_status === "Paid")
+      .reduce((sum, term) => sum + parseNumber(term.amount), 0), 
+  [creditTerms]);
 
 
   const { data: projectInflows, isLoading: projectInflowsLoading } = useFrappeGetDocList<ProjectInflows>("Project Inflows", {
@@ -211,7 +222,8 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
       style: "",
       info: "PO Payable Amount - PO Payment Against Delivery"
     },
-  ], [totalInflowAmount, totalProjectInvoiceAmount, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST, projectData?.project_value, CreditData, getAllPODeliveredAmount, poPaymentAgainstDelivery, advanceAgainstPO])
+
+  ], [totalInflowAmount, totalProjectInvoiceAmount, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST, projectData?.project_value, relatedTotalBalanceCredit, relatedTotalCreditPaid, getAllPODeliveredAmount, poPaymentAgainstDelivery, advanceAgainstPO])
 
 
   const tabs = useMemo(() => [
