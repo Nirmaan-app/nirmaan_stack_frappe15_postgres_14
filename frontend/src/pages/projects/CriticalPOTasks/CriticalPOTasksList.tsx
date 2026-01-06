@@ -13,7 +13,6 @@ import {
 import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
 import { TaskStatusBadge } from "./components/TaskStatusBadge";
 import { EditTaskDialog } from "./components/EditTaskDialog";
-import { LinkPODialog } from "./components/LinkPODialog";
 import { LinkedPOsColumn } from "./components/LinkedPOsColumn";
 import { formatDate } from "@/utils/FormatDate";
 import { Settings2 } from "lucide-react";
@@ -68,7 +67,7 @@ export const CriticalPOTasksList: React.FC<CriticalPOTasksListProps> = ({
     });
   }, [tasks, searchQuery, statusFilter, categoryFilter]);
 
-  // Sort by PO Release Date (ascending)
+  // Sort by PO Release Deadline (ascending)
   const sortedTasks = useMemo(() => {
     return [...filteredTasks].sort((a, b) => {
       const dateA = new Date(a.po_release_date).getTime();
@@ -175,8 +174,8 @@ export const CriticalPOTasksList: React.FC<CriticalPOTasksListProps> = ({
                     <TableHead className="w-[15%]">Item Name</TableHead>
                     <TableHead className="w-[10%]">Category</TableHead>
                     <TableHead className="w-[8%]">Sub Category</TableHead>
-                    <TableHead className="w-[9%]">PO Release Date</TableHead>
-                    <TableHead className="w-[9%]">Revised Date</TableHead>
+                    <TableHead className="w-[9%]">PO Release Deadline</TableHead>
+                    <TableHead className="w-[9%]">Revised Deadline</TableHead>
                     <TableHead className="w-[10%]">Status</TableHead>
                     <TableHead className="w-[15%]">Remarks</TableHead>
                     <TableHead className="w-[14%]">Associated POs</TableHead>
@@ -205,10 +204,7 @@ export const CriticalPOTasksList: React.FC<CriticalPOTasksListProps> = ({
                         <LinkedPOsColumn task={task} projectId={projectId} mutate={mutate} />
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="flex flex-col gap-1 items-end">
-                          <EditTaskDialog task={task} mutate={mutate} />
-                          <LinkPODialog task={task} projectId={projectId} mutate={mutate} />
-                        </div>
+                        <EditTaskDialog task={task} projectId={projectId} mutate={mutate} />
                       </TableCell>
                     </TableRow>
                   ))}

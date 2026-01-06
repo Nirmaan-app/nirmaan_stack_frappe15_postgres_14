@@ -1,10 +1,12 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
 import { TailSpin } from "react-loader-spinner";
-import { Pencil } from "lucide-react";
+import { Pencil, X, ChevronDown, ChevronUp, AlertCircle, Link as LinkIcon } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -20,14 +22,26 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeUpdateDoc, useFrappeGetDocList, useFrappeGetDoc } from "frappe-react-sdk";
 import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
+import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
+import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
+import { Projects } from "@/types/NirmaanStack/Projects";
 import { DatePicker } from "antd";
 import dayjs from "dayjs";
+import ReactSelect from "react-select";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 
 // Zod Schema
 const editTaskFormSchema = z.object({
@@ -40,11 +54,19 @@ type EditTaskFormValues = z.infer<typeof editTaskFormSchema>;
 
 interface EditTaskDialogProps {
   task: CriticalPOTask;
+  projectId: string;
   mutate: () => Promise<any>;
 }
 
-export const EditTaskDialog: React.FC<EditTaskDialogProps> = ({ task, mutate }) => {
+export const EditTaskDialog: React.FC<EditTaskDialogProps> = ({ task, projectId, mutate }) => {
   const [open, setOpen] = useState(false);
+  const [linkSectionOpen, setLinkSectionOpen] = useState(false);
+  const [selectedPackage, setSelectedPackage] = useState<string>("");
+  const [selectedPOs, setSelectedPOs] = useState<Set<string>>(new Set());
+  const [isLinking, setIsLinking] = useState(false);
+  const [isUnlinking, setIsUnlinking] = useState(false);
+  const [poToUnlink, setPoToUnlink] = useState<string | null>(null);
+
   const { updateDoc, loading } = useFrappeUpdateDoc();
 
   const form = useForm<EditTaskFormValues>({
@@ -55,6 +77,216 @@ export const EditTaskDialog: React.FC<EditTaskDialogProps> = ({ task, mutate }) 
       remarks: task.remarks || "",
     },
   });
+
+  // Custom styles for react-select
+  const selectStyles = {
+    control: (base: any) => ({
+      ...base,
+      minHeight: '36px',
+      borderColor: 'hsl(var(--input))',
+      '&:hover': {
+        borderColor: 'hsl(var(--ring))',
+      },
+    }),
+    menu: (base: any) => ({
+      ...base,
+      zIndex: 9999,
+    }),
+    menuPortal: (base: any) => ({
+      ...base,
+      zIndex: 9999,
+    }),
+  };
+
+  // Fetch project data to get work packages
+  const { data: projectData } = useFrappeGetDoc<Projects>(
+    "Projects",
+    projectId,
+    open ? undefined : null
+  );
+
+  // Extract unique work packages from project_wp_category_makes child table
+  const workPackages = useMemo(() => {
+    if (!projectData?.project_wp_category_makes) return [];
+
+    const uniqueWPDocNames = new Set<string>();
+    projectData.project_wp_category_makes.forEach((item) => {
+      if (item.procurement_package) {
+        uniqueWPDocNames.add(item.procurement_package);
+      }
+    });
+
+    return Array.from(uniqueWPDocNames).map((wpDocName) => ({
+      work_package_name: wpDocName,
+    }));
+  }, [projectData]);
+
+  // Create options for react-select
+  const packageOptions = useMemo(() => {
+    const options = workPackages.map((pkg) => ({
+      label: pkg.work_package_name,
+      value: pkg.work_package_name,
+    }));
+    return [...options, { label: "Custom", value: "Custom" }];
+  }, [workPackages]);
+
+  // Fetch all POs for the project
+  const { data: procurementOrders, isLoading: posLoading } = useFrappeGetDocList<ProcurementOrder>(
+    "Procurement Orders",
+    {
+      fields: ["name", "status", "total_amount", "procurement_request"],
+      filters: selectedPackage
+        ? [
+            ["project", "=", projectId],
+            ["status", "not in", ["Merged", "Inactive", "PO Amendment"]],
+          ]
+        : undefined,
+      limit: 0,
+      orderBy: { field: "creation", order: "desc" },
+    },
+    selectedPackage && open ? `POs-${projectId}-edit` : null
+  );
+
+  // Fetch PRs to get work_package information
+  const { data: procurementRequests, isLoading: prsLoading } = useFrappeGetDocList<ProcurementRequest>(
+    "Procurement Requests",
+    {
+      fields: ["name", "work_package"],
+      filters: [["project", "=", projectId]],
+      limit: 0,
+    },
+    selectedPackage && open ? `PRs-${projectId}-edit` : null
+  );
+
+  // Get currently linked POs from task
+  const currentlyLinkedPOs = useMemo(() => {
+    try {
+      const associated = task.associated_pos;
+      if (typeof associated === "string") {
+        const parsed = JSON.parse(associated);
+        return parsed?.pos || [];
+      } else if (associated && typeof associated === "object") {
+        return associated.pos || [];
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  }, [task.associated_pos]);
+
+  // Filter POs by work package and already linked status
+  const availablePOs = useMemo(() => {
+    if (!procurementOrders || !procurementRequests) return [];
+
+    // Create a map from PO -> work_package via PR
+    const poToWorkPackageMap = new Map<string, string>();
+    procurementOrders.forEach((po) => {
+      const pr = procurementRequests.find((pr) => pr.name === po.procurement_request);
+      const workPackage = pr?.work_package?.trim() ? pr.work_package : "Custom";
+      poToWorkPackageMap.set(po.name, workPackage);
+    });
+
+    // Filter POs by selected work package
+    let filteredPOs = procurementOrders;
+
+    if (selectedPackage) {
+      filteredPOs = procurementOrders.filter((po) => {
+        const poWorkPackage = poToWorkPackageMap.get(po.name);
+        return poWorkPackage === selectedPackage;
+      });
+    }
+
+    // Filter out already linked POs
+    const linkedSet = new Set(currentlyLinkedPOs);
+    return filteredPOs.filter((po) => !linkedSet.has(po.name));
+  }, [procurementOrders, procurementRequests, currentlyLinkedPOs, selectedPackage]);
+
+  // Extract PO ID (2nd part after /)
+  const extractPOId = (fullName: string) => {
+    const parts = fullName.split("/");
+    return parts.length > 1 ? parts[1] : fullName;
+  };
+
+  const handlePOToggle = (poId: string) => {
+    const newSelected = new Set(selectedPOs);
+    if (newSelected.has(poId)) {
+      newSelected.delete(poId);
+    } else {
+      newSelected.add(poId);
+    }
+    setSelectedPOs(newSelected);
+  };
+
+  const handleLinkPOs = async () => {
+    if (selectedPOs.size === 0) {
+      toast({
+        title: "No POs Selected",
+        description: "Please select at least one PO to link.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsLinking(true);
+
+    try {
+      // Merge with existing linked POs
+      const updatedPOs = Array.from(new Set([...currentlyLinkedPOs, ...selectedPOs]));
+
+      await updateDoc("Critical PO Tasks", task.name, {
+        associated_pos: JSON.stringify({ pos: updatedPOs }),
+      });
+
+      toast({
+        title: "Success",
+        description: `Linked ${selectedPOs.size} PO(s) successfully.`,
+        variant: "success",
+      });
+
+      setSelectedPOs(new Set());
+      setSelectedPackage("");
+      setLinkSectionOpen(false);
+      await mutate();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to link POs.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLinking(false);
+    }
+  };
+
+  const handleUnlinkPO = async (poName: string) => {
+    setPoToUnlink(poName);
+    setIsUnlinking(true);
+
+    try {
+      const updatedPOs = currentlyLinkedPOs.filter((po: string) => po !== poName);
+
+      await updateDoc("Critical PO Tasks", task.name, {
+        associated_pos: JSON.stringify({ pos: updatedPOs }),
+      });
+
+      toast({
+        title: "Success",
+        description: "PO unlinked successfully.",
+        variant: "success",
+      });
+
+      await mutate();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to unlink PO.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUnlinking(false);
+      setPoToUnlink(null);
+    }
+  };
 
   const onSubmit = async (values: EditTaskFormValues) => {
     try {
@@ -71,19 +303,34 @@ export const EditTaskDialog: React.FC<EditTaskDialogProps> = ({ task, mutate }) 
     }
   };
 
+  // Reset state when dialog closes
+  const handleOpenChange = (isOpen: boolean) => {
+    setOpen(isOpen);
+    if (!isOpen) {
+      setLinkSectionOpen(false);
+      setSelectedPackage("");
+      setSelectedPOs(new Set());
+      form.reset({
+        status: task.status,
+        revised_date: task.revised_date || "",
+        remarks: task.remarks || "",
+      });
+    }
+  };
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button variant="ghost" size="sm" className="text-blue-600 hover:text-blue-800 w-full">
           <Pencil className="h-4 w-4 mr-1" />
           Edit
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Edit Critical PO Task</DialogTitle>
           <DialogDescription>
-            Update status, revised date, and remarks for "{task.item_name}"
+            Update status, revised deadline, remarks, and manage associated POs for "{task.item_name}"
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -131,19 +378,19 @@ export const EditTaskDialog: React.FC<EditTaskDialogProps> = ({ task, mutate }) 
               )}
             />
 
-            {/* Original Release Date (Read-only) */}
+            {/* Original PO Release Deadline (Read-only) */}
             <FormItem>
-              <FormLabel>Original PO Release Date</FormLabel>
+              <FormLabel>Original PO Release Deadline</FormLabel>
               <Input value={task.po_release_date} disabled className="bg-gray-50" />
             </FormItem>
 
-            {/* Revised Date (Editable) */}
+            {/* Revised Deadline (Editable) */}
             <FormField
               control={form.control}
               name="revised_date"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Revised Date (Optional)</FormLabel>
+                  <FormLabel>Revised Deadline (Optional)</FormLabel>
                   <FormControl>
                     <DatePicker
                       format="YYYY-MM-DD"
@@ -152,7 +399,7 @@ export const EditTaskDialog: React.FC<EditTaskDialogProps> = ({ task, mutate }) 
                       onChange={(date) => {
                         field.onChange(date ? date.format("YYYY-MM-DD") : "");
                       }}
-                      placeholder="Select revised date"
+                      placeholder="Select revised deadline"
                     />
                   </FormControl>
                   <FormMessage />
@@ -180,7 +427,188 @@ export const EditTaskDialog: React.FC<EditTaskDialogProps> = ({ task, mutate }) 
               )}
             />
 
-            <div className="flex justify-end space-x-2">
+            {/* Associated POs Section */}
+            <div className="border rounded-md p-4 space-y-3">
+              <FormLabel className="text-base font-semibold">Associated POs</FormLabel>
+
+              {/* Currently Linked POs */}
+              <div className="min-h-[32px]">
+                {currentlyLinkedPOs.length === 0 ? (
+                  <p className="text-sm text-gray-500">No POs linked yet</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {currentlyLinkedPOs.map((poName: string) => (
+                      <Badge
+                        key={poName}
+                        variant="secondary"
+                        className="flex items-center gap-1 pr-1 group hover:bg-red-100 transition-colors"
+                      >
+                        <span className="text-blue-600">{extractPOId(poName)}</span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-4 w-4 p-0 hover:bg-transparent group-hover:text-red-600"
+                          onClick={() => handleUnlinkPO(poName)}
+                          disabled={isUnlinking && poToUnlink === poName}
+                        >
+                          {isUnlinking && poToUnlink === poName ? (
+                            <TailSpin height={12} width={12} color="#dc2626" />
+                          ) : (
+                            <X className="h-3 w-3" />
+                          )}
+                        </Button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Collapsible Link New POs Section */}
+              <Collapsible open={linkSectionOpen} onOpenChange={setLinkSectionOpen}>
+                <CollapsibleTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full justify-between"
+                  >
+                    <span className="flex items-center gap-2">
+                      <LinkIcon className="h-4 w-4" />
+                      Link New POs
+                    </span>
+                    {linkSectionOpen ? (
+                      <ChevronUp className="h-4 w-4" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4" />
+                    )}
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="mt-3 space-y-3">
+                  {/* Package Selector */}
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">Select Package</label>
+                    <ReactSelect
+                      options={packageOptions}
+                      value={packageOptions.find((opt) => opt.value === selectedPackage) || null}
+                      onChange={(option) => {
+                        setSelectedPackage(option?.value || "");
+                        setSelectedPOs(new Set());
+                      }}
+                      placeholder="Choose a package..."
+                      isClearable
+                      menuPlacement="top"
+                      styles={selectStyles}
+                    />
+                  </div>
+
+                  {/* PO List or Instruction */}
+                  {!selectedPackage ? (
+                    <Alert className="bg-blue-50 border-blue-200">
+                      <AlertCircle className="h-4 w-4 text-blue-600" />
+                      <AlertDescription className="text-blue-800 text-sm">
+                        Select a package to view available POs for linking.
+                      </AlertDescription>
+                    </Alert>
+                  ) : (
+                    <div>
+                      <h4 className="text-sm font-medium mb-2 text-gray-700">
+                        Available POs ({availablePOs.length})
+                      </h4>
+
+                      {posLoading || prsLoading ? (
+                        <div className="flex justify-center items-center h-20">
+                          <TailSpin width={30} height={30} color="#dc2626" />
+                        </div>
+                      ) : availablePOs.length === 0 ? (
+                        <Alert>
+                          <AlertCircle className="h-4 w-4" />
+                          <AlertDescription className="text-sm">
+                            No unlinked POs found for this package.
+                          </AlertDescription>
+                        </Alert>
+                      ) : (
+                        <div className="space-y-2 max-h-[200px] overflow-y-auto border rounded-md p-2">
+                          {availablePOs.map((po) => (
+                            <div
+                              key={po.name}
+                              className="flex items-start space-x-2 p-2 border rounded hover:bg-gray-50 transition-colors"
+                            >
+                              <Checkbox
+                                id={`po-edit-${po.name}`}
+                                checked={selectedPOs.has(po.name)}
+                                onCheckedChange={() => handlePOToggle(po.name)}
+                                className="mt-0.5"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2">
+                                    <label
+                                      htmlFor={`po-edit-${po.name}`}
+                                      className="text-sm font-medium cursor-pointer"
+                                    >
+                                      {extractPOId(po.name)}
+                                    </label>
+                                    <ItemsHoverCard
+                                      parentDocId={{ name: po.name }}
+                                      parentDoctype="Procurement Orders"
+                                      childTableName="items"
+                                    />
+                                  </div>
+                                  <Badge
+                                    variant={
+                                      po.status === "Delivered"
+                                        ? "default"
+                                        : po.status === "PO Approved"
+                                        ? "secondary"
+                                        : "outline"
+                                    }
+                                    className="text-xs"
+                                  >
+                                    {po.status}
+                                  </Badge>
+                                </div>
+                                <div className="text-xs text-gray-500 mt-0.5">
+                                  {formatToRoundedIndianRupee(po.total_amount || 0)}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Link Selected Button */}
+                      {availablePOs.length > 0 && (
+                        <div className="flex justify-between items-center mt-3">
+                          <span className="text-xs text-gray-500">
+                            {selectedPOs.size > 0
+                              ? `${selectedPOs.size} PO(s) selected`
+                              : "No POs selected"}
+                          </span>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={handleLinkPOs}
+                            disabled={isLinking || selectedPOs.size === 0}
+                          >
+                            {isLinking ? (
+                              <>
+                                <TailSpin height={14} width={14} color="white" />
+                                <span className="ml-1">Linking...</span>
+                              </>
+                            ) : (
+                              "Link Selected"
+                            )}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </CollapsibleContent>
+              </Collapsible>
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-2">
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                 Cancel
               </Button>
