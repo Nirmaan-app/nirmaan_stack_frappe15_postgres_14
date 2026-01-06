@@ -66,7 +66,7 @@ type CategoryFormValues = z.infer<typeof categoryFormSchema>;
 const itemFormSchema = z.object({
   item_name: z.string().min(1, "Item Name is required."),
   sub_category: z.string().optional(),
-  release_timeline_offset: z.coerce.number().min(0, "Offset must be positive").optional(),
+  release_timeline_offset: z.coerce.number().min(1, "Offset must be at least 1 day"),
 });
 type ItemFormValues = z.infer<typeof itemFormSchema>;
 
@@ -318,7 +318,7 @@ const CreateItemDialog: React.FC<CreateItemDialogProps> = ({ categoryId, mutate 
 
   const form = useForm<ItemFormValues>({
     resolver: zodResolver(itemFormSchema),
-    defaultValues: { item_name: "", sub_category: "", release_timeline_offset: 0 },
+    defaultValues: { item_name: "", sub_category: "", release_timeline_offset: undefined },
   });
 
   const onSubmit = async (values: ItemFormValues) => {
@@ -412,7 +412,9 @@ const EditItemDialog: React.FC<EditItemDialogProps> = ({ item, mutate }) => {
     defaultValues: {
       item_name: item.item_name,
       sub_category: item.sub_category || "",
-      release_timeline_offset: item.release_timeline_offset || 0
+      release_timeline_offset: item.release_timeline_offset && item.release_timeline_offset >= 1
+        ? item.release_timeline_offset
+        : undefined
     },
   });
 

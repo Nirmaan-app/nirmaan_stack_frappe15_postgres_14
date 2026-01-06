@@ -158,7 +158,10 @@ doc_events = {
         "on_trash": "nirmaan_stack.nirmaan_stack.doctype.vendor_category.vendor_category.delete_vendor_category"
     },
     "Items": {
-        "after_insert": "nirmaan_stack.integrations.controllers.items.after_insert" 
+        "after_insert": "nirmaan_stack.integrations.controllers.items.after_insert"
+    },
+    "Critical PO Items": {
+        "after_insert": "nirmaan_stack.nirmaan_stack.doctype.critical_po_items.critical_po_items.after_insert"
     },
     "Procurement Requests": {
         # "before_insert": "nirmaan_stack.integrations.controllers.procurement_requests.before_insert",
