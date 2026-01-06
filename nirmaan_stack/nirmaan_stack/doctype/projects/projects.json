@@ -15,6 +15,8 @@
   "project_gst_number",
   "customer_section",
   "customer_po_details",
+  "drive_links_section",
+  "drive_links",
   "project_timeline_section",
   "project_start_date",
   "project_end_date",
@@ -234,12 +236,23 @@
    "fieldtype": "Int",
    "label": "Carpet Area",
    "non_negative": 1
+  },
+  {
+   "fieldname": "drive_links_section",
+   "fieldtype": "Section Break",
+   "label": "Drive Links "
+  },
+  {
+   "fieldname": "drive_links",
+   "fieldtype": "Table",
+   "label": "Drive Links",
+   "options": "Project Drive Link Child Table"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-12-22 19:42:33.951451",
+ "modified": "2026-01-05 16:05:40.116251",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Projects",

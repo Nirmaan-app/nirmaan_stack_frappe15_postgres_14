@@ -166,7 +166,8 @@ const projectFormSchema = z.object({
       gst: z.string(),
     }))
   }),
-  carpet_area: z.string().optional(),
+   carpet_area: z.coerce.number().nonnegative().optional(),
+  
 });
 
 type ProjectFormValues = z.infer<typeof projectFormSchema>;
