@@ -2,11 +2,12 @@ import { ColumnDef, Row, Table } from "@tanstack/react-table";
 import { Projects } from "@/types/NirmaanStack/Projects"; // Base Project type
 import { parseNumber } from "@/utils/parseNumber";
 import { Link } from "react-router-dom";
-import formatToIndianRupee from "@/utils/FormatPrice"; // Assuming formatToRoundedIndianRupee is also here
+import formatToIndianRupee from "@/utils/FormatPrice";
 import { formatDate } from "@/utils/FormatDate";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { Skeleton } from "@/components/ui/skeleton"; // For cell loading state
+import { Skeleton } from "@/components/ui/skeleton";
 import { ProjectCalculatedFields } from "../../hooks/useProjectReportCalculations";
+
 
 
 // Helper functions (formatValueToLakhsString, formatDisplayValueToLakhs) remain the same...
@@ -33,6 +34,7 @@ const formatDisplayValueToLakhs = (value: string | number | undefined | null): s
 interface ProjectTableMeta {
   getProjectCalculatedFields: (projectId: string) => ProjectCalculatedFields | null;
   isLoadingGlobalDeps: boolean;
+  dateRange?: { from?: string; to?: string };
 }
 
 // A generic cell renderer for calculated fields
@@ -117,10 +119,15 @@ if (dateRange && dateRange.from && dateRange.to) {
 
 
 
+
+export type ProjectWithCalculations = Projects & Partial<ProjectCalculatedFields> & {
+    cashflowGap?: number;
+};
+
 // projectColumns is now a function that returns the column definitions.
 // This allows for more flexibility if columns needed to be truly dynamic based on props,
 // though for this case, accessing meta via `table` in cell renderers is the key.
-export const getProjectColumns = (): ColumnDef<Projects>[] => [
+export const getClientProjectColumns = (): ColumnDef<ProjectWithCalculations>[] => [
   {
     accessorKey: "project_name",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Project Name" />,
@@ -129,90 +136,129 @@ export const getProjectColumns = (): ColumnDef<Projects>[] => [
         {row.original.project_name || row.original.name}
       </Link>
     ),
-    size: 200, // Adjust size as needed
+    size: 150, // Adjust size as needed
     meta: { exportHeaderName: "Project Name", exportValue: (row: Projects) => row.project_name || row.name }
   },
    {
     accessorKey: "project_value",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Value (excl. GST)" />,
-    cell: ({ row }) => <div className="tabular-nums">{formatDisplayValueToLakhs(row.original.project_value)}</div>,
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Value (excl. GST)" className="[&_button]:whitespace-normal text-left" />,
+    cell: ({ row }) => <div className="tabular-nums text-center">{formatDisplayValueToLakhs(row.original.project_value)}</div>,
+    size:120,
     meta: { exportHeaderName: "Value (excl. GST)", exportValue: (row: Projects) => formatValueToLakhsString(row.project_value), isNumeric: true }
   },
   {
-    id: "totalProjectInvoiced", // Use ID for columns not directly on `Projects`
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Client Invoiced (incl. GST)" />,
-    cell: (props) => <CalculatedCell {...props} accessor="totalProjectInvoiced" formatter={formatDisplayValueToLakhs} />,
-    meta: { exportHeaderName: "Total Project Invoiced (incl. GST)", isNumeric: true } // exportValue will need custom handling (see ProjectReports.tsx)
+    accessorKey: "totalProjectInvoiced",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Client Invoiced (incl. GST)" className="[&_button]:whitespace-normal text-left" />,
+    cell: ({ getValue }) => <div className="tabular-nums text-center">{formatDisplayValueToLakhs(getValue() as number)}</div>,
+    size: 150,
+    
+    meta: { exportHeaderName: "Total Project Invoiced (incl. GST)", isNumeric: true }
   },
   {
-    id: "totalInflow",
+    accessorKey: "totalInflow",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Inflow" />,
-    // This now correctly passes isLink and projectId to our updated CalculatedCell
-    cell: (props) => <CalculatedCell {...props} accessor="totalInflow" formatter={formatDisplayValueToLakhs} isLink={true} projectId={props.row.original.name} linkToReport="Inflow Report" />,
+    cell: ({ row, getValue, table }) => {
+        const value = getValue() as number;
+        
+        // Link logic copied and adapted for direct value access
+        const meta = table.options.meta as ProjectTableMeta | undefined; // Using any to bypass strictly defined old meta type for now
+        const { dateRange } = meta || {};
+
+        if (row.original.name) {
+             const filters = [{ id: 'project', value: [row.original.name] }];
+             if (dateRange?.from && dateRange?.to) {
+                filters.push({
+                    id: 'payment_date',
+                    value: { operator: 'Between', value: [dateRange.from, dateRange.to] }
+                });
+            }
+             const encodedFilters = btoa(JSON.stringify(filters));
+             const targetUrl = `/reports?tab=projects&report=Inflow%20Report&inflow_report_table_filters=${encodedFilters}`;
+             
+             return (
+                <Link to={targetUrl} className="text-blue-600 hover:underline">
+                     <div className="tabular-nums">{formatDisplayValueToLakhs(value)}</div>
+                </Link>
+             )
+        }
+        return <div className="tabular-nums">{formatDisplayValueToLakhs(value)}</div>
+    },
+    size: 100,
     meta: { exportHeaderName: "Inflow", isNumeric: true }
   },
   {
-    id: "totalOutflow",
+    accessorKey: "totalOutflow",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Outflow" />,
-    cell: (props) => <CalculatedCell {...props} accessor="totalOutflow" formatter={formatDisplayValueToLakhs} isLink={true} projectId={props.row.original.name} linkToReport="Outflow Report(Project)" />,
+    cell: ({ row, getValue, table }) => {
+        const value = getValue() as number;
+         // Link logic adapted
+        const meta = table.options.meta as ProjectTableMeta | undefined; 
+        const { dateRange } = meta || {};
+
+        if (row.original.name) {
+             const filters = [{ id: 'project', value: [row.original.name] }];
+             if (dateRange?.from && dateRange?.to) {
+                filters.push({
+                    id: 'payment_date',
+                    value: { operator: 'Between', value: [dateRange.from, dateRange.to] }
+                });
+            }
+             const encodedFilters = btoa(JSON.stringify(filters));
+             // Correct URL encoding for "Outflow Report(Project)" -> Outflow%20Report(Project)
+             const targetUrl = `/reports?tab=projects&report=Outflow%20Report(Project)&outflow_report_table_filters=${encodedFilters}`;
+             
+             return (
+                <Link to={targetUrl} className="text-blue-600 hover:underline">
+                     <div className="tabular-nums">{formatDisplayValueToLakhs(value)}</div>
+                </Link>
+             )
+        }
+        return <div className="tabular-nums ">{formatDisplayValueToLakhs(value)}</div>
+    },
+    size: 100,
     meta: { exportHeaderName: "Outflow", isNumeric: true }
   },
   {
-    id: "totalLiabilities",
+    accessorKey: "totalLiabilities",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Current Liability" />,
-    cell: (props) => <CalculatedCell {...props} accessor="totalLiabilities" formatter={formatDisplayValueToLakhs} />,
+    cell: ({ getValue }) => <div className="tabular-nums">{formatDisplayValueToLakhs(getValue() as number)}</div>,
+    size: 150,
     meta: { exportHeaderName: "Current Liability", isNumeric: true }
   },
   {
-    id: "cashflowGap",
+    accessorKey: "cashflowGap",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Cashflow Gap" />,
-    cell: ({ row, table }) => {
-      const meta = table.options.meta as { getProjectCalculatedFields: (projectId: string) => ProjectCalculatedFields | null; isLoadingGlobalDeps: boolean } | undefined;
-
-      if (!meta || typeof meta.getProjectCalculatedFields !== 'function') {
-        return <span className="text-destructive text-xs">Meta Error</span>;
-      }
-
-      if (meta.isLoadingGlobalDeps) {
-        return <Skeleton className="h-4 w-20 my-1" />;
-      }
-
-      const calculatedData = meta.getProjectCalculatedFields(row.original.name);
-
-      if (calculatedData === null) {
-        return <Skeleton className="h-4 w-20 my-1" />;
-      }
-
-      const cashflowGap = calculatedData.totalOutflow + calculatedData.totalLiabilities - calculatedData.totalInflow;
-
-      return (
-        <div className={`tabular-nums ${cashflowGap > 0 ? 'text-red-600' : 'text-green-600'}`}>
-          {formatDisplayValueToLakhs(cashflowGap)}
-        </div>
-      );
+    cell: ({ getValue }) => {
+        const val = getValue() as number;
+        return (
+            <div className={`tabular-nums ${val > 0 ? 'text-red-600' : 'text-green-600'}`}>
+              {formatDisplayValueToLakhs(val)}
+            </div>
+          );
     },
+     size: 120,
     meta: { exportHeaderName: "Cashflow Gap", isNumeric: true }
   },
   {
-    id: "totalInvoiced", // Use ID for columns not directly on `Projects`
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Total PO+SR Value (incl. GST)" />,
-    cell: (props) => <CalculatedCell {...props} accessor="totalInvoiced" formatter={formatDisplayValueToLakhs} />,
-    meta: { exportHeaderName: "Total PO+SR Value(incl. GST)", isNumeric: true } // exportValue will need custom handling (see ProjectReports.tsx)
+    accessorKey: "totalInvoiced",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Total PO+SR Value (incl. GST)" className="[&_button]:whitespace-normal text-left" />,
+    cell: ({ getValue }) => <div className="tabular-nums text-center">{formatDisplayValueToLakhs(getValue() as number)}</div>,
+    size: 140,
+    meta: { exportHeaderName: "Total PO+SR Value(incl. GST)", isNumeric: true }
   },
-  // --- (Indicator) NEW COLUMN ---
   {
-    id: "totalPoSrInvoiced",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Total PO+SR Invoice Received" />,
-    cell: (props) => <CalculatedCell {...props} accessor="totalPoSrInvoiced" formatter={formatDisplayValueToLakhs} />,
+    accessorKey: "totalPoSrInvoiced",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Total PO+SR Invoice Received" className="[&_button]:whitespace-normal text-left" />,
+    cell: ({ getValue }) => <div className="tabular-nums text-center">{formatDisplayValueToLakhs(getValue() as number)}</div>,
+    size: 140,
     meta: { exportHeaderName: "Total PO+SR Invoice Received", isNumeric: true }
   },
- 
-  // --- ✨ THIS IS THE FIX FOR YOUR NEW COLUMNS ---
+  
   {
-    id: "TotalPurchaseOverCredit", // A unique ID for the column
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Total Purchase Over Credit" />,
-    // Pass the correct accessor string that matches the key in ProjectCalculatedFields
-    cell: (props) => <CalculatedCell {...props} accessor="TotalPurchaseOverCredit" formatter={formatValueToLakhsString} />,
+    accessorKey: "TotalPurchaseOverCredit",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Total Purchase Over Credit" className="[&_button]:whitespace-normal text-left" />,
+    cell: ({ getValue }) => <div className="tabular-nums text-center">{formatValueToLakhsString(getValue() as number)}</div>,
+    size: 140,
     meta: {
       exportHeaderName: "Balance on Credit (Lakhs)",
       isNumeric: true
@@ -238,3 +284,6 @@ export const getProjectColumns = (): ColumnDef<Projects>[] => [
   // },
 
 ];
+
+// Alias for backward compatibility. Defined at the end to ensure getClientProjectColumns is initialized.
+export const getProjectColumns = getClientProjectColumns;

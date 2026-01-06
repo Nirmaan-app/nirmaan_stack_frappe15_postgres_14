@@ -1,12 +1,21 @@
-import { useMemo ,useEffect,useCallback,useState} from "react"; // Added useCallback
+import { useMemo ,useEffect,useCallback,useState} from "react"; 
+import { 
+    useReactTable, 
+    getCoreRowModel, 
+    getSortedRowModel, 
+    getPaginationRowModel,
+    SortingState,
+    VisibilityState,
+    ColumnFiltersState
+} from "@tanstack/react-table"; 
 import { DataTable } from "@/components/data-table/new-data-table";
-import { Projects } from "@/types/NirmaanStack/Projects"; // Base Project type
-import { useProjectReportCalculations } from "../hooks/useProjectReportCalculations"; // Updated hook
-import { formatValueToLakhsString, getProjectColumns } from "./columns/projectColumns"; // Columns are now from a function
+import { Projects } from "@/types/NirmaanStack/Projects"; 
+import { useProjectReportCalculations } from "../hooks/useProjectReportCalculations"; 
+import { formatValueToLakhsString, getClientProjectColumns } from "./columns/projectColumns"; 
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { ReportType, useReportStore } from "../store/useReportStore";
-import { useServerDataTable } from "@/hooks/useServerDataTable";
-import { useFrappeGetDocList } from "frappe-react-sdk"; // Imported useFrappeGetDocList
+import { useFrappeGetDocList } from "frappe-react-sdk"; 
+
 import {
     PROJECT_REPORTS_SEARCHABLE_FIELDS,
     PROJECT_REPORTS_DATE_COLUMNS,
@@ -64,6 +73,8 @@ function CashSheetReport() {
         }
         return getDefaultDateRange()
     });
+    
+
      
     const {
         getProjectCalculatedFields,
@@ -75,42 +86,14 @@ function CashSheetReport() {
     });
     
 
-    const tableColumns = useMemo(() => getProjectColumns(), []);
- // 3. Effect to sync state changes back to the URL
-    useEffect(() => {
-        const fromISO = dateRange?.from ? formatISO(dateRange.from, { representation: 'date' }) : null;
-        const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }) : null;
-
-        urlStateManager.updateParam(`${URL_SYNC_KEY}_from`, fromISO);
-        urlStateManager.updateParam(`${URL_SYNC_KEY}_to`, toISO);
-    }, [dateRange]);
-
-    const fromISO = dateRange?.from ? formatISO(dateRange.from, { representation: 'date' }) : undefined;
-const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }) : undefined;
-
-
-    const {
-        table,
-        data: projectsData,
-        isLoading: isProjectsLoading,
-        error: projectsError,
-        totalCount,
-        searchTerm, setSearchTerm,
-        selectedSearchField, setSelectedSearchField,
-    } = useServerDataTable<Projects>({
-        doctype: "Projects",
-        columns: tableColumns,
-        fetchFields: ['name', 'project_name', 'project_value', 'creation', 'modified', 'status'],
-        searchableFields: PROJECT_REPORTS_SEARCHABLE_FIELDS,
-        urlSyncKey: "project_reports_cash_sheet_table",
-        defaultSort: 'creation desc',
-        meta: { getProjectCalculatedFields, isLoadingGlobalDeps, dateRange: { 
-            from: fromISO, 
-            to: toISO 
-        }  }
-    });
-
-    // --- NEW: Fetch ALL projects for summary calculation (bypassing pagination) ---
+    // --- NEW: Client-side Table Logic ---
+    
+    // 1. Process data: Merge projects with their calculated fields
+    // We use 'filteredProjectsForSummary' because it already handles the basic name search from the existing logic,
+    // although we are about to move search into the DataTable. 
+    // Ideally, we should feed ALL projects to the table and let the table handle search.
+    
+    // Let's use 'allProjects' as the base if available.
     const { data: allProjects } = useFrappeGetDocList<Projects>(
         "Projects",
         {
@@ -119,49 +102,117 @@ const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }
              orderBy: { field: "creation", order: "desc" }
         }
     );
+    const projectSource = allProjects || [];
 
-    // Filter "allProjects" based on the search term to match the table's *scope*
-    const filteredProjectsForSummary = useMemo(() => {
-        if (!allProjects) return [];
-        if (!searchTerm) return allProjects;
+    const tableData = useMemo(() => {
+        if (!projectSource) return [];
+        
+        return projectSource.map(project => {
+            const calculated = getProjectCalculatedFields(project.name);
+            const defaultCalc = {
+                totalInvoiced: 0,
+                totalPoSrInvoiced: 0,
+                totalProjectInvoiced: 0,
+                totalInflow: 0,
+                totalOutflow: 0,
+                totalLiabilities: 0,
+                TotalPurchaseOverCredit: 0,
+                CreditPaidAmount: 0 // if needed
+            };
+            
+            const mergedCalc = calculated || defaultCalc;
+            const cashflowGap = (mergedCalc.totalOutflow || 0) + (mergedCalc.totalLiabilities || 0) - (mergedCalc.totalInflow || 0);
 
+            return {
+                ...project,
+                ...mergedCalc,
+                cashflowGap
+            };
+        });
+    }, [projectSource, getProjectCalculatedFields]);
+
+    // 2. Define Columns
+    const tableColumns = useMemo(() => getClientProjectColumns(), []);
+
+    // 3. Loading & Error States
+    // We wait for both the project list and the financial calculation dependencies
+    const isLoading = isLoadingGlobalDeps || !allProjects; // If projects are not loaded yet
+
+    // Local state for table
+    const [sorting, setSorting] = useState<SortingState>([{ id: "cashflowGap", desc: true }]);
+    const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+    const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+
+    const [searchTerm, setSearchTerm] = useState<string>("");
+    const [selectedSearchField, setSelectedSearchField] = useState<string | null>(PROJECT_REPORTS_SEARCHABLE_FIELDS[0]?.value || "project_name");
+
+
+    // 4. Compute Financial Summary from the SAME tableData (ensures consistency)
+    // We can filter tableData by searchTerm here if we essentially want to replicate the old summary behavior,
+    // OR we can rely on the table's state if we want the summary to update with table filters.
+    // For now, let's keep the existing manual search filter logic for the summary to be safe, but applied to tableData.
+    
+
+    const filteredDataForSummary = useMemo(() => {
+        if (!searchTerm) return tableData;
         const lowerSearch = searchTerm.toLowerCase();
-        return allProjects.filter(p => 
+        return tableData.filter(p => 
             p.project_name?.toLowerCase().includes(lowerSearch) ||
             p.name.toLowerCase().includes(lowerSearch)
-            // Add other search fields if needed
         );
-    }, [allProjects, searchTerm]);
+    }, [tableData, searchTerm]);
 
+    // Create Table Instance
+    const table = useReactTable({
+        data: filteredDataForSummary,
+        columns: tableColumns,
+        getCoreRowModel: getCoreRowModel(),
+        getSortedRowModel: getSortedRowModel(),
+        getPaginationRowModel: getPaginationRowModel(),
+        onSortingChange: setSorting,
+        onColumnFiltersChange: setColumnFilters,
+        onColumnVisibilityChange: setColumnVisibility,
+        state: {
+            sorting,
+            columnFilters,
+            columnVisibility,
+        },
+        initialState: {
+            pagination: {
+                pageSize: 50,
+            },
+            sorting: [
+                {
+                    id: "cashflowGap",
+                    desc: true,
+                },
+            ],
+        },
+        meta: { 
+            dateRange: { 
+                from: dateRange?.from ? formatISO(dateRange.from, { representation: 'date' }) : undefined, 
+                to: dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }) : undefined 
+            } 
+        }
+    });
 
     const financialSummary = useMemo(() => {
-        // Use the filtered ALL list, not the paginated table rows
-        const rowsToSum = filteredProjectsForSummary;
+        return filteredDataForSummary.reduce((acc, row) => {
+             // ACCUMULATE ALL FIELDS
+                acc.projectValue += parseNumber(row.project_value); 
+                acc.totalInvoiced += parseNumber(row.totalInvoiced); 
+                acc.totalPoSrInvoiced += parseNumber(row.totalPoSrInvoiced);
+                acc.totalProjectInvoiced += parseNumber(row.totalProjectInvoiced);
+                acc.totalInflow += parseNumber(row.totalInflow);
+                acc.totalOutflow += parseNumber(row.totalOutflow);
+                acc.totalLiabilities += parseNumber(row.totalLiabilities); 
+                acc.totalPurchaseOverCredit += parseNumber(row.TotalPurchaseOverCredit);
+                // cashflowGap is already calculated per row, but simple sum is safer/same
+                acc.totalCashflowGap += (row.cashflowGap || 0);
 
-        return rowsToSum.reduce((acc, project) => {
-            const calculated = getProjectCalculatedFields(project.name);
-            if (calculated) {
-
-                // ACCUMULATE ALL FIELDS
-                acc.projectValue += parseNumber(project.project_value); // From the Project Doc
-                acc.totalInvoiced += parseNumber(calculated.totalInvoiced); // Total PO+SR Value
-                acc.totalPoSrInvoiced += parseNumber(calculated.totalPoSrInvoiced);
-                acc.totalProjectInvoiced += parseNumber(calculated.totalProjectInvoiced);
-                acc.totalInflow += parseNumber(calculated.totalInflow);
-                acc.totalOutflow += parseNumber(calculated.totalOutflow);
-                acc.totalLiabilities += parseNumber(calculated.totalLiabilities); // Added for Current Liabilities
-                acc.totalPurchaseOverCredit += parseNumber(calculated.TotalPurchaseOverCredit); // Added from your columns
-                acc.creditPaidAmount += parseNumber(calculated.CreditPaidAmount); // Added from your columns
-
-                // Calculate cashflow gap: Outflow + Liabilities - Inflow
-                const cashflowGap = parseNumber(calculated.totalOutflow) + parseNumber(calculated.totalLiabilities) - parseNumber(calculated.totalInflow);
-                acc.totalCashflowGap += cashflowGap;
-
-                acc.projectCount += 1; // Count projects
-            }
+                acc.projectCount += 1;
             return acc;
         }, {
-            // INITIAL ACCUMULATOR STATE
             projectCount: 0,
             projectValue: 0,
             totalInvoiced: 0,
@@ -175,45 +226,20 @@ const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }
             totalPurchaseOverCredit: 0,
             creditPaidAmount: 0,
         });
-    }, [filteredProjectsForSummary, getProjectCalculatedFields]); 
-    // -------------------------------------------------------------
+    }, [filteredDataForSummary]);
 
-    // // Helper function to format the total amount to Indian Rupee Lakhs for display
-    // const formatTotalToLakhsDisplay = (total: number): string => {
-    //     return formatToRoundedIndianRupee(total / 100000) + ' L';
-    // };
+    // 5. Handling Filters & Search State (Client-Side)
+    // We reuse existing 'searchTerm' state.
 
-        // Helper to display current filter status
-    const getCurrentFilterStatus = () => {
-        const activeFilters = table.getState().columnFilters.length;
-        const searchTerm = table.getState().globalFilter;
-
-        if (activeFilters === 0 && !searchTerm) {
-             return "Showing overall summary for selected date range.";
-        }
-
-        const projectFilter = table.getState().columnFilters.find(f => f.id === 'project_name');
-        
-        let filterText = '';
-        if (projectFilter) {
-            filterText = `Filtered by: Project(s).`;
-        } else if (activeFilters > 0) {
-            filterText = `Filtered by ${activeFilters} column(s).`;
-        }
-
-        if (searchTerm) {
-            filterText += (filterText ? ' And ' : 'Filtered by: ') + `Search term: "${searchTerm}".`;
-        }
-
-        return filterText || "Filtered data summary.";
-    }
+    // Calculate total count based on filtered data size
+    const totalCount = filteredDataForSummary.length;
 
 
-
+    // --- Export Logic (Updated to use tableData) ---
     const exportFileName = "projects_report_Cash_Sheet";
 
     const handleCustomExport = useCallback(() => {
-        if (!projectsData || projectsData.length === 0) {
+        if (!filteredDataForSummary || filteredDataForSummary.length === 0) {
             toast({ title: "Export", description: "No data available to export.", variant: "default" });
             return;
         }
@@ -222,20 +248,18 @@ const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }
             return;
         }
 
-        const dataToExport = projectsData.map(project => {
-            const calculated = getProjectCalculatedFields(project.name);
-            const cashflowGap = calculated ? calculated.totalOutflow + calculated.totalLiabilities - calculated.totalInflow : 0;
+        const dataToExport = filteredDataForSummary.map(row => {
             return {
-                project_name: project.project_name,
-                project_value_lakhs: formatValueToLakhsString(project.project_value),
-                totalInvoiced_lakhs: calculated ? formatValueToLakhsString(calculated.totalInvoiced) : 'N/A',
-                totalPoSrInvoiced_lakhs: calculated ? formatValueToLakhsString(calculated.totalPoSrInvoiced) : 'N/A',
-                totalProjectInvoiced_lakhs: calculated ? formatValueToLakhsString(calculated.totalProjectInvoiced) : 'N/A',
-                totalInflow_lakhs: calculated ? formatValueToLakhsString(calculated.totalInflow) : 'N/A',
-                totalOutflow_lakhs: calculated ? formatValueToLakhsString(calculated.totalOutflow) : 'N/A',
-                totalLiabilities_lakhs: calculated ? formatValueToLakhsString(calculated.totalLiabilities) : 'N/A',
-                cashflowGap_lakhs: calculated ? formatValueToLakhsString(cashflowGap) : 'N/A',
-                totalPurchaseOverCredit_lakhs: calculated ? formatValueToLakhsString(calculated.TotalPurchaseOverCredit) : 'N/A',
+                project_name: row.project_name,
+                project_value_lakhs: formatValueToLakhsString(row.project_value),
+                totalInvoiced_lakhs: formatValueToLakhsString(row.totalInvoiced),
+                totalPoSrInvoiced_lakhs: formatValueToLakhsString(row.totalPoSrInvoiced),
+                totalProjectInvoiced_lakhs: formatValueToLakhsString(row.totalProjectInvoiced),
+                totalInflow_lakhs: formatValueToLakhsString(row.totalInflow),
+                totalOutflow_lakhs: formatValueToLakhsString(row.totalOutflow),
+                totalLiabilities_lakhs: formatValueToLakhsString(row.totalLiabilities),
+                cashflowGap_lakhs: formatValueToLakhsString(row.cashflowGap),
+                totalPurchaseOverCredit_lakhs: formatValueToLakhsString(row.TotalPurchaseOverCredit),
             };
         });
         const exportColumns = [
@@ -258,22 +282,46 @@ const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }
             console.error("Export failed:", e);
             toast({ title: "Export Error", description: "Could not generate CSV file.", variant: "destructive" });
         }
-    }, [projectsData, getProjectCalculatedFields, isLoadingGlobalDeps, exportFileName, tableColumns]);
+    }, [filteredDataForSummary, isLoadingGlobalDeps, exportFileName]);
 
-    const isLoading = isLoadingGlobalDeps || isProjectsLoading;
-    const error = globalDepsError || projectsError;
+
+    // Helper to display current filter status
+    const getCurrentFilterStatus = () => {
+        if (!searchTerm) {
+             return "Showing overall summary for selected date range.";
+        }
+        return `Filtered by Search term: "${searchTerm}".`;
+    }
 
       const handleClearDateFilter = useCallback(() => {
             setDateRange(getDefaultDateRange());
         }, []);
     
 
-    if (error) {
-        return <AlertDestructive error={error as Error} />;
+
+    // 3. Effect to sync state changes back to the URL
+    useEffect(() => {
+        const fromISO = dateRange?.from ? formatISO(dateRange.from, { representation: 'date' }) : null;
+        const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }) : null;
+
+        urlStateManager.updateParam(`${URL_SYNC_KEY}_from`, fromISO);
+        urlStateManager.updateParam(`${URL_SYNC_KEY}_to`, toISO);
+    }, [dateRange]);
+
+    const fromISO = dateRange?.from ? formatISO(dateRange.from, { representation: 'date' }) : undefined;
+    const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }) : undefined;
+
+    if (globalDepsError) {
+        return <AlertDestructive error={globalDepsError as Error} />;
     }
 
-    if (isLoading && !projectsData?.length) {
+    if (isLoading && !tableData.length) {
         return <LoadingFallback />;
+    }
+
+    if (!table) {
+        console.error("Critical: Table instance is undefined!");
+        return <AlertDestructive error={new Error("Failed to initialize table")} />;
     }
 
     return (
@@ -284,110 +332,28 @@ const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }
                 onClear={handleClearDateFilter}
             />
  
-        <DataTable<Projects>
+        {/* We use standard DataTable now, initialized with useReactTable above */}
+        <DataTable
             table={table}
             columns={tableColumns}
             isLoading={isLoading}
-            error={error as Error | null}
+            error={globalDepsError as Error | null}
             totalCount={totalCount}
+            
+            // Search
             searchFieldOptions={PROJECT_REPORTS_SEARCHABLE_FIELDS}
-            selectedSearchField={selectedSearchField}
+            selectedSearchField={selectedSearchField || "project_name"}
             onSelectedSearchFieldChange={setSelectedSearchField}
             searchTerm={searchTerm}
             onSearchTermChange={setSearchTerm}
-            dateFilterColumns={PROJECT_REPORTS_DATE_COLUMNS}
+            
             showExportButton={true}
             onExport={handleCustomExport}
             exportFileName={exportFileName}
             showRowSelection={false}
             tableHeight="40vh"
-            // summaryCard={
-            //         <Card className="mb-4">
-            //             <CardHeader className="p-4">
-            //                 <CardTitle className="text-lg">Financial Summary</CardTitle>
-            //                 <CardDescription>{getCurrentFilterStatus()}</CardDescription>
-            //             </CardHeader>
-            //             <CardContent className="p-4 pt-0">
-            //                 <dl className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                                
-            //                     {/* 1. Project Value (excl. GST) - Neutral */}
-            //                     <div className="flex justify-between sm:flex-col border-b sm:border-b-0 pb-2 sm:pb-0">
-            //                         <dt className="font-semibold text-gray-600 text-sm">Project Value (excl. GST)</dt>
-            //                         <dd className="sm:text-left font-bold text-base tabular-nums text-gray-700">
-            //                             {formatToRoundedIndianRupee(financialSummary.projectValue)}
-            //                         </dd>
-            //                     </div>
-
-            //                     {/* 2. Total Client Invoiced - Income/Revenue (Blue) */}
-            //                     <div className="flex justify-between sm:flex-col border-b sm:border-b-0 pb-2 sm:pb-0">
-            //                         <dt className="font-semibold text-gray-600 text-sm">Client Invoiced (incl. GST)</dt>
-            //                         <dd className="sm:text-left font-bold text-base tabular-nums text-blue-700">
-            //                             {formatToRoundedIndianRupee(financialSummary.totalProjectInvoiced)}
-            //                         </dd>
-            //                     </div>
-                                
-            //                     {/* 3. Total Inflow - Actual Cash In (Green) */}
-            //                     <div className="flex justify-between sm:flex-col border-b sm:border-b-0 pb-2 sm:pb-0">
-            //                         <dt className="font-semibold text-gray-600 text-sm">Total Inflow</dt>
-            //                         <dd className="sm:text-left font-bold text-base tabular-nums text-green-700">
-            //                             {formatToRoundedIndianRupee(financialSummary.totalInflow)}
-            //                         </dd>
-            //                     </div>
-                                
-            //                     {/* 4. Total Outflow - Actual Cash Out (Red) */}
-            //                     <div className="flex justify-between sm:flex-col border-b sm:border-b-0 pb-2 sm:pb-0">
-            //                         <dt className="font-semibold text-gray-600 text-sm">Total Outflow</dt>
-            //                         <dd className="sm:text-left font-bold text-base tabular-nums text-red-700">
-            //                             {formatToRoundedIndianRupee(financialSummary.totalOutflow)}
-            //                         </dd>
-            //                     </div>
-
-            //                     {/* 7. Total Credit Outstanding (Client Invoiced - Inflow) - Balance/Due (Purple/Indigo)
-            //                     <div className="flex justify-between sm:flex-col border-b sm:border-b-0 pb-2 sm:pb-0">
-            //                         <dt className="font-semibold text-gray-600 text-sm">Credit Outstanding</dt>
-            //                         <dd className="sm:text-left font-bold text-base tabular-nums text-indigo-700">
-            //                             {formatToRoundedIndianRupee(financialSummary.totalCredit)}
-            //                         </dd>
-            //                     </div> */}
-
-            //                     {/* 5. Total PO+SR Value (Vendor Invoiced) - Vendor Liability (Gray/Neutral) */}
-            //                     <div className="flex justify-between sm:flex-col border-b sm:border-b-0 pb-2 sm:pb-0">
-            //                         <dt className="font-semibold text-gray-600 text-sm">Total PO+SR Value (incl. GST)</dt>
-            //                         <dd className="sm:text-left font-bold text-base tabular-nums text-gray-700">
-            //                             {formatToRoundedIndianRupee(financialSummary.totalInvoiced)}
-            //                         </dd>
-            //                     </div>
-
-            //                     {/* 6. Total PO+SR Invoiced - Vendor Liability (Gray/Neutral) */}
-            //                     <div className="flex justify-between sm:flex-col border-b sm:border-b-0 pb-2 sm:pb-0">
-            //                         <dt className="font-semibold text-gray-600 text-sm">Total PO+SR Invoiced (incl. GST)</dt>
-            //                         <dd className="sm:text-left font-bold text-base tabular-nums text-gray-700">
-            //                             {formatToRoundedIndianRupee(financialSummary.totalPoSrInvoiced)}
-            //                         </dd>
-            //                     </div>
-
-
-            //                     {/* 8. Total Purchase Over Credit (New Credit Col 1) - Neutral/Detail */}
-            //                     <div className="flex justify-between sm:flex-col border-b sm:border-b-0 pb-2 sm:pb-0">
-            //                         <dt className="font-semibold text-gray-600 text-sm">Total Purchase Over Credit</dt>
-            //                         <dd className="sm:text-left font-bold text-base tabular-nums text-gray-700">
-            //                             {formatToRoundedIndianRupee(financialSummary.totalPurchaseOverCredit)}
-            //                         </dd>
-            //                     </div>
-
-            //                     {/* 9. Total Credit Paid Amount (New Credit Col 2) - Neutral/Detail */}
-            //                     <div className="flex justify-between sm:flex-col">
-            //                         <dt className="font-semibold text-gray-600 text-sm">Total Credit Amount Paid</dt>
-            //                         <dd className="sm:text-left font-bold text-base tabular-nums text-gray-700">
-            //                             {formatToRoundedIndianRupee(financialSummary.creditPaidAmount)}
-            //                         </dd>
-            //                     </div>
-
-            //                 </dl>
-            //             </CardContent>
-            //         </Card>
-            //     }
-                                    summaryCard={
+            
+            summaryCard={
                     <Card className="mb-4">
                         <CardHeader className="p-4">
                             <CardTitle className="text-lg">Financial Summary</CardTitle>

@@ -66,11 +66,11 @@ while IFS= read -r line; do
     # Simple rule: Keep if within 7 days, delete if older
     if (( creation_time_seconds > CUTOFF_SECONDS )); then
         log "KEEP: ${object_name}"
-        ((kept_count++))
+        kept_count=$((kept_count + 1))
     else
         log "DELETE (older than ${RETENTION_DAYS} days): ${object_name}"
         if gcloud storage rm "${object_uri}" --quiet 2>/dev/null; then
-            ((deleted_count++))
+            deleted_count=$((deleted_count + 1))
         else
             log "ERROR: Failed to delete ${object_name}"
         fi
