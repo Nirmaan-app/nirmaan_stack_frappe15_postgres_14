@@ -161,7 +161,8 @@ doc_events = {
         "after_insert": "nirmaan_stack.integrations.controllers.items.after_insert"
     },
     "Critical PO Items": {
-        "after_insert": "nirmaan_stack.nirmaan_stack.doctype.critical_po_items.critical_po_items.after_insert"
+        "after_insert": "nirmaan_stack.nirmaan_stack.doctype.critical_po_items.critical_po_items.after_insert",
+        "on_update": "nirmaan_stack.nirmaan_stack.doctype.critical_po_items.critical_po_items.on_update"
     },
     "Procurement Requests": {
         # "before_insert": "nirmaan_stack.integrations.controllers.procurement_requests.before_insert",
