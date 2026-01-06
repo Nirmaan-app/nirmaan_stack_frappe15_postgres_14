@@ -5,9 +5,12 @@ import frappe
 from frappe.model.document import Document
 from frappe.model.naming import getseries
 
+from frappe.utils import flt
 
 class Projects(Document):
 	def before_save(self):
+		self.project_value = sum(flt(d.customer_po_value_exctax) for d in self.get("customer_po_details", []))
+		self.project_value_gst = sum(flt(d.customer_po_value_inctax) for d in self.get("customer_po_details", []))		
 		#self.project_duration = (datetime.strptime(self.project_end_date, '%Y-%m-%d %H:%M:%S') - datetime.strptime(self.project_start_date, '%Y-%m-%d %H:%M:%S')).days or 0
 		# self.project_city = self.get_project_address()["city"] or ""
 		# self.project_state = self.get_project_address()["state"] or ""
@@ -48,7 +51,7 @@ def generateUserPermissions(project, method=None):
 
 
 def on_update(doc, method=None):
-	old_doc = doc.get_doc_before_save()
+	old_doc = doc.get_doc_before_save()	
 	if doc and doc.customer and old_doc and old_doc.customer and doc.customer != old_doc.customer:
 		inflow_payments = frappe.db.get_all("Project Inflows", filters={"project": doc.name}, fields={"name", "customer"})
 		for inflow in inflow_payments:
