@@ -37,7 +37,8 @@ import {
 } from './config/projectTable.config';
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
-import { useCredits } from "../credits/hooks/useCredits";
+// import { useCredits } from "../credits/hooks/useCredits";
+import { useProjectAllCredits } from "./hooks/useProjectAllCredits";
 // --- Constants ---
 const DOCTYPE = 'Projects';
 
@@ -52,8 +53,10 @@ export interface ProcessedProjectForTable extends ProjectsType {
   calculatedTotalInvoiced: number;
   calculatedTotalInflow: number;
   calculatedTotalOutflow: number;
-  relatedTotalBalanceCredit: number;
-  relatedTotalDue: number;
+  totalCreditPurchase: number;
+  totalCreditDue: number;
+  totalCreditPaid: number;
+  totalLiabilities: number;
   // prStatusCounts?: Record<string, number>; // For the status count badge display
 }
 
@@ -127,10 +130,11 @@ export const Projects: React.FC<ProjectsProps> = ({
   //     "Procurement Requests", { fields: ["name", "project", "workflow_state", "procurement_list"], limit: 100000 }, "PRs_For_ProjectsList" // Fetch all for counts
   // );
 
-  const { data: CreditData } = useCredits()
+  // const { data: CreditData } = useCredits()
+  const { creditTerms: CreditData } = useProjectAllCredits(undefined);
 
 
-  // console.log("CreditData", CreditData);
+  console.log("CreditData", CreditData);
 
   const { data: poData, isLoading: poDataLoading, error: poDataError } = useFrappeGetDocList<ProcurementOrder>(
     "Procurement Orders", { fields: ["name", "project", "status", "amount", "tax_amount", "total_amount", "invoice_data", "amount_paid", "po_amount_delivered"], filters: [["status", "not in", ["Merged", "Inactive", "PO Amendment"]],], limit: 100000 }, "POs_For_ProjectsList"
@@ -156,7 +160,7 @@ export const Projects: React.FC<ProjectsProps> = ({
   const projectTypeOptions = useMemo(() => projectTypesList?.map(pt => ({ label: pt.name, value: pt.name })) || [], [projectTypesList]);
 
   const getProjectFinancials = useMemo(() => {
-    if (!poData || !srData || !projectInflows || !projectPayments || !projectExpenses || !CreditData) return () => ({ calculatedTotalInvoiced: 0, calculatedTotalInflow: 0, calculatedTotalOutflow: 0, relatedTotalBalanceCredit: 0, relatedTotalCreditPaid: 0, totalLiabilities: 0 });
+    if (!poData || !srData || !projectInflows || !projectPayments || !projectExpenses || !CreditData) return () => ({ calculatedTotalInvoiced: 0, calculatedTotalInflow: 0, calculatedTotalOutflow: 0, totalCreditPurchase: 0, totalCreditPaid: 0, totalCreditDue: 0, totalLiabilities: 0 });
 
     // Pre-group data for efficiency
     const posByProject = memoize((projId: string) => poData.filter(po => po.project === projId));
@@ -164,33 +168,37 @@ export const Projects: React.FC<ProjectsProps> = ({
     const inflowsByProject = memoize((projId: string) => projectInflows.filter(pi => pi.project === projId));
     const paymentsByProject = memoize((projId: string) => projectPayments.filter(pp => pp.project === projId));
     const expensesByProject = memoize((projId: string) => projectExpenses.filter(pe => pe.projects === projId));
+    
+    // CreditData is now the raw list of all credit terms for all projects
     const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId));
-    const dueByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId && cr.term_status == "Paid"));
 
     return memoize((projectId: string) => {
-      // console.log("projectId",projectId);
       const relatedPOs = posByProject(projectId);
       const relatedSRs = srsByProject(projectId);
       const relatedInflows = inflowsByProject(projectId);
       const relatedPayments = paymentsByProject(projectId);
       const relatedExpenses = expensesByProject(projectId);
-      const relatedTotalBalanceCredit = creditsByProject(projectId).reduce((sum, term) => sum + parseNumber(term.amount), 0);
-      const relatedTotalCreditPaid = dueByProject(projectId).reduce((sum, term) => sum + parseNumber(term.amount), 0);
+      
+      const projectCredits = creditsByProject(projectId);
+
+      const totalCreditPurchase = projectCredits.reduce((sum, term) => sum + parseNumber(term.amount), 0);
+      
+      const totalCreditDue = projectCredits
+          .filter(cr => cr.term_status === "Scheduled")
+          .reduce((sum, term) => sum + parseNumber(term.amount), 0);
+
+      const totalCreditPaid = projectCredits
+          .filter(cr => cr.term_status === "Paid")
+          .reduce((sum, term) => sum + parseNumber(term.amount), 0);
 
       // let totalInvoiced = 0;
-
-      // console.log("DueByProject",relatedTotalBalanceCredit,relatedTotalDue);
-
-
       // relatedPOs.forEach(po => totalInvoiced += getPOTotal(po)?.totalAmt || 0);
-      let totalInvoiced = getPOSTotals(relatedPOs)?.totalWithTax || 0;
-      // console.log("totalInvoiced",totalInvoiced)
+      let totalInvoiced = getPOSTotals(relatedPOs as any)?.totalWithTax || 0;
 
       relatedSRs.forEach(sr => {
         const srVal = getSRTotal(sr); // Assuming getSRTotal returns value without GST
         totalInvoiced += sr.gst === "true" ? srVal * 1.18 : srVal;
       });
-      // console.log("realatedPOSR", totalInvoiced);
 
       const totalInflow = getTotalInflowAmount(relatedInflows);
       const totalOutflow = getTotalAmountPaid(relatedPayments) + getTotalExpensePaid(relatedExpenses); // Already filtered for "Paid"
@@ -208,8 +216,9 @@ export const Projects: React.FC<ProjectsProps> = ({
         calculatedTotalInvoiced: totalInvoiced,
         calculatedTotalInflow: totalInflow,
         calculatedTotalOutflow: totalOutflow,
-        relatedTotalBalanceCredit,
-        relatedTotalCreditPaid,
+        totalCreditPurchase, // Renamed from relatedTotalBalanceCredit
+        totalCreditPaid,
+        totalCreditDue,
         totalLiabilities
       };
     });
@@ -423,7 +432,7 @@ export const Projects: React.FC<ProjectsProps> = ({
         const financials = getProjectFinancials(row.original.name);
         return (
           <span className="tabular-nums">
-            {formatToApproxLakhs(parseNumber(financials.relatedTotalBalanceCredit))}
+            {formatToApproxLakhs(parseNumber(financials.totalCreditPurchase))}
           </span>
         );
       },
@@ -432,7 +441,7 @@ export const Projects: React.FC<ProjectsProps> = ({
         exportHeaderName: "Total Purchase Over Credit",
         exportValue: (row) => {
           const financials = getProjectFinancials(row.name);
-          return formatToApproxLakhs(parseNumber(financials.relatedTotalBalanceCredit));
+          return formatToApproxLakhs(parseNumber(financials.totalCreditPurchase));
         }
       }
     },

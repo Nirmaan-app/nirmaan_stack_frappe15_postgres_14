@@ -1,6 +1,6 @@
 // File: frontend/src/pages/reports/hooks/useProjectReportCalculations.ts
 import { useFrappeGetDocList, FrappeDoc, GetDocListArgs } from 'frappe-react-sdk';
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback,useEffect } from 'react';
 import { Projects } from '@/types/NirmaanStack/Projects';
 import { ProcurementOrder } from '@/types/NirmaanStack/ProcurementOrders';
 import { ServiceRequests } from '@/types/NirmaanStack/ServiceRequests';
@@ -19,7 +19,7 @@ import {
     getPaidPaymentReportListOptions,
 } from '@/config/queryKeys';
 import { ProjectInvoice } from '@/types/NirmaanStack/ProjectInvoice';
-import { useCredits } from '@/pages/credits/hooks/useCredits';
+import { useProjectAllCredits } from '@/pages/projects/hooks/useProjectAllCredits';
 
 // ----- 
 import { parseISO,isWithinInterval } from 'date-fns';
@@ -66,6 +66,14 @@ export interface UseProjectReportCalculationsResult {
 export const useProjectReportCalculations = (params: ProjectReportParams = {}): UseProjectReportCalculationsResult => {
 
      const { startDate, endDate } = params; // <--- DESTUCTURE DATES
+
+     useEffect(() => {
+        console.log("useProjectReportCalculations Debug: Date Range", { 
+            startDate: startDate ? startDate.toISOString() : 'None', 
+            endDate: endDate ? endDate.toISOString() : 'None',
+            shouldFilterByDate 
+        });
+     }, [startDate, endDate]);
     // --- Fetch All Underlying Data Needed for Calculations ---
     const poOptions = getPOForProjectInvoiceOptions();
     const srOptions = getSRForProjectInvoiceOptions();
@@ -79,7 +87,7 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
     const projectInvoiceQueryKey = queryKeys.projectInvoices.list(projectInvoiceOptions);
     const paymentQueryKey = queryKeys.projectPayments.list(paymentOptions);
 
-    const {data:CreditData}=useCredits()
+    const { creditTerms: CreditData } = useProjectAllCredits(undefined);
 
     const { data: purchaseOrders, isLoading: isLoadingPOs, error: errorPOs, mutate: mutatePOs } =
         useFrappeGetDocList<ProcurementOrder>(poQueryKey[0], poOptions as GetDocListArgs<FrappeDoc<ProcurementOrder>>, poQueryKey);
@@ -287,29 +295,42 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
     
 
          // Note: getProjectCreditAndDue's memoization logic:
-    const getProjectCreditAndDue = useCallback(
+
+
+    // ... (rest of the file until getProjectCreditAndDue)
+
+     const getProjectCreditAndDue = useCallback(
         (projId: string): { TotalPurchaseOverCredit: number; CreditPaidAmount: number } => {
             if (!CreditData || !projId) {
                 return { TotalPurchaseOverCredit: 0, CreditPaidAmount: 0 };
             }
 
             // The inner logic now just uses the pre-calculated flag
+            // console.log(`Calculating Credits for ${projId} with range:`, { startDate, endDate });
             return CreditData.reduce(
                 (totals, term) => {
                     if (term.project === projId) {
                         const amount = parseNumber(term.amount);
 
                         // Check 1: TotalPurchaseOverCredit (Due Date)
+                        // Use due_date from child table
                         const filterDue = !shouldFilterByDate || isDateInPeriod(term.due_date, startDate, endDate);
-                        if (filterDue && term.term_status) {
+                        if (filterDue && term.term_status) { // User's edit: sums ALL credits in range
                             totals.TotalPurchaseOverCredit += amount;
                         }
 
-                        // Check 2: CreditPaidAmount (Modified Date)
+                        // Check 1.1: CreditDueAmount (Scheduled Only, Due Date) - NEW
+                         if (filterDue && term.term_status === 'Scheduled') {
+                            totals.CreditDueAmount += amount;
+                        }
+
+                        // Check 2: CreditPaidAmount (Modified Date - fallback to creation/due_date if needed or assume parent modified)
+                        // Note: term.modified comes from Parent Procurement Order in the current hook setup
                         const filterPaid = !shouldFilterByDate || isDateInPeriod(term.modified, startDate, endDate);
                         if (term.term_status === "Paid" && filterPaid) {
                             totals.CreditPaidAmount += amount;
                         }
+                        
                     }
                     return totals;
                 },
@@ -351,8 +372,8 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
             // The new combined total
             const totalOutflow = poSrPaymentOutflow + projectExpenseOutflow;
 
-                        // ✨ Call your new memoized function to get the credit/due totals
-            const { TotalPurchaseOverCredit, CreditPaidAmount } = getProjectCreditAndDue(projectId);
+            // ✨ Call your new memoized function to get the credit/due totals
+            const { TotalPurchaseOverCredit, CreditPaidAmount, CreditDueAmount } = getProjectCreditAndDue(projectId);
 
             // Get the newly calculated invoiced amount from our map
             const totalPoSrInvoiced = totalPoSrInvoicedByProject.get(projectId) || 0;
@@ -374,6 +395,7 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
                 totalOutflow: parseNumber(totalOutflow),
                 TotalPurchaseOverCredit: TotalPurchaseOverCredit, // ✨ Add the new value
                 CreditPaidAmount: CreditPaidAmount,
+                CreditDueAmount: CreditDueAmount, // ✨ NEW
                 totalLiabilities: totalLiabilities,
             };
         },
