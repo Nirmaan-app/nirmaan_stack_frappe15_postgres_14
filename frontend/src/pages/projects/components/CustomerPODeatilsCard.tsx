@@ -938,13 +938,13 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
                         ) : (
                             <>
                                 <p className="flex justify-between">
-                                    <span>Total PO Value (Incl. Tax):</span>
+                                    <span>Total Custom PO Value (Incl. Tax):</span>
                                     <span className="text-blue-600">
                                         {formatToRoundedIndianRupee(calculatedAggregates.total_incl_tax)}
                                     </span>
                                 </p>
                                 <p className="flex justify-between">
-                                    <span>Total PO Value (Excl. Tax):</span>
+                                    <span>Total Custom PO Value (Excl. Tax):</span>
                                     <span className="text-blue-600">
                                         {formatToRoundedIndianRupee(calculatedAggregates.total_excl_tax)}
                                     </span>

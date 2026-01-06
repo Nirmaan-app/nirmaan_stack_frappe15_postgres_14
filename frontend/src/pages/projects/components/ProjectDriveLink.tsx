@@ -90,15 +90,15 @@ export const AddProjectDriveLinkDialog: React.FC<AddProjectDriveLinkDialogProps>
                 [CHILD_TABLE_FIELD]: updatedLinks
             });
 
-            toast({ title: "Success", description: "Drive link added successfully.", variant: "success" });
+            toast({ title: "Success", description: "Drive File added successfully.", variant: "success" });
             setOpen(false);
             setFormData({ drive_name: '', drive_link: '' });
             onSuccess();
 
         } catch (error: any) {
-            console.error("Failed to add drive link:", error);
+            console.error("Failed to add drive File:", error);
              const errorMessage = error?.messages?.[0]?.message || error?.message || "An unknown error occurred.";
-            toast({ title: "Error", description: `Failed to add drive link: ${errorMessage}`, variant: "destructive" });
+            toast({ title: "Error", description: `Failed to add drive File: ${errorMessage}`, variant: "destructive" });
         }
     };
 
@@ -106,16 +106,16 @@ export const AddProjectDriveLinkDialog: React.FC<AddProjectDriveLinkDialogProps>
         <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
                 <Button variant="default" className="ml-4">
-                    <CirclePlus className="h-4 w-4 mr-2" /> Add Link
+                    <CirclePlus className="h-4 w-4 mr-2" /> Add File
                 </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-[425px]">
                 <DialogHeader>
-                    <DialogTitle>Add Project Drive Link</DialogTitle>
+                    <DialogTitle>Add Project Drive File</DialogTitle>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="grid gap-4 py-4">
                     <div className="grid gap-2">
-                        <Label htmlFor="drive_name">Drive Name</Label>
+                        <Label htmlFor="drive_name">File Name</Label>
                         <Input
                             id="drive_name"
                             value={formData.drive_name}
@@ -125,7 +125,7 @@ export const AddProjectDriveLinkDialog: React.FC<AddProjectDriveLinkDialogProps>
                         />
                     </div>
                     <div className="grid gap-2">
-                        <Label htmlFor="drive_link">Drive Link</Label>
+                        <Label htmlFor="drive_link">File Link</Label>
                         <Input
                             id="drive_link"
                             value={formData.drive_link}
@@ -226,11 +226,11 @@ export const EditProjectDriveLinkDialog: React.FC<EditProjectDriveLinkDialogProp
          <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
             <DialogContent className="sm:max-w-[425px]">
                 <DialogHeader>
-                    <DialogTitle>Edit Project Drive Link</DialogTitle>
+                    <DialogTitle>Edit Project File </DialogTitle>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="grid gap-4 py-4">
                     <div className="grid gap-2">
-                        <Label htmlFor="drive_name">Drive Name</Label>
+                        <Label htmlFor="drive_name">File Name</Label>
                         <Input
                             id="drive_name"
                             value={formData.drive_name}
@@ -240,7 +240,7 @@ export const EditProjectDriveLinkDialog: React.FC<EditProjectDriveLinkDialogProp
                         />
                     </div>
                     <div className="grid gap-2">
-                        <Label htmlFor="drive_link">Drive Link</Label>
+                        <Label htmlFor="drive_link">File Link</Label>
                         <Input
                             id="drive_link"
                             value={formData.drive_link}
@@ -285,7 +285,7 @@ export const DeleteDriveLinkDialog: React.FC<DeleteDriveLinkDialogProps> = ({
                 [CHILD_TABLE_FIELD]: updatedLinks
             });
 
-            toast({ title: "Success", description: "Drive link deleted successfully.", variant: "success" });
+            toast({ title: "Success", description: "Drive File deleted successfully.", variant: "success" });
             onClose();
             onSuccess();
         } catch (error: any) {
@@ -302,7 +302,7 @@ export const DeleteDriveLinkDialog: React.FC<DeleteDriveLinkDialogProps> = ({
                         <Trash2 className="w-6 h-6 mr-2" /> Confirm Deletion
                     </DialogTitle>
                     <DialogDescription className="pt-2">
-                        Are you sure you want to delete the link: <strong>{linkDetail.drive_name}</strong>?
+                        Are you sure you want to delete the File: <strong>{linkDetail.drive_name}</strong>?
                     </DialogDescription>
                 </DialogHeader>
                 <DialogFooter className="pt-4">
@@ -328,7 +328,7 @@ const getColumns = (
         {
             accessorKey: "drive_name",
             header: ({ column }) => (
-                <DataTableColumnHeader column={column} title="Drive Name" />
+                <DataTableColumnHeader column={column} title="File Name" />
             ),
             cell: ({ row }) => (
                 <div className="font-medium">{row.original.drive_name}</div>
@@ -339,7 +339,7 @@ const getColumns = (
         {
             accessorKey: "drive_link",
             header: ({ column }) => (
-                <DataTableColumnHeader column={column} title="Drive Link" />
+                <DataTableColumnHeader column={column} title="File Link" />
             ),
             cell: ({ row }) => (
                 <div className="flex items-center gap-2">
@@ -485,7 +485,7 @@ export const ProjectDriveLink: React.FC<ProjectDriveLinkProps> = ({ projectId })
                         isLoading={isLoading}
                         error={tableError}
                         totalCount={totalCount}
-                        searchFieldOptions={[{ value: 'drive_name', label: 'Drive Name', default: true }]}
+                        searchFieldOptions={[{ value: 'drive_name', label: 'File Name', default: true }]}
                         selectedSearchField={selectedSearchField}
                         onSelectedSearchFieldChange={setSelectedSearchField}
                         searchTerm={searchTerm}
