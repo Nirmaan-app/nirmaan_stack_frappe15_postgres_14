@@ -2,10 +2,13 @@ import { FormSkeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 import NewCustomer from "@/pages/customers/add-new-customer"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { Steps } from "antd"
 import { format } from "date-fns"
 import { useFrappeDocTypeEventListener, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk"
-import { BadgeIndianRupee, CalendarIcon, CirclePlus, Info, ListChecks, Pencil, Undo2 } from "lucide-react"
+import { BadgeIndianRupee, Building2, CalendarIcon, CirclePlus, Info, ListChecks, MapPin, Package, Undo2, Users, Calendar as CalendarLucide } from "lucide-react"
+import { WizardSteps, WizardStep } from "@/components/ui/wizard-steps"
+import { ReviewSection, ReviewDetail, ReviewContainer } from "@/components/ui/review-section"
+import { PackagesReviewGrid } from "@/components/ui/package-review-card"
+import { FormActions } from "@/components/ui/form-field-row"
 import React, { useCallback, useEffect, useState } from "react"
 import { Controller, useForm } from "react-hook-form"
 import { useNavigate } from "react-router-dom"
@@ -26,7 +29,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Separator } from "../../components/ui/separator"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "../../components/ui/sheet"
 import { useToast } from "../../components/ui/use-toast"
-import useSectionContext, { SectionProvider } from "./SectionContext"
+// SectionContext no longer needed - using new ReviewSection components
 import { Category } from "@/types/NirmaanStack/Category"
 import { CategoryMakelist } from "@/types/NirmaanStack/CategoryMakelist"
 import { WorkPackage } from "@/types/NirmaanStack/Projects"
@@ -37,7 +40,15 @@ import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers"
 import {MultiSelect} from "./components/multi-select"
 
 
-const { Step } = Steps;
+// Wizard steps configuration with short titles for responsive display
+const wizardStepsConfig: WizardStep[] = [
+    { key: "projectDetails", title: "Project Details", shortTitle: "Details", icon: Building2 },
+    { key: "projectAddressDetails", title: "Project Address", shortTitle: "Address", icon: MapPin },
+    { key: "projectTimeline", title: "Project Timeline", shortTitle: "Timeline", icon: CalendarLucide },
+    { key: "projectAssignees", title: "Project Assignees", shortTitle: "Team", icon: Users },
+    { key: "packageSelection", title: "Package Selection", shortTitle: "Packages", icon: Package },
+    { key: "reviewDetails", title: "Review Details", shortTitle: "Review", icon: ListChecks },
+];
 
 // 1.a Create Form Schema accordingly
 const projectFormSchema = z.object({
@@ -609,17 +620,17 @@ export const ProjectForm = () => {
                 </div>
             </div> */}
 
-            <Steps current={currentStep} className="py-6 px-10">
-                {sections.map((sec) => (
-                    <Step className="cursor-pointer" key={sec} onClick={() => {
-                        const secIndex = sections.findIndex((val) => val === sec)
-                        if (currentStep >= secIndex) {
-                            setSection(sec)
-                            setCurrentStep(secIndex)
-                        }
-                    }} title={sectionTitles[sec]} />
-                ))}
-            </Steps>
+            <WizardSteps
+                steps={wizardStepsConfig}
+                currentStep={currentStep}
+                onStepClick={(stepIndex) => {
+                    if (currentStep >= stepIndex) {
+                        setSection(sections[stepIndex])
+                        setCurrentStep(stepIndex)
+                    }
+                }}
+                className="px-4 sm:px-6"
+            />
             <Form {...form}>
                 <form onSubmit={(event) => {
                     event.stopPropagation();
@@ -1704,147 +1715,120 @@ interface ReviewDetailsProps {
 }
 
 const ReviewDetails: React.FC<ReviewDetailsProps> = ({ form, duration, company, user, ...sectionProps }) => {
-
     const { setSection, setCurrentStep } = sectionProps
-    // console.log("gsts",form.getValues("project_gst_number").list.map(item => item.location).join(', '))
-    return (
-        <SectionProvider value={sectionProps}>
-            <div className="p-6 bg-white shadow rounded-lg">
-                <Section sectionKey="projectDetails">
-                    <Detail label="Project Name" value={form.getValues("project_name")} />
-                    <Detail label="Project Type" value={form.getValues("project_type")} />
-                    <Detail label="Customer" value={form.getValues("customer") ? company?.find(c => c.name === form.getValues("customer"))?.company_name : ""} />
-                    <Detail label="Carpet Area(Sqft)" value={form.getValues("carpet_area")} />
-                    <Detail label="Selected GST List" value={form.getValues("project_gst_number").list.map(item => item.location).join(', ')} />
-                </Section>
 
-                <Section sectionKey="projectAddressDetails">
-                    <Detail label="Address Line 1" value={form.getValues("address_line_1")} />
-                    <Detail label="City" value={form.getValues("project_city")} />
-                    <Detail label="Address Line 2" value={form.getValues("address_line_2")} />
-                    <Detail label="State" value={form.getValues("project_state")} />
-                    <Detail label="Pincode" value={form.getValues("pin")} />
-                    <Detail label="Phone" value={form.getValues("phone")} />
-                    <Detail label="Email" value={form.getValues("email")} />
-                </Section>
-
-                <Section sectionKey="projectTimeline">
-                    <Detail
-                        label="Start Date"
-                        value={form.getValues("project_start_date")?.toLocaleDateString()}
-                    />
-                    <Detail
-                        label="End Date"
-                        value={form.getValues("project_end_date")?.toLocaleDateString()}
-                    />
-                    <Detail
-                        label="Duration"
-                        value={`${duration} days`}
-                    />
-                        {/* <Detail
-                            label="Milestone Tracking Enabled"
-                            value={form.getValues("enable_project_milestone_tracking") ? "Yes" : "No"}
-                        />
-                        {form.getValues("enable_project_milestone_tracking") && form.getValues("project_work_header_entries")?.some(entry => entry.enabled) && (
-                            <div className="flex justify-between items-start border-b pb-2 mb-2">
-                                <p className="text-sm text-gray-600 font-semibold">Tracked Work Headers</p>
-                                <ul className="text-sm text-gray-800 italic list-disc pl-4">
-                                    {form.getValues("project_work_header_entries")
-                                        .filter(entry => entry.enabled)
-                                        .map((entry, idx) => (
-                                            <li key={idx}>{entry.work_header_name}</li>
-                                        ))}
-                                </ul>
-                            </div>
-                        )} */}
-                </Section>
-
-                <Section sectionKey={"projectAssignees"}>
-                    <Detail label="Project Lead" value={form.getValues("project_lead") ? user?.find(u => u.name === form.getValues("project_lead"))?.full_name : ""} />
-                    <Detail label="Procurement Lead" value={form.getValues("procurement_lead") ? user?.find(u => u.name === form.getValues("procurement_lead"))?.full_name : ""} />
-                    <Detail label="Project Manager" value={form.getValues("project_manager") ? user?.find(u => u.name === form.getValues("project_manager"))?.full_name : ""} />
-                    {/* <Detail label="Estimates Executive" value={form.getValues("estimates_exec") ? user?.find(u => u.name === form.getValues("estimates_exec"))?.full_name : ""} /> */}
-                    <Detail label="Accountant" value={form.getValues("accountant") ? user?.find(u => u.name === form.getValues("accountant"))?.full_name : ""} />
-                    {/* <Detail label="Design Lead" value={form.getValues("design_lead") ? user?.find(u => u.name === form.getValues("design_lead"))?.full_name : ""} /> */}
-                </Section>
-
-                <div>
-                    <div className="flex gap-1 items-center mb-4">
-                        <h2 className="text-lg font-semibold text-sky-600">Selected Packages</h2>
-                        <Pencil className="w-4 h-4 text-sky-600 cursor-pointer hover:text-sky-800 focus:ring-2 focus:ring-sky-600" onClick={() => {
-                            setSection("packageSelection")
-                            setCurrentStep(4)
-                        }} />
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        {form
-                            .getValues("project_work_packages")?.work_packages?.map((workPackage: WorkPackage, index: number) => (
-                                <div key={index} className={`${index % 2 !== 0 ? "sm:border-l sm:border-gray-300 sm:pl-4" : ""} border-b pb-4`}>
-                                    <p className="text-md font-medium text-gray-700">
-                                        {workPackage.work_package_name}
-                                    </p>
-                                    <ul className="pl-4 mt-2 space-y-2">
-                                        {workPackage.category_list?.list.map((category, idx) => (
-                                            <li key={idx} className="text-sm text-gray-600">
-                                                <span className="font-semibold">- {category.name}:</span>{" "}
-                                                {category.makes.length > 0
-                                                    ? category.makes.map((make) => make?.label).join(", ")
-                                                    : "N/A"}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </div>
-                            )) || (
-                                <p className="text-sm text-gray-600">No packages selected</p>
-                            )}
-                    </div>
-                </div>
-            </div>
-        </SectionProvider>
-    );
-};
-
-interface SectionProps {
-    sectionKey: string;
-    children: React.ReactNode[];
-}
-const Section: React.FC<SectionProps> = ({ sectionKey, children }) => {
-    const { setSection, sections, setCurrentStep, sectionTitles } = useSectionContext();
-
-    // Flatten children to handle fragments and arrays of elements
-    // const flattenedChildren = React.Children.toArray(children).flat();
-
-    const handleClick = () => {
-        setSection(sectionKey);
-        const index = sections.findIndex((val) => val === sectionKey);
-        setCurrentStep(index);
-    };
+    const navigateToSection = (sectionKey: string) => {
+        setSection(sectionKey)
+        const index = sectionProps.sections.findIndex((val) => val === sectionKey)
+        setCurrentStep(index)
+    }
 
     return (
-        <div className="mb-8">
-            <div className="flex gap-1 items-center mb-4">
-                <h2 className="text-lg font-semibold text-sky-600">{sectionTitles[sectionKey]}</h2>
-                <Pencil
-                    className="w-4 h-4 text-sky-600 cursor-pointer hover:text-sky-800 focus:ring-2 focus:ring-sky-600"
-                    onClick={handleClick}
+        <ReviewContainer
+            title="Review Your Project"
+            description="Verify all details before creating the project"
+        >
+            {/* Project Details Section */}
+            <ReviewSection
+                title="Project Details"
+                icon={Building2}
+                onEdit={() => navigateToSection("projectDetails")}
+                iconColorClass="bg-blue-500/10 text-blue-600 dark:text-blue-400"
+            >
+                <ReviewDetail label="Project Name" value={form.getValues("project_name")} />
+                <ReviewDetail label="Project Type" value={form.getValues("project_type")} />
+                <ReviewDetail
+                    label="Customer"
+                    value={form.getValues("customer") ? company?.find(c => c.name === form.getValues("customer"))?.company_name : ""}
                 />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {children.map((child, index) => (
-                    <div key={index} className={`${index % 2 !== 0 ? "sm:border-l sm:border-gray-300 sm:pl-4" : ""} h-full`}>
-                        {child}
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
+                <ReviewDetail label="Carpet Area (Sqft)" value={form.getValues("carpet_area")} />
+                <ReviewDetail
+                    label="GST Locations"
+                    value={form.getValues("project_gst_number")?.list?.map(item => item.location).join(', ')}
+                />
+            </ReviewSection>
+
+            {/* Address Details Section */}
+            <ReviewSection
+                title="Project Address"
+                icon={MapPin}
+                onEdit={() => navigateToSection("projectAddressDetails")}
+                iconColorClass="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                columns={3}
+            >
+                <ReviewDetail label="Address Line 1" value={form.getValues("address_line_1")} />
+                <ReviewDetail label="Address Line 2" value={form.getValues("address_line_2")} />
+                <ReviewDetail label="City" value={form.getValues("project_city")} />
+                <ReviewDetail label="State" value={form.getValues("project_state")} />
+                <ReviewDetail label="Pincode" value={form.getValues("pin")} />
+                <ReviewDetail label="Phone" value={form.getValues("phone")} />
+                <ReviewDetail label="Email" value={form.getValues("email")} />
+            </ReviewSection>
+
+            {/* Timeline Section */}
+            <ReviewSection
+                title="Project Timeline"
+                icon={CalendarLucide}
+                onEdit={() => navigateToSection("projectTimeline")}
+                iconColorClass="bg-orange-500/10 text-orange-600 dark:text-orange-400"
+                columns={3}
+            >
+                <ReviewDetail
+                    label="Start Date"
+                    value={form.getValues("project_start_date")?.toLocaleDateString()}
+                />
+                <ReviewDetail
+                    label="End Date"
+                    value={form.getValues("project_end_date")?.toLocaleDateString()}
+                />
+                <ReviewDetail
+                    label="Duration"
+                    value={duration ? `${duration} days` : undefined}
+                />
+            </ReviewSection>
+
+            {/* Assignees Section */}
+            <ReviewSection
+                title="Project Team"
+                icon={Users}
+                onEdit={() => navigateToSection("projectAssignees")}
+                iconColorClass="bg-purple-500/10 text-purple-600 dark:text-purple-400"
+            >
+                <ReviewDetail
+                    label="Project Lead"
+                    value={form.getValues("project_lead") ? user?.find(u => u.name === form.getValues("project_lead"))?.full_name : ""}
+                />
+                <ReviewDetail
+                    label="Procurement Lead"
+                    value={form.getValues("procurement_lead") ? user?.find(u => u.name === form.getValues("procurement_lead"))?.full_name : ""}
+                />
+                <ReviewDetail
+                    label="Project Manager"
+                    value={form.getValues("project_manager") ? user?.find(u => u.name === form.getValues("project_manager"))?.full_name : ""}
+                />
+                <ReviewDetail
+                    label="Accountant"
+                    value={form.getValues("accountant") ? user?.find(u => u.name === form.getValues("accountant"))?.full_name : ""}
+                />
+            </ReviewSection>
+
+            {/* Packages Section */}
+            <ReviewSection
+                title="Selected Packages"
+                icon={Package}
+                onEdit={() => navigateToSection("packageSelection")}
+                iconColorClass="bg-teal-500/10 text-teal-600 dark:text-teal-400"
+                columns={1}
+            >
+                <div className="col-span-full">
+                    <PackagesReviewGrid
+                        workPackages={form.getValues("project_work_packages")?.work_packages || []}
+                        onEdit={() => navigateToSection("packageSelection")}
+                    />
+                </div>
+            </ReviewSection>
+        </ReviewContainer>
+    )
 };
 
-
-
-const Detail = ({ label, value }: { label: string; value: string | undefined | null }) => (
-    <div className="flex justify-between items-start border-b pb-2 mb-2">
-        <p className="text-sm text-gray-600 font-semibold">{label}</p>
-        <p className="text-sm text-gray-800 italic">{value || "N/A"}</p>
-    </div>
-);
+// Legacy Section and Detail components removed - now using ReviewSection and ReviewDetail from @/components/ui/review-section

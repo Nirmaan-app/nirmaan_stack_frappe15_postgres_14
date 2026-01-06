@@ -28,12 +28,18 @@ import {
   useFrappeUpdateDoc,
 } from "frappe-react-sdk";
 import {
+  Building2,
   CalendarIcon,
+  Calendar as CalendarIconAlt,
   CirclePlus,
   Info,
   ListChecks,
-  MessageCircleWarning
+  MapPin,
+  MessageCircleWarning,
+  Package,
+  Users,
 } from "lucide-react";
+import { FormSectionHeader } from "@/components/ui/form-field-row";
 import React, { useCallback, useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { useParams } from "react-router-dom";
@@ -666,19 +672,22 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
         }}
         className="flex-1"
       >
-        <div className="flex flex-col ">
-          <p className="text-sky-600 font-semibold pb-2">Project Details</p>
-          <div className="flex flex-col gap-4">
+        <div className="flex flex-col">
+          <FormSectionHeader
+            title="Project Details"
+            icon={<Building2 className="h-4 w-4" />}
+          />
+          <div className="flex flex-col gap-4 pt-2">
             <FormField
               control={form.control}
               name="project_name"
               render={({ field }) => {
                 return (
-                  <FormItem className="lg:flex lg:items-center gap-4">
-                    <FormLabel className="md:basis-3/12">
+                  <FormItem className="md:flex md:items-start gap-4">
+                    <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">
                       Project Name<sup className="text-sm text-red-600">*</sup>
                     </FormLabel>
-                    <div className="flex flex-col items-start md:basis-2/4">
+                    <div className="flex flex-col items-start flex-1 space-y-1.5">
                       <FormControl>
                         <Input {...field} />
                       </FormControl>
@@ -692,11 +701,11 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
               control={form.control}
               name="customer"
               render={({ field }) => (
-                <FormItem className="lg:flex lg:items-center gap-4">
-                  <FormLabel className="md:basis-3/12">
+                <FormItem className="md:flex md:items-start gap-4">
+                  <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">
                     Customer<sup className="text-sm text-red-600">*</sup>
                   </FormLabel>
-                  <div className="md:basis-2/4">
+                  <div className="flex-1">
                     <Select onValueChange={field.onChange} value={field.value}>
                       <div className="flex flex-col items-start">
                         <FormControl>
@@ -752,11 +761,11 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
               name="project_value"
               render={({ field }) => {
                 return (
-                  <FormItem className="lg:flex lg:items-center gap-4">
-                    <FormLabel className="md:basis-3/12">
+                  <FormItem className="md:flex md:items-start gap-4">
+                    <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">
                       Project Value (excl.GST)
                     </FormLabel>
-                    <div className="flex flex-col items-start md:basis-2/4">
+                    <div className="flex flex-col items-start flex-1">
                       <FormControl>
                         <Input placeholder="Auto-calculated" disabled={true} {...field} />
                       </FormControl>
@@ -776,11 +785,11 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
               name="project_value_gst"
               render={({ field }) => {
                 return (
-                  <FormItem className="lg:flex lg:items-center gap-4">
-                    <FormLabel className="md:basis-3/12">
+                  <FormItem className="md:flex md:items-start gap-4">
+                    <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">
                       Project Value (incl. GST)
                     </FormLabel>
-                    <div className="flex flex-col items-start md:basis-2/4">
+                    <div className="flex flex-col items-start flex-1">
                       <FormControl>
                         <Input placeholder="Auto-calculated" disabled={true} {...field} />
                       </FormControl>
@@ -800,11 +809,11 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
               control={form.control}
               name="project_type"
               render={({ field }) => (
-                <FormItem className="lg:flex lg:items-center gap-4">
-                  <FormLabel className="md:basis-3/12">
+                <FormItem className="md:flex md:items-start gap-4">
+                  <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">
                     Project Type<sup className="text-sm text-red-600">*</sup>
                   </FormLabel>
-                  <div className="md:basis-2/4">
+                  <div className="flex-1">
                     <Select onValueChange={field.onChange} value={field.value}>
                       <div className="flex flex-col items-start">
                         <FormControl>
@@ -862,11 +871,11 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
     const currentValue = field.value?.list?.[0]?.location || "";
 
     return (
-      <FormItem className="lg:flex lg:items-center gap-4">
-        {/* Preserving the md:basis-3/12 from your last provided component */}
-        <FormLabel className="md:basis-3/12">Project GST<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
-        {/* Preserving the md:basis-2/4 from your last provided component */}
-        <div className="md:basis-2/4">
+      <FormItem className="md:flex md:items-start gap-4">
+        {/* Preserving the md:w-1/4 md:pt-2.5 shrink-0 from your last provided component */}
+        <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">Project GST<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
+        {/* Preserving the flex-1 from your last provided component */}
+        <div className="flex-1">
           <Select
             onValueChange={(selectedLocationName: string) => {
               // 2. Find the full GST object for the selected location name
@@ -910,11 +919,11 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
   name="carpet_area"
   render={({ field }) => {
     return (
-      <FormItem className="lg:flex lg:items-center gap-4">
-        <FormLabel className="md:basis-3/12">
+      <FormItem className="md:flex md:items-start gap-4">
+        <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">
             Carpet Area (Sqft)
         </FormLabel>
-        <div className="md:basis-2/4">
+        <div className="flex-1">
             <FormControl>
                 <Input
                     type="number"
@@ -939,9 +948,9 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
     const currentSelectedLocations = field.value?.list?.map((item: { location: string }) => item.location) || [];
 
     return (
-      <FormItem className="lg:flex lg:items-center gap-4">
-        <FormLabel className="md:basis-3/12">Project GST<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
-        <div className="md:basis-2/4">
+      <FormItem className="md:flex md:items-start gap-4">
+        <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">Project GST<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
+        <div className="flex-1">
           <MultiSelect
             options={multiSelectGstOptions}
             selected={currentSelectedLocations} // Pass the array of selected location *values* (strings)
@@ -972,19 +981,20 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
 
           </div>
           <Separator className="my-6" />
-          <p className="text-sky-600 font-semibold pb-2">
-            Project Address Details
-          </p>
+          <FormSectionHeader
+            title="Project Address"
+            icon={<MapPin className="h-4 w-4" />}
+          />
           <div className="flex flex-col gap-4">
             <FormField
               control={form.control}
               name="address_line_1"
               render={({ field }) => (
-                <FormItem className="lg:flex lg:items-center gap-4">
-                  <FormLabel className="md:basis-3/12">
+                <FormItem className="md:flex md:items-start gap-4">
+                  <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">
                     Address Line 1<sup className="text-sm text-red-600">*</sup>
                   </FormLabel>
-                  <div className="md:basis-2/4">
+                  <div className="flex-1">
                     <FormControl>
                       <Input placeholder="Address Line 1" {...field} />
                     </FormControl>
@@ -998,11 +1008,11 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
               control={form.control}
               name="address_line_2"
               render={({ field }) => (
-                <FormItem className="lg:flex lg:items-center gap-4">
-                  <FormLabel className="md:basis-3/12">
+                <FormItem className="md:flex md:items-start gap-4">
+                  <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">
                     Address Line 2<sup className="text-sm text-red-600">*</sup>
                   </FormLabel>
-                  <div className="md:basis-2/4">
+                  <div className="flex-1">
                     <FormControl>
                       <Input placeholder="Address Line 2" {...field} />
                     </FormControl>
@@ -1012,22 +1022,22 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
               )}
             />
 
-            <FormItem className="lg:flex lg:items-center gap-4">
-              <FormLabel className="md:basis-3/12">
+            <FormItem className="md:flex md:items-start gap-4">
+              <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">
                 City<sup className="text-sm text-red-600">*</sup>
               </FormLabel>
-              <div className="md:basis-2/4">
+              <div className="flex-1">
                 <FormControl>
                   <Input placeholder={city || "City"} disabled={true} />
                 </FormControl>
                 <FormMessage />
               </div>
             </FormItem>
-            <FormItem className="lg:flex lg:items-center gap-4">
-              <FormLabel className="md:basis-3/12">
+            <FormItem className="md:flex md:items-start gap-4">
+              <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">
                 State<sup className="text-sm text-red-600">*</sup>
               </FormLabel>
-              <div className="md:basis-2/4">
+              <div className="flex-1">
                 <FormControl>
                   <Input placeholder={state || "State"} disabled={true} />
                 </FormControl>
@@ -1040,11 +1050,11 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
               name="pin"
               render={({ field }) => (
                 <FormItem className="lg:flex gap-4">
-                  <FormLabel className="md:basis-3/12">
+                  <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">
                     Pin Code<sup className="text-sm text-red-600">*</sup>
                   </FormLabel>
                   <div className="flex flex-col gap-2">
-                    <div className="flex flex-col items-start md:basis-2/4">
+                    <div className="flex flex-col items-start flex-1">
                       <FormControl>
                         <Input
                           type="number"
@@ -1074,9 +1084,9 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
               control={form.control}
               name="phone"
               render={({ field }) => (
-                <FormItem className="lg:flex lg:items-center gap-4">
-                  <FormLabel className="md:basis-3/12">Phone</FormLabel>
-                  <div className="md:basis-2/4">
+                <FormItem className="md:flex md:items-start gap-4">
+                  <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">Phone</FormLabel>
+                  <div className="flex-1">
                     <FormControl>
                       <Input type="number" placeholder="Phone" {...field} />
                     </FormControl>
@@ -1090,9 +1100,9 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
               control={form.control}
               name="email"
               render={({ field }) => (
-                <FormItem className="lg:flex lg:items-center gap-4">
-                  <FormLabel className="md:basis-3/12">Email</FormLabel>
-                  <div className="md:basis-2/4">
+                <FormItem className="md:flex md:items-start gap-4">
+                  <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">Email</FormLabel>
+                  <div className="flex-1">
                     <FormControl>
                       <Input placeholder="Email" {...field} />
                     </FormControl>
@@ -1103,14 +1113,17 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
             />
           </div>
           <Separator className="my-6" />
-          <p className="text-sky-600 font-semibold pb-2">Project Timeline</p>
+          <FormSectionHeader
+            title="Project Timeline"
+            icon={<CalendarIconAlt className="h-4 w-4" />}
+          />
           <div className="flex flex-col gap-4">
             <FormField
               control={form.control}
               name="project_start_date"
               render={({ field }) => (
-                <FormItem className="lg:flex lg:items-center gap-4">
-                  <FormLabel className="md:basis-3/12">
+                <FormItem className="md:flex md:items-start gap-4">
+                  <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">
                     Project Start Date
                     <sup className="text-sm text-red-600">*</sup>
                   </FormLabel>
@@ -1157,8 +1170,8 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
               control={form.control}
               name="project_end_date"
               render={({ field }) => (
-                <FormItem className="lg:flex lg:items-center gap-4">
-                  <FormLabel className="md:basis-3/12">
+                <FormItem className="md:flex md:items-start gap-4">
+                  <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">
                     Project End Date
                     <sup className="text-sm text-red-600">*</sup>
                   </FormLabel>
@@ -1204,7 +1217,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
               )}
             />
             <div className="flex items-center">
-              <FormLabel className="md:basis-3/12">Duration: </FormLabel>
+              <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">Duration: </FormLabel>
               <div className=" pl-4 flex items-center gap-2">
                 <h1>{duration}</h1>
                 <h1 className="text-sm text-red-600">
