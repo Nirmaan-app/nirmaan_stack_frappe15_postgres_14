@@ -92,8 +92,8 @@ def get_work_plan(project, start_date=None, end_date=None):
             
             if report_doc.milestones:
                 for m in report_doc.milestones:
-                    if m.status == "Not Applicable":
-                        continue
+                    # if m.status == "Not Applicable":
+                    #     continue
 
                     m_dict = m.as_dict()
                     m_dict["zone"] = report_doc.report_zone
