@@ -197,3 +197,50 @@ def propagate_item_changes_to_tasks(new_doc, old_doc, item_name_changed, sub_cat
 			f"Updated {updated_count} Critical PO Task(s): {', '.join(changes)}.",
 			alert=True
 		)
+
+
+def on_trash(doc, method=None):
+	"""
+	When a Critical PO Item is deleted from the master, delete all
+	matching Critical PO Tasks from all projects.
+
+	Note: The POs linked to the tasks (via associated_pos) are NOT deleted,
+	only the task tracking them is removed.
+	"""
+	delete_matching_tasks(doc)
+
+
+def delete_matching_tasks(item_doc):
+	"""
+	Find and delete all Critical PO Tasks matching this item.
+	"""
+	category = item_doc.critical_po_category
+	item_name = item_doc.item_name
+	sub_category = item_doc.sub_category or ""
+
+	if not category or not item_name:
+		return
+
+	# Find all matching tasks
+	tasks = frappe.db.get_all("Critical PO Tasks",
+		filters={
+			"critical_po_category": category,
+			"item_name": item_name,
+			"sub_category": sub_category
+		},
+		fields=["name", "project_name"]
+	)
+
+	if not tasks:
+		return
+
+	deleted_count = 0
+	for task in tasks:
+		frappe.delete_doc("Critical PO Tasks", task.name, ignore_permissions=True)
+		deleted_count += 1
+
+	if deleted_count > 0:
+		frappe.msgprint(
+			f"Removed '{item_name}' from {deleted_count} project(s).",
+			alert=True
+		)
