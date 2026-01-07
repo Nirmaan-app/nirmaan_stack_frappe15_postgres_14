@@ -97,6 +97,7 @@ def get_work_plan(project, start_date=None, end_date=None):
 
                     m_dict = m.as_dict()
                     m_dict["zone"] = report_doc.report_zone
+                    m_dict['dpr_name']=report_doc.name
                     m_dict["header_order"] = header_map.get(m.work_header, 9999)
                     m_dict["milestone_order"] = milestone_map.get(m.work_milestone_name, 9999)
                     m_dict["weightage"] = weightage_map.get(m.work_milestone_name, 1.0)
@@ -169,3 +170,29 @@ def get_work_plan(project, start_date=None, end_date=None):
         "data": grouped_milestones,
         "reason": None
     }
+
+@frappe.whitelist()
+def update_milestone(dpr_name, work_milestone_name, work_header, status=None, expected_starting_date=None, expected_completion_date=None, progress=None):
+    if not dpr_name:
+        frappe.throw("DPR Name is required")
+        
+    doc = frappe.get_doc("Project Progress Reports", dpr_name)
+    found = False
+    for m in doc.milestones:
+        if m.work_milestone_name == work_milestone_name and m.work_header == work_header:
+            if status is not None:
+                m.status = status
+            if expected_starting_date:
+                m.expected_starting_date = expected_starting_date
+            if expected_completion_date:
+                m.expected_completion_date = expected_completion_date
+            if progress is not None:
+                m.progress = progress
+            found = True
+            break
+    
+    if found:
+        doc.save(ignore_permissions=True)
+        return {"status": "success"}
+    else:
+        frappe.throw(f"Milestone {work_milestone_name} not found in DPR {dpr_name}")

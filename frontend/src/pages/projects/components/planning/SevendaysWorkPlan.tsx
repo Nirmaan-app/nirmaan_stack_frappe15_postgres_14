@@ -10,6 +10,7 @@ import { WorkPlanOverview } from "./WorkPlanOverview";
 import { useFrappeDeleteDoc } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
+import { EditMilestoneDialog } from "./EditMilestoneDialog";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -45,6 +46,7 @@ export interface WorkPlanItem {
     work_plan_doc?: WorkPlanDoc[];
     source: string;
     weightage?: number;
+    dpr_name?: string;
 }
 
 export interface WorkPlanDoc {
@@ -66,11 +68,12 @@ export const getColorForProgress = (value: number): string => {
     return "text-green-500";
 };
 
-const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, isOverview }: { 
+const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilestone, isOverview }: { 
     item: WorkPlanItem, 
     onAddTask: (item: WorkPlanItem) => void,
     onEditTask: (plan: WorkPlanDoc, item: WorkPlanItem) => void,
     onDeleteTask: (planName: string) => void,
+    onEditMilestone: (item: WorkPlanItem) => void,
     isOverview?: boolean
 }) => {
     const [isExpanded, setIsExpanded] = useState(false);
@@ -101,7 +104,20 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, isOverview }:
                         }`}
                     >
                         {item.status}
+                        {!isOverview && (
+                        <button 
+                            className="ml-2 p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50  transition-all inline-flex items-center"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onEditMilestone(item);
+                            }}
+                            title="Edit Milestone"
+                        >
+                            <Pencil className="h-3 w-3" />
+                        </button>
+                    )}
                     </span>
+                    
                 </td>
 
                 <td className="px-4 py-3 text-gray-700 border-b-0 text-center">
@@ -280,6 +296,14 @@ export const SevendaysWorkPlan = ({
         }));
     };
 
+    const [editMilestoneState, setEditMilestoneState] = useState<{
+        isOpen: boolean;
+        item: WorkPlanItem | null;
+    }>({
+        isOpen: false,
+        item: null,
+    });
+
     const [createTaskState, setCreateTaskState] = useState<{
         isOpen: boolean;
         data: {
@@ -347,6 +371,13 @@ export const SevendaysWorkPlan = ({
         setDeleteDialogState({
             isOpen: true,
             planName: planName,
+        });
+    };
+
+    const handleEditMilestone = (item: WorkPlanItem) => {
+        setEditMilestoneState({
+            isOpen: true,
+            item: item,
         });
     };
 
@@ -666,6 +697,7 @@ export const SevendaysWorkPlan = ({
                                                             onAddTask={handleAddTask}
                                                             onEditTask={handleEditTask}
                                                             onDeleteTask={handleDeleteTask}
+                                                            onEditMilestone={handleEditMilestone}
                                                             isOverview={isOverview}
                                                         />
                                                     ))}
@@ -691,6 +723,14 @@ export const SevendaysWorkPlan = ({
                     defaultValues={createTaskState.data}
                     docName={createTaskState.docName}
                     initialData={createTaskState.initialData}
+                />
+            )}
+            {editMilestoneState.isOpen && (
+                <EditMilestoneDialog
+                    isOpen={editMilestoneState.isOpen}
+                    onClose={() => setEditMilestoneState({ isOpen: false, item: null })}
+                    item={editMilestoneState.item}
+                    onSuccess={() => mutate()}
                 />
             )}
              {/* Buffer Export Dialog */}
