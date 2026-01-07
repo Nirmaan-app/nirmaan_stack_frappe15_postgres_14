@@ -242,37 +242,12 @@ export const SevendaysWorkPlan = ({
     
     const [isBufferDialogOpen, setIsBufferDialogOpen] = useState(false);
     const [bufferDays, setBufferDays] = useState<number | string>("");
-    const [bufferStartDate, setBufferStartDate] = useState<Date>(new Date());
-    const [bufferEndDate, setBufferEndDate] = useState<Date>(new Date());
     const [addToStart, setAddToStart] = useState<boolean>(true);
     const [addToEnd, setAddToEnd] = useState<boolean>(true);
     const [isMainExpanded, setIsMainExpanded] = useState(true);
 
     // console.log("Work Plan projectName",projectName)
 
-    // Update buffer dates based on user selection scenarios
-    useEffect(() => {
-        const today = new Date();
-        const days = typeof bufferDays === 'number' ? bufferDays : 0;
-        
-        if (addToStart && addToEnd) {
-            // Both Checked: Start is Today + Buffer, End is Start + Buffer + 1
-            const newStart = addDays(today, days);
-            setBufferStartDate(newStart);
-            setBufferEndDate(addDays(newStart, days));
-        } else if (addToStart) {
-            // Only Add to Start: Start is Today, End is Start + buffer
-            setBufferStartDate(today);
-            setBufferEndDate(addDays(today, days));
-        } else if (addToEnd) {
-            // Only Add to End: End is Today, Start is Today - buffer
-            setBufferEndDate(today);
-            setBufferStartDate(subDays(today, days));
-        } else {
-            setBufferStartDate(today);
-            setBufferEndDate(today);
-        }
-    }, [bufferDays, addToStart, addToEnd]);
     const { toast } = useToast();
     const { deleteDoc } = useFrappeDeleteDoc();
 
@@ -454,13 +429,10 @@ export const SevendaysWorkPlan = ({
         performDownload(startDate, endDate);
     };
 
-    const handleBufferDownload = async () => {
-        console.log("bufferStartDate", bufferStartDate);
-        console.log("bufferEndDate", bufferEndDate);
-        
+    const handleBufferDownload = async (start: Date | undefined, end: Date | undefined, days: number | string, toStart: boolean, toEnd: boolean) => {
         setIsBufferDownloading(true);
         try {
-            const formatName = "Project Work Plan"; 
+            const formatName = "Project Work Plan Buffered"; 
             
             const params = new URLSearchParams({
                 doctype: "Projects",
@@ -470,8 +442,14 @@ export const SevendaysWorkPlan = ({
                 _lang: "en",
             });
 
-            params.append("start_date", format(bufferStartDate, "yyyy-MM-dd"));
-            params.append("end_date", format(bufferEndDate, "yyyy-MM-dd"));
+            if (start) params.append("start_date", format(start, "yyyy-MM-dd"));
+            if (end) params.append("end_date", format(end, "yyyy-MM-dd"));
+            
+            
+            // Pass extra parameters for the buffered print format
+            params.append("buffer_days", String(days));
+            params.append("add_to_start", String(toStart));
+            params.append("add_to_end", String(toEnd));
 
             const url = `/api/method/frappe.utils.print_format.download_pdf?${params.toString()}`;
             
@@ -484,7 +462,7 @@ export const SevendaysWorkPlan = ({
             link.href = downloadUrl;
 
             const safeProjectName = (projectName || projectId).replace(/ /g, "_");
-            link.download = `WorkPlan_Buffer_${safeProjectName}_${format(new Date(), "dd-MMM-yyyy")}.pdf`;
+            link.download = `WorkPlan_${safeProjectName}_${format(new Date(), "dd-MMM-yyyy")}.pdf`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -722,24 +700,18 @@ export const SevendaysWorkPlan = ({
                         <DialogTitle className="text-xl font-bold text-gray-900 leading-none">Client Version Export</DialogTitle>
                     </DialogHeader>
                     <div className="grid gap-6 px-6 py-6">
-                        <div className="grid grid-cols-[auto_1fr] items-center gap-4">
+                        <div className="grid grid-cols-[auto_1fr] items-center gap-4 pt-1">
                             <Label htmlFor="bufferDays" className="font-semibold whitespace-nowrap">Add Buffer Days:</Label>
                             <Input
                                 id="bufferDays"
                                 type="number"
                                 value={bufferDays}
                                 onChange={(e) => setBufferDays(e.target.value === "" ? "" : Number(e.target.value))}
-                                className="w-full"
+                                className="w-full h-9"
                                 placeholder="Enter days"
                             />
                         </div>
-                        {/* <p className="text-sm text-gray-500">
-                            Based on selection: 
-                            {addToStart && addToEnd ? " Start = Today + Buffer, End = Start + Buffer + 1" : 
-                             addToStart ? " Start = Today, End = Today + Buffer" : 
-                             addToEnd ? " Start = Today - Buffer, End = Today" : ""}
-                        </p> */}
-                        <div className="flex gap-6 mt-3">
+                        <div className="flex gap-6">
                             <div className="flex items-center space-x-2">
                                 <Checkbox 
                                     id="addToStart" 
@@ -761,23 +733,6 @@ export const SevendaysWorkPlan = ({
                                 </Label>
                             </div>
                         </div>
-                        <div className="mt-2 p-3 bg-gray-50 rounded-md border">
-                            <p className="text-sm font-medium text-gray-700 mb-2">New Date Range:</p>
-                            <div className="flex gap-4 text-sm">
-                                <div>
-                                    <span className="text-gray-500">Start: </span>
-                                    <span className="font-medium text-gray-900">
-                                        {format(bufferStartDate, "dd-MMM-yyyy")}
-                                    </span>
-                                </div>
-                                <div>
-                                    <span className="text-gray-500">End: </span>
-                                    <span className="font-medium text-gray-900">
-                                        {format(bufferEndDate, "dd-MMM-yyyy")}
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
                     </div>
                     <DialogFooter className="px-6 py-4 border-t bg-gray-50/50 flex items-center justify-end gap-3">
                         <Button 
@@ -789,7 +744,7 @@ export const SevendaysWorkPlan = ({
                             Cancel
                         </Button>
                         <Button 
-                            onClick={handleBufferDownload}
+                            onClick={() => handleBufferDownload(startDate, endDate, bufferDays, addToStart, addToEnd)}
                             disabled={(!addToStart && !addToEnd) || isBufferDownloading || bufferDays === ""}
                             className="h-9 px-4 text-sm font-medium transition-all"
                         >
