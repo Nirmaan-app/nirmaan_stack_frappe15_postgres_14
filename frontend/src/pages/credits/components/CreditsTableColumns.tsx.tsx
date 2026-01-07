@@ -2,20 +2,15 @@ import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
-  Download,
   PencilIcon,
-  FileText,
-  PlusCircle,
   MoreHorizontal,
-  Trash2,
-  CalendarEdit,
   DollarSign,
 } from "lucide-react";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { PoPaymentTermRow } from "@/types/NirmaanStack/POPaymentTerms"; // Corrected the import path
-import type { NavigateFunction } from "react-router-dom"; // <-- IMPORT THE TYPE FOR NAVIGATE
+import { PoPaymentTermRow } from "@/types/NirmaanStack/POPaymentTerms";
+import type { NavigateFunction } from "react-router-dom";
 import {
   DropdownMenu,
   DropdownMenuContent,

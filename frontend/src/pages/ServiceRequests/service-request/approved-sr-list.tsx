@@ -13,6 +13,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
+import { useFacetValues } from '@/hooks/useFacetValues';
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
@@ -260,16 +261,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         // },
     ], [notifications, projectOptions, vendorOptions, userList, handleNewSRSeen, getVendorName, for_vendor]); //, getTotalAmount, getAmountPaidForSR, 
 
-
-    // --- Faceted Filter Options ---
-    const facetFilterOptions = useMemo(() => ({
-        project: { title: "Project", options: projectOptions },
-        vendor: { title: "Vendor", options: vendorOptions }, // Filter by vendor ID
-        gst: { title: "GST", options: SR_GST_OPTIONS_MAP },
-    }), [projectOptions, vendorOptions]);
-
-
-    // --- Use the Server Data Table Hook ---
+    // --- (MOVED UP) Use the Server Data Table Hook ---
     const {
         table, data, totalCount, isLoading: listIsLoading, error: listError,
         // globalFilter, setGlobalFilter,
@@ -278,6 +270,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         searchTerm, setSearchTerm,
         isRowSelectionActive,
         refetch,
+        columnFilters // NEW
     } = useServerDataTable<ServiceRequests>({
         doctype: DOCTYPE,
         columns: columns,
@@ -292,6 +285,42 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         // requirePendingItems: false, // Not applicable for "Approved" SR list
     });
 
+    // --- Dynamic Facet Values ---
+    const { facetOptions: projectFacetOptions, isLoading: isProjectFacetLoading } = useFacetValues({
+        doctype: DOCTYPE,
+        field: 'project',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        additionalFilters: staticFilters,
+        enabled: true
+    });
+
+    const { facetOptions: vendorFacetOptions, isLoading: isVendorFacetLoading } = useFacetValues({
+        doctype: DOCTYPE,
+        field: 'vendor',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        additionalFilters: staticFilters,
+        enabled: !for_vendor // Disable dynamic fetch if vendor is already fixed
+    });
+
+    // --- Faceted Filter Options ---
+    const facetFilterOptions = useMemo(() => ({
+        project: { title: "Project", options: projectFacetOptions, isLoading: isProjectFacetLoading },
+        vendor: { title: "Vendor", options: vendorFacetOptions, isLoading: isVendorFacetLoading }, // Filter by vendor ID
+        gst: { title: "GST", options: SR_GST_OPTIONS_MAP },
+    }), [projectFacetOptions, isProjectFacetLoading, vendorFacetOptions, isVendorFacetLoading]);
+
+
+    // --- Faceted Filter Options ---
+
+
+
+    // --- Use the Server Data Table Hook ---
+
+
     // --- Combined Loading & Error States ---
     const isLoading = projectsLoading || vendorsLoading || userListLoading || projectPaymentsLoading;
     const combinedError = projectsError || vendorsError || userError || projectPaymentsError || listError;
@@ -301,7 +330,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
     }
 
     return (
-       <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'h-[calc(100vh-80px)] overflow-hidden' : ''}`}>
+        <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'h-[calc(100vh-80px)] overflow-hidden' : ''}`}>
             {isLoading ? (
                 <TableSkeleton />
             ) : (

@@ -12,6 +12,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
+import { useFacetValues } from '@/hooks/useFacetValues';
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
@@ -132,6 +133,8 @@ export const ApproveSelectSR: React.FC = () => {
             },
             enableColumnFilter: true, size: 200,
             meta: {
+                enableFacet: true,
+                facetTitle: "Project",
                 exportHeaderName: "Project",
                 exportValue: (row) => {
                     const project = projectOptions.find(p => p.value === row.project);
@@ -145,8 +148,10 @@ export const ApproveSelectSR: React.FC = () => {
             cell: ({ row }) => <div className="font-medium truncate" title={getVendorName(row.original.vendor)}>{getVendorName(row.original.vendor)}</div>,
             enableColumnFilter: true, size: 200,
             meta: {
+                enableFacet: true,
+                facetTitle: "Vendor",
                 exportHeaderName: "Selected Vendor",
-                exportValue: (row) => {
+                exportValue: (row: ServiceRequests) => {
                     return getVendorName(row.vendor);
                 }
             }
@@ -174,7 +179,7 @@ export const ApproveSelectSR: React.FC = () => {
             }, size: 180,
             meta: {
                 exportHeaderName: "Created By",
-                exportValue: (row) => {
+                exportValue: (row: ServiceRequests) => {
                     const ownerUser = userList?.find((entry) => row.owner === entry.name);
                     return ownerUser?.full_name || row.owner || "--";
                 }
@@ -186,19 +191,12 @@ export const ApproveSelectSR: React.FC = () => {
             size: 150, enableSorting: false,
             meta: {
                 exportHeaderName: "Est. Value",
-                exportValue: (row) => {
+                exportValue: (row: ServiceRequests) => {
                     return formatForReport(getTotalAmount(row.name, 'Service Requests')?.totalWithTax);
                 }
             }
         }
     ], [notifications, projectOptions, vendorOptions, userList, handleNewSRSeen, getVendorName, getTotalAmount]);
-
-
-    // --- Faceted Filter Options ---
-    const facetFilterOptions = useMemo(() => ({
-        project: { title: "Project", options: projectOptions },
-        vendor: { title: "Vendor", options: vendorOptions },
-    }), [projectOptions, vendorOptions]);
 
 
     // --- Use the Server Data Table Hook ---
@@ -208,6 +206,7 @@ export const ApproveSelectSR: React.FC = () => {
         // isItemSearchEnabled, toggleItemSearch, showItemSearchToggle,
         selectedSearchField, setSelectedSearchField,
         searchTerm, setSearchTerm,
+        columnFilters,
         isRowSelectionActive,
         refetch,
     } = useServerDataTable<ServiceRequests>({
@@ -222,6 +221,33 @@ export const ApproveSelectSR: React.FC = () => {
         enableRowSelection: false, // For bulk approval if needed
         additionalFilters: staticFilters,
     });
+
+    // --- Dynamic Facet Values ---
+    const { facetOptions: projectFacetOptions, isLoading: isProjectFacetLoading } = useFacetValues({
+        doctype: DOCTYPE,
+        field: 'project',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        additionalFilters: staticFilters,
+        enabled: true
+    });
+
+    const { facetOptions: vendorFacetOptions, isLoading: isVendorFacetLoading } = useFacetValues({
+        doctype: DOCTYPE,
+        field: 'vendor',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        additionalFilters: staticFilters,
+        enabled: true
+    });
+
+    // --- Faceted Filter Options ---
+    const facetFilterOptions = useMemo(() => ({
+        project: { title: "Project", options: projectFacetOptions, isLoading: isProjectFacetLoading },
+        vendor: { title: "Vendor", options: vendorFacetOptions, isLoading: isVendorFacetLoading },
+    }), [projectFacetOptions, isProjectFacetLoading, vendorFacetOptions, isVendorFacetLoading]);
 
 
     // --- Combined Loading & Error States ---

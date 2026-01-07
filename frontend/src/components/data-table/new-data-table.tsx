@@ -47,7 +47,7 @@ export interface DataTableProps<T> {
   onSearchTermChange: (v: string) => void;
 
   /* filters */
-  facetFilterOptions?: Record<string, { title: string; options: { label: string, value: string }[] }>;
+  facetFilterOptions?: Record<string, { title: string; options: { label: string, value: string }[]; isLoading?: boolean }>;
   dateFilterColumns?: string[];
 
   /* export */
@@ -94,7 +94,7 @@ export function DataTable<T>({
   headerClassName = "bg-red-50",
   stickyHeaderClassName = "bg-red-50",
   stickyColumnClassName = "bg-background",
-  tableHeight="70vh",
+  tableHeight = "70vh",
 }: DataTableProps<T>) {
 
   /* ───────── helpers ───────── */
@@ -192,7 +192,7 @@ export function DataTable<T>({
             searchFieldOptions, selectedSearchField, onSelectedSearchFieldChange,
             searchTerm, onSearchTermChange,
             showExportButton, effectiveExport, toolbarActions, isLoading, table,
-             showSearchBar,
+            showSearchBar,
             showRowSelection
           }}
         />
@@ -276,6 +276,7 @@ export function DataTable<T>({
                               column={columnInstance!}
                               title={facetFilterOptions[h.column.id]!.title}
                               options={facetFilterOptions[h.column.id]!.options}
+                              isLoading={facetFilterOptions[h.column.id]!.isLoading}
                             />
                           )}
                           {canShowDateFilter && (

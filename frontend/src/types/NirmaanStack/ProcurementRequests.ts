@@ -114,4 +114,5 @@ export interface ProcurementRequest {
 	order_list: ProcurementRequestItemDetail[]
 	custom?: string
 	estimated_value?: number; // Estimated value of the procurement request
+	target_value?: number;
 }

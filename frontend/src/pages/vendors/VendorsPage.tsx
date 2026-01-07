@@ -12,6 +12,7 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/h
 import { Ellipsis, Package, CirclePlus } from "lucide-react"; // Added CirclePlus for potential Add New button
 
 import { useServerDataTable } from '@/hooks/useServerDataTable';
+import { useFacetValues } from '@/hooks/useFacetValues';
 import { Vendors as VendorsType } from "@/types/NirmaanStack/Vendors";
 import { Category as CategoryType } from "@/types/NirmaanStack/Category";
 import { formatDate } from "@/utils/FormatDate";
@@ -213,6 +214,7 @@ export default function VendorsPage() {
     const {
         table, totalCount, isLoading: tableIsLoading, error: tableError,
         searchTerm, setSearchTerm, selectedSearchField, setSelectedSearchField,
+        columnFilters, // Destructure columnFilters
         refetch: refetchTable,
     } = useServerDataTable<VendorsType>({
         doctype: VENDOR_DOCTYPE,
@@ -221,7 +223,7 @@ export default function VendorsPage() {
         searchableFields: VENDOR_SEARCHABLE_FIELDS,
         defaultSort: 'creation desc',
         urlSyncKey: `vendors_list`, // Does not include type; type is a separate param
-        // additionalFilters: additionalFilters,
+        additionalFilters: additionalFilters, // Pass the type filter here
         enableRowSelection: false, // Adjust if selection is needed
         shouldCache: true
     });
@@ -235,17 +237,31 @@ export default function VendorsPage() {
         };
     }), [vendorTypeCounts]);
 
+    // --- Dynamic Facet Values ---
+    const { facetOptions: vendorTypeFacetOptions, isLoading: isVendorTypeFacetLoading } = useFacetValues({
+        doctype: VENDOR_DOCTYPE,
+        field: 'vendor_type',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        additionalFilters: additionalFilters, // Respect the tab filter? Or maybe we want to see other types? 
+        // If we pass additionalFilters (which filters by tab), then the facet will likely only show the current tab's type.
+        // If we want to allow filtering *within* the tab (redundant) or overriding (confusing).
+        // Let's pass it to be consistent with "context-aware".
+        enabled: true
+    });
+
     const facetFilterOptions = useMemo(() => ({
         // For vendor_type, it's controlled by Radio. But if you want a facet too:
-        vendor_type: { title: "Vendor Type", options: VENDOR_TYPE_OPTIONS },
+        vendor_type: { title: "Vendor Type", options: vendorTypeFacetOptions, isLoading: isVendorTypeFacetLoading },
         // For vendor_category, using the fetched category names
         // Column ID for filtering should match what backend expects for JSON field or be mapped
-        // vendor_category: { title: "Specialized In", options: categoryFacetOptions },
-    }), [categoryFacetOptions]);
+        vendor_category: { title: "Specialized In", options: categoryFacetOptions },
+    }), [categoryFacetOptions, vendorTypeFacetOptions, isVendorTypeFacetLoading]);
 
 
     return (
-         <div className="h-[calc(100vh-80px)] flex flex-col gap-2 overflow-hidden">
+        <div className="h-[calc(100vh-80px)] flex flex-col gap-2 overflow-hidden">
 
             {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"> */}
             <VendorsOverallSummaryCard />

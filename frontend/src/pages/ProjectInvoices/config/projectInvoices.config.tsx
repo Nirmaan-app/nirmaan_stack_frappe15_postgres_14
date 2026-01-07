@@ -77,7 +77,9 @@ export const getProjectInvoiceColumns = (
             filterFn: facetedFilterFn,
             meta: {
                 exportHeaderName: "Project",
-                exportValue: (row: ProjectInvoice) => getProjectName(row.project)
+                exportValue: (row: ProjectInvoice) => getProjectName(row.project),
+                enableFacet: true,
+                facetTitle: "Project"
             }
         },
         {
@@ -94,7 +96,9 @@ export const getProjectInvoiceColumns = (
             filterFn: facetedFilterFn,
             meta: {
                 exportHeaderName: "Customer",
-                exportValue: (row: ProjectInvoice) => getCustomerName(row.customer)
+                exportValue: (row: ProjectInvoice) => getCustomerName(row.customer),
+                enableFacet: true,
+                facetTitle: "Customer"
             }
         },
         {
@@ -115,7 +119,12 @@ export const getProjectInvoiceColumns = (
             header: ({ column }) => <DataTableColumnHeader column={column} title="Created By" />,
             cell: ({ row }) => <div>{getUserName(row.original.owner)}</div>,
             filterFn: facetedFilterFn,
-            meta: { exportHeaderName: "Created By", exportValue: (row: ProjectInvoice) => getUserName(row.owner) }
+            meta: {
+                exportHeaderName: "Created By",
+                exportValue: (row: ProjectInvoice) => getUserName(row.owner),
+                enableFacet: true,
+                facetTitle: "Created By"
+            }
         },
 
         // --- CORRECTED INLINE SYNTAX ---
