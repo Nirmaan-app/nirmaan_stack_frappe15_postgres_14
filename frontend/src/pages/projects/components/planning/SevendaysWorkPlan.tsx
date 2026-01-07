@@ -84,13 +84,13 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, isOverview }:
                     <div className="font-medium text-gray-900">{item.work_milestone_name}</div>
                 </td>
                 <td className="px-4 py-3 font-medium text-gray-900 border-b-0 text-center">
-                    <span className="inline-flex items-center justify-center h-6 w-[100px] rounded border border-dashed border-gray-300 bg-gray-50 px-2 text-xs text-gray-600 truncate">
+                    <span className="inline-flex items-center justify-center h-6 min-w-[100px] w-fit rounded border border-dashed border-gray-300 bg-gray-50 px-3 text-xs text-gray-600 whitespace-nowrap">
                         {item.zone || "Zone 1"}
                     </span>
                 </td>
                 <td className="px-4 py-3 border-b-0 text-center">
                         <span
-                        className={`inline-flex items-center justify-center h-6 w-[100px] rounded-full px-2 text-xs font-medium truncate ${
+                        className={`inline-flex items-center justify-center h-6 min-w-[100px] w-fit rounded-full px-3 text-xs font-medium whitespace-nowrap ${
                             item.status === "Completed"
                                 ? "bg-green-100 text-green-800 border border-green-200"
                                 : item.status === "WIP" || item.status === "In Progress"
@@ -241,18 +241,37 @@ export const SevendaysWorkPlan = ({
 }: SevendaysWorkPlanProps) => {
     
     const [isBufferDialogOpen, setIsBufferDialogOpen] = useState(false);
-    const [bufferDays, setBufferDays] = useState<number>(0);
+    const [bufferDays, setBufferDays] = useState<number | string>("");
     const [bufferStartDate, setBufferStartDate] = useState<Date>(new Date());
     const [bufferEndDate, setBufferEndDate] = useState<Date>(new Date());
     const [addToStart, setAddToStart] = useState<boolean>(true);
     const [addToEnd, setAddToEnd] = useState<boolean>(true);
     const [isMainExpanded, setIsMainExpanded] = useState(true);
 
-    // Update buffer dates when bufferDays or checkboxes change
+    // console.log("Work Plan projectName",projectName)
+
+    // Update buffer dates based on user selection scenarios
     useEffect(() => {
         const today = new Date();
-        setBufferStartDate(addToStart ? subDays(today, bufferDays) : today);
-        setBufferEndDate(addToEnd ? addDays(today, bufferDays) : today);
+        const days = typeof bufferDays === 'number' ? bufferDays : 0;
+        
+        if (addToStart && addToEnd) {
+            // Both Checked: Start is Today + Buffer, End is Start + Buffer + 1
+            const newStart = addDays(today, days);
+            setBufferStartDate(newStart);
+            setBufferEndDate(addDays(newStart, days));
+        } else if (addToStart) {
+            // Only Add to Start: Start is Today, End is Start + buffer
+            setBufferStartDate(today);
+            setBufferEndDate(addDays(today, days));
+        } else if (addToEnd) {
+            // Only Add to End: End is Today, Start is Today - buffer
+            setBufferEndDate(today);
+            setBufferStartDate(subDays(today, days));
+        } else {
+            setBufferStartDate(today);
+            setBufferEndDate(today);
+        }
     }, [bufferDays, addToStart, addToEnd]);
     const { toast } = useToast();
     const { deleteDoc } = useFrappeDeleteDoc();
@@ -555,9 +574,9 @@ export const SevendaysWorkPlan = ({
                                 className="gap-2 h-8 text-xs border-gray-300 text-gray-700"
                                 onClick={(e) => { 
                                     e.stopPropagation(); 
-                                    setBufferDays(0);
-                                    setAddToStart(false);
-                                    setAddToEnd(false);
+                                    setBufferDays("");
+                                    setAddToStart(true);
+                                    setAddToEnd(true);
                                     setIsBufferDialogOpen(true); 
                                 }}
                                 disabled={isDownloading}
@@ -698,26 +717,28 @@ export const SevendaysWorkPlan = ({
             )}
              {/* Buffer Export Dialog */}
              <Dialog open={isBufferDialogOpen} onOpenChange={setIsBufferDialogOpen}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Buffer Export</DialogTitle>
+                <DialogContent className="sm:max-w-[425px] p-0 overflow-hidden">
+                    <DialogHeader className="px-6 pt-6 pb-4 border-b bg-gray-50/50">
+                        <DialogTitle className="text-xl font-bold text-gray-900 leading-none">Client Version Export</DialogTitle>
                     </DialogHeader>
-                    <div className="grid gap-4 py-4">
-                        <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="bufferDays" className="text-right">
-                                Buffer Days
-                            </Label>
+                    <div className="grid gap-6 px-6 py-6">
+                        <div className="grid grid-cols-[auto_1fr] items-center gap-4">
+                            <Label htmlFor="bufferDays" className="font-semibold whitespace-nowrap">Add Buffer Days:</Label>
                             <Input
                                 id="bufferDays"
                                 type="number"
                                 value={bufferDays}
-                                onChange={(e) => setBufferDays(Number(e.target.value))}
-                                className="col-span-3"
+                                onChange={(e) => setBufferDays(e.target.value === "" ? "" : Number(e.target.value))}
+                                className="w-full"
+                                placeholder="Enter days"
                             />
                         </div>
-                        <p className="text-sm text-gray-500">
-                            This will set the date range based on today's date, subtracting {bufferDays} days for start and adding {bufferDays} days for end.
-                        </p>
+                        {/* <p className="text-sm text-gray-500">
+                            Based on selection: 
+                            {addToStart && addToEnd ? " Start = Today + Buffer, End = Start + Buffer + 1" : 
+                             addToStart ? " Start = Today, End = Today + Buffer" : 
+                             addToEnd ? " Start = Today - Buffer, End = Today" : ""}
+                        </p> */}
                         <div className="flex gap-6 mt-3">
                             <div className="flex items-center space-x-2">
                                 <Checkbox 
@@ -758,10 +779,19 @@ export const SevendaysWorkPlan = ({
                             </div>
                         </div>
                     </div>
-                    <DialogFooter>
+                    <DialogFooter className="px-6 py-4 border-t bg-gray-50/50 flex items-center justify-end gap-3">
+                        <Button 
+                            variant="outline" 
+                            onClick={() => setIsBufferDialogOpen(false)}
+                            disabled={isBufferDownloading}
+                            className="h-9 px-4 text-sm font-medium border-gray-300 hover:bg-gray-100 transition-colors"
+                        >
+                            Cancel
+                        </Button>
                         <Button 
                             onClick={handleBufferDownload}
-                            disabled={(!addToStart && !addToEnd) || isBufferDownloading}
+                            disabled={(!addToStart && !addToEnd) || isBufferDownloading || bufferDays === ""}
+                            className="h-9 px-4 text-sm font-medium transition-all"
                         >
                             {isBufferDownloading ? (
                                 <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Exporting...</>

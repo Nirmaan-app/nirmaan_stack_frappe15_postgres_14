@@ -44,6 +44,7 @@ const getMaterialItems = (plan: any): any[] => {
 
 export const SevenDaysMaterialPlan = ({ projectId, startDate, endDate, isOverview, projectName }: SevenDaysMaterialPlanProps) => {
     
+    // console.log("Material Plan Project Name ",projectName)
     // State for Material Plans Form
     const [materialPlanForms, setMaterialPlanForms] = useState<number[]>([]);
     const [editingPlan, setEditingPlan] = useState<any>(null); // State for Edit Modal
