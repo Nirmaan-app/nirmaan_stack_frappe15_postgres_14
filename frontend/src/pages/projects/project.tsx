@@ -990,7 +990,7 @@ const advanceAgainstPO = useMemo(() => {
       case PROJECT_PAGE_TABS.WORK_REPORT: // ADD THIS NEW CASE
             return <ProjectWorkReportTab projectData={data} project_mutate={project_mutate} current_role={role}/>;
       case PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING:
-            return <SevenDayPlanningTab />;
+            return <SevenDayPlanningTab projectName={data.project_name} />;
       case PROJECT_PAGE_TABS.CRITICAL_POS:
             return <CriticalPOTasksTab projectId={projectId} projectData={data} />;
       case PROJECT_PAGE_TABS.DESIGN_TRACKER:

@@ -26,6 +26,7 @@ interface SevendaysWorkPlanProps {
     startDate: Date | undefined;
     endDate: Date | undefined;
     isOverview?: boolean;
+    projectName?: string;
 }
 
 export interface WorkPlanItem {
@@ -232,6 +233,7 @@ export const SevendaysWorkPlan = ({
     startDate,
     endDate,
     isOverview,
+    projectName
 }: SevendaysWorkPlanProps) => {
     // ... no change to props ...
 
@@ -397,7 +399,9 @@ export const SevendaysWorkPlan = ({
             const downloadUrl = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = downloadUrl;
-            link.download = `WorkPlan_${projectId}_${format(new Date(), "yyyy-MM-dd")}.pdf`;
+
+            const safeProjectName = (projectName || projectId).replace(/ /g, "_");
+            link.download = `WorkPlan_${safeProjectName}_${format(new Date(), "dd-MMM-yyyy")}.pdf`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);

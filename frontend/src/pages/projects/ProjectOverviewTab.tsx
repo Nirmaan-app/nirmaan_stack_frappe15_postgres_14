@@ -527,7 +527,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
       <Card>
         <ProjectDriveLink projectId={projectData.name} />
       </Card>
-      <SevenDayPlanningTab isOverview={true} />
+      <SevenDayPlanningTab isOverview={true} projectName={projectData?.project_name}/>
     </div>
   )
 }

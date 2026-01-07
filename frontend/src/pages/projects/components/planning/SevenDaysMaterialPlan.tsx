@@ -24,8 +24,8 @@ interface SevenDaysMaterialPlanProps {
     startDate?: Date;
     endDate?: Date;
     isOverview?: boolean;
+    projectName?: string;
 }
-
 
 // Helper to safely parse mp_items
 const getMaterialItems = (plan: any): any[] => {
@@ -42,7 +42,7 @@ const getMaterialItems = (plan: any): any[] => {
 };
 
 
-export const SevenDaysMaterialPlan = ({ projectId, startDate, endDate, isOverview }: SevenDaysMaterialPlanProps) => {
+export const SevenDaysMaterialPlan = ({ projectId, startDate, endDate, isOverview, projectName }: SevenDaysMaterialPlanProps) => {
     
     // State for Material Plans Form
     const [materialPlanForms, setMaterialPlanForms] = useState<number[]>([]);
@@ -125,12 +125,13 @@ export const SevenDaysMaterialPlan = ({ projectId, startDate, endDate, isOvervie
             
             const response = await fetch(url);
             if (!response.ok) throw new Error("Network response was not ok");
-            
+        
             const blob = await response.blob();
             const downloadUrl = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = downloadUrl;
-            link.download = `MaterialPlan_${projectId}_${format(new Date(), "yyyy-MM-dd")}.pdf`;
+            const safeProjectName = (projectName || projectDoc?.project_name || projectId).replace(/ /g, "_");
+            link.download = `MaterialPlan_${safeProjectName}_${format(new Date(), "dd-MMM-yyyy")}.pdf`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
