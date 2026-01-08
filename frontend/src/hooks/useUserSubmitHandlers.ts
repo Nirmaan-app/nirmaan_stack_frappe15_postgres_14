@@ -1,7 +1,7 @@
 import { toast } from "@/components/ui/use-toast";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { FrappeConfig, FrappeContext, useFrappeCreateDoc, useFrappeDeleteDoc, useSWRConfig } from "frappe-react-sdk";
-import { useContext } from "react";
+import { useContext, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { KeyedMutator } from "swr";
 import { NirmaanUserPermissions } from "../types/NirmaanStack/NirmaanUserPermissions";
@@ -41,6 +41,7 @@ export const useUserSubmitHandlers = (data: NirmaanUsers | undefined, permission
   const { deleteDoc: deleteDoc, loading: delete_loading } = useFrappeDeleteDoc();
   const { mutate } = useSWRConfig();
   const { call } = useContext(FrappeContext) as FrappeConfig;
+  const [rename_loading, setRenameLoading] = useState(false);
 
   const handleSubmit = async (curProj: string, projectName: string, toggleAssignProjectDialog: () => void) => {
     try {
@@ -148,12 +149,51 @@ export const useUserSubmitHandlers = (data: NirmaanUsers | undefined, permission
     }
   };
 
+  const handleRenameEmail = async (
+    newEmail: string,
+    toggleRenameEmailDialog: () => void
+  ) => {
+    try {
+      if (!data?.email || !newEmail) {
+        throw new Error("Email is missing");
+      }
+
+      setRenameLoading(true);
+
+      await call.post(
+        "nirmaan_stack.api.users.rename_user_email",
+        {
+          old_email: data.email,
+          new_email: newEmail
+        }
+      );
+
+      await mutate(DOCUMENT_TYPES.NIRMAAN_USERS);
+
+      showToast(
+        toast,
+        "success",
+        TOAST_MESSAGES.SUCCESS,
+        `Email renamed to ${newEmail}. User has been logged out.`
+      );
+
+      toggleRenameEmailDialog();
+      navigate(`/users/${newEmail}`);
+    } catch (error) {
+      handleError(error, toast, "Failed to rename email");
+    } finally {
+      setRenameLoading(false);
+    }
+  };
+
   return {
     handleSubmit,
     handleDeleteUser,
     handleDeleteProject,
     handlePasswordReset,
+    handleRenameEmail,
     create_loading,
     delete_loading,
+    rename_loading,
   };
 };

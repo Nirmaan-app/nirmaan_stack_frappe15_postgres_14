@@ -47,6 +47,7 @@ import {
   ListChecks,
   Mail,
   MapPin,
+  PenLine,
   Phone,
   Trash2,
   Undo2
@@ -98,6 +99,15 @@ export default function Profile() {
     setResetPasswordDialog((prevState) => !prevState);
   }, []);
 
+  const [renameEmailDialog, setRenameEmailDialog] = useState(false);
+  const [newEmail, setNewEmail] = useState("");
+  const toggleRenameEmailDialog = useCallback(() => {
+    setRenameEmailDialog((prevState) => !prevState);
+    if (!renameEmailDialog) {
+      setNewEmail(""); // Reset new email when opening dialog
+    }
+  }, [renameEmailDialog]);
+
   const { data, isLoading, error, mutate: user_mutate } = useFrappeGetDoc<NirmaanUsersType>("Nirmaan Users",id, id ? `Nirmaan Users ${id}` : null);
 
   useFrappeDocumentEventListener("Nirmaan Users", id, (event) => {
@@ -124,7 +134,7 @@ export default function Profile() {
     userData.role === "Nirmaan Admin Profile" ? undefined : null
   );
 
-  const {handleSubmit, handleDeleteUser, handleDeleteProject, handlePasswordReset, create_loading, delete_loading} = useUserSubmitHandlers(data, permission_list_mutate);
+  const {handleSubmit, handleDeleteUser, handleDeleteProject, handlePasswordReset, handleRenameEmail, create_loading, delete_loading, rename_loading} = useUserSubmitHandlers(data, permission_list_mutate);
 
   const { data: project_list, isLoading: project_list_loading } = useFrappeGetDocList<Projects>("Projects", {
     fields: ["*"],
@@ -275,6 +285,71 @@ export default function Profile() {
                           <Trash2 className="h-4 w-4" />
                           Delete
                         </Button>
+                        </>
+                      )}
+                    </div>
+                  </DialogContent>
+                </Dialog>
+
+                {/* Rename Email Button */}
+                <Button
+                  disabled={data?.role_profile === "Nirmaan Admin Profile"}
+                  variant="outline"
+                  className="flex gap-1 items-center"
+                  onClick={toggleRenameEmailDialog}
+                >
+                  <PenLine className="w-5 h-5" />
+                  <span className="max-md:hidden">Rename Email</span>
+                </Button>
+                <Dialog open={renameEmailDialog} onOpenChange={toggleRenameEmailDialog}>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Rename Email for <span className="text-primary">{data?.full_name}</span></DialogTitle>
+                    </DialogHeader>
+                    <DialogDescription>
+                      This will change the user's login email. The user will be logged out and must login with the new email.
+                    </DialogDescription>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="text-sm text-muted-foreground">Current Email</label>
+                        <input
+                          type="email"
+                          value={data?.email || ""}
+                          disabled
+                          className="w-full mt-1 p-2 border rounded-md bg-muted text-muted-foreground"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm">New Email</label>
+                        <input
+                          type="email"
+                          value={newEmail}
+                          onChange={(e) => setNewEmail(e.target.value.toLowerCase())}
+                          placeholder="new.email@example.com"
+                          className="w-full mt-1 p-2 border rounded-md"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2 items-end">
+                      {rename_loading ? <TailSpin color="red" height={40} width={40} /> : (
+                        <>
+                          <DialogClose asChild>
+                            <Button
+                              variant="secondary"
+                              className="flex items-center gap-1"
+                            >
+                              <Undo2 className="h-4 w-4" />
+                              Cancel
+                            </Button>
+                          </DialogClose>
+                          <Button
+                            disabled={!newEmail || newEmail === data?.email}
+                            onClick={() => handleRenameEmail(newEmail, toggleRenameEmailDialog)}
+                            className="flex items-center gap-1"
+                          >
+                            <PenLine className="h-4 w-4" />
+                            Rename
+                          </Button>
                         </>
                       )}
                     </div>

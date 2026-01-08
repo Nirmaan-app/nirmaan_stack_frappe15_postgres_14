@@ -135,6 +135,7 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.nirmaan_users.on_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
         ],
+        "after_rename": "nirmaan_stack.integrations.controllers.nirmaan_users.after_rename",
     },
     "User Permission": {
         "after_insert": [
