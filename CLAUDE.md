@@ -2,6 +2,26 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with the Nirmaan Stack backend.
 
+## IMPORTANT: Architecture Reference
+
+**Before creating or modifying any Python script, API endpoint, or doctype in this project:**
+
+1. **Read `BACKEND_ARCHITECTURE.md`** - Contains complete doctype mappings, API documentation, lifecycle hooks, and cross-doctype relationships
+2. **Read `IMPROVEMENT_CHECKLIST.md`** - Contains prioritized refactoring tasks and architectural decisions. Check if your change aligns with improvement goals or conflicts with planned refactors
+3. **Check existing patterns** - Follow established conventions for:
+   - API endpoints in `/api/` folder (organize by domain)
+   - Document lifecycle hooks in `/integrations/controllers/`
+   - Scheduled tasks in `/tasks/`
+   - Notification patterns using the three-tier system (Firebase, Nirmaan Notifications, Socket.IO)
+4. **Update documentation** - When adding new doctypes, APIs, or hooks, update `BACKEND_ARCHITECTURE.md` accordingly
+5. **Verify doctype dependencies** - Check the dependency graph before modifying linked doctypes
+
+### Key Architectural Decisions (from IMPROVEMENT_CHECKLIST.md)
+- **API naming**: Use snake_case (not hyphens)
+- **Lifecycle hooks**: Keep in `integrations/controllers/`, doctype files only for `autoname`/basic `validate`
+- **Large files**: Split files >500 lines into focused modules
+- **Shared logic**: Use base controllers for PR/PO/SR common patterns
+
 ## Project Overview
 
 This is a **Python-based Frappe Framework v15+ application** that serves as the backend for Nirmaan Stack - a comprehensive construction project management and procurement ERP system. The backend handles all business logic, data persistence, workflows, and API endpoints consumed by the React frontend.
