@@ -69,6 +69,7 @@ import { MilestoneTab } from "@/pages/Manpower-and-WorkMilestones/MilestoneTab";
 import { WorkHeaderMilestones } from "@/components/workHeaderMilestones";
 import MilestoneDailySummary from "@/pages/Manpower-and-WorkMilestones/MilestoneDailySummary";
 import { DeliveryChallansAndMirs } from "@/pages/DeliveryChallansAndMirs";
+import { TDSRepositoryMaster } from "@/pages/tds/TDSRepositoryMaster";
 // --- End component imports ---
 
 
@@ -476,6 +477,7 @@ export const appRoutes: RouteObject[] = [
           { path: "milestone-packages", element: <WorkHeaderMilestones /> },
           { path: "design-packages", element: <DesignPackages /> },
           { path: "critical-po-categories", element: <CriticalPOCategories /> },
+          { path: "tds-repository", element: <TDSRepositoryMaster /> },
 
           { path: "pdf", element: <PDF /> }, // Should PDF rendering be a route? Or triggered differently?
           { path: "milestone-update", element: <NewMilestones /> },

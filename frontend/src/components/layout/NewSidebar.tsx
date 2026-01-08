@@ -215,6 +215,7 @@ export function NewSidebar() {
             { key: "/product-packages", label: "Product Packages" },
             { key: "/milestone-packages", label: "Milestone Packages" },
             { key: "/design-packages", label: "Design Packages" },
+            { key: "/tds-repository", label: "TDS Repository" },
             ...(user_id == "Administrator" || role == "Nirmaan Project Lead Profile"
               ? [{ key: "/critical-po-categories", label: "Critical PO Categories" }]
               : []),
@@ -487,6 +488,7 @@ export function NewSidebar() {
     "product-packages",
     "milestone-packages",
     "design-packages",
+    "tds-repository",
     "critical-po-categories",
     "all-AQs",
     "item-price",
@@ -526,7 +528,7 @@ export function NewSidebar() {
 
 
   const groupMappings = useMemo(() => ({
-    "admin-actions": ["users", "products", "vendors", "customers", "product-packages", "milestone-packages", "design-packages", "critical-po-categories", "all-AQs"],
+    "admin-actions": ["users", "products", "vendors", "customers", "product-packages", "milestone-packages", "design-packages", "tds-repository", "critical-po-categories", "all-AQs"],
     // "admin-actions": ["users", "products", "vendors", "customers", "product-packages", "approved-quotes","vendors-aq2"],
     // "pl-actions": [
     //   "prs&milestones", "approve-po", "approve-sent-back",
