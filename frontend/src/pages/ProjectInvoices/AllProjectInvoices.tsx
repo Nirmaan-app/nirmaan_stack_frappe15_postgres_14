@@ -192,7 +192,7 @@ export const AllProjectInvoices: React.FC<{ projectId?: string; customerId?: str
     const isLoadingOverall = isDataLoading || isProjectsLoading || isCustomersLoading || isUsersLoading;
 
     return (
-        <div className="flex-1 space-y-4">
+         <div className="h-[calc(100vh-80px)] flex flex-col gap-2 overflow-hidden">
             {(isLoadingOverall && !projectInvoicesData?.length) ? (
                 <TableSkeleton />
             ) : (

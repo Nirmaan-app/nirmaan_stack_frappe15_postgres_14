@@ -1253,7 +1253,7 @@ export default function ApprovedQuotationsTable({
   // console.log("filteredSuggestions",filteredSuggestions)
 
   return (
-    <div className="h-[calc(100vh-80px)] flex flex-col gap-2 overflow-hidden">
+    <div className="h-[calc(100vh-80px)] flex flex-col gap-2 overflow-auto">
       {!productId ? (
         <div className="space-y-3">
           <div className="flex justify-between items-center">
@@ -1388,7 +1388,7 @@ export default function ApprovedQuotationsTable({
         columns={columns}
         isLoading={overallIsLoading}
         error={overallError}
-        totalCount={table.getFilteredRowModel().rows.length}
+        totalCount={totalCount}
         searchFieldOptions={AQ_SEARCHABLE_FIELDS}
         selectedSearchField={tableSelectedSearchField}
         onSelectedSearchFieldChange={setSelectedSearchField}

@@ -27,9 +27,13 @@ def get_facet_values_impl(
         meta = frappe.get_meta(doctype)
         field_meta = meta.get_field(field)
         
+        # Standard Frappe fields that don't have explicit field_meta but are valid for facets
+        STANDARD_FIELDS = ['owner', 'modified_by', 'creation', 'modified', 'docstatus', 'name']
+        is_standard_field = field in STANDARD_FIELDS
+        
         child_table_field_name = None
         child_doctype = None
-        if not field_meta:
+        if not field_meta and not is_standard_field:
             # Check child tables
             for df in meta.get_table_fields():
                 child_meta = frappe.get_meta(df.options)
@@ -39,7 +43,7 @@ def get_facet_values_impl(
                     child_doctype = df.options
                     break
         
-        if not field_meta: frappe.throw(_("Invalid field '{0}' for DocType '{1}'").format(field, doctype))
+        if not field_meta and not is_standard_field: frappe.throw(_("Invalid field '{0}' for DocType '{1}'").format(field, doctype))
         
         raw_filters = _parse_filters_input(filters, doctype)
         filtered_filters = [f for f in raw_filters if not (
@@ -49,6 +53,7 @@ def get_facet_values_impl(
         
         if search_term and current_search_fields:
             target_search_field = _parse_target_search_field(current_search_fields, doctype)
+            
             if target_search_field and target_search_field != field:
                 for token in search_term.split():
                     processed_filters.append([doctype, target_search_field, "like", f"%{token}%"])
@@ -69,6 +74,10 @@ def get_facet_values_impl(
             return result
         
         facet_values = []
+        
+        # Check if the field is a JSON field
+        is_json_field = field_meta.fieldtype == 'JSON' if field_meta else False
+        
         if child_doctype:
              sql = f"""
                 SELECT `tab{child_doctype}`.`{field}` as value, COUNT(*) as count 
@@ -82,6 +91,27 @@ def get_facet_values_impl(
                 LIMIT %(limit)s
             """
              results = frappe.db.sql(sql, {"names": tuple(matching_names), "parent_doctype": doctype, "limit": limit_int}, as_dict=True)
+        elif is_json_field:
+            # Special handling for JSON fields.
+            # Handles both top-level arrays and objects with a 'categories' key (standard in this app)
+            sql = f"""
+                SELECT value, COUNT(*) as count
+                FROM (
+                    SELECT jsonb_array_elements_text(
+                        CASE 
+                            WHEN jsonb_typeof("{field}"::jsonb) = 'array' THEN "{field}"::jsonb
+                            ELSE COALESCE("{field}"::jsonb->'categories', '[]'::jsonb)
+                        END
+                    ) as value
+                    FROM "tab{doctype}"
+                    WHERE name IN %(names)s
+                    AND "{field}" IS NOT NULL
+                ) as unnested
+                GROUP BY value
+                ORDER BY count DESC, value ASC
+                LIMIT %(limit)s
+            """
+            results = frappe.db.sql(sql, {"names": tuple(matching_names), "limit": limit_int}, as_dict=True)
         else:
             sql = f"SELECT `{field}` as value, COUNT(*) as count FROM `tab{doctype}` WHERE name IN %(names)s AND `{field}` IS NOT NULL AND `{field}` != '' GROUP BY `{field}` ORDER BY count DESC, `{field}` ASC LIMIT %(limit)s"
             results = frappe.db.sql(sql, {"names": tuple(matching_names), "limit": limit_int}, as_dict=True)
@@ -98,7 +128,7 @@ def get_facet_values_impl(
                         label = frappe.db.get_value(target_doctype, value, label_field) or value
                     except: pass
                 # Priority 2: Fallback to standard Frappe title field
-                elif field_meta.fieldtype == "Link":
+                elif field_meta and field_meta.fieldtype == "Link":
                     try:
                         link_meta = frappe.get_meta(field_meta.options)
                         title_field = link_meta.get_title_field()

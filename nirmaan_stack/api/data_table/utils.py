@@ -93,6 +93,47 @@ def _process_filters_for_query(filters_list: list, doctype: str) -> list:
                 if field_meta:
                     is_date_type = field_meta.fieldtype == "Date"
                     is_datetime_type = field_meta.fieldtype == "Datetime"
+                    if field_meta.fieldtype == "JSON":
+                        # Handle JSON field filtering (e.g. for multi-select facets stored as JSON array)
+                        # We pre-calculate matching names to avoid "json = unknown" errors in standard queries
+                        try:
+                            # Prepare values list
+                            json_values = []
+                            if isinstance(value, list): json_values = value
+                            elif isinstance(value, str) and value: json_values = [value]
+                            
+                            if json_values:
+                                # Use PostgreSQL jsonb operators
+                                # check if the JSON array contains ANY of the provided values
+                                # logic: exists (select 1 from tabDoc where jsonb_column ?| array['val1', 'val2'])
+                                # Use PostgreSQL jsonb operators
+                                # check if the JSON array contains ANY of the provided values
+                                
+                                # Use `?|` operator with a parameterized array which psycopg2 adapts from a list
+                                # Handles both top-level arrays and objects with a 'categories' key
+                                js_sql = f"""
+                                    SELECT name FROM "tab{original_filter_doctype}"
+                                    WHERE "{field}" IS NOT NULL 
+                                    AND (
+                                        CASE 
+                                            WHEN jsonb_typeof("{field}"::jsonb) = 'array' THEN "{field}"::jsonb
+                                            ELSE COALESCE("{field}"::jsonb->'categories', '[]'::jsonb)
+                                        END
+                                    ) ?| %s
+                                """
+                                matching_names = frappe.db.sql(js_sql, (json_values,), pluck=True)
+                                
+                                # Replace the filter with a name-in filter
+                                if matching_names:
+                                    processed_filters.append([original_filter_doctype, "name", "in", matching_names])
+                                else:
+                                    # No matches, so ensure no results
+                                    processed_filters.append([original_filter_doctype, "name", "=", "NoMatchFound_JSON_Filter"])
+                                
+                                filter_processed_correctly = True
+                        except Exception as e:
+                            print(f"Error processing JSON filter for {field}: {e}")
+
                     if field_meta.fieldtype == "Data" and operator in ["Timespan", "Is", "IsNot", "Between", "<=", ">="]:
                         if isinstance(value, str) and value.strip():
                             try:
@@ -188,11 +229,19 @@ def _parse_search_fields_input(search_fields_input: str | list[str] | None, doct
 
 def _parse_target_search_field(search_fields_input: str | None, doctype_for_log: str) -> str | None:
     if not search_fields_input or not isinstance(search_fields_input, str): return None
+    
+    # Try parsing as JSON list (old format)
     try:
         parsed_list = json.loads(search_fields_input)
         if isinstance(parsed_list, list) and len(parsed_list) == 1:
             return parsed_list[0]
     except: pass
+    
+    # Fallback: Treat as a direct field name if it's a non-empty string
+    stripped = search_fields_input.strip()
+    if stripped:
+        return stripped
+        
     return None
 
 def _build_safe_sql_expression(expression_obj: dict, meta) -> str:

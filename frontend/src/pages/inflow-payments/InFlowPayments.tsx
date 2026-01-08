@@ -385,7 +385,7 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
     }
 
     return (
-        <div className={`flex flex - col gap - 2 ${totalCount > 0 ? 'max-h-[calc(100vh-80px)] overflow-hidden' : ''} `}>
+        <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'max-h-[calc(100vh-80px)] overflow-hidden' : ''} `}>
             {isLoadingOverall ? (
                 <TableSkeleton />
             ) : (

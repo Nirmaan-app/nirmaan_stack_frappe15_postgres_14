@@ -114,6 +114,16 @@ export const useCredits = () => {
     enabled: true
   });
 
+  const { facetOptions: statusFacetOptions, isLoading: isStatusFacetLoading } = useFacetValues({
+    doctype: PO_PAYMENT_TERM_DOCTYPE,
+    field: 'term_status',
+    currentFilters: columnFilters,
+    searchTerm: tableProps.searchTerm,
+    selectedSearchField: tableProps.selectedSearchField,
+    additionalFilters: additionalFilters,
+    enabled: true
+  });
+
 
   // console.log("CreditsTable",data)
   const handleConfirmRequestPayment = useCallback(async () => {
@@ -176,8 +186,14 @@ export const useCredits = () => {
       dynamicOptions.vendor_name.isLoading = isVendorFacetLoading;
     }
 
+    // Populate status options
+    if (dynamicOptions.term_status) {
+      dynamicOptions.term_status.options = statusFacetOptions;
+      dynamicOptions.term_status.isLoading = isStatusFacetLoading;
+    }
+
     return dynamicOptions;
-  }, [projectFacetOptions, isProjectFacetLoading, vendorFacetOptions, isVendorFacetLoading]);
+  }, [projectFacetOptions, isProjectFacetLoading, vendorFacetOptions, isVendorFacetLoading, statusFacetOptions, isStatusFacetLoading]);
 
   // console.log("paymentTermStatusOptionsWithCounts", data);
 

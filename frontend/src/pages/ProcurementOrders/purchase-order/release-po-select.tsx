@@ -110,9 +110,7 @@ const PODataTableWrapper: React.FC<{
                 onSelectedSearchFieldChange={serverDataTable.setSelectedSearchField}
                 searchTerm={serverDataTable.searchTerm}
                 onSearchTermChange={serverDataTable.setSearchTerm}
-                onSearchTermChange={serverDataTable.setSearchTerm}
                 facetFilterOptions={dynamicFacetFilterOptions}
-                dateFilterColumns={dateColumns}
                 dateFilterColumns={dateColumns}
                 showExportButton={true}
                 onExport={'default'}

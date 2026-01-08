@@ -36,9 +36,11 @@ CHILD_TABLE_ITEM_SEARCH_MAP = {
 
 LINK_FIELD_MAP = {
     "project": {"doctype": "Projects", "label_field": "project_name"},
+    "projects": {"doctype": "Projects", "label_field": "project_name"},
     "vendor": {"doctype": "Vendors", "label_field": "vendor_name"},
-    "customer": {"doctype": "Customers", "label_field": "customer_name"},
+    "customer": {"doctype": "Customers", "label_field": "company_name"},
     "owner": {"doctype": "User", "label_field": "full_name"},
     "assigned_to": {"doctype": "User", "label_field": "full_name"},
     "created_by": {"doctype": "User", "label_field": "full_name"},
+    "modified_by": {"doctype": "User", "label_field": "full_name"},
 }

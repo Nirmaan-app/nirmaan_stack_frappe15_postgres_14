@@ -9,6 +9,7 @@ import {
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { facetedFilterFn } from "@/utils/tableFilters";
 import { PoPaymentTermRow } from "@/types/NirmaanStack/POPaymentTerms";
 import type { NavigateFunction } from "react-router-dom";
 import {
@@ -118,25 +119,18 @@ export const getCreditsColumns = (
     {
       // Badge -> Center Align
       accessorKey: "term_status",
-      header: ({ column }) => <div>Status</div>,
-      // header: ({ column }) => (
-      //     <div className="flex justify-end">
-      //         <DataTableColumnHeader column={column} title="Status" />
-      //     </div>
-      // ),
+      id: "`tabPO Payment Terms`.term_status",
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
       cell: ({ row }) => {
-        // 2. Get the status from the row
         const status = row.original.term_status as string;
-
-        // 3. Render the StatusBadge component in a centered div
         return (
           <div className="flex justify-start">
             <StatusBadge status={status} />
           </div>
         );
       },
-      // enableColumnFilter: true,
-      // filterFn: 'auto', // Keep this or let it default
+      enableColumnFilter: true,
+      filterFn: facetedFilterFn,
     },
 
     {
