@@ -113,7 +113,7 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
             const filters = JSON.stringify([
                 ["tds_item_id", "=", values.tds_item_id],
                 ["make", "=", values.make],
-                ["description", "=", values.item_description]
+                // ["description", "=", values.item_description]
             ]);
 
             const response = await fetch(`/api/resource/TDS Repository?fields=["name"]&filters=${encodeURIComponent(filters)}`);
@@ -254,24 +254,7 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                                 )}
                             />
 
-                            {/* Item Description */}
-                            <FormField
-                                control={form.control}
-                                name="item_description"
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel className="text-sm font-semibold flex items-center">
-                                            Item Description<span className="text-red-500 ml-0.5">*</span>
-                                        </FormLabel>
-                                        <FormControl>
-                                            <Input placeholder="Type Description" {...field} className="bg-white border-gray-200 focus:ring-1 focus:ring-gray-300 h-10" />
-                                        </FormControl>
-                                        <FormMessage className="text-xs" />
-                                    </FormItem>
-                                )}
-                            />
-
-                            {/* Make */}
+                             {/* Make */}
                             <FormField
                                 control={form.control}
                                 name="make"
@@ -294,6 +277,25 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                                     </FormItem>
                                 )}
                             />
+                            
+                            {/* Item Description */}
+                            <FormField
+                                control={form.control}
+                                name="item_description"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel className="text-sm font-semibold flex items-center">
+                                            Item Description<span className="text-red-500 ml-0.5">*</span>
+                                        </FormLabel>
+                                        <FormControl>
+                                            <Input placeholder="Type Description" {...field} className="bg-white border-gray-200 focus:ring-1 focus:ring-gray-300 h-10" />
+                                        </FormControl>
+                                        <FormMessage className="text-xs" />
+                                    </FormItem>
+                                )}
+                            />
+
+                            
 
                             {/* Attach Document */}
                             <div className="space-y-2">

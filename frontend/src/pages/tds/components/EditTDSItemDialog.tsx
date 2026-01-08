@@ -109,7 +109,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
             const filters = JSON.stringify([
                 ["tds_item_id", "=", values.tds_item_id],
                 ["make", "=", values.make],
-                ["description", "=", values.item_description],
+                // ["description", "=", values.item_description],
                 ["name", "!=", item.name] // Exclude current item
             ]);
 
@@ -244,22 +244,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                 )}
                             />
 
-                            {/* Item Description */}
-                            <FormField
-                                control={form.control}
-                                name="item_description"
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel className="text-sm font-semibold flex items-center">
-                                            Item Description<span className="text-red-500 ml-0.5">*</span>
-                                        </FormLabel>
-                                        <FormControl>
-                                            <Input placeholder="Type Description" {...field} className="bg-white border-gray-200 focus:ring-1 focus:ring-gray-300 h-10" />
-                                        </FormControl>
-                                        <FormMessage className="text-xs" />
-                                    </FormItem>
-                                )}
-                            />
+                           
 
                             {/* Make */}
                             <FormField
@@ -285,6 +270,22 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                 )}
                             />
 
+ {/* Item Description */}
+                            <FormField
+                                control={form.control}
+                                name="item_description"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel className="text-sm font-semibold flex items-center">
+                                            Item Description<span className="text-red-500 ml-0.5">*</span>
+                                        </FormLabel>
+                                        <FormControl>
+                                            <Input placeholder="Type Description" {...field} className="bg-white border-gray-200 focus:ring-1 focus:ring-gray-300 h-10" />
+                                        </FormControl>
+                                        <FormMessage className="text-xs" />
+                                    </FormItem>
+                                )}
+                            />
                             {/* Attach Document */}
                             <div className="space-y-2">
                                 <label className="text-sm font-semibold">
