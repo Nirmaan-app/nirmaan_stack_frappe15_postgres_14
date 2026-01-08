@@ -98,9 +98,36 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
         form.setValue("tds_item_id", "");
         form.setValue("make", "");
     }, [selectedCategory, form.setValue]);
+    
+    // Reset form when dialog closes
+    useEffect(() => {
+        if (!open) {
+            form.reset();
+            setSelectedFile(null);
+        }
+    }, [open, form]);
 
     const onSubmit = async (values: TDSItemValues) => {
+        // Duplicate Check using server API
         try {
+            const filters = JSON.stringify([
+                ["tds_item_id", "=", values.tds_item_id],
+                ["make", "=", values.make],
+                ["description", "=", values.item_description]
+            ]);
+
+            const response = await fetch(`/api/resource/TDS Repository?fields=["name"]&filters=${encodeURIComponent(filters)}`);
+            const data = await response.json();
+
+            if (data.data && data.data.length > 0) {
+                toast({
+                    title: "Duplicate Entry",
+                    description: "This TDS Item ID, Make, and Description combination already exists.",
+                    variant: "destructive"
+                });
+                return;
+            }
+
             // 1. Create the Doc
             const newDoc = await createDoc("TDS Repository", {
                 work_package: values.work_package,

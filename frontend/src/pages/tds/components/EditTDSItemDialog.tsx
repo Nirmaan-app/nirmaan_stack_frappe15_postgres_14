@@ -104,7 +104,27 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
     const onSubmit = async (values: TDSItemValues) => {
         if (!item) return;
 
+        // Duplicate Check using server API
         try {
+            const filters = JSON.stringify([
+                ["tds_item_id", "=", values.tds_item_id],
+                ["make", "=", values.make],
+                ["description", "=", values.item_description],
+                ["name", "!=", item.name] // Exclude current item
+            ]);
+
+            const response = await fetch(`/api/resource/TDS Repository?fields=["name"]&filters=${encodeURIComponent(filters)}`);
+            const data = await response.json();
+
+            if (data.data && data.data.length > 0) {
+                toast({
+                    title: "Duplicate Entry",
+                    description: "This TDS Item ID, Make, and Description combination already exists.",
+                    variant: "destructive"
+                });
+                return;
+            }
+
             await updateDoc("TDS Repository", item.name, {
                 work_package: values.work_package,
                 category: values.category,
@@ -167,6 +187,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                                 placeholder="Select Work Package"
                                                 className="react-select-container"
                                                 classNamePrefix="react-select"
+                                                isDisabled={true}
                                             />
                                         </FormControl>
                                         <FormMessage className="text-xs" />
@@ -191,6 +212,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                                 placeholder="Select product category"
                                                 className="react-select-container"
                                                 classNamePrefix="react-select"
+                                                isDisabled={true}
                                             />
                                         </FormControl>
                                         <FormMessage className="text-xs" />
