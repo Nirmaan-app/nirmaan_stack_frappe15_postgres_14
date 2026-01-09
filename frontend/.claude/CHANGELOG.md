@@ -19,6 +19,38 @@ Added route-level access control to restrict `/users` and `/users/:userId` pages
 **Routing:**
 - `src/components/helpers/routesConfig.tsx` - Wrapped users routes with new guards
 
+### Bug Fix: Own Profile Access for Non-Authorized Roles
+
+**Issue:** Non-authorized users (e.g., Project Manager) could not access their own profile at `/users/:userId` even though `UserProfileRoute` allowed it.
+
+**Root Cause:** `UserProfileRoute` was nested inside `UsersRoute`, so React Router evaluated `UsersRoute` first, which blocked non-authorized users before `UserProfileRoute` could check for own profile.
+
+**Fix:** Restructured routes so `UserProfileRoute` is a sibling, not a child of `UsersRoute`:
+```tsx
+{
+  path: "users",
+  children: [
+    // UsersRoute guards only list and new-user
+    {
+      element: <UsersRoute />,
+      children: [
+        { index: true, element: <Users /> },
+        { path: "new-user", element: <UserForm /> },
+      ],
+    },
+    // UserProfileRoute guards profile routes independently
+    {
+      path: ":userId",
+      element: <UserProfileRoute />,
+      children: [
+        { index: true, element: <Profile /> },
+        { path: "edit", element: <EditUserForm /> },
+      ],
+    },
+  ],
+}
+```
+
 ### Access Control Pattern
 
 ```tsx

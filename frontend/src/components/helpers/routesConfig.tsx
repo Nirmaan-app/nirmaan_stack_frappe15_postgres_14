@@ -356,10 +356,16 @@ export const appRoutes: RouteObject[] = [
           // --- Users Section ---
           {
             path: "users",
-            element: <UsersRoute />,
             children: [
-              { index: true, element: <Users /> },
-              { path: "new-user", element: <UserForm /> },
+              // UsersRoute guards only list and new-user (Admin/PMO/HR only)
+              {
+                element: <UsersRoute />,
+                children: [
+                  { index: true, element: <Users /> },
+                  { path: "new-user", element: <UserForm /> },
+                ],
+              },
+              // UserProfileRoute guards profile routes independently (Admin/PMO/HR OR own profile)
               {
                 path: ":userId",
                 element: <UserProfileRoute />,
