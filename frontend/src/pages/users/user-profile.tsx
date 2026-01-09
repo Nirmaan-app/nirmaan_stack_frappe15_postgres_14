@@ -24,6 +24,16 @@ import {
   UserProjectsTab,
 } from "./components";
 
+// Roles that have access to all projects (no assignment required)
+const PROJECT_EXEMPT_ROLES = [
+  "Nirmaan Admin Profile",
+  "Nirmaan PMO Executive Profile",
+  "Nirmaan HR Executive Profile",
+  "Nirmaan Accountant Profile",
+  "Nirmaan Estimates Executive Profile",
+  "Nirmaan Design Lead Profile",
+];
+
 export default function Profile() {
   const { userId: id } = useParams<{ userId: string }>();
 
@@ -149,6 +159,9 @@ export default function Profile() {
     return <AlertDestructive error={new Error("User not found")} />;
   }
 
+  // Check if viewed user's role is exempt from project assignment
+  const isProjectExemptRole = PROJECT_EXEMPT_ROLES.includes(data.role_profile || "");
+
   return (
     <div className="flex-1 space-y-4">
       {/* Header */}
@@ -177,54 +190,62 @@ export default function Profile() {
         )}
       </div>
 
-      {/* Tabs */}
-      <Tabs defaultValue="overview" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 max-w-xs">
-          <TabsTrigger value="overview" className="gap-2">
-            <User className="h-4 w-4" />
-            <span className="max-sm:hidden">Overview</span>
-          </TabsTrigger>
-          <TabsTrigger value="projects" className="gap-2">
-            <FolderKanban className="h-4 w-4" />
-            <span className="max-sm:hidden">Projects</span>
-            <span className="ml-1 text-xs font-semibold text-muted-foreground">
-              {projectCount}
-            </span>
-          </TabsTrigger>
-        </TabsList>
+      {/* Tabs - Only show Projects tab for roles that require project assignment */}
+      {isProjectExemptRole ? (
+        // Single tab layout for project-exempt roles
+        <div className="mt-6">
+          <UserOverviewTab user={data} showProjectStats={false} />
+        </div>
+      ) : (
+        // Full tabs layout for roles that require project assignment
+        <Tabs defaultValue="overview" className="w-full">
+          <TabsList className="grid w-full grid-cols-2 max-w-xs">
+            <TabsTrigger value="overview" className="gap-2">
+              <User className="h-4 w-4" />
+              <span className="max-sm:hidden">Overview</span>
+            </TabsTrigger>
+            <TabsTrigger value="projects" className="gap-2">
+              <FolderKanban className="h-4 w-4" />
+              <span className="max-sm:hidden">Projects</span>
+              <span className="ml-1 text-xs font-semibold text-muted-foreground">
+                {projectCount}
+              </span>
+            </TabsTrigger>
+          </TabsList>
 
-        <TabsContent value="overview" className="mt-6">
-          <UserOverviewTab user={data} projectCount={projectCount} />
-        </TabsContent>
+          <TabsContent value="overview" className="mt-6">
+            <UserOverviewTab user={data} projectCount={projectCount} showProjectStats={true} />
+          </TabsContent>
 
-        <TabsContent value="projects" className="mt-6">
-          {isAdmin ? (
-            <UserProjectsTab
-              user={data}
-              permissionList={permission_list}
-              projectList={project_list}
-              addressData={addressData}
-              isAdmin={isAdmin}
-              onAssignProject={handleSubmit}
-              onDeleteProject={handleDeleteProject}
-              createLoading={create_loading}
-              deleteLoading={delete_loading}
-            />
-          ) : (
-            <UserProjectsTab
-              user={data}
-              permissionList={permission_list}
-              projectList={project_list}
-              addressData={addressData}
-              isAdmin={false}
-              onAssignProject={() => {}}
-              onDeleteProject={() => {}}
-              createLoading={false}
-              deleteLoading={false}
-            />
-          )}
-        </TabsContent>
-      </Tabs>
+          <TabsContent value="projects" className="mt-6">
+            {isAdmin ? (
+              <UserProjectsTab
+                user={data}
+                permissionList={permission_list}
+                projectList={project_list}
+                addressData={addressData}
+                isAdmin={isAdmin}
+                onAssignProject={handleSubmit}
+                onDeleteProject={handleDeleteProject}
+                createLoading={create_loading}
+                deleteLoading={delete_loading}
+              />
+            ) : (
+              <UserProjectsTab
+                user={data}
+                permissionList={permission_list}
+                projectList={project_list}
+                addressData={addressData}
+                isAdmin={false}
+                onAssignProject={() => {}}
+                onDeleteProject={() => {}}
+                createLoading={false}
+                deleteLoading={false}
+              />
+            )}
+          </TabsContent>
+        </Tabs>
+      )}
     </div>
   );
 }

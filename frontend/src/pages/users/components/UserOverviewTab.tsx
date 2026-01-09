@@ -22,7 +22,8 @@ import { cn } from "@/lib/utils";
 
 interface UserOverviewTabProps {
   user: NirmaanUsers;
-  projectCount: number;
+  projectCount?: number;
+  showProjectStats?: boolean;
 }
 
 interface StatCardProps {
@@ -85,28 +86,36 @@ function InfoItem({
   );
 }
 
-export function UserOverviewTab({ user, projectCount }: UserOverviewTabProps) {
+export function UserOverviewTab({ user, projectCount = 0, showProjectStats = true }: UserOverviewTabProps) {
   const colors = getRoleColors(user.role_profile);
 
-  const stats = useMemo(() => [
-    {
-      icon: <FolderKanban className="h-5 w-5" />,
-      label: "Assigned Projects",
-      value: projectCount,
-      description: "Active project assignments",
-      colorClass: "text-blue-600",
-    },
-    {
-      icon: <Clock className="h-5 w-5" />,
-      label: "Days Active",
-      value: Math.floor(
-        (new Date().getTime() - new Date(user.creation).getTime()) /
-        (1000 * 60 * 60 * 24)
-      ),
-      description: `Since ${formatDate(user.creation)}`,
-      colorClass: "text-purple-600",
-    },
-  ], [projectCount, user.creation]);
+  const stats = useMemo(() => {
+    const baseStats = [
+      {
+        icon: <Clock className="h-5 w-5" />,
+        label: "Days Active",
+        value: Math.floor(
+          (new Date().getTime() - new Date(user.creation).getTime()) /
+          (1000 * 60 * 60 * 24)
+        ),
+        description: `Since ${formatDate(user.creation)}`,
+        colorClass: "text-purple-600",
+      },
+    ];
+
+    // Only include project stats for roles that require project assignment
+    if (showProjectStats) {
+      baseStats.unshift({
+        icon: <FolderKanban className="h-5 w-5" />,
+        label: "Assigned Projects",
+        value: projectCount,
+        description: "Active project assignments",
+        colorClass: "text-blue-600",
+      });
+    }
+
+    return baseStats;
+  }, [projectCount, user.creation, showProjectStats]);
 
   return (
     <div className="space-y-6">
@@ -161,7 +170,10 @@ export function UserOverviewTab({ user, projectCount }: UserOverviewTabProps) {
         <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-4">
           Overview
         </h3>
-        <div className="grid grid-cols-2 gap-4">
+        <div className={cn(
+          "grid gap-4",
+          stats.length === 1 ? "grid-cols-1 max-w-sm" : "grid-cols-2"
+        )}>
           {stats.map((stat) => (
             <StatCard key={stat.label} {...stat} />
           ))}
