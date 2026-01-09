@@ -4,6 +4,75 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-09: Header/Sidebar Alignment Fix & Mobile Menu
+
+### Summary
+Fixed visual misalignment between sidebar header and main layout topbar. Added minimal mobile menu trigger.
+
+### Files Modified
+
+**Sidebar Header (`src/components/layout/NewSidebar.tsx:603`):**
+- Set fixed height `h-14 min-h-[56px]` matching main layout header
+- Changed flex layout from `flex-col` to `flex-row items-center justify-between`
+- Added `border-b border-border/40` for consistent border line
+- Removed separate `<Separator />` component
+- SidebarTrigger centers (`mx-auto`) when sidebar collapsed
+
+**Main Layout (`src/components/layout/main-layout.tsx`):**
+- Removed duplicate absolute-positioned mobile SidebarTrigger
+- Added minimal inline mobile menu trigger (`w-5` width, `h-4 w-4` icon)
+- Trigger only visible on mobile with muted styling
+
+### Visual Result
+- Sidebar and main layout header borders now align horizontally
+- Mobile view has compact hamburger icon on left edge of topbar
+- Cleaner visual separation between header and content
+
+---
+
+## 2026-01-09: Asset Management Module
+
+### Summary
+Complete frontend module for managing company assets including categories, asset master records, assignments, and declarations.
+
+### Files Created
+
+**Main Pages:**
+- `src/pages/Assets/AssetsPage.tsx` - Main page with tabs:
+  - Assets tab: Sub-tabs for All/Assigned/Unassigned/Pending Declaration
+  - Categories tab: Manage asset categories
+- `src/pages/Assets/AssetOverview.tsx` - Individual asset detail/edit page
+
+**Components (`src/pages/Assets/components/`):**
+- `AssetCategoriesList.tsx` - Category management table
+- `AssetMasterList.tsx` - All assets table with filters
+- `AssignedAssetsList.tsx` - Currently assigned assets view
+- `UnassignedAssetsList.tsx` - Available assets view
+- `PendingActionsList.tsx` - Assets pending declaration upload
+- `AssetsSummaryCard.tsx` - Stats card showing asset counts
+- `AddAssetCategoryDialog.tsx` - Create new category
+- `AddAssetDialog.tsx` - Create new asset
+- `AssignAssetDialog.tsx` - Assign asset to user
+- `UnassignAssetDialog.tsx` - Remove assignment
+
+**Constants:**
+- `src/pages/Assets/assets.constants.ts` - Doctype names, field definitions, search configs
+
+### Doctypes Used
+- `Asset Category` - Asset classification
+- `Asset Master` - Individual asset records
+- `Asset Management` - Assignment records linking assets to users
+
+### Routing
+- `/asset-management` - Main assets page
+- `/asset-management/:assetId` - Asset detail/overview page
+
+### Access Control
+- Sidebar: Admin, PMO Executive, HR Executive
+- All actions require one of these roles
+
+---
+
 ## 2026-01-09: Accountant Role Enhancements
 
 ### Summary

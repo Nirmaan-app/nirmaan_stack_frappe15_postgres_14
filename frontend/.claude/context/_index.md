@@ -10,6 +10,12 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 |------|--------|--------------|
 | [role-access.md](./role-access.md) | Access Control | Role checks, sidebar visibility, page permissions |
 
+### Module References (in-code)
+
+| Module | Location | Key Files |
+|--------|----------|-----------|
+| Assets | `src/pages/Assets/` | `assets.constants.ts` for doctypes/fields |
+
 ---
 
 ## Quick Reference

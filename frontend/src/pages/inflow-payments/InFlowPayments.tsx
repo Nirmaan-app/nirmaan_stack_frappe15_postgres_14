@@ -24,8 +24,6 @@ import {
     AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
 } from "@/components/ui/alert-dialog"; // NEW: For delete confirmation
 import { useToast } from "@/components/ui/use-toast"; // NEW
-// MODIFIED: Import Card components and a spinner
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { TailSpin } from 'react-loader-spinner';
 
 // --- Hooks & Utils ---
@@ -53,6 +51,7 @@ import { useDialogStore } from "@/zustand/useDialogStore"; // NEW
 // --- Child Component (Dialog for new inflow) ---
 import { NewInflowPayment } from "./components/NewInflowPayment";
 import { EditInflowPayment } from "./components/EditInflowPayment"; // NEW
+import { InflowSummaryCard } from "./components/InflowSummaryCard";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { useUserData } from "@/hooks/useUserData";
 
@@ -67,7 +66,7 @@ interface InFlowPaymentsProps {
 
 // interface SelectOption { label: string; value: string; }
 
-// NEW: Configuration for the summary card aggregations
+// Configuration for the summary card aggregations
 const INFLOW_AGGREGATES_CONFIG: AggregationConfig[] = [
     { field: 'amount', function: 'sum' }
 ];
@@ -276,12 +275,13 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
                 excludeFromExport: true, // Exclude from export
             }
         },// --- NEW: Actions Column ---
-        ...((role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile") ? [
+        ...((role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || role === "Nirmaan Accountant Profile") ? [
             {
                 id: "actions",
                 header: () => <div >Actions</div>,
                 cell: ({ row }: { row: any }) => {
                     const inflow = row.original;
+                    const canDelete = role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile";
                     return (
                         <div>
                             <DropdownMenu>
@@ -295,13 +295,17 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
                                     <DropdownMenuItem onClick={() => handleOpenEditDialog(inflow)}>
                                         <Edit2 className="mr-2 h-4 w-4" /> Edit
                                     </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                        onClick={() => handleOpenDeleteConfirmation(inflow)}
-                                        className="text-destructive focus:text-destructive focus:bg-destructive/10"
-                                    >
-                                        <Trash2 className="mr-2 h-4 w-4" /> Delete
-                                    </DropdownMenuItem>
+                                    {canDelete && (
+                                        <>
+                                            <DropdownMenuSeparator />
+                                            <DropdownMenuItem
+                                                onClick={() => handleOpenDeleteConfirmation(inflow)}
+                                                className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                                            >
+                                                <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                            </DropdownMenuItem>
+                                        </>
+                                    )}
                                 </DropdownMenuContent>
                             </DropdownMenu>
                         </div>
@@ -313,7 +317,7 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
             }
         ] : []),
         // --- End Actions Column ---
-    ], [getProjectName, getCustomerName, projectId, customerId, handleOpenEditDialog, handleOpenDeleteConfirmation]); // Added new handlers to dependencies
+    ], [getProjectName, getCustomerName, projectId, customerId, handleOpenEditDialog, handleOpenDeleteConfirmation, role]);
 
     // --- Use the Server Data Table Hook (MOVED UP) ---
     const {
@@ -412,7 +416,6 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
                     //         </Button>
                     //     )
                     // }
-                    // NEW: Pass the fully constructed summary card as a prop
                     summaryCard={
                         <Card>
                             <CardHeader className="p-4">

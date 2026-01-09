@@ -112,3 +112,27 @@ export const UserProfileRoute = () => {
         </div>
     )
 }
+
+export const InflowPaymentsRoute = () => {
+    const { role, user_id } = useUserData()
+
+    const canAccessInflowPayments =
+        role === "Nirmaan Admin Profile" ||
+        role === "Nirmaan PMO Executive Profile" ||
+        role === "Nirmaan Accountant Profile" ||
+        role === "Nirmaan Project Lead Profile" ||
+        user_id === "Administrator"
+
+    if (canAccessInflowPayments) {
+        return <Outlet />
+    }
+
+    return (
+        <div className="flex items-center justify-center h-[50vh]">
+            <div className="text-center">
+                <h2 className="text-xl font-semibold text-gray-800">Access Denied</h2>
+                <p className="text-gray-600 mt-2">You don't have permission to access In-Flow Payments.</p>
+            </div>
+        </div>
+    )
+}

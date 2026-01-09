@@ -53,7 +53,7 @@ import CreditsPage from "@/pages/credits/CreditsPage";
 //---New Vendors-AQ2 Page
 import VendorsAQ2 from "@/pages/vendors-wp-categories/vendors-aq2";
 import WorkPackages from "@/pages/work-packages";
-import { ProtectedRoute, UsersRoute, UserProfileRoute } from "@/utils/auth/ProtectedRoute";
+import { ProtectedRoute, UsersRoute, UserProfileRoute, InflowPaymentsRoute } from "@/utils/auth/ProtectedRoute";
 import { ProjectManager } from "../layout/dashboards/dashboard-pm";
 import InvoiceReconciliationContainer from "@/pages/tasks/invoices/InvoiceReconciliationContainer";
 import { NewProcurementRequestPage } from "@/pages/ProcurementRequests/NewPR/NewProcurementRequestPage";
@@ -349,6 +349,7 @@ export const appRoutes: RouteObject[] = [
           },
           {
             path: "in-flow-payments",
+            element: <InflowPaymentsRoute />,
             children: [
               { index: true, element: <InFlowPayments /> },
             ]
