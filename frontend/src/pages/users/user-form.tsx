@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk"
+import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
@@ -9,7 +9,7 @@ import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
 import { ButtonLoading } from "@/components/ui/button-loading"
 import { useNavigate } from "react-router-dom"
-import { ArrowLeft, ListChecks } from "lucide-react"
+import { ListChecks } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 
 const UserFormSchema = z.object({
@@ -76,34 +76,74 @@ export const UserForm = () => {
         mode: "onBlur",
     })
 
-    const { createDoc: createDoc, loading: loading } = useFrappeCreateDoc()
+    const { call: createUser, loading } = useFrappePostCall("nirmaan_stack.api.users.create_user")
 
     const { toast } = useToast()
 
     const onSubmit = async (values: UserFormValues) => {
         try {
-            const userDoc = await createDoc("User", values);
-            toast({
-                title: "Success",
-                description: `${userDoc.full_name} created successfully!`,
-                variant: "success"
-            })
-            form.reset({
-                first_name: "",
-                last_name: "",
-                mobile_no: "",
-                email: "",
-                role_profile_name: "Select the Role",
-            });
-            navigate("/users")
+            const response = await createUser(values);
+            const result = response.message;
+
+            if (result?.success) {
+                // Show appropriate toast based on email status
+                if (result.email_sent) {
+                    toast({
+                        title: "Success",
+                        description: result.message,
+                        variant: "success"
+                    });
+                } else {
+                    // User created but email failed - show warning with longer duration
+                    toast({
+                        title: "User Created (Email Not Sent)",
+                        description: result.message,
+                        variant: "default",
+                        duration: 8000  // Show longer for important warning
+                    });
+                }
+
+                form.reset({
+                    first_name: "",
+                    last_name: "",
+                    mobile_no: "",
+                    email: "",
+                    role_profile_name: "Select the Role",
+                });
+                navigate("/users");
+            } else {
+                // API returned success: false
+                toast({
+                    title: "Error",
+                    description: result?.message || "Failed to create user",
+                    variant: "destructive"
+                });
+            }
         } catch (error: any) {
+            // Parse Frappe error format
+            let errorMessage = "Failed to create user";
+            if (error?.message) {
+                errorMessage = error.message;
+            } else if (error?._server_messages) {
+                try {
+                    const serverMessages = JSON.parse(error._server_messages);
+                    if (Array.isArray(serverMessages) && serverMessages.length > 0) {
+                        const firstMessage = JSON.parse(serverMessages[0]);
+                        errorMessage = firstMessage?.message || errorMessage;
+                    }
+                } catch {
+                    // If parsing fails, use default message
+                }
+            } else if (error?.exc_type) {
+                errorMessage = `${error.exc_type}: ${error.message || "Unknown error"}`;
+            }
+
             toast({
                 title: "Error",
-                description: `${error?._debug_messages}`,
+                description: errorMessage,
                 variant: "destructive"
-            })
-
-            console.log("error", error)
+            });
+            console.error("User creation error:", error);
         }
     }
 

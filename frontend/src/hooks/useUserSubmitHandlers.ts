@@ -130,16 +130,38 @@ export const useUserSubmitHandlers = (data: NirmaanUsers | undefined, permission
 
   const handlePasswordReset = async (toggleResetPasswordDialog: () => void) => {
     try {
-      await call.post("frappe.core.doctype.user.user.reset_password", {
+      const response = await call.post("nirmaan_stack.api.users.reset_password", {
         user: data?.name
       });
-      showToast(
-        toast,
-        "success",
-        TOAST_MESSAGES.SUCCESS,
-        "Password reset email has been sent to the user"
-      );
-      toggleResetPasswordDialog()
+      const result = response.message;
+
+      if (result?.success) {
+        if (result.email_sent) {
+          showToast(
+            toast,
+            "success",
+            TOAST_MESSAGES.SUCCESS,
+            result.message
+          );
+        } else {
+          // Reset link generated but email failed - show warning
+          showToast(
+            toast,
+            "destructive",
+            "Email Not Sent",
+            result.message
+          );
+        }
+      } else {
+        // API returned success: false (shouldn't happen with new logic)
+        showToast(
+          toast,
+          "destructive",
+          TOAST_MESSAGES.ERROR,
+          result?.message || "Failed to reset password"
+        );
+      }
+      toggleResetPasswordDialog();
     } catch (error) {
       handleError(
         error,

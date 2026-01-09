@@ -82,6 +82,7 @@ nirmaan_stack/
 3. **Socket.IO:** Call `frappe.db.commit()` BEFORE `publish_realtime()` to avoid race conditions
 4. **Administrator user:** Has non-email name "Administrator" - handle explicitly in rename/delete
 5. **Link vs Data fields:** `rename_doc()` only updates Link fields, Data fields need manual SQL
+6. **Email configuration:** User creation/password reset can fail due to email server misconfiguration (encryption key issues). Use `api/users.create_user` and `api/users.reset_password` which separate email sending from the critical operation
 
 ---
 

@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useContext } from "react";
 import { useNavigate } from "react-router-dom";
-import { useFrappeDeleteDoc, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeDeleteDoc, FrappeContext, FrappeConfig } from "frappe-react-sdk";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -43,7 +43,7 @@ export function UserRowActions({ user }: UserRowActionsProps) {
   const [isResetting, setIsResetting] = useState(false);
 
   const { deleteDoc } = useFrappeDeleteDoc();
-  const { call: resetPassword } = useFrappePostCall("frappe.core.doctype.user.user.reset_password");
+  const { call } = useContext(FrappeContext) as FrappeConfig;
 
   const handleViewProfile = () => {
     navigate(`/users/${user.name}`);
@@ -52,12 +52,34 @@ export function UserRowActions({ user }: UserRowActionsProps) {
   const handleResetPassword = async () => {
     try {
       setIsResetting(true);
-      await resetPassword({ user: user.name });
-      toast({
-        title: "Password Reset Email Sent",
-        description: `A password reset email has been sent to ${user.email}`,
-        variant: "success",
+      const response = await call.post("nirmaan_stack.api.users.reset_password", {
+        user: user.name
       });
+      const result = response.message;
+
+      if (result?.success) {
+        if (result.email_sent) {
+          toast({
+            title: "Password Reset Email Sent",
+            description: result.message,
+            variant: "success",
+          });
+        } else {
+          // Reset link generated but email failed - show warning
+          toast({
+            title: "Email Not Sent",
+            description: result.message,
+            variant: "destructive",
+          });
+        }
+      } else {
+        // API returned success: false (shouldn't happen with new logic)
+        toast({
+          title: "Error",
+          description: result?.message || "Failed to reset password",
+          variant: "destructive",
+        });
+      }
       setResetPasswordDialogOpen(false);
     } catch (error: any) {
       toast({
