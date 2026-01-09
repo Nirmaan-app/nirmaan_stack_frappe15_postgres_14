@@ -39,7 +39,6 @@ def execute():
             "user_permissions_deleted": 0,
             "nirmaan_permissions_deleted": 0,
             "users_updated": 0,
-            "users_already_no_project": 0,
             "errors": []
         }
 
@@ -82,20 +81,16 @@ def execute():
                     stats["nirmaan_permissions_deleted"] += 1
                     print(f"  - Deleted Nirmaan User Permission: {perm.for_value}")
 
-                # Step 4: Update has_project flag
-                if user_record.has_project == "true":
-                    frappe.db.set_value(
-                        "Nirmaan Users",
-                        user_name,
-                        "has_project",
-                        "false",
-                        update_modified=False
-                    )
-                    stats["users_updated"] += 1
-                    print(f"  - Set has_project = 'false'")
-                else:
-                    stats["users_already_no_project"] += 1
-                    print(f"  - has_project already 'false'")
+                # Step 4: Always set has_project to "false" for all Accountants
+                frappe.db.set_value(
+                    "Nirmaan Users",
+                    user_name,
+                    "has_project",
+                    "false",
+                    update_modified=False
+                )
+                stats["users_updated"] += 1
+                print(f"  - Set has_project = 'false'")
 
             except Exception as e:
                 error_msg = f"Error processing {user_name}: {str(e)}"
@@ -112,8 +107,7 @@ def execute():
         print(f"Total Accountant Users Processed: {total_accountants}")
         print(f"User Permissions Deleted: {stats['user_permissions_deleted']}")
         print(f"Nirmaan User Permissions Deleted: {stats['nirmaan_permissions_deleted']}")
-        print(f"Users Updated (has_project set to false): {stats['users_updated']}")
-        print(f"Users Already Without Projects: {stats['users_already_no_project']}")
+        print(f"Users Updated (has_project cleared): {stats['users_updated']}")
 
         if stats["errors"]:
             print(f"\nErrors Encountered: {len(stats['errors'])}")

@@ -141,6 +141,10 @@ export const PurchaseOrder = ({
     () => userData?.role === "Nirmaan Estimates Executive Profile",
     [userData?.role]
   );
+  const isAccountant = useMemo(
+    () => userData?.role === "Nirmaan Accountant Profile",
+    [userData?.role]
+  );
 
   const navigate = useNavigate();
   const params = useParams();
@@ -1042,11 +1046,12 @@ export const PurchaseOrder = ({
       !accountsPage &&
       PO?.custom != "true" &&
       !estimatesViewing &&
+      !isAccountant &&
       PO?.status === "PO Approved" &&
       PO?.merged !== "true" &&
       !((poPayments || [])?.length > 0) &&
       mergeablePOs.length > 0,
-    [PO, mergeablePOs, poPayments, summaryPage, accountsPage, estimatesViewing]
+    [PO, mergeablePOs, poPayments, summaryPage, accountsPage, estimatesViewing, isAccountant]
   );
 
   const CANCELPOVALIDATION = useMemo(
@@ -1055,10 +1060,11 @@ export const PurchaseOrder = ({
       !accountsPage &&
       !PO?.custom &&
       !estimatesViewing &&
+      !isAccountant &&
       ["PO Approved"].includes(PO?.status) &&
       !((poPayments || []).length > 0) &&
       PO?.merged !== "true",
-    [PO, poPayments, summaryPage, accountsPage, estimatesViewing]
+    [PO, poPayments, summaryPage, accountsPage, estimatesViewing, isAccountant]
   );
 
   const totalInvoiceAmount = useMemo(
@@ -1088,15 +1094,10 @@ export const PurchaseOrder = ({
       !summaryPage &&
       !accountsPage &&
       !estimatesViewing &&
+      !isAccountant &&
       ["PO Approved"].includes(PO?.status) &&
-      PO?.merged !== "true" && [
-        // !((poPayments || [])?.length > 0),
-        PO,
-        poPayments,
-        summaryPage,
-        accountsPage,
-        estimatesViewing,
-      ]
+      PO?.merged !== "true",
+    [PO, poPayments, summaryPage, accountsPage, estimatesViewing, isAccountant]
   );
 
   const UNMERGEPOVALIDATIONS = useMemo(
@@ -1105,8 +1106,9 @@ export const PurchaseOrder = ({
       !accountsPage &&
       !PO?.custom &&
       !estimatesViewing &&
+      !isAccountant &&
       PO?.merged === "true",
-    [PO, summaryPage, accountsPage, estimatesViewing]
+    [PO, summaryPage, accountsPage, estimatesViewing, isAccountant]
   );
 
   if (isRedirecting) {

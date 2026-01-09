@@ -488,7 +488,8 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 )} */}
 
                 {/* Add Invoice Button */}
-                {po?.status !== "PO Approved" && po?.status !== "Inactive" && (
+                {po?.status !== "PO Approved" && po?.status !== "Inactive" &&
+                  role !== "Nirmaan Accountant Profile" && (
                   <Button
                     variant="outline"
                     className="text-primary border-primary shrink-0"

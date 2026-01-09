@@ -54,7 +54,7 @@ export default function Dashboard() {
         <>
 
             {(role === 'Nirmaan Admin Profile' || role === 'Nirmaan PMO Executive Profile') && <DefaultDashboard />}
-            {(has_project === "false" && !["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Design Lead Profile", "Nirmaan Design Executive Profile", "Nirmaan HR Executive Profile"].includes(role)) ?
+            {(has_project === "false" && !["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Design Lead Profile", "Nirmaan Design Executive Profile", "Nirmaan HR Executive Profile", "Nirmaan Accountant Profile"].includes(role)) ?
                 <Alert className="flex flex-col max-md:w-[80%] max-lg:w-[60%] w-[50%] mx-auto justify-center max-md:mt-[40%] mt-[20%]">
                     <div className="flex gap-2 items-center">
                         <RocketIcon className="h-4 w-4" />

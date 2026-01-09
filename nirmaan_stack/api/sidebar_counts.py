@@ -8,15 +8,22 @@ def sidebar_counts(user: str) -> str:
     This version uses the original flow of fetching documents and looping through them,
     with corrected logic for accessing child tables.
     """
-    is_admin = user == "Administrator" or frappe.get_value("Nirmaan Users", user, "role_profile") == "Nirmaan Admin Profile"
-    user_projects = [] if is_admin else _get_projects(user)
+    # Roles that have full access without project filtering
+    full_access_roles = [
+        "Nirmaan Admin Profile",
+        "Nirmaan PMO Executive Profile",
+        "Nirmaan Accountant Profile",  # Accountants need access to all projects for financial operations
+    ]
+    user_role = frappe.get_value("Nirmaan Users", user, "role_profile") if user != "Administrator" else None
+    is_full_access = user == "Administrator" or user_role in full_access_roles
+    user_projects = [] if is_full_access else _get_projects(user)
 
     def simple(doctype, flt):
         """Helper for simpleFrappe DB counts."""
         return frappe.db.count(doctype, filters=flt)
 
     # --- Procurement Orders (Your Original, Correct Logic) ---
-    po_filters = {} if is_admin else {"project": ["in", user_projects]}
+    po_filters = {} if is_full_access else {"project": ["in", user_projects]}
     po_status_counts = frappe.get_all(
         "Procurement Orders",
         filters=po_filters,
@@ -35,7 +42,7 @@ def sidebar_counts(user: str) -> str:
         "Procurement Requests",
         filters={
             "workflow_state": ["in", ["Pending", "Rejected", "Approved", "In Progress", "Vendor Selected", "Partially Approved", "Vendor Approved", "Delayed", "Sent Back"]],
-            **({} if is_admin else {"project": ["in", user_projects]}),
+            **({} if is_full_access else {"project": ["in", user_projects]}),
         },
         fields=pr_fields,
         limit=0,
@@ -81,7 +88,7 @@ def sidebar_counts(user: str) -> str:
         "Sent Back Category",
         filters={
             "workflow_state": ["in", ["Vendor Selected", "Partially Approved", "Pending", "Approved", "Sent Back"]],
-            **({} if is_admin else {"project": ["in", user_projects]}),
+            **({} if is_full_access else {"project": ["in", user_projects]}),
         },
         fields=sb_fields,
         limit=0,
@@ -117,7 +124,7 @@ def sidebar_counts(user: str) -> str:
 
 
     # --- Service Requests, Payments, Credits (Your Original, Correct Logic) ---
-    sr_filters = {} if is_admin else {"project": ["in", user_projects]}
+    sr_filters = {} if is_full_access else {"project": ["in", user_projects]}
     sr_counts = {
         "selected": simple("Service Requests", {**sr_filters, "status": "Vendor Selected"}),
         "approved": simple("Service Requests", {**sr_filters, "status": "Approved"}),
@@ -125,13 +132,13 @@ def sidebar_counts(user: str) -> str:
         "all":      simple("Service Requests", sr_filters),
         "pending":  simple("Service Requests", {**sr_filters, "status": ["not in", ["Approved", "Amendment"]]}),
     }
-    pay_filters = {} if is_admin else {"project": ["in", user_projects]}
+    pay_filters = {} if is_full_access else {"project": ["in", user_projects]}
     pay_counts = {
         s.lower(): simple("Project Payments", {**pay_filters, "status": s})
         for s in ("Requested", "Approved", "Rejected", "Paid")
     }
     pay_counts["all"] = simple("Project Payments", {**pay_filters})
-    credit_po_filters = {} if is_admin else {"project": ["in", user_projects]}
+    credit_po_filters = {} if is_full_access else {"project": ["in", user_projects]}
     credit_po_filters["status"] = ["!=", "Merged"]
     credit_counts_raw = frappe.get_all(
         "PO Payment Terms",
@@ -173,18 +180,18 @@ def _get_projects(user:str) -> list[str]:
 #     The dict is already split into normal/admin buckets so the client
 #     does zero post-processing.
 #     """
-#     # is_admin = frappe.get_roles(user) and (
+#     # is_full_access = frappe.get_roles(user) and (
 #     #     "Nirmaan Admin Profile" in frappe.get_roles(user)
 #     #     or user == "Administrator"
 #     # )
 
-#     is_admin = user == "Administrator" or frappe.get_value("Nirmaan Users", user, "role_profile") == "Nirmaan Admin Profile"
+#     is_full_access = user == "Administrator" or frappe.get_value("Nirmaan Users", user, "role_profile") == "Nirmaan Admin Profile"
 
 #     def simple(doctype, flt):
 #         return frappe.db.count(doctype, filters=flt)
 
 #     # --- Procurement Orders -----------------------------------------
-#     po_filters = {} if is_admin else {"project": ["in", _get_projects(user)]}
+#     po_filters = {} if is_full_access else {"project": ["in", _get_projects(user)]}
 #     po_status_counts = frappe.get_all(
 #         "Procurement Orders",
 #         filters=po_filters,
@@ -215,7 +222,7 @@ def _get_projects(user:str) -> list[str]:
 #                     "Sent Back",
 #                 ],
 #             ],
-#             **({} if is_admin else {"project": ["in", _get_projects(user)]}),
+#             **({} if is_full_access else {"project": ["in", _get_projects(user)]}),
 #         },
 #         fields=pr_fields,
 #         limit=0,
@@ -260,7 +267,7 @@ def _get_projects(user:str) -> list[str]:
 #         "Sent Back Category",
 #         filters={
 #             "workflow_state": ["in", ["Vendor Selected", "Partially Approved", "Pending", "Approved", "Sent Back"]],
-#             **({} if is_admin else {"project": ["in", _get_projects(user)]}),
+#             **({} if is_full_access else {"project": ["in", _get_projects(user)]}),
 #         },
 #         fields=sb_fields,
 #         limit=0,
@@ -306,7 +313,7 @@ def _get_projects(user:str) -> list[str]:
 #             sb_counts["sent_back"] += 1
 
 #     # --- Service Requests (simple) ----------------------------------
-#     sr_filters = {} if is_admin else {"project": ["in", _get_projects(user)]}
+#     sr_filters = {} if is_full_access else {"project": ["in", _get_projects(user)]}
 #     sr_counts = {
 #         "selected": simple("Service Requests", {**sr_filters, "status": "Vendor Selected"}),
 #         "approved": simple("Service Requests", {**sr_filters, "status": "Approved"}),
@@ -317,7 +324,7 @@ def _get_projects(user:str) -> list[str]:
 #     }
 
 #     # --- Payments (simple) ------------------------------------------
-#     pay_filters = {} if is_admin else {"project": ["in", _get_projects(user)]}
+#     pay_filters = {} if is_full_access else {"project": ["in", _get_projects(user)]}
 #     pay_counts = {
 #         s.lower(): simple("Project Payments", {**pay_filters, "status": s})
 #         for s in ("Requested", "Approved", "Rejected", "Paid")
@@ -328,7 +335,7 @@ def _get_projects(user:str) -> list[str]:
 #     # --- [NEW SECTION] Credits (PO Payment Terms) -------------------
 #     # This filter is for the PARENT doctype (Procurement Orders).
 #     # We apply user permissions at the PO level.
-#     credit_po_filters = {} if is_admin else {"project": ["in", _get_projects(user)]}
+#     credit_po_filters = {} if is_full_access else {"project": ["in", _get_projects(user)]}
 #     credit_po_filters["status"] = ["!=", "Merged"]
 #     # We query the child table 'PO Payment Terms' but filter it based on which
 #     # parent documents ('Procurement Orders') the user is allowed to see.

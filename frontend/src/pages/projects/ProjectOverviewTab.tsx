@@ -260,10 +260,12 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
           <CardTitle>
             <div className="flex justify-between items-center">
               <p className="text-2xl">Project Details</p>
-              <Button onClick={() => navigate("add-estimates")}>
-                <CirclePlus className="h-4 w-4 mr-2" /> Add Project
-                Estimates
-              </Button>
+              {role !== "Nirmaan Accountant Profile" && (
+                <Button onClick={() => navigate("add-estimates")}>
+                  <CirclePlus className="h-4 w-4 mr-2" /> Add Project
+                  Estimates
+                </Button>
+              )}
             </div>
           </CardTitle>
         </CardHeader>
@@ -525,9 +527,11 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
         <CustomerPODetailsCard projectId={projectData.name} />
       </Card>
       <Card>
-        <ProjectDriveLink projectId={projectData.name} />
+        <ProjectDriveLink projectId={projectData.name} role={role} />
       </Card>
-      <SevenDayPlanningTab isOverview={true} />
+      {role !== "Nirmaan Accountant Profile" && (
+        <SevenDayPlanningTab isOverview={true} />
+      )}
     </div>
   )
 }

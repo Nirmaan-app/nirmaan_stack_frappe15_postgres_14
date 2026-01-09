@@ -39,6 +39,7 @@ interface ProjectDriveLinkTableRow extends ProjectDriveLinkDetail {
 interface ProjectDriveLinkProps {
     projectId?: string;
     projectName?: string;
+    role?: string;
 }
 
 // --- Add Drive Link Dialog ---
@@ -389,7 +390,7 @@ const getColumns = (
     ];
 };
 
-export const ProjectDriveLink: React.FC<ProjectDriveLinkProps> = ({ projectId }) => {
+export const ProjectDriveLink: React.FC<ProjectDriveLinkProps> = ({ projectId, role }) => {
     
     // --- State ---
     const [deletingLink, setDeletingLink] = useState<ProjectDriveLinkDetail | null>(null);
@@ -463,8 +464,8 @@ export const ProjectDriveLink: React.FC<ProjectDriveLinkProps> = ({ projectId })
             <CardHeader>
                 <CardTitle className="flex justify-between items-center">
                     <div className="text-2xl">Project Drive Links</div>
-                    {projectId && (
-                        <AddProjectDriveLinkDialog 
+                    {projectId && role !== "Nirmaan Accountant Profile" && (
+                        <AddProjectDriveLinkDialog
                             projectName={projectId}
                             currentLinks={driveLinks}
                             onSuccess={handleSuccess}

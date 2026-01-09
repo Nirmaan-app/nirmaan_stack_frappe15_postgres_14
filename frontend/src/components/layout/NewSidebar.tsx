@@ -47,6 +47,7 @@ import {
   Shapes,
   ShoppingCart,
   SquareSquare,
+  Store,
   UsersRound
 } from "lucide-react";
 import { useCallback, useContext, useEffect, useMemo, useState } from "react";
@@ -241,12 +242,26 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(role == "Nirmaan Project Lead Profile"
+    ...(role == "Nirmaan Project Lead Profile" || role == "Nirmaan Accountant Profile"
       ? [
         {
           key: "/projects",
           icon: BlendIcon,
           label: "Projects",
+        },
+      ]
+      : []),
+    ...(role == "Nirmaan Accountant Profile"
+      ? [
+        {
+          key: "/vendors",
+          icon: Store,
+          label: "Vendors",
+        },
+        {
+          key: "/customers",
+          icon: UsersRound,
+          label: "Customers",
         },
       ]
       : []),
@@ -330,7 +345,7 @@ export function NewSidebar() {
     //   ]
     // : []),
 
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile"].includes(role)
       ? [
         {
           key: '/item-price',
@@ -351,29 +366,21 @@ export function NewSidebar() {
           key: "/procurement-requests",
           icon: List,
           label: "Procurement Requests",
-          // count: role === "Nirmaan Admin Profile" ||
-          //         user_id === "Administrator"
-          //         ? adminPrCounts.approved
-          //         : prCounts.approved,
         },
-        // {
-        //   key: "/service-requests",
-        //   icon: SquareSquare,
-        //   label: "Work Orders",
-        //   // count: role === "Nirmaan Admin Profile" ||
-        //   //         user_id === "Administrator"
-        //   //         ? (adminPendingSRCount || 0) + (adminApprovedSRCount || 0)
-        //   //         : (pendingSRCount || 0) + (approvedSRCount || 0),
-        // },
+      ]
+      : []),
+    ...(user_id == "Administrator" || [
+      "Nirmaan Procurement Executive Profile",
+      "Nirmaan Admin Profile",
+      "Nirmaan PMO Executive Profile",
+      "Nirmaan Project Lead Profile",
+      "Nirmaan Accountant Profile"
+    ].includes(role)
+      ? [
         {
           key: "/purchase-orders",
           icon: ShoppingCart,
           label: "Purchase Orders",
-          // count:
-          //      role === "Nirmaan Admin Profile" ||
-          //      user_id === "Administrator"
-          //        ? adminNewPOCount
-          //        : newPOCount,
         },
       ]
       : []),
@@ -547,18 +554,13 @@ export function NewSidebar() {
   const groupMappings = useMemo(() => ({
     "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "product-packages", "milestone-packages", "design-packages", "critical-po-categories", "all-AQs"],
     "/asset-management": ["asset-management"],
-    // "admin-actions": ["users", "products", "vendors", "customers", "product-packages", "approved-quotes","vendors-aq2"],
-    // "pl-actions": [
-    //   "prs&milestones", "approve-po", "approve-sent-back",
-    //   "approve-amended-po", "approve-payments"
-    // ],
-    // "/approved-quotes": ["approved-quotes"],
+    "/projects": ["projects"],
+    "/vendors": ["vendors"],
+    "/customers": ["customers"],
     "/item-price": ["item-price"],
-
     "/procurement-requests": ["procurement-requests", "prs&milestones", "sent-back-requests"],
     "/service-requests": ["service-requests", "service-requests-list"],
     "/purchase-orders": ["purchase-orders"],
-    // "/sent-back-requests": ["sent-back-requests"],
     "/project-payments": ["project-payments"],
     "/credits": ["credits"],
     "/in-flow-payments": ["in-flow-payments"],
@@ -571,14 +573,21 @@ export function NewSidebar() {
   }), []);
 
   const openKey = useMemo(() => {
+    // For roles with standalone menu items, prioritize standalone routes
+    const standaloneRoles = ["Nirmaan Project Lead Profile", "Nirmaan Accountant Profile"];
+    const isStandaloneRole = standaloneRoles.includes(role);
+
+    // Check standalone routes first for standalone roles
+    if (isStandaloneRole) {
+      if (selectedKeys === "projects") return "/projects";
+      if (selectedKeys === "vendors") return "/vendors";
+      if (selectedKeys === "customers") return "/customers";
+    }
+
     for (const [group, keys] of Object.entries(groupMappings)) {
       if (keys.includes(selectedKeys)) return group;
     }
-    return selectedKeys === "projects"
-      ? role === "Nirmaan Project Lead Profile"
-        ? "/projects"
-        : "admin-actions"
-      : "";
+    return "";
   }, [selectedKeys, role, groupMappings]);
 
 
@@ -636,7 +645,7 @@ export function NewSidebar() {
                 <SidebarMenuItem>
 
                   {new Set(["Dashboard", "Item Price Search", "Procurement Requests", "Purchase Orders", "Project Payments", "Credit Payments", "Sent Back Requests", "Projects", "Work Orders", "In-Flow Payments", "Invoice Recon", "Reports",
-                    "Design Tracker", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses", "Users", "Assets"]).has(item?.label) ? (
+                    "Design Tracker", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses", "Users", "Assets", "Vendors", "Customers"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
                         ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"
