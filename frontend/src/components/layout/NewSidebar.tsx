@@ -45,7 +45,8 @@ import {
   List,
   Shapes,
   ShoppingCart,
-  SquareSquare
+  SquareSquare,
+  UsersRound
 } from "lucide-react";
 import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -221,6 +222,15 @@ export function NewSidebar() {
             // { key: "/all-AQs", label: "Approved Quotations" },
             //  { key: "/vendors-aq2", label: "AQ2 Vendors" },
           ],
+        },
+      ]
+      : []),
+    ...(role == "Nirmaan HR Executive Profile"
+      ? [
+        {
+          key: "/users",
+          icon: UsersRound,
+          label: "Users",
         },
       ]
       : []),
@@ -618,7 +628,7 @@ export function NewSidebar() {
                 <SidebarMenuItem>
 
                   {new Set(["Dashboard", "Item Price Search", "Procurement Requests", "Purchase Orders", "Project Payments", "Credit Payments", "Sent Back Requests", "Projects", "Work Orders", "In-Flow Payments", "Invoice Recon", "Reports",
-                    "Design Tracker", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses"]).has(item?.label) ? (
+                    "Design Tracker", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses", "Users"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
                         ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"

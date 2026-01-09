@@ -193,6 +193,7 @@ export function UserProjectsTab({
                 options={options}
                 value={options.find((option) => option.value === curProj) || null}
                 onChange={(val) => setCurProj(val ? (val.value as string) : "")}
+                menuPortalTarget={document.body}
                 menuPosition="fixed"
                 isClearable={true}
                 placeholder="Select a project..."
@@ -203,9 +204,13 @@ export function UserProjectsTab({
                     borderColor: "hsl(var(--border))",
                     "&:hover": { borderColor: "hsl(var(--border))" },
                   }),
+                  menuPortal: (base) => ({
+                    ...base,
+                    zIndex: 9999,
+                  }),
                   menu: (base) => ({
                     ...base,
-                    zIndex: 50,
+                    zIndex: 9999,
                   }),
                 }}
               />

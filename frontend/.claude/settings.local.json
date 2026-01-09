@@ -6,7 +6,9 @@
       "Bash(cat:*)",
       "Bash(curl:*)",
       "Bash(npx tsc:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Skill(frontend-design)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []

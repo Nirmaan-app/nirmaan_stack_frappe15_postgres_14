@@ -85,6 +85,14 @@ export const ROLE_COLORS: Record<string, RoleColorScheme> = {
     gradient: "bg-gradient-to-br from-teal-500 to-cyan-600",
     ring: "ring-teal-500/30",
   },
+  "Nirmaan HR Executive Profile": {
+    bg: "bg-lime-50",
+    text: "text-lime-700",
+    border: "border-lime-200",
+    dot: "bg-lime-500",
+    gradient: "bg-gradient-to-br from-lime-500 to-green-600",
+    ring: "ring-lime-500/30",
+  },
 };
 
 // Default fallback colors for unknown roles
@@ -132,4 +140,5 @@ export const ROLE_OPTIONS: { label: string; value: string }[] = [
   { label: "Estimates Executive", value: "Nirmaan Estimates Executive Profile" },
   { label: "Design Executive", value: "Nirmaan Design Executive Profile" },
   { label: "Design Lead", value: "Nirmaan Design Lead Profile" },
+  { label: "HR Executive", value: "Nirmaan HR Executive Profile" },
 ];

@@ -30,7 +30,7 @@ export default function Profile() {
   if (!id) return <div>No User ID Provided</div>;
 
   const userData = useUserData();
-  const isAdmin = userData.role === "Nirmaan Admin Profile" || userData.role === "Nirmaan PMO Executive Profile";
+  const isAdmin = userData.role === "Nirmaan Admin Profile" || userData.role === "Nirmaan PMO Executive Profile" || userData.role === "Nirmaan HR Executive Profile";
 
   const [editSheetOpen, setEditSheetOpen] = useState(false);
   const toggleEditSheet = useCallback(() => {

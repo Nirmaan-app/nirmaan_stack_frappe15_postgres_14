@@ -138,7 +138,7 @@ export const RenderRightActionButton = ({
     );
   } else if (
     locationPath === "/" &&
-    ["Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role)
+    ["Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan HR Executive Profile"].includes(role)
   ) {
     // For admin profiles, render a dropdown menu
     return (
@@ -150,17 +150,25 @@ export const RenderRightActionButton = ({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent className="mr-16">
-          {(role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile") && (
+          {(role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || role === "Nirmaan HR Executive Profile") && (
             <>
-              <DropdownMenuItem onClick={() => navigate("/projects/new-project")}>
-                New Project
-              </DropdownMenuItem>
+              {(role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile") && (
+                <>
+                  <DropdownMenuItem onClick={() => navigate("/projects/new-project")}>
+                    New Project
+                  </DropdownMenuItem>
+                </>
+              )}
               <DropdownMenuItem onClick={() => navigate("/users/new-user")}>
                 New User
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate("/vendors/new-vendor")}>
-                New Vendor
-              </DropdownMenuItem>
+              {(role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile") && (
+                <>
+                  <DropdownMenuItem onClick={() => navigate("/vendors/new-vendor")}>
+                    New Vendor
+                  </DropdownMenuItem>
+                </>
+              )}
               <Separator />
             </>
           )}

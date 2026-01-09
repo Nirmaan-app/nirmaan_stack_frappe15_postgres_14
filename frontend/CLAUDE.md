@@ -268,11 +268,11 @@ Related routes and components are organized under `pages/ProcurementRequests/`, 
 
 ## Role-Based Access Control
 
-The system uses 9 role profiles for access control. Role checks use `useUserData()` hook.
+The system uses 10 role profiles for access control. Role checks use `useUserData()` hook.
 
-**Roles:** Admin, PMO Executive, Project Lead, Project Manager, Procurement Executive, Accountant, Estimates Executive, Design Lead, Design Executive
+**Roles:** Admin, PMO Executive, Project Lead, Project Manager, Procurement Executive, Accountant, Estimates Executive, Design Lead, Design Executive, HR Executive
 
-**Special:** `Administrator` user (user_id) has hardcoded Admin access. PMO Executive mirrors Admin access.
+**Special:** `Administrator` user (user_id) has hardcoded Admin access. PMO Executive mirrors Admin access. HR Executive has Admin Options sidebar access.
 
 **Key files:**
 - `src/hooks/useUserData.ts` - Role fetching

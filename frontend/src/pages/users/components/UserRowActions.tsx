@@ -34,7 +34,7 @@ export function UserRowActions({ user }: UserRowActionsProps) {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { role: currentUserRole } = useUserData();
-  const isAdmin = currentUserRole === "Nirmaan Admin Profile" || currentUserRole === "Nirmaan PMO Executive Profile";
+  const isAdmin = currentUserRole === "Nirmaan Admin Profile" || currentUserRole === "Nirmaan PMO Executive Profile" || currentUserRole === "Nirmaan HR Executive Profile";
   const isTargetAdmin = user.role_profile === "Nirmaan Admin Profile" || user.role_profile === "Nirmaan PMO Executive Profile";
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);

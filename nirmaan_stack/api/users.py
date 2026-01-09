@@ -211,21 +211,18 @@ def reset_password(user: str):
 def get_user_role_counts():
 	"""
 	Get counts of users by role in a single database query.
+	Dynamically fetches all Nirmaan role profiles from Role Profile doctype.
 	Returns: {role_value: count, ...}
 	"""
-	user_role_options = [
-		"Nirmaan Admin Profile",
-		"Nirmaan Project Lead Profile",
-		"Nirmaan Project Manager Profile",
-		"Nirmaan Procurement Executive Profile",
-		"Nirmaan Accountant Profile",
-		"Nirmaan Estimates Executive Profile",
-		"Nirmaan Design Executive Profile",
-		"Nirmaan Design Lead Profile",
-	]
+	# Fetch all role profiles starting with "Nirmaan" from Role Profile doctype
+	nirmaan_roles = frappe.get_all(
+		"Role Profile",
+		filters={"name": ["like", "Nirmaan%"]},
+		pluck="name"
+	)
 
 	role_counts = {}
-	for role in user_role_options:
+	for role in nirmaan_roles:
 		count = frappe.db.count('Nirmaan Users', filters={'role_profile': role})
 		role_counts[role] = count
 

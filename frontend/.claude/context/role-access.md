@@ -15,6 +15,7 @@ This document contains detailed page-level role access control mappings for the 
 | `Nirmaan Estimates Executive Profile` | Estimates Executive | Cyan |
 | `Nirmaan Design Lead Profile` | Design Lead | Indigo |
 | `Nirmaan Design Executive Profile` | Design Executive | Pink |
+| `Nirmaan HR Executive Profile` | HR Executive | Lime |
 
 **Special:** `Administrator` user (user_id) is hardcoded with Admin role access.
 
@@ -48,24 +49,25 @@ user_id === "Administrator" || role === "Nirmaan Admin Profile" || role === "Nir
 
 ## Sidebar Menu Access
 
-| Feature | Admin | PMO | Proj Lead | Proj Mgr | Procurement | Accountant | Estimates | Design Lead | Design Exec |
-|---------|:-----:|:---:|:---------:|:--------:|:-----------:|:----------:|:---------:|:-----------:|:-----------:|
-| Admin Options | Y | Y | - | - | - | - | - | - | - |
-| Critical PO Categories | Y | Y | Y | - | - | - | - | - | - |
-| Projects (standalone) | - | - | Y | - | - | - | - | - | - |
-| Item Price Search | Y | Y | Y | Y | Y | Y | Y | - | - |
-| Procurement Requests | Y | Y | Y | - | Y | - | - | - | - |
-| Purchase Orders | Y | Y | Y | - | Y | - | - | - | - |
-| Work Orders | Y | Y | Y | - | Y | Y | - | - | - |
-| Project Payments | Y | Y | Y | - | Y | Y | - | - | - |
-| Credit Payments | Y | Y | Y | - | Y | Y | - | - | - |
-| In-Flow Payments | Y | Y | - | - | - | Y | - | - | - |
-| Invoice Reconciliation | Y | Y | - | - | Y | Y | - | - | - |
-| Project Invoices | Y | Y | - | - | - | Y | - | - | - |
-| Project Expenses | Y | Y | - | - | - | Y | - | - | - |
-| Non-Project Expenses | Y | Y | - | - | - | Y | - | - | - |
-| Reports | Y | Y | Y | Y | Y | Y | - | - | - |
-| Design Tracker | Y | Y | Y | Y | - | - | Y | Y | - |
+| Feature | Admin | PMO | Proj Lead | Proj Mgr | Procurement | Accountant | Estimates | Design Lead | Design Exec | HR Exec |
+|---------|:-----:|:---:|:---------:|:--------:|:-----------:|:----------:|:---------:|:-----------:|:-----------:|:-------:|
+| Admin Options | Y | Y | - | - | - | - | - | - | - | - |
+| Critical PO Categories | Y | Y | Y | - | - | - | - | - | - | - |
+| Projects (standalone) | - | - | Y | - | - | - | - | - | - | - |
+| Users (standalone) | - | - | - | - | - | - | - | - | - | Y |
+| Item Price Search | Y | Y | Y | Y | Y | Y | Y | - | - | - |
+| Procurement Requests | Y | Y | Y | - | Y | - | - | - | - | - |
+| Purchase Orders | Y | Y | Y | - | Y | - | - | - | - | - |
+| Work Orders | Y | Y | Y | - | Y | Y | - | - | - | - |
+| Project Payments | Y | Y | Y | - | Y | Y | - | - | - | - |
+| Credit Payments | Y | Y | Y | - | Y | Y | - | - | - | - |
+| In-Flow Payments | Y | Y | - | - | - | Y | - | - | - | - |
+| Invoice Reconciliation | Y | Y | - | - | Y | Y | - | - | - | - |
+| Project Invoices | Y | Y | - | - | - | Y | - | - | - | - |
+| Project Expenses | Y | Y | - | - | - | Y | - | - | - | - |
+| Non-Project Expenses | Y | Y | - | - | - | Y | - | - | - | - |
+| Reports | Y | Y | Y | Y | Y | Y | - | - | - | - |
+| Design Tracker | Y | Y | Y | Y | - | - | Y | Y | - | - |
 
 ---
 
@@ -80,6 +82,7 @@ Each role sees a different dashboard (`src/pages/dashboard.tsx`):
 - Accountant → Accountant Dashboard
 - Estimates Executive → Estimates Executive Dashboard
 - Design Lead/Executive → Design Dashboard
+- HR Executive → HR Dashboard
 
 ---
 
@@ -91,6 +94,7 @@ Roles that don't require `has_project === "true"`:
 - Nirmaan Estimates Executive Profile
 - Nirmaan Design Lead Profile
 - Nirmaan Design Executive Profile
+- Nirmaan HR Executive Profile
 
 ---
 
@@ -215,21 +219,25 @@ Roles that don't require `has_project === "true"`:
 
 ### Projects/Users/Items/Vendors
 
-| Page | Feature | Admin | PMO | Proj Lead | Others |
-|------|---------|:-----:|:---:|:---------:|:------:|
-| Projects | Edit Project | Y | Y | Y | - |
-| Projects | Change Status | Y | Y | - | - |
-| Projects | Assign Users | Y | Y | Y | - |
-| Users | Manage (reset pwd, delete, rename) | Y | Y | - | - |
-| Users | Edit Role Profile | Y | Y | - | Self only |
-| Items | Add/Edit Products | Y | Y | - | - |
-| Vendors | Export Ledger | Y | Y | Y (Accountant) | - |
+| Page | Feature | Admin | PMO | HR Exec | Proj Lead | Others |
+|------|---------|:-----:|:---:|:-------:|:---------:|:------:|
+| Projects | Edit Project | Y | Y | - | Y | - |
+| Projects | Change Status | Y | Y | - | - | - |
+| Projects | Assign Users | Y | Y | Y | Y | - |
+| Users | Create New User | Y | Y | Y | - | - |
+| Users | Manage (reset pwd, delete, rename) | Y | Y | Y | - | - |
+| Users | Edit Role Profile | Y | Y | Y | - | Self only |
+| Users | Assign Projects to Users | Y | Y | Y | - | - |
+| Items | Add/Edit Products | Y | Y | - | - | - |
+| Vendors | Export Ledger | Y | Y | - | Y (Accountant) | - |
 
 **Key files:**
 - `project.tsx:1045,1058`
 - `ProjectOverviewTab.tsx:391`
 - `user-profile.tsx:33`
 - `EditUserForm.tsx:230`
+- `UserRowActions.tsx:37`
+- `renderRightActionButton.tsx:141,153`
 - `itemsPage.tsx:173`
 - `item.tsx:153`
 - `POVendorLedger.tsx:53-54`

@@ -17,8 +17,8 @@ import { Button } from "@/components/ui/button";
 import { useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useEffect } from "react";
 import { toast } from "@/components/ui/use-toast";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useUserData } from "@/hooks/useUserData";
+import ReactSelect from "react-select";
 
 const UserFormSchema = z.object({
   first_name: z
@@ -227,33 +227,38 @@ const EditUserForm = ({ toggleEditSheet }: any) => {
               </FormItem>
             )}
           />
-          {(role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || actual_user_id !== data.email) && <FormField
+          {(role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || role === "Nirmaan HR Executive Profile" || actual_user_id !== data.email) && <FormField
             control={form.control}
             name="role_profile_name"
             render={({ field }) => (
               <FormItem className="lg:flex lg:items-center gap-4">
                 <FormLabel className="md:basis-3/12">Role Profile<sup>*</sup></FormLabel>
-                <div className=" lg:w-1/2">
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <div className="flex flex-col items-start">
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a role" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <FormMessage />
-                    </div>
-                    <SelectContent>
-                      {role_profile_list_loading && <div>Loading...</div>}
-                      {role_profile_list_error && <div>Error: {role_profile_list_error.message}</div>}
-                      {options.map(option => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-
-                    </SelectContent>
-                  </Select>
+                <div className="lg:w-1/2">
+                  <FormControl>
+                    <ReactSelect
+                      options={options}
+                      value={options.find((option) => option.value === field.value) || null}
+                      onChange={(val) => field.onChange(val ? val.value : "")}
+                      isLoading={role_profile_list_loading}
+                      isClearable={true}
+                      placeholder="Select a role"
+                      noOptionsMessage={() => role_profile_list_error ? "Error loading roles" : "No roles available"}
+                      styles={{
+                        control: (base, state) => ({
+                          ...base,
+                          borderColor: state.isFocused ? "hsl(var(--ring))" : "hsl(var(--border))",
+                          boxShadow: state.isFocused ? "0 0 0 1px hsl(var(--ring))" : "none",
+                          "&:hover": { borderColor: "hsl(var(--border))" },
+                          minHeight: "40px",
+                        }),
+                        menu: (base) => ({
+                          ...base,
+                          zIndex: 50,
+                        }),
+                      }}
+                    />
+                  </FormControl>
+                  <FormMessage />
                 </div>
               </FormItem>
             )}
