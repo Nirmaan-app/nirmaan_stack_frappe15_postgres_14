@@ -1,14 +1,13 @@
-import React, { useMemo, useState, useEffect, useContext } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { ColumnDef } from "@tanstack/react-table";
-import { Link, useNavigate } from "react-router-dom";
-import { FrappeConfig, FrappeContext, useFrappeGetCall, useFrappeGetDocCount, useFrappePostCall } from "frappe-react-sdk";
+import { Link } from "react-router-dom";
+import { useFrappeGetDocCount, useFrappePostCall } from "frappe-react-sdk";
 
 // --- UI Components ---
-import { DataTable, SearchFieldOption } from '@/components/data-table/new-data-table'; // Your new DataTable
+import { DataTable, SearchFieldOption } from '@/components/data-table/new-data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { ArrowLeft, UsersRound, CirclePlus } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { UsersRound } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 
 // --- Hooks & Utils ---
@@ -16,6 +15,9 @@ import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { useFacetValues } from '@/hooks/useFacetValues';
 import { formatDate } from "@/utils/FormatDate";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
+import { getRoleColors, ROLE_OPTIONS } from "@/utils/roleColors";
+import { RoleBadge, UserRowActions } from "./components";
+import { cn } from "@/lib/utils";
 
 export const USER_DOCTYPE = 'Nirmaan Users';
 
@@ -37,16 +39,32 @@ export const USER_SEARCHABLE_FIELDS: SearchFieldOption[] = [
 
 export const USER_DATE_COLUMNS: string[] = ["creation", "modified"];
 
-export const USER_ROLE_PROFILE_OPTIONS = [
-    { label: "Admin", value: "Nirmaan Admin Profile" }, // Shortened for display if needed
-    { label: "Project Lead", value: "Nirmaan Project Lead Profile" },
-    { label: "Project Manager", value: "Nirmaan Project Manager Profile" },
-    { label: "Procurement Executive", value: "Nirmaan Procurement Executive Profile" },
-    { label: "Accountant", value: "Nirmaan Accountant Profile" },
-    { label: "Estimates Executive", value: "Nirmaan Estimates Executive Profile" },
-    { label: "Design Executive", value: "Nirmaan Design Executive Profile" },
-    { label: "Design Lead", value: "Nirmaan Design Lead Profile" },
-];
+// Re-export for backwards compatibility
+export const USER_ROLE_PROFILE_OPTIONS = ROLE_OPTIONS;
+
+// --- Helper: RoleCountPill ---
+interface RoleCountPillProps {
+    roleValue: string;
+    roleLabel: string;
+    count: number;
+}
+
+const RoleCountPill: React.FC<RoleCountPillProps> = ({ roleValue, roleLabel, count }) => {
+    const colors = getRoleColors(roleValue);
+    return (
+        <div
+            className={cn(
+                "inline-flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all hover:shadow-sm",
+                colors.bg,
+                colors.border
+            )}
+        >
+            <span className={cn("w-2 h-2 rounded-full flex-shrink-0", colors.dot)} />
+            <span className={cn("text-xs font-medium", colors.text)}>{roleLabel}</span>
+            <span className={cn("text-xs font-bold tabular-nums", colors.text)}>{count}</span>
+        </div>
+    );
+};
 
 // --- Helper: UsersSummaryCard ---
 const UsersSummaryCard: React.FC = () => {
@@ -81,7 +99,7 @@ const UsersSummaryCard: React.FC = () => {
 
     if (roleError) {
         return (
-            <Card className="hover:animate-shadow-drop-center my-2 border-red-200 bg-red-50">
+            <Card className="my-2 border-red-200 bg-red-50">
                 <CardContent className="pt-6">
                     <p className="text-sm text-red-600">{roleError}</p>
                 </CardContent>
@@ -90,38 +108,45 @@ const UsersSummaryCard: React.FC = () => {
     }
 
     return (
-        <Card className="hover:animate-shadow-drop-center my-2">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-base font-semibold">
-                    User Statistics
-                </CardTitle>
-                <UsersRound className="h-5 w-5 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-                <div className="flex justify-between items-start">
-                    <div>
-                        <div className="text-2xl font-bold mb-2">
-                            {totalCountLoading ? (
-                                <TailSpin visible={true} height="28" width="28" color="#D03B45" radius="1" />
-                            ) : (
-                                totalCountData ?? 'N/A'
-                            )}
+        <Card className="my-2 shadow-sm">
+            <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                            <UsersRound className="h-5 w-5 text-primary" />
                         </div>
-                        <p className="text-xs text-muted-foreground">Total Registered Users</p>
-                    </div>
-                    <div className="flex flex-col text-sm items-end">
-                        {isLoadingRoles ? (
-                            <div className="text-muted-foreground text-xs">Loading roles...</div>
-                        ) : (
-                            USER_ROLE_PROFILE_OPTIONS.map(role => (
-                                <div key={role.value} className="flex justify-between w-full gap-4">
-                                    <span className="text-muted-foreground">{role.label}:</span>
-                                    <span className="font-medium">{roleCounts[role.value] ?? 0}</span>
-                                </div>
-                            ))
-                        )}
+                        <div>
+                            <CardTitle className="text-lg font-semibold">
+                                {totalCountLoading ? (
+                                    <TailSpin visible={true} height="20" width="20" color="#D03B45" radius="1" />
+                                ) : (
+                                    <span className="tabular-nums">{totalCountData ?? 0}</span>
+                                )}
+                                <span className="ml-2 text-muted-foreground font-normal">Users</span>
+                            </CardTitle>
+                            <p className="text-xs text-muted-foreground">Total registered in system</p>
+                        </div>
                     </div>
                 </div>
+            </CardHeader>
+            <CardContent className="pt-0">
+                {isLoadingRoles ? (
+                    <div className="flex items-center gap-2 text-muted-foreground text-sm">
+                        <TailSpin visible={true} height="16" width="16" color="#6b7280" radius="1" />
+                        Loading role distribution...
+                    </div>
+                ) : (
+                    <div className="flex flex-wrap gap-2">
+                        {ROLE_OPTIONS.map(role => (
+                            <RoleCountPill
+                                key={role.value}
+                                roleValue={role.value}
+                                roleLabel={role.label}
+                                count={roleCounts[role.value] ?? 0}
+                            />
+                        ))}
+                    </div>
+                )}
             </CardContent>
         </Card>
     );
@@ -130,7 +155,6 @@ const UsersSummaryCard: React.FC = () => {
 
 // --- Main Page Component ---
 export default function UsersPage() {
-
     const columns = useMemo<ColumnDef<NirmaanUsers>[]>(
         () => [
             {
@@ -182,10 +206,9 @@ export default function UsersPage() {
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Role" />,
                 cell: ({ row }) => {
                     const roleValue = row.getValue<string>("role_profile");
-                    const roleLabel = USER_ROLE_PROFILE_OPTIONS.find(opt => opt.value === roleValue)?.label || roleValue?.replace("Nirmaan ", "").replace(" Profile", "");
-                    return <Badge variant="outline">{roleLabel}</Badge>;
+                    return <RoleBadge roleProfile={roleValue} size="sm" />;
                 },
-                size: 180,
+                size: 200,
                 meta: {
                     exportHeaderName: "Role",
                     exportValue: (row: NirmaanUsers) => {
@@ -216,6 +239,14 @@ export default function UsersPage() {
                         return row.mobile_no;
                     }
                 }
+            },
+            {
+                id: "actions",
+                header: () => <span className="text-muted-foreground">Action</span>,
+                cell: ({ row }) => <UserRowActions user={row.original} />,
+                size: 60,
+                enableSorting: false,
+                enableHiding: false,
             },
         ],
         []
@@ -257,13 +288,6 @@ export default function UsersPage() {
 
     return (
         <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'h-[calc(100vh-80px)] overflow-hidden' : ''}`}>
-            {/* <div className="flex items-center justify-between">
-                <h1 className="text-2xl font-semibold">Manage Users</h1>
-                <Button onClick={() => navigate("/new-user")}>
-                    <CirclePlus className="mr-2 h-4 w-4" /> Add New User
-                </Button>
-            </div> */}
-
             <div className="flex-shrink-0 overflow-y-auto">
                 <UsersSummaryCard />
             </div>
