@@ -65,13 +65,13 @@ export default function Profile() {
     true
   );
 
-  // Fetch user permissions (only for admin)
+  // Fetch user permissions (for admin OR when viewing own profile)
   const {
     data: permission_list,
     isLoading: permission_list_loading,
     mutate: permission_list_mutate,
   } = useFrappeGetDocList<NirmaanUserPermissions>(
-    "User Permission",
+    "Nirmaan User Permissions",
     {
       fields: ["name", "for_value", "creation"],
       filters: [
@@ -81,7 +81,7 @@ export default function Profile() {
       limit: 1000,
       orderBy: { field: "creation", order: "desc" },
     },
-    isAdmin ? undefined : null
+    (isAdmin || isOwnProfile) ? undefined : null
   );
 
   // Submit handlers
@@ -213,15 +213,7 @@ export default function Profile() {
           ) : (
             <UserProjectsTab
               user={data}
-              permissionList={
-                userData.has_project === "true"
-                  ? project_list?.map((p) => ({
-                      name: p.name,
-                      for_value: p.name,
-                      creation: p.creation,
-                    })) as NirmaanUserPermissions[]
-                  : []
-              }
+              permissionList={permission_list}
               projectList={project_list}
               addressData={addressData}
               isAdmin={false}
