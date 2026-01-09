@@ -4,6 +4,88 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-09: Added User Assets Tab with Assignment and Declaration Upload
+
+### Summary
+Enhanced user profile page with an "Assets" tab showing assigned assets. Admins (Admin/PMO/HR) can assign unassigned assets to users. Users can upload pending declaration documents for their own assets.
+
+### Files Created
+
+**New Components:**
+- `src/pages/users/components/UserAssetsTab.tsx` - Displays user's assigned assets with:
+  - Asset cards showing name, category, condition, serial number, assignment date
+  - Declaration status (Pending/Uploaded) with upload/view actions
+  - Assign Asset button (Admin/PMO/HR only)
+  - Unassign button (Admin/PMO/HR only)
+
+- `src/pages/users/components/AssignAssetToUserDialog.tsx` - Dialog for assigning assets:
+  - Category dropdown filter
+  - Asset dropdown (filtered to unassigned only)
+  - Assignment date picker
+  - Optional declaration file upload
+
+### Files Modified
+
+**User Profile:**
+- `src/pages/users/user-profile.tsx`:
+  - Added Assets tab (visible to all users with profile access)
+  - Fetches Asset Management, Asset Master, Asset Category data
+  - Tab layout: 2 cols for project-exempt roles, 3 cols for others
+
+- `src/pages/users/components/UserOverviewTab.tsx`:
+  - Added `assetCount` and `showAssetStats` props
+  - "Assigned Assets" stat card shown when user has assets
+  - Dynamic grid layout for 1-3 stat cards
+
+- `src/pages/users/components/index.ts` - Exported new components
+
+### Access Control
+
+| Action | Admin/PMO/HR | Own Profile | Others |
+|--------|:------------:|:-----------:|:------:|
+| View Assets Tab | Yes | Yes | No |
+| Assign Asset | Yes | No | No |
+| Unassign Asset | Yes | No | No |
+| Upload Declaration | Yes | Yes (own) | No |
+
+### Key Patterns
+
+**Asset Assignment Flow:**
+```typescript
+// 1. Create Asset Management record
+await createDoc(ASSET_MANAGEMENT_DOCTYPE, {
+  asset: selectedAsset,
+  asset_assigned_to: userId,
+  asset_assigned_on: date,
+  asset_declaration_attachment: fileUrl,
+});
+
+// 2. Update Asset Master
+await updateDoc(ASSET_MASTER_DOCTYPE, selectedAsset, {
+  current_assignee: userId,
+});
+```
+
+---
+
+## 2026-01-09: Fixed Project Count for Own Profile and Hide for Exempt Roles
+
+### Summary
+Fixed bug where non-admin users couldn't see their assigned projects. Added logic to hide Projects tab/stats for roles that have access to all projects (no assignment required).
+
+### Changes
+
+**Bug Fix - Project Count:**
+- Changed `permission_list` fetch condition from `isAdmin` to `(isAdmin || isOwnProfile)`
+- Changed doctype from "User Permission" to "Nirmaan User Permissions"
+
+**Hide Projects for Exempt Roles:**
+- Added `PROJECT_EXEMPT_ROLES` constant (Admin, PMO, HR, Accountant, Estimates, Design Lead)
+- Projects tab hidden for users with these roles
+- "Assigned Projects" stat card hidden for exempt roles
+
+---
+
 ## 2026-01-09: Restricted Users Page Access to Authorized Roles
 
 ### Summary

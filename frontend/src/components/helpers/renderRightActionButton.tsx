@@ -5,7 +5,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Separator } from "@/components/ui/separator";
 import { useUserData } from "@/hooks/useUserData";
 import { UserContext } from "@/utils/auth/UserProvider";
 import { CirclePlus } from "lucide-react";
@@ -135,55 +134,6 @@ export const RenderRightActionButton = ({
         <CirclePlus className="w-5 h-5 pr-1" />
         Add <span className="hidden md:flex pl-1">New Expense</span>
       </Button>
-    );
-  } else if (
-    locationPath === "/" &&
-    ["Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan HR Executive Profile"].includes(role)
-  ) {
-    // For admin profiles, render a dropdown menu
-    return (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button className="sm:mr-4 mr-2">
-            <CirclePlus className="w-5 h-5 pr-1" />
-            Add
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent className="mr-16">
-          {(role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || role === "Nirmaan HR Executive Profile") && (
-            <>
-              {(role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile") && (
-                <>
-                  <DropdownMenuItem onClick={() => navigate("/projects/new-project")}>
-                    New Project
-                  </DropdownMenuItem>
-                </>
-              )}
-              <DropdownMenuItem onClick={() => navigate("/users/new-user")}>
-                New User
-              </DropdownMenuItem>
-              {(role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile") && (
-                <>
-                  <DropdownMenuItem onClick={() => navigate("/vendors/new-vendor")}>
-                    New Vendor
-                  </DropdownMenuItem>
-                </>
-              )}
-              <Separator />
-            </>
-          )}
-          <DropdownMenuItem onClick={() => navigate("/prs&milestones/procurement-requests")}>
-            {/* {role === "Nirmaan Admin Profile" ? "New PR" : "Urgent PR"} */}
-            New PR
-          </DropdownMenuItem>
-          {/* <DropdownMenuItem onClick={() => navigate("/prs&milestones/procurement-requests")}>
-            New Custom PR
-          </DropdownMenuItem> */}
-          <DropdownMenuItem onClick={() => navigate("/service-requests-list")}>
-            New Service Request
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
     );
   } else {
     return (

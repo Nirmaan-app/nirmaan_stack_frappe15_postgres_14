@@ -600,15 +600,15 @@ export function NewSidebar() {
 
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader className="flex flex-row items-center justify-center">
+      <SidebarHeader className="h-14 min-h-[56px] flex flex-row items-center justify-between px-3 border-b border-border/40">
         {!isMobile ? (
-          state === "expanded" && (
-            <Link to={"/"}>
+          state === "expanded" ? (
+            <Link to={"/"} className="flex items-center">
               <img src={logo} alt="Nirmaan" width="140" height="40" />
             </Link>
-          )
+          ) : null
         ) : (
-          <Link to={"/"}>
+          <Link to={"/"} className="flex items-center">
             <img
               onClick={handleCloseMobile}
               src={logo}
@@ -619,10 +619,9 @@ export function NewSidebar() {
           </Link>
         )}
         <SidebarTrigger
-          className={`${state === "expanded" && "bg-gray-100"}`}
+          className={`${state === "expanded" ? "bg-gray-100" : "mx-auto"}`}
         />
       </SidebarHeader>
-      <Separator />
       <SidebarContent className="scrollbar-container overflow-x-hidden">
         <SidebarGroup>
           <SidebarMenu>

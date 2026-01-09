@@ -1,40 +1,46 @@
 import React, { useEffect, useState } from "react";
-import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Dropdown, MenuProps } from "antd"; // Import MenuProps
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useFrappeGetDoc } from "frappe-react-sdk";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ChevronDown, Home, Menu } from "lucide-react";
 
-// Local Imports (adjust paths as needed)
-import svg from "@/assets/Vector.svg";
+// Local Imports
 import ScrollToTop from "@/hooks/ScrollToTop";
 import ErrorBoundaryWithNavigationReset from "../common/ErrorBoundaryWrapper";
 import { RenderRightActionButton } from "../helpers/renderRightActionButton";
-import { Separator } from "../ui/separator";
-import { SidebarTrigger, useSidebar } from "../ui/sidebar";
+import { useSidebar } from "../ui/sidebar";
 import { NewSidebar } from "./NewSidebar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Project } from "@/pages/ProcurementRequests/ApproveNewPR/types";
 
-// Define type for menu items explicitly matching Ant Design's structure
-type MenuItem = Required<MenuProps>['items'][number];
+// Breadcrumb item interface
+interface BreadcrumbItem {
+  label: string;
+  path: string;
+  isDivider?: boolean;
+}
 
 export const MainLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { isMobile } = useSidebar();
+  const { isMobile, toggleSidebar } = useSidebar();
 
   // --- State Variables ---
-  // Initialize state with correct types (string | null for IDs/routes)
   const [project, setProject] = useState<string | null>(null);
   const [prId, setPrId] = useState<string | null>(null);
   const [poId, setPoId] = useState<string | null>(null);
   const [sbId, setSbId] = useState<string | null>(null);
   const [srId, setSrId] = useState<string | null>(null);
-  // Initialize with correctly typed empty array for menu items
-  const [locationsPaths, setLocationsPaths] = useState<MenuItem[]>([]);
+  const [breadcrumbItems, setBreadcrumbItems] = useState<BreadcrumbItem[]>([]);
   const [currentRoute, setCurrentRoute] = useState<string | null>(null);
 
   // --- Data Fetching Hooks ---
@@ -79,153 +85,173 @@ export const MainLayout: React.FC = () => {
       indicesToRemoveBefore.forEach(marker => {
         const index = processed.indexOf(marker);
         if (index > 0) {
-          processed.splice(index - 1, 1); // Remove item before marker
+          processed.splice(index - 1, 1);
         }
       });
-      // Remove 'dn' segment itself if present
       const dnIndex = processed.indexOf("dn");
       if (dnIndex !== -1) {
         processed.splice(dnIndex, 1);
       }
-      return processed.filter(segment => segment); // Remove empty segments
+      return processed.filter(segment => segment);
     };
 
     const processedSegments = processPathSegments(pathSegments);
 
-    // Generate breadcrumb menu items
-    const breadcrumbItems: MenuItem[] = processedSegments
+    // Generate breadcrumb items with simple structure
+    const items: BreadcrumbItem[] = processedSegments
       .map((segment, index) => {
         const path = `/${processedSegments.slice(0, index + 1).join("/")}`;
-        // Decode and format segment names for display
         let labelText = segment;
         if (labelText.includes("%20")) labelText = labelText.replace(/%20/g, " ");
         if (labelText.includes("PO&=") || labelText.includes("DN&=")) labelText = labelText.replace(/&=/g, "/");
         labelText = labelText.toUpperCase();
-
-        return {
-          label: <Link to={path}>{labelText}</Link>,
-          key: path, // Use path as a more stable key
-        };
+        return { label: labelText, path };
       })
-      .reverse(); // Show current level first
+      .reverse();
 
-    // Add Dashboard link if not on the root path and there are breadcrumbs
-    if (location.pathname !== "/" && breadcrumbItems.length > 0) {
-      if (breadcrumbItems.length > 1) { // Add divider only if there's more than one parent
-           breadcrumbItems.push({ type: "divider", key: "divider" }); // Added key for divider
+    // Add Dashboard link if not on root
+    if (location.pathname !== "/" && items.length > 0) {
+      if (items.length > 1) {
+        items.push({ label: "", path: "", isDivider: true });
       }
-      breadcrumbItems.push({ label: <Link to={"/"}>Dashboard</Link>, key: "/" });
+      items.push({ label: "Dashboard", path: "/" });
     }
 
-    // Dropdown items exclude the current page's link
-    setLocationsPaths(breadcrumbItems.slice(1));
+    // Set breadcrumb items (excluding current page)
+    setBreadcrumbItems(items.slice(1));
+    setCurrentRoute(items[0]?.label ?? "DASHBOARD");
 
-    // Set the current route display name from the first breadcrumb item (or default)
-    // Type assertion needed because label can be ReactNode
-    const currentLabel = breadcrumbItems[0]?.label as React.ReactElement | undefined;
-    setCurrentRoute(currentLabel?.props?.children as string ?? "DASHBOARD");
-
-    // --- Extract IDs from original path segments ---
+    // --- Extract IDs from path segments ---
     const foundProject = pathSegments.find((s) => s?.includes("PROJ")) ?? null;
     const foundPrId = processedSegments.find((s) => s?.includes("PR-")) ?? null;
     const poMatch = processedSegments.find((s) => s?.includes("PO&="));
     const dnMatch = processedSegments.find((s) => s?.includes("DN&="));
-    // Ensure replaceAll is called only on actual strings
     const foundPoId = poMatch
       ? poMatch.replaceAll("&=", "/")
       : (dnMatch ? dnMatch.replaceAll("&=", "/").replace("DN", "PO") : null);
     const foundSbId = processedSegments.find((s) => s?.includes("SB-")) ?? null;
     const foundSrId = processedSegments.find((s) => s?.includes("SR-")) ?? null;
 
-    // Set state ensuring types match (string | null)
     setProject(foundProject);
     setPrId(foundPrId);
     setPoId(foundPoId);
     setSbId(foundSbId);
     setSrId(foundSrId);
-
-  }, [location.pathname]); // Depend only on pathname
-
-  // Commented out data store logic - kept for reference
-  // ...
+  }, [location.pathname]);
 
   return (
-    <>
-      <div className="flex w-full h-dvh relative">
-        {/* Sidebar Trigger for Mobile */}
-        {isMobile && (
-          <div className="absolute top-[10px] -left-2 shadow-2xl z-20"> {/* Ensure trigger is clickable */}
-            <SidebarTrigger />
+    <div className="flex w-full h-dvh relative">
+      {/* Sidebar Component */}
+      <NewSidebar />
+
+      {/* Main Content Area */}
+      <div className="w-full h-full flex flex-col flex-1 overflow-hidden">
+        {/* Modern Sticky Header */}
+        <header
+          className="
+            sticky top-0 z-20
+            flex items-center justify-between
+            h-14 min-h-[56px] shrink-0
+            px-4 sm:px-6
+            bg-background/95 backdrop-blur-sm
+            border-b border-border/40
+            shadow-[0_1px_3px_0_rgb(0,0,0,0.05)]
+            transition-all duration-200
+          "
+        >
+          {/* Left Section: Navigation */}
+          <div className="flex items-center gap-1 sm:gap-3 flex-1 min-w-0">
+            {/* Mobile Menu Trigger - minimal half-width */}
+            {isMobile && (
+              <button
+                onClick={toggleSidebar}
+                className="flex items-center justify-center h-8 w-5 -ml-1 text-muted-foreground hover:text-foreground"
+                aria-label="Open menu"
+              >
+                <Menu className="h-4 w-4" />
+              </button>
+            )}
+
+            {/* Back Button */}
+            {location.pathname !== "/" && (
+              <button
+                onClick={() => navigate(-1)}
+                className="
+                  flex items-center justify-center
+                  h-9 w-9 rounded-lg
+                  text-primary
+                  hover:bg-primary/10
+                  active:scale-95
+                  transition-all duration-150
+                "
+                aria-label="Go back"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </button>
+            )}
+
+            {/* Breadcrumb Navigation */}
+            {breadcrumbItems.length > 0 ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    className="
+                      flex items-center gap-1.5
+                      px-2 py-1.5 rounded-md
+                      text-sm font-medium text-foreground
+                      hover:bg-accent
+                      active:scale-[0.98]
+                      transition-all duration-150
+                      max-w-[200px] sm:max-w-[300px]
+                    "
+                  >
+                    <span className="truncate">{currentRoute || "DASHBOARD"}</span>
+                    <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56">
+                  {breadcrumbItems.map((item, index) =>
+                    item.isDivider ? (
+                      <DropdownMenuSeparator key={`divider-${index}`} />
+                    ) : (
+                      <DropdownMenuItem
+                        key={item.path}
+                        onClick={() => navigate(item.path)}
+                        className="cursor-pointer"
+                      >
+                        {item.path === "/" && (
+                          <Home className="h-4 w-4 mr-2 text-muted-foreground" />
+                        )}
+                        <span className="truncate">{item.label}</span>
+                      </DropdownMenuItem>
+                    )
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <span className="text-sm font-medium text-foreground px-2">
+                {currentRoute || "DASHBOARD"}
+              </span>
+            )}
           </div>
-        )}
-        {/* Sidebar Component */}
-        <NewSidebar />
+
+          {/* Right Section: Actions */}
+          <div className="shrink-0 flex items-center">
+            {RenderRightActionButton({
+              locationPath: location.pathname,
+              projectData,
+            })}
+          </div>
+        </header>
 
         {/* Main Content Area */}
-        <div className="w-full h-full flex flex-col flex-1 overflow-hidden transition-all duration-200 ease-linear">
-          {/* Header */}
-          <header className="flex justify-between h-[53px] shrink-0 items-center pt-2 gap-2"> {/* Added border */}
-            {/* Breadcrumb / Navigation Area */}
-            <div className={`${isMobile ? "ml-4" : ""} flex items-center gap-2 px-4 flex-1`}> {/* Adjusted margin */}
-              {/* Back Button */}
-              {location.pathname !== "/" && (
-                <>
-                  <button
-                    onClick={() => navigate(-1)}
-                    className="p-1 rounded hover:bg-accent" // Make it a button for semantics
-                    aria-label="Go back"
-                  >
-                    <ArrowLeft className="text-primary h-5 w-5" />
-                  </button>
-                  <Separator orientation="vertical" className="h-4" />
-                </>
-              )}
-              {/* Breadcrumb Dropdown */}
-              <Dropdown
-                menu={{ items: locationsPaths }} // Use the 'menu' prop
-                trigger={["click"]}
-                disabled={locationsPaths.length === 0} // Disable if no parent paths
-              >
-                <div
-                  className={`text-sm max-sm:text-xs font-medium truncate ${
-                    locationsPaths.length > 0
-                      ? 'hover:text-gray-600 cursor-pointer'
-                      : 'text-gray-800 cursor-default' // Different style if not clickable
-                  }`}
-                >
-                  {currentRoute || "DASHBOARD"} {/* Ensure display */}
-                  {locationsPaths.length > 0 && (
-                    <img
-                      className="inline-block ml-1.5 mb-0.5 h-2 w-2 align-middle"
-                      src={svg}
-                      alt="Show path history"
-                    />
-                  )}
-                </div>
-              </Dropdown>
-            </div>
-
-            {/* Right Action Button Area */}
-            <div className="shrink-0"> {/* Prevent shrinking */}
-              {RenderRightActionButton({
-                locationPath: location.pathname,
-                projectData,
-              })}
-            </div>
-          </header>
-
-          {/* Main Outlet Area */}
-          <main className="flex-1 pb-4 pt-2 px-4 overflow-auto"> {/* Adjusted padding */}
-            <ErrorBoundaryWithNavigationReset>
-              <ScrollToTop />
-              <Outlet />
-            </ErrorBoundaryWithNavigationReset>
-          </main>
-        </div>
+        <main className="flex-1 overflow-auto px-4 sm:px-6 py-4">
+          <ErrorBoundaryWithNavigationReset>
+            <ScrollToTop />
+            <Outlet />
+          </ErrorBoundaryWithNavigationReset>
+        </main>
       </div>
-    </>
+    </div>
   );
 };
-
-// Export the component if it's not the default export elsewhere
-// export default MainLayout;
