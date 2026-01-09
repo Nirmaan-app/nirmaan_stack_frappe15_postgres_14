@@ -53,9 +53,9 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
 
   // --- Data Fetching ---
   const { data: prDoc, isLoading: prDocLoading } = useFrappeGetDoc<ProcurementRequest>(
-    "Procurement Requests", 
+    "Procurement Requests",
     prId,
-    prId ? `Procurement Request ${prId}` : undefined
+    prId ? `Procurement Request ${prId}` : null
   );
 
   const { data: vendor_list, isLoading: vendorListLoading } = useFrappeGetDocList<Vendors>("Vendors", {
