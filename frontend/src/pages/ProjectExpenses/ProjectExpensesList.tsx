@@ -140,7 +140,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({ projec
                         <DropdownMenuTrigger asChild><Button variant="ghost" className="h-8 w-8 p-0"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                             <DropdownMenuItem onClick={() => handleOpenEditDialog(row.original)}><Edit2 className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
-                            {role === "Nirmaan Admin Profile" &&
+                            {(role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile") &&
                                 <DropdownMenuItem onClick={() => handleOpenDeleteDialog(row.original)} className="text-destructive focus:text-destructive"><Trash2 className="mr-2 h-4 w-4" />Delete</DropdownMenuItem>}
                         </DropdownMenuContent>
                     </DropdownMenu>
@@ -258,7 +258,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({ projec
                 onExport="default"
                 exportFileName={`Project_Expenses_${projectId || 'All'}`}
                 toolbarActions={
-                    (role === "Nirmaan Admin Profile" || role === "Nirmaan Accountant Profile") &&
+                    (role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || role === "Nirmaan Accountant Profile") &&
                     <Button onClick={toggleNewProjectExpenseDialog} size="sm"><PlusCircle className="mr-2 h-4 w-4" />Add Project Expense</Button>
                 }
                 // --- (Indicator) FIX: Explicitly pass the required props with the correct names ---

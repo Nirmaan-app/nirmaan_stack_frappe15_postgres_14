@@ -212,7 +212,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                            {role === "Nirmaan Admin Profile" && <DropdownMenuItem onClick={() => handleOpenEditDialog(expense)}>
+                            {(role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile") && <DropdownMenuItem onClick={() => handleOpenEditDialog(expense)}>
                                 <Edit2 className="mr-2 h-4 w-4" /> Edit Expense
                             </DropdownMenuItem>}
                             <DropdownMenuItem onClick={() => handleOpenPaymentUpdateDialog(expense)}>
@@ -221,7 +221,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
                             <DropdownMenuItem onClick={() => handleOpenInvoiceUpdateDialog(expense)}>
                                 <FileText className="mr-2 h-4 w-4" /> Update Invoice
                             </DropdownMenuItem>
-                            {role === "Nirmaan Admin Profile" &&
+                            {(role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile") &&
                                 <>
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem

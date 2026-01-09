@@ -22,7 +22,7 @@ export const ProtectedRoute = () => {
 export const AdminRoute = () => {
     const {role, user_id} = useUserData()
 
-    if(role === "Nirmaan Admin Profile" || user_id === "Administrator") {
+    if(role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator") {
         return <Outlet />
     }
 }

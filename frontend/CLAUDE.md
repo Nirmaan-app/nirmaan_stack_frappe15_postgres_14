@@ -266,6 +266,32 @@ The procurement flow is the core workflow:
 
 Related routes and components are organized under `pages/ProcurementRequests/`, `pages/ProcurementOrders/`, etc.
 
+## Role-Based Access Control
+
+The system uses 9 role profiles for access control. Role checks use `useUserData()` hook.
+
+**Roles:** Admin, PMO Executive, Project Lead, Project Manager, Procurement Executive, Accountant, Estimates Executive, Design Lead, Design Executive
+
+**Special:** `Administrator` user (user_id) has hardcoded Admin access. PMO Executive mirrors Admin access.
+
+**Key files:**
+- `src/hooks/useUserData.ts` - Role fetching
+- `src/utils/auth/ProtectedRoute.tsx` - Route guards
+- `src/components/layout/NewSidebar.tsx` - Menu visibility
+
+**Common pattern:**
+```typescript
+["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
+```
+
+**Full documentation:** See `.claude/context/role-access.md` for:
+- Complete sidebar menu access matrix
+- Page-level access control with file:line references
+- Action capabilities by role
+- Dashboard routing
+
+---
+
 ## Important Notes
 
 - **Frappe Backend Required**: This frontend cannot run standalone; it requires a Frappe backend (see `../CLAUDE.md` for backend documentation)
@@ -273,5 +299,5 @@ Related routes and components are organized under `pages/ProcurementRequests/`, 
 - **Service Worker**: Firebase messaging service worker must be at root URL path
 - **Build Output**: Build artifacts go to parent Python package directory (`../nirmaan_stack/public/frontend/`), not within frontend/
 - **Deprecated Components**: `src/pages/Retired Components/` contains old implementations for reference
-- **Role-Based Access**: User roles from Frappe control UI visibility and permissions
+- **Role-Based Access**: User roles from Frappe control UI visibility and permissions (see Role-Based Access Control section above)
 - **Project Context**: Many operations are scoped to a selected project (stored in UserContext)

@@ -303,7 +303,7 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
 
     return (
         <>
-            {["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(current_role) && (
+            {["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(current_role) && (
                 <div className="p-4 border rounded-md shadow-sm bg-white">
                     <div className="flex items-center justify-between mb-6 pb-4 border-b">
                         <div>
@@ -914,7 +914,7 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
 
 //     return (
 //         <>
-//             {["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(current_role) && (
+//             {["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(current_role) && (
 //                 <div className="p-4 border rounded-md shadow-sm bg-white">
 //                     <div className="flex items-center justify-between mb-6 pb-4 border-b">
 //                         <div>

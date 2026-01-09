@@ -200,7 +200,7 @@ export function NewSidebar() {
 
   const items = useMemo(() => [
     { key: "/", icon: LayoutGrid, label: "Dashboard" },
-    ...(user_id == "Administrator" || role == "Nirmaan Admin Profile"
+    ...(user_id == "Administrator" || role == "Nirmaan Admin Profile" || role == "Nirmaan PMO Executive Profile"
       ? [
         {
           key: "admin-actions",
@@ -215,7 +215,7 @@ export function NewSidebar() {
             { key: "/product-packages", label: "Product Packages" },
             { key: "/milestone-packages", label: "Milestone Packages" },
             { key: "/design-packages", label: "Design Packages" },
-            ...(user_id == "Administrator" || role == "Nirmaan Project Lead Profile"
+            ...(user_id == "Administrator" || role == "Nirmaan Admin Profile" || role == "Nirmaan PMO Executive Profile" || role == "Nirmaan Project Lead Profile"
               ? [{ key: "/critical-po-categories", label: "Critical PO Categories" }]
               : []),
             // { key: "/all-AQs", label: "Approved Quotations" },
@@ -313,7 +313,7 @@ export function NewSidebar() {
     //   ]
     // : []),
 
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile"].includes(role)
       ? [
         {
           key: '/item-price',
@@ -326,6 +326,7 @@ export function NewSidebar() {
     ...([
       "Nirmaan Procurement Executive Profile",
       "Nirmaan Admin Profile",
+      "Nirmaan PMO Executive Profile",
       "Nirmaan Project Lead Profile"
     ].includes(role) || user_id == "Administrator"
       ? [
@@ -359,7 +360,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
       ? [
 
         {
@@ -391,7 +392,7 @@ export function NewSidebar() {
     //       },
     //     ]
     //   : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role)
       ? [
         {
           key: '/project-payments',
@@ -400,7 +401,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
       ? [
         {
           key: '/credits',
@@ -411,7 +412,7 @@ export function NewSidebar() {
       ]
       : []),
 
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role)
       ? [
         {
           key: '/in-flow-payments',
@@ -420,7 +421,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Procurement Executive Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile"].includes(role)
       ? [
         {
           key: '/invoice-reconciliation',
@@ -429,7 +430,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role)
       ? [
         {
           key: '/project-invoices',
@@ -438,7 +439,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role)
       ? [
         {
           key: '/project-expenses',
@@ -447,7 +448,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role)
       ? [
         {
           key: '/non-project',
@@ -456,7 +457,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile"].includes(role)
       ? [
         {
           key: '/reports',
@@ -465,7 +466,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Design Lead Profile", "Nirmaan Admin Profile", "Nirmaan Design Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Design Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Design Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role)
       ? [
         {
           key: '/design-tracker',

@@ -402,7 +402,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                         <div className="flex items-center gap-2">
 
                             <Button
-                                disabled={isDeleting || summaryPage || accountsPage || ((projectPayments || [])?.length > 0) || ((orderData?.invoice_data?.data || [])?.length > 0) || (orderData?.owner !== user_id && role !== "Nirmaan Admin Profile")}
+                                disabled={isDeleting || summaryPage || accountsPage || ((projectPayments || [])?.length > 0) || ((orderData?.invoice_data?.data || [])?.length > 0) || (orderData?.owner !== user_id && role !== "Nirmaan Admin Profile" && role !== "Nirmaan PMO Executive Profile")}
                                 variant={"outline"} onClick={() => setDeleteDialog(true)} className="text-xs flex items-center gap-1 border border-primary px-2">
                                 <Trash2 className="w-4 h-4" />
                                 Delete

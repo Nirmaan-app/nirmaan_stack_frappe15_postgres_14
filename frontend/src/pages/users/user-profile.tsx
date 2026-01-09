@@ -30,7 +30,7 @@ export default function Profile() {
   if (!id) return <div>No User ID Provided</div>;
 
   const userData = useUserData();
-  const isAdmin = userData.role === "Nirmaan Admin Profile";
+  const isAdmin = userData.role === "Nirmaan Admin Profile" || userData.role === "Nirmaan PMO Executive Profile";
 
   const [editSheetOpen, setEditSheetOpen] = useState(false);
   const toggleEditSheet = useCallback(() => {
@@ -122,7 +122,7 @@ export default function Profile() {
   // Project count for stats
   const projectCount = useMemo(() => {
     if (
-      ["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(
+      ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Estimates Executive Profile"].includes(
         data?.role_profile || ""
       )
     ) {

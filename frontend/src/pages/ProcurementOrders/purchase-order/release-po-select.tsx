@@ -131,7 +131,7 @@ export const ReleasePOSelect: React.FC = () => {
     // --- Tab State Management ---
     const initialTab = useMemo(() => {
         // Determine initial tab based on role, default to "Approved PO" if not admin/lead
-        const defaultTab = ["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? "Approve PO" :
+        const defaultTab = ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) ? "Approve PO" :
             role === "Nirmaan Estimates Executive Profile" ? "All POs" : "Approved PO";
         return getUrlStringParam("tab", defaultTab);
     }, [role]); // Calculate only once based on role
@@ -251,7 +251,7 @@ export const ReleasePOSelect: React.FC = () => {
     const dateColumns = PO_DATE_COLUMNS;
 
     const adminTabs = useMemo(() => [
-        ...(["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(
+        ...(["Nirmaan Project Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(
             role
         ) ? [
             {

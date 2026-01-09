@@ -27,7 +27,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
         const accountantDefault = "New Payments";
         const userDefault = "Payments Done";
         const remDefault = "PO Wise";
-        return getUrlStringParam("tab", role === "Nirmaan Admin Profile" ? adminDefault : role === "Nirmaan Accountant Profile" ? accountantDefault : ["Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role) ? userDefault : remDefault);
+        return getUrlStringParam("tab", (role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile") ? adminDefault : role === "Nirmaan Accountant Profile" ? accountantDefault : ["Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role) ? userDefault : remDefault);
     }, [role]); // Calculate only once based on role
 
     const [tab, setTab] = useState<string>(initialTab);
@@ -62,7 +62,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
     }, [tab]);
 
     const adminTabs = useMemo(() => [
-        ...(["Nirmaan Admin Profile"].includes(role) ? [
+        ...(["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role) ? [
             {
                 label: (
                     <div className="flex items-center">
@@ -78,7 +78,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
     ], [role, counts])
 
     const items = useMemo(() => [
-        ...(["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role) ? [
+        ...(["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile"].includes(role) ? [
             {
                 label: (
                     <div className="flex items-center">
@@ -111,7 +111,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
         , [counts, role])
 
     const remTabs = useMemo(() => [
-        ...(["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role) ? ["PO Wise"] : []),
+        ...(["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile"].includes(role) ? ["PO Wise"] : []),
         // "All Payments"
     ], [role])
 

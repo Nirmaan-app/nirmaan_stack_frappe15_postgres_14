@@ -227,7 +227,7 @@ const EditUserForm = ({ toggleEditSheet }: any) => {
               </FormItem>
             )}
           />
-          {(role === "Nirmaan Admin Profile" || actual_user_id !== data.email) && <FormField
+          {(role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || actual_user_id !== data.email) && <FormField
             control={form.control}
             name="role_profile_name"
             render={({ field }) => (

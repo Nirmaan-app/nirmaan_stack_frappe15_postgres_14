@@ -301,7 +301,7 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
                 enableColumnFilter: true
             } as ColumnDef<SentBackCategory>
         ] : []),
-        ...((["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(role)) && tab !== "All SBs" ? [{ // Assuming Admins/Leads can delete sent-back items
+        ...((["Nirmaan Project Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role)) && tab !== "All SBs" ? [{ // Assuming Admins/Leads can delete sent-back items
             id: "actions", header: "Actions",
             cell: ({ row }) => (
                 <Button variant="ghost" size="sm" onClick={() => { setDeleteFlagged(row.original); toggleDeleteDialog(); }}>

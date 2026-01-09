@@ -197,7 +197,7 @@ export default function ItemsPage() {
         item_status: { title: "Status", options: statusFacetOptions, isLoading: isStatusFacetLoading },
     }), [categoryFacetOptions, isCategoryFacetLoading, unitFacetOptions, isUnitFacetLoading, statusFacetOptions, isStatusFacetLoading]);
 
-    const canManageItems = userData?.role === "Nirmaan Admin Profile"; // Define roles that can add/edit
+    const canManageItems = userData?.role === "Nirmaan Admin Profile" || userData?.role === "Nirmaan PMO Executive Profile"; // Define roles that can add/edit
 
     return (
         <div className="h-[calc(100vh-80px)] flex flex-col gap-2 overflow-hidden">

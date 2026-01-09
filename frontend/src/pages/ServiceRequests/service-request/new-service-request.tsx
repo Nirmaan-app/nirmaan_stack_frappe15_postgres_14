@@ -125,7 +125,7 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
 
     const handleSubmit = async () => {
         if (
-            ["Nirmaan Project Manager Profile", "Nirmaan Admin Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"]
+            ["Nirmaan Project Manager Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"]
                 .includes(userData?.role)
         ) {
             try {

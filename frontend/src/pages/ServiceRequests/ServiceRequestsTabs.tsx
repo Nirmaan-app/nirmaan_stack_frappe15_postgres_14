@@ -20,7 +20,7 @@ export const ServiceRequestsTabs : React.FC = () => {
     const initialTab = useMemo(() => {
         const adminDefault = "approve-service-order";
         const userDefault = "choose-vendor";
-        return getUrlStringParam("tab", ["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? adminDefault : userDefault);
+        return getUrlStringParam("tab", ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) ? adminDefault : userDefault);
     }, [role]);
 
     const [tab, setTab] = useState<string>(initialTab);
@@ -42,7 +42,7 @@ export const ServiceRequestsTabs : React.FC = () => {
     const {counts} = useDocCountStore()
 
     const adminTabs = useMemo(() => [
-        ...(["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role)  ? [
+        ...(["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role)  ? [
             {
                 label: (
                     <div className="flex items-center">

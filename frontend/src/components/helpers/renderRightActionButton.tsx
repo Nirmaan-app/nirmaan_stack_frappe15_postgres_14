@@ -70,7 +70,7 @@ export const RenderRightActionButton = ({
     );
   } else if (locationPath === "/prs&milestones/procurement-requests" && selectedProject) {
     return (
-      ["Nirmaan Admin Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) || user_id === "Administrator" ? (
+      ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) || user_id === "Administrator" ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button className="sm:mr-4 mr-2">
@@ -138,7 +138,7 @@ export const RenderRightActionButton = ({
     );
   } else if (
     locationPath === "/" &&
-    ["Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile"].includes(role)
+    ["Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role)
   ) {
     // For admin profiles, render a dropdown menu
     return (
@@ -150,7 +150,7 @@ export const RenderRightActionButton = ({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent className="mr-16">
-          {role === "Nirmaan Admin Profile" && (
+          {(role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile") && (
             <>
               <DropdownMenuItem onClick={() => navigate("/projects/new-project")}>
                 New Project

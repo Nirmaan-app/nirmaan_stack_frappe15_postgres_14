@@ -170,7 +170,7 @@ export const ProcurementRequests: React.FC = () => {
     const initialTab = useMemo(() => {
         const adminDefault = "Approve PR";
         const userDefault = "New PR Request";
-        return getUrlStringParam("tab", ["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? adminDefault : userDefault);
+        return getUrlStringParam("tab", ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) ? adminDefault : userDefault);
     }, [role]);
 
     const [tab, setTab] = useState<string>(initialTab);
@@ -230,16 +230,16 @@ export const ProcurementRequests: React.FC = () => {
     const { counts } = useDocCountStore();
 
     // --- Tab Definitions ---
-    const adminTabs = useMemo(() => (["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? [
+    const adminTabs = useMemo(() => (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) ? [
         { label: (<div className="flex items-center"><span>Approve PR</span><span className="ml-2 text-xs font-bold">{counts.pr.pending}</span></div>), value: "Approve PR" },
     ] : []), [role, counts]);
 
-    const userPRExecTabs = useMemo(() => (["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? [
+    const userPRExecTabs = useMemo(() => (["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) ? [
         { label: (<div className="flex items-center"><span>New PR Request</span><span className="ml-2 text-xs font-bold">{counts.pr.approved}</span></div>), value: "New PR Request" },
         { label: (<div className="flex items-center"><span>In Progress</span><span className="ml-2 text-xs font-bold">{counts.pr.in_progress}</span></div>), value: "In Progress" },
     ] : []), [role, counts]);
 
-    const sentBackTabsConfig = useMemo(() => (["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? [
+    const sentBackTabsConfig = useMemo(() => (["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) ? [
         { label: (<div className="flex items-center"><span>Sent Back</span><span className="ml-2 text-xs font-bold">{counts.sb.rejected.pending}</span></div>), value: "Rejected" },
         { label: (<div className="flex items-center"><span>Skipped PR</span><span className="ml-2 rounded text-xs font-bold">{counts.sb.delayed.pending}</span></div>), value: "Delayed" },
         { label: (<div className="flex items-center"><span>Rejected PO</span><span className="ml-2 rounded text-xs font-bold">{counts.sb.cancelled.pending}</span></div>), value: "Cancelled" },
@@ -402,7 +402,7 @@ export const ProcurementRequests: React.FC = () => {
             } as ColumnDef<ProcurementRequest>
         ] : []),
         // Conditional Delete Column
-        ...((tab === "New PR Request" && ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(role)) ? [{
+        ...((tab === "New PR Request" && ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role)) ? [{
             id: "actions", header: "Actions",
             cell: ({ row }) => (
                 <Button variant="ghost" size="sm" onClick={() => { setDeleteFlagged(row.original); toggleDeleteDialog(); }}>

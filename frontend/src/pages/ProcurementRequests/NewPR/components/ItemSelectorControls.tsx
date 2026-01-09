@@ -241,7 +241,8 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
     );
     return (
       categoryDetails?.new_items === "false" &&
-      userData?.role !== "Nirmaan Admin Profile"
+      userData?.role !== "Nirmaan Admin Profile" &&
+      userData?.role !== "Nirmaan PMO Executive Profile"
     );
   }, [curItem, categoryList, userData?.role]);
 

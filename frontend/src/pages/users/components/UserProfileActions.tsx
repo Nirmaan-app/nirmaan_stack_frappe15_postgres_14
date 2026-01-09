@@ -56,7 +56,7 @@ export function UserProfileActions({
   const [renameEmailDialog, setRenameEmailDialog] = useState(false);
   const [newEmail, setNewEmail] = useState("");
 
-  const isTargetAdmin = user.role_profile === "Nirmaan Admin Profile";
+  const isTargetAdmin = user.role_profile === "Nirmaan Admin Profile" || user.role_profile === "Nirmaan PMO Executive Profile";
 
   const toggleResetPasswordDialog = () => setResetPasswordDialog((prev) => !prev);
   const toggleDeleteUserDialog = () => setDeleteUserDialog((prev) => !prev);

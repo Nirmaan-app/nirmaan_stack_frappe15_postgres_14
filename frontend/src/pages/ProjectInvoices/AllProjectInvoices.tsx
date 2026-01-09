@@ -40,7 +40,7 @@ export const AllProjectInvoices: React.FC<{ projectId?: string; customerId?: str
     // 1. STATE & ROLE MANAGEMENT
     // =================================================================================
     const { role } = useUserData();
-    const isAdmin = role === "Nirmaan Admin Profile";
+    const isAdmin = role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile";
 
     const { 
         setEditProjectInvoiceDialog // Get the setter for edit dialog

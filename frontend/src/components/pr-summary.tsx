@@ -319,7 +319,7 @@ useEffect(() => {
                         </div>
                     )}
                     {
-                        [...((!["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(role) && user_id === pr_data?.owner) ? ["Rejected", "Pending"] : []), ...(["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(role) ? ["Approved", "Rejected", "Pending"] : []),].includes(pr_data?.workflow_state) && (
+                        [...((!["Nirmaan Project Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role) && user_id === pr_data?.owner) ? ["Rejected", "Pending"] : []), ...(["Nirmaan Project Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role) ? ["Approved", "Rejected", "Pending"] : []),].includes(pr_data?.workflow_state) && (
                             <AlertDialog>
                                 <AlertDialogTrigger>
                                     <Button className="flex items-center gap-1">

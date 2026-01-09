@@ -77,6 +77,14 @@ export const ROLE_COLORS: Record<string, RoleColorScheme> = {
     gradient: "bg-gradient-to-br from-indigo-500 to-purple-600",
     ring: "ring-indigo-500/30",
   },
+  "Nirmaan PMO Executive Profile": {
+    bg: "bg-teal-50",
+    text: "text-teal-700",
+    border: "border-teal-200",
+    dot: "bg-teal-500",
+    gradient: "bg-gradient-to-br from-teal-500 to-cyan-600",
+    ring: "ring-teal-500/30",
+  },
 };
 
 // Default fallback colors for unknown roles
@@ -116,6 +124,7 @@ export function getRoleLabel(roleProfile: string | undefined | null): string {
  */
 export const ROLE_OPTIONS: { label: string; value: string }[] = [
   { label: "Admin", value: "Nirmaan Admin Profile" },
+  { label: "PMO Executive", value: "Nirmaan PMO Executive Profile" },
   { label: "Project Lead", value: "Nirmaan Project Lead Profile" },
   { label: "Project Manager", value: "Nirmaan Project Manager Profile" },
   { label: "Procurement Executive", value: "Nirmaan Procurement Executive Profile" },

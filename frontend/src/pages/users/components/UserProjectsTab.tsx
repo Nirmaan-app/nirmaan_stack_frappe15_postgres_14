@@ -103,6 +103,7 @@ export function UserProjectsTab({
   // Check if user is admin or estimates executive (can't be assigned projects)
   const isRestrictedRole = [
     "Nirmaan Admin Profile",
+    "Nirmaan PMO Executive Profile",
     "Nirmaan Estimates Executive Profile",
   ].includes(user.role_profile || "");
 

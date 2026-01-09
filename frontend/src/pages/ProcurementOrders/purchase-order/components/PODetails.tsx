@@ -504,7 +504,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   !estimatesViewing &&
                   po?.status === "Dispatched" &&
                   !((poPayments || [])?.length > 0) &&
-                  ["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) && (
+                  ["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
                     <Button
                       variant="outline"
                       onClick={toggleRevertDialog}
@@ -548,7 +548,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
 
                 {/* Update DN Button */}
                 {["Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) &&
-                  ["Nirmaan Admin Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) && (
+                  ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) && (
                     <Button
                       onClick={toggleDeliveryNoteSheet}
                       variant="outline"
@@ -629,7 +629,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   !estimatesViewing &&
                   po?.status === "PO Approved" &&
                   !((poPayments || [])?.length > 0) &&
-                  ["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) && (
+                  ["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
                     <Button
                       onClick={toggleDeleteDialog}
                       variant="destructive"
@@ -678,7 +678,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   !accountsPage &&
                   !estimatesViewing &&
                   po?.status === "PO Approved" &&
-                  ["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) && (
+                  ["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
@@ -1066,7 +1066,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 po.status !== "PO Approved" &&
                 po?.amount_paid <= 100 &&
                 !PoPaymentTermsValidationSafe &&
-                (["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role)) && (
+                (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile"].includes(role)) && (
                   <Button
                     variant="outline"
                     onClick={toggleInactiveDialog}

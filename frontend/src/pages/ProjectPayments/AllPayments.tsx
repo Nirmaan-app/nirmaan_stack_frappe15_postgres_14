@@ -121,7 +121,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
 }) => {
     const { db } = useContext(FrappeContext) as FrappeConfig;
     const { role } = useUserData(); // Get user role
-    const isAdmin = role === "Nirmaan Admin Profile"; // Check for admin role
+    const isAdmin = role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile"; // Check for admin role
     const isAccountant = role === "Nirmaan Accountant Profile"
 
     const { setEditFulfilledPaymentDialog } = useDialogStore(); // Get the setter for the new dialog

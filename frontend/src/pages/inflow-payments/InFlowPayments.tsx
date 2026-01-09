@@ -276,7 +276,7 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
                 excludeFromExport: true, // Exclude from export
             }
         },// --- NEW: Actions Column ---
-        ...(role === "Nirmaan Admin Profile" ? [
+        ...((role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile") ? [
             {
                 id: "actions",
                 header: () => <div >Actions</div>,

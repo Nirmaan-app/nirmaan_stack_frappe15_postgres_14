@@ -183,9 +183,9 @@ export const SelectServiceVendorList: React.FC = () => {
             cell: ({ row }) => {
                 const serviceRequest = row.original;
                 // const deleteddisabled=serviceRequest.status==="Vendor Selected";
-                const canDelete = serviceRequest.owner === user_id || ["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role);
+                const canDelete = serviceRequest.owner === user_id || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile"].includes(role);
 
-                const canEdit = serviceRequest.owner === user_id || ["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role);
+                const canEdit = serviceRequest.owner === user_id || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile"].includes(role);
                 if (!canEdit) return "--";
 
                 return (

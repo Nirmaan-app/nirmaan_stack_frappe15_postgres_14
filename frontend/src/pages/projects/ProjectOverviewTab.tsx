@@ -388,7 +388,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
             Assignees
-            {["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) && (
+            {["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
               <Dialog open={assignUserDialog} onOpenChange={toggleAssignUserDialog}>
                 <DialogTrigger asChild>
                   <Button asChild>

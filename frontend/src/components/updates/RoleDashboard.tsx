@@ -77,7 +77,7 @@ const RoleDashboard = ({ selectedValue }) => {
                     {selectedValue === 'Project_Lead' && <ProjectLead />}
                     {selectedValue === 'Procurement_Executive' && <ProcurementDashboard />}
 
-                    {(userData.has_project === "false" && userData.role !== "Nirmaan Admin Profile") ? (
+                    {(userData.has_project === "false" && userData.role !== "Nirmaan Admin Profile" && userData.role !== "Nirmaan PMO Executive Profile") ? (
                         <Alert className="ml-[25%] w-[50%] mt-[15%]">
                             <RocketIcon className="h-4 w-4" />
                             <AlertTitle>Sorry !!!</AlertTitle>
