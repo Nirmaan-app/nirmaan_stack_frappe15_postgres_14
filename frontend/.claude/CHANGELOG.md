@@ -4,6 +4,50 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-09: Accountant Role Enhancements
+
+### Summary
+Fixed Accountant role unable to create Work Orders and created backend patch to remove project assignments from all Accountant users (giving them access to all projects).
+
+### Backend Patch Created
+
+**File:** `nirmaan_stack/patches/v2_8/remove_accountant_project_assignments.py`
+
+Removes all project assignments from Accountant users:
+- Deletes `User Permission` entries (Frappe built-in) for Projects
+- Deletes `Nirmaan User Permissions` entries for Projects
+- Sets `has_project = "false"` for all Accountant users
+
+**Registered in:** `nirmaan_stack/patches.txt`
+
+**Run with:** `bench --site localhost migrate`
+
+### Frontend Bug Fix
+
+**File:** `src/pages/ServiceRequests/service-request/new-service-request.tsx:128`
+
+**Issue:** Accountant role was missing from the `handleSubmit()` role check array, causing silent failure when creating Work Orders.
+
+**Fix:** Added `"Nirmaan Accountant Profile"` to allowed roles. Also removed `"Nirmaan Project Manager Profile"` (was inconsistent with role-access.md and button visibility).
+
+**Before:**
+```typescript
+["Nirmaan Project Manager Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile",
+ "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"]
+```
+
+**After:**
+```typescript
+["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile",
+ "Nirmaan Project Lead Profile", "Nirmaan Accountant Profile"]
+```
+
+### Documentation Created
+
+**File:** `.claude/context/_index.md` - Navigation index for frontend context files
+
+---
+
 ## 2026-01-09: Added User Assets Tab with Assignment and Declaration Upload
 
 ### Summary
