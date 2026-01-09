@@ -16,13 +16,22 @@ import { NirmaanUserPermissions } from "@/types/NirmaanStack/NirmaanUserPermissi
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { Pencil2Icon } from "@radix-ui/react-icons";
-import { User, FolderKanban } from "lucide-react";
+import { User, FolderKanban, Package } from "lucide-react";
 import EditUserForm from "./EditUserForm";
 import {
   UserProfileActions,
   UserOverviewTab,
   UserProjectsTab,
+  UserAssetsTab,
 } from "./components";
+import {
+  ASSET_MASTER_DOCTYPE,
+  ASSET_MANAGEMENT_DOCTYPE,
+  ASSET_CATEGORY_DOCTYPE,
+  ASSET_MASTER_FIELDS,
+  ASSET_MANAGEMENT_FIELDS,
+  ASSET_CATEGORY_FIELDS,
+} from "@/pages/Assets/assets.constants";
 
 // Roles that have access to all projects (no assignment required)
 const PROJECT_EXEMPT_ROLES = [
@@ -130,6 +139,51 @@ export default function Profile() {
       "Address"
     );
 
+  // Fetch asset management records for this user (for admin OR own profile)
+  const {
+    data: assetManagementList,
+    isLoading: assetManagementLoading,
+    mutate: assetManagementMutate,
+  } = useFrappeGetDocList(
+    ASSET_MANAGEMENT_DOCTYPE,
+    {
+      fields: ASSET_MANAGEMENT_FIELDS as unknown as string[],
+      filters: [["asset_assigned_to", "=", id]],
+      limit: 1000,
+      orderBy: { field: "creation", order: "desc" },
+    },
+    (isAdmin || isOwnProfile) ? `asset_management_${id}` : null
+  );
+
+  // Fetch all asset masters (for assignment dialog - admins only)
+  const { data: assetMasterList, isLoading: assetMasterLoading } =
+    useFrappeGetDocList(
+      ASSET_MASTER_DOCTYPE,
+      {
+        fields: ASSET_MASTER_FIELDS as unknown as string[],
+        limit: 1000,
+        orderBy: { field: "asset_name", order: "asc" },
+      },
+      (isAdmin || isOwnProfile) ? "asset_masters_for_user_profile" : null
+    );
+
+  // Fetch asset categories (for assignment dialog filter)
+  const { data: categoryList } =
+    useFrappeGetDocList(
+      ASSET_CATEGORY_DOCTYPE,
+      {
+        fields: ASSET_CATEGORY_FIELDS as unknown as string[],
+        limit: 100,
+        orderBy: { field: "asset_category", order: "asc" },
+      },
+      isAdmin ? "asset_categories_for_user_profile" : null
+    );
+
+  // Asset count for stats
+  const assetCount = useMemo(() => {
+    return assetManagementList?.length || 0;
+  }, [assetManagementList]);
+
   // Project count for stats
   const projectCount = useMemo(() => {
     if (
@@ -146,7 +200,9 @@ export default function Profile() {
     isLoading ||
     permission_list_loading ||
     project_list_loading ||
-    addressDataLoading
+    addressDataLoading ||
+    assetManagementLoading ||
+    assetMasterLoading
   ) {
     return <UserProfileSkeleton />;
   }
@@ -190,20 +246,14 @@ export default function Profile() {
         )}
       </div>
 
-      {/* Tabs - Only show Projects tab for roles that require project assignment */}
-      {isProjectExemptRole ? (
-        // Single tab layout for project-exempt roles
-        <div className="mt-6">
-          <UserOverviewTab user={data} showProjectStats={false} />
-        </div>
-      ) : (
-        // Full tabs layout for roles that require project assignment
-        <Tabs defaultValue="overview" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 max-w-xs">
-            <TabsTrigger value="overview" className="gap-2">
-              <User className="h-4 w-4" />
-              <span className="max-sm:hidden">Overview</span>
-            </TabsTrigger>
+      {/* Tabs */}
+      <Tabs defaultValue="overview" className="w-full">
+        <TabsList className={`grid w-full ${isProjectExemptRole ? "grid-cols-2" : "grid-cols-3"} max-w-md`}>
+          <TabsTrigger value="overview" className="gap-2">
+            <User className="h-4 w-4" />
+            <span className="max-sm:hidden">Overview</span>
+          </TabsTrigger>
+          {!isProjectExemptRole && (
             <TabsTrigger value="projects" className="gap-2">
               <FolderKanban className="h-4 w-4" />
               <span className="max-sm:hidden">Projects</span>
@@ -211,12 +261,29 @@ export default function Profile() {
                 {projectCount}
               </span>
             </TabsTrigger>
-          </TabsList>
+          )}
+          <TabsTrigger value="assets" className="gap-2">
+            <Package className="h-4 w-4" />
+            <span className="max-sm:hidden">Assets</span>
+            {assetCount > 0 && (
+              <span className="ml-1 text-xs font-semibold text-muted-foreground">
+                {assetCount}
+              </span>
+            )}
+          </TabsTrigger>
+        </TabsList>
 
-          <TabsContent value="overview" className="mt-6">
-            <UserOverviewTab user={data} projectCount={projectCount} showProjectStats={true} />
-          </TabsContent>
+        <TabsContent value="overview" className="mt-6">
+          <UserOverviewTab
+            user={data}
+            projectCount={projectCount}
+            assetCount={assetCount}
+            showProjectStats={!isProjectExemptRole}
+            showAssetStats={assetCount > 0}
+          />
+        </TabsContent>
 
+        {!isProjectExemptRole && (
           <TabsContent value="projects" className="mt-6">
             {isAdmin ? (
               <UserProjectsTab
@@ -244,8 +311,22 @@ export default function Profile() {
               />
             )}
           </TabsContent>
-        </Tabs>
-      )}
+        )}
+
+        <TabsContent value="assets" className="mt-6">
+          <UserAssetsTab
+            user={data}
+            assetManagementList={assetManagementList as any}
+            assetMasterList={assetMasterList as any}
+            categoryList={categoryList as any}
+            isAdmin={isAdmin}
+            isOwnProfile={isOwnProfile}
+            onMutate={() => {
+              assetManagementMutate();
+            }}
+          />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

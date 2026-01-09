@@ -4,6 +4,7 @@ import {
     useFrappeGetDoc,
     useFrappeGetDocList,
     useFrappeUpdateDoc,
+    useFrappeFileUpload,
     useFrappeDocumentEventListener,
 } from 'frappe-react-sdk';
 import ReactSelect from 'react-select';
@@ -33,6 +34,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
 import { useToast } from '@/components/ui/use-toast';
 import { useUserData } from '@/hooks/useUserData';
+import { CustomAttachment } from '@/components/helpers/CustomAttachment';
 import { formatDate } from '@/utils/FormatDate';
 import { formatToRoundedIndianRupee } from '@/utils/FormatPrice';
 
@@ -54,6 +56,7 @@ import {
     UserPlus,
     UserMinus,
     AlertTriangle,
+    Upload,
 } from 'lucide-react';
 
 import { AssignAssetDialog } from './components/AssignAssetDialog';
@@ -122,6 +125,11 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
     const [editDialogOpen, setEditDialogOpen] = useState(false);
     const [assignDialogOpen, setAssignDialogOpen] = useState(false);
     const [unassignDialogOpen, setUnassignDialogOpen] = useState(false);
+    const [uploadDeclarationDialogOpen, setUploadDeclarationDialogOpen] = useState(false);
+
+    // Upload declaration state
+    const [declarationFile, setDeclarationFile] = useState<File | null>(null);
+    const [isUploadingDeclaration, setIsUploadingDeclaration] = useState(false);
 
     // Edit form state
     const [editForm, setEditForm] = useState({
@@ -190,6 +198,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
     );
 
     const { updateDoc, loading: isUpdating } = useFrappeUpdateDoc();
+    const { upload } = useFrappeFileUpload();
 
     const canManageAssets = userData?.user_id === 'Administrator' ||
         ['Nirmaan Admin Profile', 'Nirmaan PMO Executive Profile', 'Nirmaan HR Executive Profile'].includes(userData?.role || '');
@@ -274,6 +283,48 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
     // Handle assignment refresh
     const handleAssignmentChange = () => {
         mutate();
+    };
+
+    // Handle declaration upload
+    const handleUploadDeclaration = async () => {
+        if (!declarationFile || !currentAssignment) return;
+
+        setIsUploadingDeclaration(true);
+
+        try {
+            // Upload file
+            const fileArgs = {
+                doctype: ASSET_MANAGEMENT_DOCTYPE,
+                docname: currentAssignment.name,
+                fieldname: 'asset_declaration_attachment',
+                isPrivate: true,
+            };
+            const uploadedFile = await upload(declarationFile, fileArgs);
+
+            // Update the Asset Management document with file URL
+            await updateDoc(ASSET_MANAGEMENT_DOCTYPE, currentAssignment.name, {
+                asset_declaration_attachment: uploadedFile.file_url,
+            });
+
+            toast({
+                title: 'Declaration Uploaded',
+                description: 'The declaration document has been uploaded successfully.',
+                variant: 'success',
+            });
+
+            setUploadDeclarationDialogOpen(false);
+            setDeclarationFile(null);
+            mutate();
+        } catch (err: any) {
+            console.error('Failed to upload declaration:', err);
+            toast({
+                title: 'Upload Failed',
+                description: err?.message || 'An error occurred while uploading the declaration.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsUploadingDeclaration(false);
+        }
     };
 
     return (
@@ -545,7 +596,8 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                                             </p>
                                         )}
                                     </div>
-                                    {currentAssignment?.asset_declaration_attachment && (
+                                    {/* Declaration: View or Upload */}
+                                    {currentAssignment?.asset_declaration_attachment ? (
                                         <a
                                             href={currentAssignment.asset_declaration_attachment}
                                             target="_blank"
@@ -556,6 +608,19 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                                             Declaration
                                             <ExternalLink className="h-3 w-3" />
                                         </a>
+                                    ) : canManageAssets && (
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="gap-2 text-amber-600 border-amber-200 hover:bg-amber-50 hover:text-amber-700"
+                                            onClick={() => {
+                                                setDeclarationFile(null);
+                                                setUploadDeclarationDialogOpen(true);
+                                            }}
+                                        >
+                                            <Upload className="h-4 w-4" />
+                                            Upload Declaration
+                                        </Button>
                                     )}
                                 </div>
                             ) : (
@@ -767,6 +832,57 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                 assetManagementId={currentAssignment?.name}
                 onUnassigned={handleAssignmentChange}
             />
+
+            {/* Upload Declaration Dialog */}
+            <Dialog open={uploadDeclarationDialogOpen} onOpenChange={setUploadDeclarationDialogOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-50">
+                            <FileText className="h-6 w-6 text-amber-600" />
+                        </div>
+                        <DialogTitle className="text-center text-lg font-semibold">
+                            Upload Declaration
+                        </DialogTitle>
+                        <DialogDescription className="text-center text-sm text-gray-500">
+                            Upload the declaration document for{' '}
+                            <span className="font-medium text-gray-700">{asset?.asset_name}</span>
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="py-4">
+                        <CustomAttachment
+                            selectedFile={declarationFile}
+                            onFileSelect={setDeclarationFile}
+                            acceptedTypes={["image/*", "application/pdf"]}
+                            label="Select Declaration File"
+                            maxFileSize={10 * 1024 * 1024}
+                            onError={(err) => toast({
+                                title: 'File Error',
+                                description: err.message,
+                                variant: 'destructive',
+                            })}
+                        />
+                    </div>
+
+                    <DialogFooter className="gap-2 sm:gap-0">
+                        <Button
+                            variant="outline"
+                            onClick={() => setUploadDeclarationDialogOpen(false)}
+                            disabled={isUploadingDeclaration}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={handleUploadDeclaration}
+                            disabled={isUploadingDeclaration || !declarationFile}
+                            className="gap-2"
+                        >
+                            {isUploadingDeclaration ? 'Uploading...' : 'Upload Declaration'}
+                            <Upload className="h-4 w-4" />
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 };

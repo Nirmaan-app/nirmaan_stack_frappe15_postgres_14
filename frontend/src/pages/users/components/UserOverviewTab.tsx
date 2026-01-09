@@ -17,13 +17,16 @@ import {
   Calendar,
   FolderKanban,
   Clock,
+  Package,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface UserOverviewTabProps {
   user: NirmaanUsers;
   projectCount?: number;
+  assetCount?: number;
   showProjectStats?: boolean;
+  showAssetStats?: boolean;
 }
 
 interface StatCardProps {
@@ -86,26 +89,21 @@ function InfoItem({
   );
 }
 
-export function UserOverviewTab({ user, projectCount = 0, showProjectStats = true }: UserOverviewTabProps) {
+export function UserOverviewTab({
+  user,
+  projectCount = 0,
+  assetCount = 0,
+  showProjectStats = true,
+  showAssetStats = false,
+}: UserOverviewTabProps) {
   const colors = getRoleColors(user.role_profile);
 
   const stats = useMemo(() => {
-    const baseStats = [
-      {
-        icon: <Clock className="h-5 w-5" />,
-        label: "Days Active",
-        value: Math.floor(
-          (new Date().getTime() - new Date(user.creation).getTime()) /
-          (1000 * 60 * 60 * 24)
-        ),
-        description: `Since ${formatDate(user.creation)}`,
-        colorClass: "text-purple-600",
-      },
-    ];
+    const statsList: StatCardProps[] = [];
 
     // Only include project stats for roles that require project assignment
     if (showProjectStats) {
-      baseStats.unshift({
+      statsList.push({
         icon: <FolderKanban className="h-5 w-5" />,
         label: "Assigned Projects",
         value: projectCount,
@@ -114,8 +112,31 @@ export function UserOverviewTab({ user, projectCount = 0, showProjectStats = tru
       });
     }
 
-    return baseStats;
-  }, [projectCount, user.creation, showProjectStats]);
+    // Only include asset stats if user has assets assigned
+    if (showAssetStats) {
+      statsList.push({
+        icon: <Package className="h-5 w-5" />,
+        label: "Assigned Assets",
+        value: assetCount,
+        description: "Equipment assignments",
+        colorClass: "text-emerald-600",
+      });
+    }
+
+    // Always show days active
+    statsList.push({
+      icon: <Clock className="h-5 w-5" />,
+      label: "Days Active",
+      value: Math.floor(
+        (new Date().getTime() - new Date(user.creation).getTime()) /
+        (1000 * 60 * 60 * 24)
+      ),
+      description: `Since ${formatDate(user.creation)}`,
+      colorClass: "text-purple-600",
+    });
+
+    return statsList;
+  }, [projectCount, assetCount, user.creation, showProjectStats, showAssetStats]);
 
   return (
     <div className="space-y-6">
@@ -172,7 +193,9 @@ export function UserOverviewTab({ user, projectCount = 0, showProjectStats = tru
         </h3>
         <div className={cn(
           "grid gap-4",
-          stats.length === 1 ? "grid-cols-1 max-w-sm" : "grid-cols-2"
+          stats.length === 1 && "grid-cols-1 max-w-sm",
+          stats.length === 2 && "grid-cols-2",
+          stats.length >= 3 && "grid-cols-2 md:grid-cols-3"
         )}>
           {stats.map((stat) => (
             <StatCard key={stat.label} {...stat} />
