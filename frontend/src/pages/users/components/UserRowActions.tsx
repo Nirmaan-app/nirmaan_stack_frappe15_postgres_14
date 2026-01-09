@@ -33,9 +33,10 @@ interface UserRowActionsProps {
 export function UserRowActions({ user }: UserRowActionsProps) {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { role: currentUserRole } = useUserData();
+  const { role: currentUserRole, user_id: currentUserId } = useUserData();
   const isAdmin = currentUserRole === "Nirmaan Admin Profile" || currentUserRole === "Nirmaan PMO Executive Profile" || currentUserRole === "Nirmaan HR Executive Profile";
   const isTargetAdmin = user.role_profile === "Nirmaan Admin Profile" || user.role_profile === "Nirmaan PMO Executive Profile";
+  const isOwnProfile = currentUserId === user.name;
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [resetPasswordDialogOpen, setResetPasswordDialogOpen] = useState(false);
@@ -133,7 +134,7 @@ export function UserRowActions({ user }: UserRowActionsProps) {
             View Profile
           </DropdownMenuItem>
 
-          {isAdmin && (
+          {isAdmin && !isOwnProfile && (
             <>
               <DropdownMenuSeparator />
 

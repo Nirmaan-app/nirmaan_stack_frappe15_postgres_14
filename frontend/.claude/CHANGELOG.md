@@ -4,6 +4,110 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-09: Restricted Users Page Access to Authorized Roles
+
+### Summary
+Added route-level access control to restrict `/users` and `/users/:userId` pages to Admin, PMO Executive, and HR Executive roles only. Non-authorized users can still access their own profile.
+
+### Files Modified
+
+**Route Guards:**
+- `src/utils/auth/ProtectedRoute.tsx` - Added two new route guards:
+  - `UsersRoute` - Restricts `/users` list to Admin, PMO, HR Executive
+  - `UserProfileRoute` - Restricts `/users/:userId` to authorized roles OR own profile
+
+**Routing:**
+- `src/components/helpers/routesConfig.tsx` - Wrapped users routes with new guards
+
+### Access Control Pattern
+
+```tsx
+// UsersRoute - for /users list page
+export const UsersRoute = () => {
+  const { role, user_id } = useUserData()
+  const canAccessUsers =
+    role === "Nirmaan Admin Profile" ||
+    role === "Nirmaan PMO Executive Profile" ||
+    role === "Nirmaan HR Executive Profile" ||
+    user_id === "Administrator"
+  // ...
+}
+
+// UserProfileRoute - for /users/:userId profile page
+export const UserProfileRoute = () => {
+  const { role, user_id } = useUserData()
+  const { userId } = useParams()
+  const isAuthorizedRole = /* Admin, PMO, HR, Administrator */
+  const isOwnProfile = user_id === userId
+  if (isAuthorizedRole || isOwnProfile) return <Outlet />
+  // ...
+}
+```
+
+### Access Matrix
+
+| Role | /users | Other's Profile | Own Profile |
+|------|--------|-----------------|-------------|
+| Admin/PMO/HR | ✅ | ✅ | ✅ |
+| All other roles | ❌ | ❌ | ✅ |
+
+---
+
+## 2026-01-09: Enterprise Minimalist User Form Redesign
+
+### Summary
+Redesigned Create New User and Edit User forms with an enterprise minimalist aesthetic. Forms now feature Card containers, two-column grid layouts for name fields, cleaner labels, and placeholder-based hints instead of verbose descriptions.
+
+### Files Modified
+
+**User Forms:**
+- `src/pages/users/user-form.tsx` - Complete redesign with:
+  - Card wrapper with brand-gradient header
+  - Two-column grid for First Name + Last Name
+  - Organized sections: Personal Info, Contact, Access & Permissions
+  - Smaller labels (`text-xs font-medium`)
+  - Placeholders instead of FormDescription
+  - Centered layout with max-width constraint
+
+- `src/pages/users/EditUserForm.tsx` - Same redesign pattern with:
+  - Clean header with title and description
+  - Two-column grid for name fields
+  - Lock icon indicator for disabled email field
+  - Conditional role profile section
+  - Bottom border separator for action buttons
+
+### Design Patterns Applied
+
+**Card Layout (Create Form):**
+```tsx
+<Card className="border shadow-sm">
+  <CardHeader className="bg-gradient-to-r from-primary/10 to-primary/5">
+    <CardTitle>Create New User</CardTitle>
+    <CardDescription>Add a new team member</CardDescription>
+  </CardHeader>
+  <CardContent>...</CardContent>
+  <CardFooter className="border-t bg-gray-50/50">...</CardFooter>
+</Card>
+```
+
+**Two-Column Grid:**
+```tsx
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+  {/* First Name */}
+  {/* Last Name */}
+</div>
+```
+
+**Disabled Field with Lock Icon:**
+```tsx
+<div className="relative">
+  <Input disabled className="bg-gray-50 pr-10" {...field} />
+  <Lock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+</div>
+```
+
+---
+
 ## 2026-01-09: Added HR Executive Role with User Management Access
 
 ### Summary

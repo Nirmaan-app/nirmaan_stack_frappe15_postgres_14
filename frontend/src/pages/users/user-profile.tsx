@@ -31,6 +31,7 @@ export default function Profile() {
 
   const userData = useUserData();
   const isAdmin = userData.role === "Nirmaan Admin Profile" || userData.role === "Nirmaan PMO Executive Profile" || userData.role === "Nirmaan HR Executive Profile";
+  const isOwnProfile = userData.user_id === id;
 
   const [editSheetOpen, setEditSheetOpen] = useState(false);
   const toggleEditSheet = useCallback(() => {
@@ -164,7 +165,7 @@ export default function Profile() {
           </Sheet>
         </div>
 
-        {isAdmin && data && (
+        {isAdmin && !isOwnProfile && data && (
           <UserProfileActions
             user={data}
             onResetPassword={handlePasswordReset}

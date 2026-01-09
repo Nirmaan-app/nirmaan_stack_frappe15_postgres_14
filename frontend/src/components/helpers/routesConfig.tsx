@@ -53,7 +53,7 @@ import CreditsPage from "@/pages/credits/CreditsPage";
 //---New Vendors-AQ2 Page
 import VendorsAQ2 from "@/pages/vendors-wp-categories/vendors-aq2";
 import WorkPackages from "@/pages/work-packages";
-import { ProtectedRoute } from "@/utils/auth/ProtectedRoute";
+import { ProtectedRoute, UsersRoute, UserProfileRoute } from "@/utils/auth/ProtectedRoute";
 import { ProjectManager } from "../layout/dashboards/dashboard-pm";
 import InvoiceReconciliationContainer from "@/pages/tasks/invoices/InvoiceReconciliationContainer";
 import { NewProcurementRequestPage } from "@/pages/ProcurementRequests/NewPR/NewProcurementRequestPage";
@@ -356,11 +356,18 @@ export const appRoutes: RouteObject[] = [
           // --- Users Section ---
           {
             path: "users",
+            element: <UsersRoute />,
             children: [
               { index: true, element: <Users /> },
               { path: "new-user", element: <UserForm /> },
-              { path: ":userId", element: <Profile /> },
-              { path: ":userId/edit", element: <EditUserForm /> },
+              {
+                path: ":userId",
+                element: <UserProfileRoute />,
+                children: [
+                  { index: true, element: <Profile /> },
+                  { path: "edit", element: <EditUserForm /> },
+                ],
+              },
             ],
           },
 

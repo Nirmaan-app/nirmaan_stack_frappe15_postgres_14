@@ -26,7 +26,7 @@ This document contains detailed page-level role access control mappings for the 
 ## Key Files
 
 - `src/hooks/useUserData.ts` - Fetches user role from `NirmaanUsers` doctype
-- `src/utils/auth/ProtectedRoute.tsx` - Route guards (AdminRoute, LeadRoute, ManagerRoute, ProcuementExecutiveRoute)
+- `src/utils/auth/ProtectedRoute.tsx` - Route guards (AdminRoute, LeadRoute, ManagerRoute, ProcuementExecutiveRoute, UsersRoute, UserProfileRoute)
 - `src/utils/roleColors.ts` - Role color schemes and `ROLE_OPTIONS` constant
 - `src/components/layout/NewSidebar.tsx` - Sidebar menu visibility by role
 
@@ -106,6 +106,15 @@ Roles that don't require `has_project === "true"`:
 - `customers/`, `credits/`, `vendors-wp-categories/`
 - `CriticalPOCategories/` - Sidebar-level access only
 - `Manpower-and-WorkMilestones/` - No explicit checks
+
+### Users Page Access (Route-Level Guards)
+
+| Page | Admin | PMO | HR Exec | Others | Own Profile |
+|------|:-----:|:---:|:-------:|:------:|:-----------:|
+| `/users` (list) | Y | Y | Y | - | - |
+| `/users/:userId` (profile) | Y | Y | Y | - | Y |
+
+**Route Guards:** `UsersRoute`, `UserProfileRoute` in `ProtectedRoute.tsx`
 
 ---
 
