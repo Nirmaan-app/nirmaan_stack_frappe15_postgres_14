@@ -4,6 +4,75 @@ Changes made by Claude Code sessions.
 
 ---
 
+### 2026-01-09: Asset Management - Security & Sync Improvements
+
+**Summary:** Fixed security issues, added assignment sync, and improved field naming.
+
+**Changes:**
+
+1. **Security Fix** (Asset Master):
+   - `asset_email_password` → Password fieldtype (encrypted)
+   - `asset_pin` → Password fieldtype (encrypted)
+
+2. **New Field** (Asset Master):
+   - `current_assignee` (Link to Nirmaan Users, read-only) - Auto-synced from Asset Management
+
+3. **Field Naming Fix** (Asset Management):
+   - `asset_name` → `asset` (fieldname) with label "Asset"
+   - `asset_assigned_to` label → "Assigned To"
+   - Both fields now required and visible in list view
+
+4. **Sync Hooks** (Asset Management):
+   - `after_insert`: Sets `current_assignee` on Asset Master
+   - `on_update`: Updates `current_assignee` on Asset Master
+   - `on_trash`: Clears `current_assignee` on Asset Master
+
+**Files Created:**
+- `integrations/controllers/asset_management.py` - Sync hooks
+
+**Files Modified:**
+- `hooks.py` - Added Asset Management doc_events
+- `asset_master.json` - Password fields, new current_assignee field
+- `asset_management.json` - Fixed field naming, added required constraints
+
+---
+
+### 2026-01-09: Asset Management Doctypes - Permissions & Autoname
+
+**Summary:** Added Nirmaan role permissions to all Asset doctypes and implemented custom autoname for Asset Master.
+
+**Changes:**
+
+1. **Role Permissions Added** (all 3 doctypes):
+   - Full CRUD: System Manager, Nirmaan HR Executive, Nirmaan PMO Executive
+   - Read-only: All other Nirmaan roles (Project Lead, Project Manager, Procurement Executive, Accountant, Estimates Executive, Design Lead, Design Executive)
+
+2. **Asset Master Autoname**:
+   - Format: `ASSET-<first 3 letters of category>-###`
+   - Examples: `ASSET-LAP-001` (Laptop), `ASSET-MOB-001` (Mobile Phone)
+   - Implemented in `asset_master.py` using `make_autoname()`
+
+3. **Field Updates** (Asset Master):
+   - `asset_name` - Now required, visible in list view
+   - `asset_category` - Now required, visible in list view
+
+---
+
+### 2026-01-09: Asset Management Doctypes Added
+
+**Summary:** Three new doctypes created for tracking company assets and their assignment to users.
+
+**Doctypes Created:**
+- `Asset Category` - Master list of asset categories (autonamed by `asset_category` field)
+- `Asset Master` - Asset inventory with details, serial numbers, and IT credentials
+- `Asset Management` - Tracks asset assignments to Nirmaan Users with declaration attachments
+
+**Relationships:**
+- Asset Master links to Asset Category
+- Asset Management links to Asset Master and Nirmaan Users
+
+---
+
 ### 2026-01-09: User Management Improvements
 
 **Summary:** Added user creation and password reset APIs with graceful email failure handling. Improved error handling and logging throughout Nirmaan Users sync and lifecycle operations.

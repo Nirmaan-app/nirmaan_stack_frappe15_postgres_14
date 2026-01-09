@@ -1,6 +1,6 @@
 # Doctypes Reference
 
-57 custom doctypes organized by domain.
+60 custom doctypes organized by domain.
 
 ## Procurement Workflow (Core)
 
@@ -77,6 +77,26 @@
 |---------|---------|
 | **Nirmaan Users** | Extended user profiles with FCM tokens |
 | **Nirmaan User Permissions** | Custom project-level permissions |
+
+## Asset Management (HR)
+
+| Doctype | Purpose |
+|---------|---------|
+| **Asset Category** | Categorization of assets (e.g., Laptop, Phone, Vehicle) |
+| **Asset Master** | Asset inventory with details (serial number, condition, IT credentials) |
+| **Asset Management** | Tracks asset assignments to users with declaration attachments |
+
+### Asset Relationships
+```
+Asset Category
+  └─→ Asset Master (via asset_category link)
+        └─→ Asset Management (via asset_name link)
+              └─→ Nirmaan Users (via asset_assigned_to link)
+```
+
+### Asset Master Fields
+- `asset_name`, `asset_description`, `asset_condition`, `asset_serial_number`
+- IT Asset Details: `asset_email`, `asset_email_password`, `asset_pin`
 
 ## Documents & Collaboration
 

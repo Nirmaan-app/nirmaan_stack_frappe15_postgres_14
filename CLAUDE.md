@@ -21,14 +21,16 @@
 
 ## Quick Commands
 
+**Site name:** `localhost`
+
 ```bash
 # Start development server (from frappe-bench directory)
 bench start
 # Backend: http://localhost:8000 | Socket.IO: http://localhost:9000
 
-# Database operations
-bench migrate              # Run migrations
-bench clear-cache          # Clear Redis cache
+# Database operations (use --site localhost)
+bench --site localhost migrate    # Run migrations
+bench --site localhost clear-cache # Clear Redis cache
 
 # Development
 bench new-doctype "Name"   # Create new doctype
@@ -42,7 +44,7 @@ bench run-tests --app nirmaan_stack  # Run tests
 
 ```
 nirmaan_stack/
-├── nirmaan_stack/doctype/   # 57 custom doctypes
+├── nirmaan_stack/doctype/   # 60 custom doctypes
 ├── api/                      # Whitelisted API endpoints (30+ files)
 ├── integrations/
 │   ├── controllers/          # Document lifecycle hooks (KEEP HOOKS HERE)

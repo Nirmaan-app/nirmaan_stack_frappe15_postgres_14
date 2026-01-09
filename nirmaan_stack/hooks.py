@@ -144,6 +144,11 @@ doc_events = {
         ],
         "on_trash": "nirmaan_stack.integrations.controllers.user_permission.on_trash"
     },
+    "Asset Management": {
+        "after_insert": "nirmaan_stack.integrations.controllers.asset_management.after_insert",
+        "on_update": "nirmaan_stack.integrations.controllers.asset_management.on_update",
+        "on_trash": "nirmaan_stack.integrations.controllers.asset_management.on_trash"
+    },
     "Projects": {
         "after_insert": [
             "nirmaan_stack.nirmaan_stack.doctype.project_work_milestones.project_work_milestones.generate_pwm",
