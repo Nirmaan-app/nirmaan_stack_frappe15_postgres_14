@@ -43,6 +43,7 @@ import Cookies from "js-cookie";
 import {
   LayoutGrid,
   List,
+  Package,
   Shapes,
   ShoppingCart,
   SquareSquare,
@@ -211,6 +212,7 @@ export function NewSidebar() {
             { key: "/projects", label: "Projects" },
             { key: "/users", label: "Users" },
             { key: "/products", label: "Products" },
+            { key: "/asset-management", label: "Assets" },
             { key: "/vendors", label: "Vendors" },
             { key: "/customers", label: "Customers" },
             { key: "/product-packages", label: "Product Packages" },
@@ -231,6 +233,11 @@ export function NewSidebar() {
           key: "/users",
           icon: UsersRound,
           label: "Users",
+        },
+        {
+          key: "/asset-management",
+          icon: Package,
+          label: "Assets",
         },
       ]
       : []),
@@ -493,6 +500,7 @@ export function NewSidebar() {
     "projects",
     "users",
     "products",
+    "asset-management",
     "vendors",
     "customers",
     "product-packages",
@@ -537,7 +545,8 @@ export function NewSidebar() {
 
 
   const groupMappings = useMemo(() => ({
-    "admin-actions": ["users", "products", "vendors", "customers", "product-packages", "milestone-packages", "design-packages", "critical-po-categories", "all-AQs"],
+    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "product-packages", "milestone-packages", "design-packages", "critical-po-categories", "all-AQs"],
+    "/asset-management": ["asset-management"],
     // "admin-actions": ["users", "products", "vendors", "customers", "product-packages", "approved-quotes","vendors-aq2"],
     // "pl-actions": [
     //   "prs&milestones", "approve-po", "approve-sent-back",
@@ -628,7 +637,7 @@ export function NewSidebar() {
                 <SidebarMenuItem>
 
                   {new Set(["Dashboard", "Item Price Search", "Procurement Requests", "Purchase Orders", "Project Payments", "Credit Payments", "Sent Back Requests", "Projects", "Work Orders", "In-Flow Payments", "Invoice Recon", "Reports",
-                    "Design Tracker", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses", "Users"]).has(item?.label) ? (
+                    "Design Tracker", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses", "Users", "Assets"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
                         ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"

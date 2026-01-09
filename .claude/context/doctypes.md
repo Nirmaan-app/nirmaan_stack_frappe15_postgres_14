@@ -90,13 +90,17 @@
 ```
 Asset Category
   └─→ Asset Master (via asset_category link)
-        └─→ Asset Management (via asset_name link)
+        └─→ Asset Management (via asset link)
               └─→ Nirmaan Users (via asset_assigned_to link)
 ```
 
 ### Asset Master Fields
-- `asset_name`, `asset_description`, `asset_condition`, `asset_serial_number`
-- IT Asset Details: `asset_email`, `asset_email_password`, `asset_pin`
+- `asset_name`, `asset_description`, `asset_condition`, `asset_serial_number`, `asset_value` (Currency)
+- IT Asset Details: `asset_email`, `asset_email_password` (Password), `asset_pin` (Password)
+- `current_assignee` (Link to Nirmaan Users, read-only, auto-synced from Asset Management)
+
+### Frontend Route
+- `/asset-management` (NOT `/assets` - conflicts with Frappe's static file serving)
 
 ## Documents & Collaboration
 

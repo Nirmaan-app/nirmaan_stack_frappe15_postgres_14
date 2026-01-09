@@ -4,6 +4,38 @@ Changes made by Claude Code sessions.
 
 ---
 
+### 2026-01-09: Asset Management Frontend - Full UI Implementation
+
+**Summary:** Built complete frontend for asset management including dashboard, asset lists, assignment workflow, and detail pages.
+
+**Files Created (Frontend):**
+- `frontend/src/pages/Assets/AssetsPage.tsx` - Main dashboard with tabs (Categories, All Assets, Assigned, Unassigned, Pending Declaration)
+- `frontend/src/pages/Assets/AssetOverview.tsx` - Individual asset detail page with assignment controls
+- `frontend/src/pages/Assets/assets.constants.ts` - Constants for asset conditions, doctypes, fields
+- `frontend/src/pages/Assets/components/` - 10 component files:
+  - `AddAssetDialog.tsx`, `AddAssetCategoryDialog.tsx` - Creation dialogs
+  - `AssetCategoriesList.tsx`, `AssetMasterList.tsx` - Data table views
+  - `AssignedAssetsList.tsx`, `UnassignedAssetsList.tsx`, `PendingActionsList.tsx` - Filtered asset views
+  - `AssignAssetDialog.tsx`, `UnassignAssetDialog.tsx` - Assignment workflow dialogs
+  - `AssetsSummaryCard.tsx` - Dashboard summary cards
+
+**Files Modified:**
+- `frontend/src/components/helpers/routesConfig.tsx` - Added `/asset-management` routes (avoiding Frappe's `/assets` static path)
+- `frontend/src/components/layout/NewSidebar.tsx` - Added Assets menu item for Admin/HR/PMO roles
+- `frontend/src/index.css` - Added `.scrollbar-hide` utility class
+
+**Backend Field Added:**
+- `nirmaan_stack/doctype/asset_master/asset_master.json` - Added `asset_value` (Currency) field
+
+**Features:**
+- Role-based access (Admin, HR, PMO get full CRUD; others read-only)
+- IT credential visibility restricted to assigned user or admin roles
+- Assignment workflow with declaration attachment upload
+- Pending declaration tracking with upload action
+- Responsive design with mobile-optimized views
+
+---
+
 ### 2026-01-09: Asset Management - Security & Sync Improvements
 
 **Summary:** Fixed security issues, added assignment sync, and improved field naming.

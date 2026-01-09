@@ -60,6 +60,7 @@ import { NewProcurementRequestPage } from "@/pages/ProcurementRequests/NewPR/New
 import ReportsContainer from "@/pages/reports/ReportsContainer";
 // import ProcurementOrdersTesting from "@/pages/ProcurementOrders/testing/ProcurementOrdersTesting";
 import ItemsPage from "@/pages/Items/itemsPage";
+import AssetsPage from "@/pages/Assets/AssetsPage";
 import AllProjectInvocies from "@/pages/ProjectInvoices/AllProjectInvoices";
 import NonProjectExpensesPage from "@/pages/NonProjectExpenses/NonProjectExpensesPage";
 import AllProjectExpensesPage from "@/pages/ProjectExpenses/AllProjectExpenses";
@@ -384,6 +385,15 @@ export const appRoutes: RouteObject[] = [
               // { index: true, element: <ItemsTesting /> },
               { index: true, element: <ItemsPage /> },
               { path: ":productId", lazy: () => import("@/pages/Items/item") },
+            ],
+          },
+
+          // --- Assets Section ---
+          {
+            path: "asset-management",
+            children: [
+              { index: true, element: <AssetsPage /> },
+              { path: ":assetId", lazy: () => import("@/pages/Assets/AssetOverview") },
             ],
           },
 

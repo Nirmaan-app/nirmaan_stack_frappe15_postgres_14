@@ -11,6 +11,7 @@
   "asset_category",
   "asset_condition",
   "asset_serial_number",
+  "asset_value",
   "it_asset_details_section",
   "asset_email",
   "asset_email_password",
@@ -53,6 +54,11 @@
    "fieldname": "asset_serial_number",
    "fieldtype": "Data",
    "label": "Asset Serial Number"
+  },
+  {
+   "fieldname": "asset_value",
+   "fieldtype": "Currency",
+   "label": "Asset Value"
   },
   {
    "fieldname": "it_asset_details_section",
