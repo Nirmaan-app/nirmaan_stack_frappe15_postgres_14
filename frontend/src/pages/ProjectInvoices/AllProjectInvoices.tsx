@@ -23,6 +23,7 @@ import {
 import { useUserData } from "@/hooks/useUserData";
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { getCustomerListOptions, getProjectListOptions, queryKeys } from "@/config/queryKeys";
+import { useFacetValues } from "@/hooks/useFacetValues";
 import { toast } from "@/components/ui/use-toast";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { NewProjectInvoiceDialog } from "./components/NewProjectInvoiceDialog"; // Import the renamed/refactored create dialog
@@ -30,14 +31,10 @@ import { EditProjectInvoiceDialog } from "./components/EditProjectInvoiceDialog"
 import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { useDialogStore } from "@/zustand/useDialogStore"; // For managing edit dialog state
-import { Button } from "@/components/ui/button"; // For Add New button
-import { PlusCircle } from "lucide-react"; // For Add New button icon
 import { Customers } from "@/types/NirmaanStack/Customers";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 
-interface SelectOption { label: string; value: string; }
-
-export const AllProjectInvoices: React.FC<{ projectId?: string; customerId?: string }> = ({ projectId, customerId }) => {
+export const AllProjectInvoices: React.FC<{ projectId?: string; customerId?: string }> = ({ projectId }) => {
     
     // =================================================================================
     // 1. STATE & ROLE MANAGEMENT
@@ -46,7 +43,6 @@ export const AllProjectInvoices: React.FC<{ projectId?: string; customerId?: str
     const isAdmin = role === "Nirmaan Admin Profile";
 
     const { 
-        toggleNewProjectInvoiceDialog, 
         setEditProjectInvoiceDialog // Get the setter for edit dialog
     } = useDialogStore();
 
@@ -136,12 +132,6 @@ export const AllProjectInvoices: React.FC<{ projectId?: string; customerId?: str
         [isAdmin, getProjectName, getCustomerName, getUserName, handleOpenDeleteDialog, handleOpenEditDialog] // Add handleOpenEditDialog to dependencies
     );
 
-    const facetOptionsConfig = useMemo(() => ({
-        project: { title: "Project", options: projects?.map(p => ({ label: p.project_name, value: p.name })) || [] },
-        customer: { title: "Customer", options: customers?.map(p => ({ label: p.company_name, value: p.name })) || [] },
-        owner: { title: "Created By", options: users?.map(u => ({ label: u.full_name, value: u.name })) || [] },
-    }), [projects, customers, users]);
-
     const {      
         table,
         data: projectInvoicesData,
@@ -150,16 +140,51 @@ export const AllProjectInvoices: React.FC<{ projectId?: string; customerId?: str
         totalCount,
         searchTerm, setSearchTerm,
         selectedSearchField, setSelectedSearchField,
+        columnFilters, // Added columnFilters
         refetch
     } = useServerDataTable<ProjectInvoice>({
         doctype: DOCTYPE,
         columns: tableColumns,
-        filters: projectId ? [["project", "=", projectId]] : [],
+        additionalFilters: projectId ? [["project", "=", projectId]] : [],
         fetchFields: PROJECT_INVOICE_FIELDS_TO_FETCH,
         searchableFields: PROJECT_INVOICE_SEARCHABLE_FIELDS,
         urlSyncKey: `project_invoices_${projectId || 'all'}`,
         defaultSort: 'invoice_date desc',
     });
+
+    // --- Dynamic Facet Values ---
+    const { facetOptions: projectFacetOptions, isLoading: isProjectFacetLoading } = useFacetValues({
+        doctype: DOCTYPE,
+        field: 'project',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        enabled: true
+    });
+
+    const { facetOptions: customerFacetOptions, isLoading: isCustomerFacetLoading } = useFacetValues({
+        doctype: DOCTYPE,
+        field: 'customer',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        enabled: true
+    });
+
+    const { facetOptions: ownerFacetOptions, isLoading: isOwnerFacetLoading } = useFacetValues({
+        doctype: DOCTYPE,
+        field: 'owner',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        enabled: true
+    });
+
+    const facetOptionsConfig = useMemo(() => ({
+        project: { title: "Project", options: projectFacetOptions, isLoading: isProjectFacetLoading },
+        customer: { title: "Customer", options: customerFacetOptions, isLoading: isCustomerFacetLoading },
+        owner: { title: "Created By", options: ownerFacetOptions, isLoading: isOwnerFacetLoading },
+    }), [projectFacetOptions, isProjectFacetLoading, customerFacetOptions, isCustomerFacetLoading, ownerFacetOptions, isOwnerFacetLoading]);
       
     // =================================================================================
     // 4. RENDER LOGIC
@@ -167,7 +192,7 @@ export const AllProjectInvoices: React.FC<{ projectId?: string; customerId?: str
     const isLoadingOverall = isDataLoading || isProjectsLoading || isCustomersLoading || isUsersLoading;
 
     return (
-        <div className="flex-1 space-y-4">
+         <div className="h-[calc(100vh-80px)] flex flex-col gap-2 overflow-hidden">
             {(isLoadingOverall && !projectInvoicesData?.length) ? (
                 <TableSkeleton />
             ) : (
@@ -193,7 +218,7 @@ export const AllProjectInvoices: React.FC<{ projectId?: string; customerId?: str
             
             {/* Render New Project Invoice Dialog */}
             <NewProjectInvoiceDialog 
-                listMutate={refetch} 
+                listMutate={refetch as any} 
                 ProjectId={projectId}
                 // onClose can be added if needed by NewProjectInvoiceDialog, but not strictly necessary for this split
             />
@@ -202,7 +227,7 @@ export const AllProjectInvoices: React.FC<{ projectId?: string; customerId?: str
             {invoiceToEdit && (
                 <EditProjectInvoiceDialog
                     invoiceToEdit={invoiceToEdit}
-                    listMutate={refetch}
+                    listMutate={refetch as any}
                     onClose={() => {
                         setInvoiceToEdit(null); 
                         // setEditProjectInvoiceDialog(false); // Dialog store handles its own closing via its onOpenChange

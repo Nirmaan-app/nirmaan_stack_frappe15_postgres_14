@@ -21,7 +21,7 @@ import {
     CardTitle,
 } from "@/components/ui/card";
 
-import { useFrappeDeleteDoc, useFrappeGetDocList } from "frappe-react-sdk"; // For delete
+import { useFrappeDeleteDoc } from "frappe-react-sdk"; // For delete
 import { useToast } from "@/components/ui/use-toast"; // For delete feedback
 
 // --- UI Components ---
@@ -39,6 +39,7 @@ import {
 
 // --- Hooks & Utils ---
 import { useServerDataTable, AggregationConfig, GroupByConfig } from '@/hooks/useServerDataTable'; // Your hook
+import { useFacetValues } from '@/hooks/useFacetValues';
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { useDialogStore } from "@/zustand/useDialogStore";
@@ -47,8 +48,6 @@ import { parse, formatISO, startOfDay, endOfDay } from 'date-fns';
 
 // --- Types ---
 import { NonProjectExpenses as NonProjectExpensesType } from "@/types/NirmaanStack/NonProjectExpenses";
-import { ExpenseType } from "@/types/NirmaanStack/ExpenseType"; // Import the type
-
 // --- Config ---
 import {
     DEFAULT_NPE_FIELDS_TO_FETCH,
@@ -153,15 +152,6 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
             ['payment_date', '<=', toISO]
         ];
     }, [dateRange]);
-    // --- (2) NEW: Fetch data for the Expense Type filter ---
-    const { data: expenseTypes, isLoading: expenseTypesLoading } = useFrappeGetDocList<ExpenseType>(
-        'Expense Type',
-        {
-            fields: ['name', 'expense_name'], // Fetch name for value, expense_name for label
-            filters: [["non_project", "=", "1"]], // Assuming non project filter is needed
-            limit: 0 // Fetch all records
-        }
-    );
 
     // State for update dialogs (define these first as handlers depend on them)
     const [isPaymentUpdateDialogOpen, setIsPaymentUpdateDialogOpen] = useState(false);
@@ -205,22 +195,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
         }
     };
 
-    // --- (3) NEW: Prepare options for the faceted filter ---
-    const expenseTypeOptions = useMemo(() =>
-        expenseTypes?.map(et => ({
-            label: et.expense_name || et.name, // Use the display name, fallback to the raw name
-            value: et.name,                    // The value must be the raw name used in the main data
-        })) || [],
-        [expenseTypes]
-    );
 
-    // --- (4) NEW: Define the facet filter configuration object ---
-    const facetFilterOptions = useMemo(() => ({
-        type: { // This key 'type' MUST match the column's accessorKey
-            title: "Expense Type",
-            options: expenseTypeOptions,
-        },
-    }), [expenseTypeOptions]);
 
     const actionColumn: ColumnDef<NonProjectExpensesType> = {
         id: "actions",
@@ -397,7 +372,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
         // },
     ], [handleOpenPaymentUpdateDialog, handleOpenInvoiceUpdateDialog, handleOpenEditDialog, handleOpenDeleteConfirmation]);
 
-    // Now call useServerDataTable, passing the defined columns
+    // --- Use the Server Data Table Hook ---
     const {
         table, data, totalCount, isLoading, error,
         searchTerm, setSearchTerm, selectedSearchField, setSelectedSearchField,
@@ -419,6 +394,26 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
         additionalFilters: dateFilters, // NEW: Apply date filters
     });
 
+    // --- Dynamic Facet Values ---
+    const { facetOptions: expenseTypeFacetOptions, isLoading: isExpenseTypeFacetLoading } = useFacetValues({
+        doctype: DOCTYPE,
+        field: 'type',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        additionalFilters: dateFilters,
+        enabled: true
+    });
+
+    // --- (4) NEW: Define the facet filter configuration object ---
+    const facetFilterOptions = useMemo(() => ({
+        type: { // This key 'type' MUST match the column's accessorKey
+            title: "Expense Type",
+            options: expenseTypeFacetOptions,
+            isLoading: isExpenseTypeFacetLoading
+        },
+    }), [expenseTypeFacetOptions, isExpenseTypeFacetLoading]);
+
     const handleClearDateFilter = useCallback(() => {
         setDateRange(undefined);  // Reset to "ALL" (no date filtering)
     }, []);
@@ -429,7 +424,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
     }
 
     return (
-         <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'h-[calc(100vh-80px)] overflow-hidden' : ''}`}>
+        <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'h-[calc(100vh-80px)] overflow-hidden' : ''}`}>
             <StandaloneDateFilter
                 value={dateRange}
                 onChange={setDateRange}
@@ -439,7 +434,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({ 
             <DataTable<NonProjectExpensesType>
                 table={table} // This table instance is now created with columns
                 columns={columnsDefinition} // Pass the same columns definition for export/etc.
-                isLoading={isLoading || expenseTypesLoading}
+                isLoading={isLoading || isExpenseTypeFacetLoading}
                 error={error}
                 totalCount={totalCount}
                 searchFieldOptions={NPE_SEARCHABLE_FIELDS} // Make sure this is an array of SearchFieldOption

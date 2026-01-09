@@ -5,7 +5,7 @@ export const PO_PAYMENT_TERM_DOCTYPE = 'Procurement Orders';
 
 // Define exactly what fields to pull. Use dot notation for parent fields.
 export const TERM_LIST_FIELDS_TO_FETCH = [
-    'name',"creation","modified", "total_amount","status as POstatus", "project", "project_name","vendor", "vendor_name",'`tabPO Payment Terms`.name as ptname', '`tabPO Payment Terms`.term_status', '`tabPO Payment Terms`.label', '`tabPO Payment Terms`.amount','`tabPO Payment Terms`.percentage', '`tabPO Payment Terms`.due_date','`tabPO Payment Terms`.modified as term_modified',]
+    'name', "creation", "modified", "total_amount", "status as postatus", "project", "project_name", "vendor", "vendor_name", '`tabPO Payment Terms`.name as ptname', '`tabPO Payment Terms`.term_status', '`tabPO Payment Terms`.label', '`tabPO Payment Terms`.amount', '`tabPO Payment Terms`.percentage', '`tabPO Payment Terms`.due_date', '`tabPO Payment Terms`.modified as term_modified',]
 
 // Define what the user can search for.
 export const TERM_SEARCHABLE_FIELDS: SearchFieldOption[] = [
@@ -30,7 +30,10 @@ export const PAYMENT_TERM_STATUS_OPTIONS = [
 
 ];
 
-export const CREDIT_FACET_FILTER_OPTIONS = {
+export type FacetOption = { label: string; value: string };
+export type FacetConfig = { title: string; options: FacetOption[]; isLoading?: boolean };
+
+export const CREDIT_FACET_FILTER_OPTIONS: Record<string, FacetConfig> = {
     'term_status': {
         title: "Status",
         options: [

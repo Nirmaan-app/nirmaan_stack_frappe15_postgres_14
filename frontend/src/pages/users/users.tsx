@@ -13,6 +13,7 @@ import { TailSpin } from "react-loader-spinner";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
+import { useFacetValues } from '@/hooks/useFacetValues';
 import { formatDate } from "@/utils/FormatDate";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 
@@ -229,6 +230,7 @@ export default function UsersPage() {
         setSearchTerm,
         selectedSearchField,
         setSelectedSearchField,
+        columnFilters, // Destructure columnFilters
     } = useServerDataTable<NirmaanUsers>({
         doctype: USER_DOCTYPE,
         columns: columns,
@@ -239,9 +241,19 @@ export default function UsersPage() {
         enableRowSelection: false, // No row selection needed for users list generally
     });
 
+    // --- Dynamic Facet Values ---
+    const { facetOptions: roleFacetOptions, isLoading: isRoleFacetLoading } = useFacetValues({
+        doctype: USER_DOCTYPE,
+        field: 'role_profile',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        enabled: true
+    });
+
     const facetFilterOptions = useMemo(() => ({
-        role_profile: { title: "Role", options: USER_ROLE_PROFILE_OPTIONS },
-    }), []);
+        role_profile: { title: "Role", options: roleFacetOptions, isLoading: isRoleFacetLoading },
+    }), [roleFacetOptions, isRoleFacetLoading]);
 
     return (
         <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'h-[calc(100vh-80px)] overflow-hidden' : ''}`}>
@@ -258,23 +270,23 @@ export default function UsersPage() {
 
             <div className="flex-1 overflow-hidden">
                 <DataTable<NirmaanUsers>
-                table={table}
-                columns={columns}
-                isLoading={isLoading}
-                error={error}
-                totalCount={totalCount}
-                searchFieldOptions={USER_SEARCHABLE_FIELDS}
-                selectedSearchField={selectedSearchField}
-                onSelectedSearchFieldChange={setSelectedSearchField}
-                searchTerm={searchTerm}
-                onSearchTermChange={setSearchTerm}
-                facetFilterOptions={facetFilterOptions}
-                dateFilterColumns={USER_DATE_COLUMNS}
-                showExportButton={true}
-                onExport={'default'}
-                exportFileName="nirmaan_users_list"
-                showRowSelection={false}
-            // toolbarActions={<div>Custom Action Button</div>} // Example for custom actions
+                    table={table}
+                    columns={columns}
+                    isLoading={isLoading}
+                    error={error}
+                    totalCount={totalCount}
+                    searchFieldOptions={USER_SEARCHABLE_FIELDS}
+                    selectedSearchField={selectedSearchField}
+                    onSelectedSearchFieldChange={setSelectedSearchField}
+                    searchTerm={searchTerm}
+                    onSearchTermChange={setSearchTerm}
+                    facetFilterOptions={facetFilterOptions}
+                    dateFilterColumns={USER_DATE_COLUMNS}
+                    showExportButton={true}
+                    onExport={'default'}
+                    exportFileName="nirmaan_users_list"
+                    showRowSelection={false}
+                // toolbarActions={<div>Custom Action Button</div>} // Example for custom actions
                 />
             </div>
         </div>

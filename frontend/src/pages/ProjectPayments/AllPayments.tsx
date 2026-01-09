@@ -2,21 +2,21 @@ import React, { useCallback, useContext, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ColumnDef } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, useFrappeGetDocList, Filter, FrappeDoc } from "frappe-react-sdk";
-import { Download, Info, Edit2, MoreHorizontal } from "lucide-react";
+import { Download, Info, Edit2 } from "lucide-react";
 import memoize from 'lodash/memoize';
 
 // --- UI Components ---
-import { DataTable, SearchFieldOption } from '@/components/data-table/new-data-table';
+import { DataTable } from '@/components/data-table/new-data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { Badge } from "@/components/ui/badge";
+
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
+import { useFacetValues } from '@/hooks/useFacetValues';
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { getPOTotal } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import SITEURL from "@/constants/siteURL";
@@ -26,7 +26,7 @@ import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
-import { DOC_TYPES, PAYMENT_STATUS } from "./approve-payments/constants";
+import { DOC_TYPES } from "./approve-payments/constants";
 import { useUsersList } from "../ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 
 // --- Helper Components ---
@@ -122,7 +122,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     const { db } = useContext(FrappeContext) as FrappeConfig;
     const { role } = useUserData(); // Get user role
     const isAdmin = role === "Nirmaan Admin Profile"; // Check for admin role
-    const isAccountant=role ==="Nirmaan Accountant Profile"
+    const isAccountant = role === "Nirmaan Accountant Profile"
 
     const { setEditFulfilledPaymentDialog } = useDialogStore(); // Get the setter for the new dialog
     const [paymentToEdit, setPaymentToEdit] = useState<ProjectPayments | null>(null); // State to hold the payment for the dialog
@@ -151,7 +151,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useVendorsList({ vendorTypes: ["Service", "Material", "Material & Service"] });
     // Fetch related POs and SRs for "PO Value" calculation
     const { data: purchaseOrders, isLoading: poLoading, error: poError } = useFrappeGetDocList<ProcurementOrder>(
-        DOC_TYPES.PROCUREMENT_ORDERS, { fields: ["name","total_amount", "loading_charges", "freight_charges"], limit: 0 }, 'POs_AllPay'
+        DOC_TYPES.PROCUREMENT_ORDERS, { fields: ["name", "total_amount", "loading_charges", "freight_charges"], limit: 0 }, 'POs_AllPay'
     );
     const { data: serviceOrders, isLoading: srLoading, error: srError } = useFrappeGetDocList<ServiceRequests>(
         DOC_TYPES.SERVICE_REQUESTS, { fields: ["name", "service_order_list", "gst"], limit: 0 }, 'SRs_AllPay'
@@ -168,7 +168,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         if (!docName || !docType) return 0;
         if (docType === DOC_TYPES.PROCUREMENT_ORDERS) {
             const order = purchaseOrders?.find(po => po.name === docName);
-            return order?.total_amount||0;
+            return order?.total_amount || 0;
         } else if (docType === DOC_TYPES.SERVICE_REQUESTS) {
             const order = serviceOrders?.find(sr => sr.name === docName);
             if (!order || !order.service_order_list?.list) return 0;
@@ -354,7 +354,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                             </a>
                         )}
                         {/* Edit button only for Admins */}
-                        {(isAdmin || isAccountant)&& (
+                        {(isAdmin || isAccountant) && (
                             <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-600 hover:text-gray-800" onClick={() => handleOpenEditDialog(row.original)}>
                                 <Edit2 className="h-4 w-4" />
                             </Button>
@@ -368,35 +368,21 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
 
         ...(["Payments Pending", "All Payments"].includes(tab) ? [{
             accessorKey: "status", header: "Status",
-             cell: ({ row }) => {
-                        // 2. Get the status from the row
-                        const status = row.original.status as string;
-            
-                        // 3. Render the StatusBadge component in a centered div
-                        return (
-                            <div className="flex justify-start">
-                                <StatusBadge status={status} />
-                            </div>
-                        );
-                    },
+            cell: ({ row }) => {
+                // 2. Get the status from the row
+                const status = row.original.status as string;
+
+                // 3. Render the StatusBadge component in a centered div
+                return (
+                    <div className="flex justify-start">
+                        <StatusBadge status={status} />
+                    </div>
+                );
+            },
             enableColumnFilter: true, size: 120
         } as ColumnDef<ProjectPayments>] : []),
 
     ], [tab, projectId, notifications, projectOptions, vendorOptions, userList, getVendorName, getDocumentTotal, handleSeenNotification, isAdmin, handleOpenEditDialog]);
-
-    // --- Faceted Filter Options ---
-    const facetFilterOptions = useMemo(() => {
-        const opts: any = {
-            vendor: { title: "Vendor", options: vendorOptions },
-        };
-        if (!projectId) { // Only show project facet if not already filtered by a specific project
-            opts.project = { title: "Project", options: projectOptions };
-        }
-        if (["Payments Pending", "All Payments"].includes(tab)) {
-            opts.status = { title: "Status", options: [{ value: PAYMENT_STATUS.REQUESTED, label: "Requested" }, { value: PAYMENT_STATUS.APPROVED, label: "Approved" }, ...(tab === "All Payments") ? [{ value: PAYMENT_STATUS.PAID, label: "Paid" }, { value: PAYMENT_STATUS.REJECTED, label: "Rejected" }] : []] };
-        }
-        return opts;
-    }, [projectOptions, vendorOptions, projectId, tab]);
 
     // --- (Indicator) FIX: Move useServerDataTable hook here, into the parent component ---
     const {
@@ -410,6 +396,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         setSelectedSearchField,
         searchTerm,
         setSearchTerm,
+        columnFilters,
     } = useServerDataTable<ProjectPayments>({
         doctype: DOCTYPE,
         columns: columns,
@@ -420,6 +407,55 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         enableRowSelection: false,
         additionalFilters: staticFilters,
     });
+
+    // --- Dynamic Facet Values ---
+    const { facetOptions: projectFacetOptions, isLoading: isProjectFacetLoading } = useFacetValues({
+        doctype: DOCTYPE,
+        field: 'project',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        additionalFilters: staticFilters,
+        enabled: !projectId // Only fetch if not already filtered by project
+    });
+
+    const { facetOptions: vendorFacetOptions, isLoading: isVendorFacetLoading } = useFacetValues({
+        doctype: DOCTYPE,
+        field: 'vendor',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        additionalFilters: staticFilters,
+        enabled: true
+    });
+
+    const { facetOptions: statusFacetOptions, isLoading: isStatusFacetLoading } = useFacetValues({
+        doctype: DOCTYPE,
+        field: 'status',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        additionalFilters: staticFilters,
+        enabled: ["Payments Pending", "All Payments"].includes(tab)
+    });
+
+    // --- Faceted Filter Options ---
+    // --- Faceted Filter Options ---
+    const facetFilterOptions = useMemo(() => {
+        const opts: any = {
+            vendor: { title: "Vendor", options: vendorFacetOptions, isLoading: isVendorFacetLoading },
+        };
+        if (!projectId) { // Only show project facet if not already filtered by a specific project
+            opts.project = { title: "Project", options: projectFacetOptions, isLoading: isProjectFacetLoading };
+        }
+        if (["Payments Pending", "All Payments"].includes(tab)) {
+            opts.status = { title: "Status", options: statusFacetOptions, isLoading: isStatusFacetLoading };
+        }
+        return opts;
+    }, [projectFacetOptions, isProjectFacetLoading, vendorFacetOptions, isVendorFacetLoading, statusFacetOptions, isStatusFacetLoading, projectId, tab]);
+
+    // --- (Indicator) FIX: Move useServerDataTable hook here, into the parent component ---
+
 
 
 
@@ -455,7 +491,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                     showExportButton={true}
                     onExport={'default'}
                     summaryCard={projectId || customerId ? null : <PaymentSummaryCards totalCount={totalCount} />}
-                
+
                 // toolbarActions={
                 //     (!projectId && !customerId) && (
                 //         <Button onClick={toggleNewInflowDialog} size="sm">

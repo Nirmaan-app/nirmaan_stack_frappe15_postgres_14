@@ -19,6 +19,7 @@ import { TailSpin } from "react-loader-spinner";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
+import { useFacetValues } from "@/hooks/useFacetValues";
 import { useUserData } from "@/hooks/useUserData";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
@@ -70,8 +71,9 @@ const SBDataTableWrapper: React.FC<{
         // --- useServerDataTable Hook Instantiation ---
         const {
             table, totalCount, isLoading: listIsLoading, error: listError,
-            selectedSearchField, setSelectedSearchField,
-            searchTerm, setSearchTerm,
+            selectedSearchField: tableSelectedSearchField, setSelectedSearchField,
+            searchTerm: tableSearchTerm, setSearchTerm,
+            columnFilters
         } = useServerDataTable<SentBackCategory>({
             doctype: DOCTYPE,
             columns: columns,
@@ -85,6 +87,20 @@ const SBDataTableWrapper: React.FC<{
             requirePendingItems: tab !== "All SBs" ? true : false, // This is crucial and should be handled correctly
         });
 
+        const { facetOptions: projectFacets } = useFacetValues({
+            doctype: DOCTYPE,
+            field: 'project',
+            currentFilters: columnFilters,
+            searchTerm: tableSearchTerm,
+            selectedSearchField: tableSelectedSearchField,
+            additionalFilters: staticFilters
+        });
+
+        const combinedFacetOptions = {
+            ...facetFilterOptions,
+            project: { title: "Project", options: projectFacets }
+        };
+
         return (
             <DataTable<SentBackCategory>
                 table={table}
@@ -93,11 +109,11 @@ const SBDataTableWrapper: React.FC<{
                 error={listError}
                 totalCount={totalCount}
                 searchFieldOptions={sbSearchableFields}
-                selectedSearchField={selectedSearchField}
+                selectedSearchField={tableSelectedSearchField}
                 onSelectedSearchFieldChange={setSelectedSearchField}
-                searchTerm={searchTerm}
+                searchTerm={tableSearchTerm}
                 onSearchTermChange={setSearchTerm}
-                facetFilterOptions={facetFilterOptions}
+                facetFilterOptions={combinedFacetOptions}
                 dateFilterColumns={dateColumns}
                 showExportButton={true} // Optional
                 onExport={'default'}
@@ -188,7 +204,7 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
                     <div role="button" tabIndex={0} onClick={() => handleNewSBSeen(isNew)} className="font-medium flex items-center gap-2 relative group">
                         {isNew && tab !== "All SBs" && <p className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-4 animate-pulse" />}
                         {tab !== "All SBs" ? (
-                            <Link className="underline hover:underline-offset-2 whitespace-nowrap" to={`/sent-back-requests/${sbId.replaceAll("/", "&=")}?tab=${tab}`} >
+                            <Link className="underline hover:underline-offset-2 whitespace-nowrap" to={`/sent-back-requests/${sbId.split("/").join("&=")}?tab=${tab}`} >
                                 {sbId?.slice(-5)}
                             </Link>
                         ) : (
@@ -199,7 +215,7 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
                         )}
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                             <ItemsHoverCard
-                                parentDocId={data}
+                                parentDoc={data}
                                 parentDoctype={DOCTYPE} // 'Sent Back Requests'
                                 childTableName={"order_list"} // Or "procurement_list" - check your DocType
                                 isSB={true} // Pass relevant flags
@@ -210,16 +226,16 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
             }, size: 180,
             meta: {
                 exportHeaderName: "SB ID",
-                exportValue: (row) => row.name,
+                exportValue: (row: SentBackCategory) => row.name,
             }
         },
         {
             accessorKey: "procurement_request", header: ({ column }) => <DataTableColumnHeader column={column} title="#PR" />,
-            cell: ({ row }) => <div className="font-medium">{row.getValue("procurement_request")?.slice(-4) ?? '--'}</div>,
+            cell: ({ row }) => <div className="font-medium">{(row.getValue("procurement_request") as string)?.slice(-4) ?? '--'}</div>,
             size: 100,
             meta: {
                 exportHeaderName: "PR ID",
-                exportValue: (row) => row.procurement_request,
+                exportValue: (row: SentBackCategory) => row.procurement_request,
             }
         },
         {
@@ -228,7 +244,7 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
             size: 150,
             meta: {
                 exportHeaderName: "Date Created",
-                exportValue: (row) => formatDate(row.creation),
+                exportValue: (row: SentBackCategory) => formatDate(row.creation),
             }
         },
         {
@@ -240,7 +256,7 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
             enableColumnFilter: true, size: 200,
             meta: {
                 exportHeaderName: "Project",
-                exportValue: (row) => {
+                exportValue: (row: SentBackCategory) => {
                     const project = projectOptions.find(p => p.value === row.project);
                     return project?.label || row.project;
                 }
@@ -254,7 +270,7 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
             }, size: 180,
             meta: {
                 exportHeaderName: "Created By",
-                exportValue: (row) => {
+                exportValue: (row: SentBackCategory) => {
                     const ownerUser = userList?.find((entry) => row.owner === entry.name);
                     return ownerUser?.full_name || row.owner || "--";
                 }
@@ -266,7 +282,7 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
             size: 150, enableSorting: false,
             meta: {
                 exportHeaderName: "Estd. Value",
-                exportValue: (row) => formatToRoundedIndianRupee(getTotal(row.order_list)),
+                exportValue: (row: SentBackCategory) => formatToRoundedIndianRupee(getTotal(row.order_list)),
             }
         },
 
@@ -275,7 +291,7 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
                 accessorKey: "workflow_state",
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
                 cell: ({ row }) => {
-                    const status = row.getValue<string>("workflow_state");
+                    const status = row.getValue("workflow_state") as string;
                     const variant = status === "Vendor Selected" ? "gray" : status === "Pending" ? "blue" : ["Sent Back"].includes(status) ? "destructive" : "green";
                     return (
                         <Badge variant={variant} className="text-xs">{status}</Badge>

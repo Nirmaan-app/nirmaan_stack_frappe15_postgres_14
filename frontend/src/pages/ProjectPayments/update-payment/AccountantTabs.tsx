@@ -2,7 +2,7 @@ import React, { useCallback, useContext, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ColumnDef, Row } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, FrappeDoc, GetDocListArgs, useFrappeGetDocList } from "frappe-react-sdk";
-import {  Info, Trash2 } from "lucide-react";
+import { Info, Trash2 } from "lucide-react";
 
 // --- UI Components ---
 import { DataTable, SearchFieldOption } from '@/components/data-table/new-data-table';
@@ -21,6 +21,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
+import { useFacetValues } from '@/hooks/useFacetValues';
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
@@ -28,7 +29,7 @@ import { memoize } from "lodash";
 import { DOC_TYPES } from "../approve-payments/constants";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
-import { formatDateToDDMMYYYY,formatDate } from "@/utils/FormatDate";
+import { formatDateToDDMMYYYY, formatDate } from "@/utils/FormatDate";
 import { unparse } from 'papaparse'; // For CSV export
 import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
@@ -63,8 +64,8 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     const { getAmount: getTotalAmountPaidForPO } = useOrderPayments()
     const { getTotalAmount } = useOrderTotals()
 
-    const [dialogMode,setDialogMode] = useState<"fulfil"|"delete">("fulfil");
-    const [currentPayment,setCurrent] = useState<ProjectPaymentUpdateFields | null>(null);
+    const [dialogMode, setDialogMode] = useState<"fulfil" | "delete">("fulfil");
+    const [currentPayment, setCurrent] = useState<ProjectPaymentUpdateFields | null>(null);
     const { togglePaymentDialog } = useDialogStore();
 
 
@@ -110,18 +111,18 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         return vendors?.find(vendor => vendor.name === vendorId);
     }), [vendors]);
 
-    const openDialog = (p:ProjectPayments, m:"fulfil"|"delete")=>{
-      setCurrent({
-        name   : p.name,
-        project_label : projectOptions.find(o=>o.value===p.project)?.label ?? p.project,
-        vendor_label  : (vendorOptions.find(o=>o.value===p.vendor)?.label  ?? p.vendor)!,
-        document_name : p.document_name,
-        document_type : p.document_type,
-        amount        : p.amount,
-        status:p.status
-      });
-      setDialogMode(m);
-      togglePaymentDialog();
+    const openDialog = (p: ProjectPayments, m: "fulfil" | "delete") => {
+        setCurrent({
+            name: p.name,
+            project_label: projectOptions.find(o => o.value === p.project)?.label ?? p.project,
+            vendor_label: (vendorOptions.find(o => o.value === p.vendor)?.label ?? p.vendor)!,
+            document_name: p.document_name,
+            document_type: p.document_type,
+            amount: p.amount,
+            status: p.status
+        });
+        setDialogMode(m);
+        togglePaymentDialog();
     };
 
     // const getRowSelectionDisabled = useCallback((vendorId: string | undefined): boolean => {
@@ -164,7 +165,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                 return (
                     <div role="button" tabIndex={0} onClick={() => handleNewPaymentSeen(isNew)} className="font-medium relative whitespace-nowrap">
                         {isNew && <div className="w-2 h-2 bg-red-500 rounded-full absolute top-1.5 -left-5 animate-pulse" />}
-                       {formatDate(payment.approval_date)}
+                        {formatDate(payment.approval_date)}
                     </div>
                 );
             }, size: 150,
@@ -224,7 +225,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         {
             accessorKey: "amount", header: ({ column }) => <DataTableColumnHeader column={column} title="Req. Amt" />,
             cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(row.original.amount)}</div>,
-                 enableColumnFilter: true,
+            enableColumnFilter: true,
             size: 130,
         },
         // // Columns specific to "Fulfilled Payments" tab
@@ -272,26 +273,49 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         return false; // By default, other tabs might not have selectable rows
     }, [vendors, tab]);
 
+    // --- useServerDataTable Hook Instantiation (moved up for columnFilters access) ---
     const {
         table, data, totalCount, isLoading: listIsLoading, error: listError,
-        // globalFilter, setGlobalFilter,
-        // isItemSearchEnabled, toggleItemSearch, showItemSearchToggle, // Though item search is false
         selectedSearchField, setSelectedSearchField,
         searchTerm, setSearchTerm,
         isRowSelectionActive,
         refetch,
+        columnFilters,
     } = useServerDataTable<ProjectPayments>({
         doctype: DOCTYPE,
         columns: columns,
         searchableFields: accountantSearchableFields,
         fetchFields: fieldsToFetch,
-        // globalSearchFieldList: globalSearchFields,
-        // enableItemSearch: false,
         urlSyncKey: urlSyncKey,
         defaultSort: tab === "New Payments" ? 'modified desc' : 'payment_date desc',
         enableRowSelection: canPaymentRowBeSelected,
         additionalFilters: staticFilters,
     });
+
+    // --- Dynamic Facet Values with Counts ---
+    const { facetOptions: projectFacetOptions, isLoading: isProjectFacetLoading } = useFacetValues({
+        doctype: DOCTYPE,
+        field: 'project',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        additionalFilters: staticFilters,
+    });
+
+    const { facetOptions: vendorFacetOptions, isLoading: isVendorFacetLoading } = useFacetValues({
+        doctype: DOCTYPE,
+        field: 'vendor',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        additionalFilters: staticFilters,
+    });
+
+    // --- Faceted Filter Options ---
+    const facetFilterOptions = useMemo(() => ({
+        project: { title: "Project", options: projectFacetOptions, isLoading: isProjectFacetLoading },
+        vendor: { title: "Vendor", options: vendorFacetOptions, isLoading: isVendorFacetLoading },
+    }), [projectFacetOptions, isProjectFacetLoading, vendorFacetOptions, isVendorFacetLoading]);
 
 
     // --- CSV Export Logic using papaparse ---
@@ -400,7 +424,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                     //     toggle: toggleItemSearch,
                     //     label: "Item Search"
                     // }}
-                    facetFilterOptions={{ project: { title: "Project", options: projectOptions }, vendor: { title: "Vendor", options: vendorOptions } }}
+                    facetFilterOptions={facetFilterOptions}
                     dateFilterColumns={dateColumns}
                     showExportButton={true}
                     onExport={tab === "New Payments" ? handlePrepareExport : 'default'}
@@ -446,11 +470,11 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             </Dialog>
 
             {currentPayment && (
-               <UpdatePaymentRequestDialog
-                  mode={dialogMode}
-                  payment={currentPayment}
-                  onSuccess={()=>refetch()}   // your list refetch
-               />
+                <UpdatePaymentRequestDialog
+                    mode={dialogMode}
+                    payment={currentPayment}
+                    onSuccess={() => refetch()}   // your list refetch
+                />
             )}
         </div>
     );

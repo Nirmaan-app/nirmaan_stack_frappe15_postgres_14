@@ -11,6 +11,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
+import { useFacetValues } from '@/hooks/useFacetValues';
 import { formatDate } from "@/utils/FormatDate";
 // import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 // import { parseNumber } from "@/utils/parseNumber";
@@ -114,7 +115,7 @@ export const ApprovePR: React.FC = () => {
                         {!data.work_package && <Badge className="text-xs">Custom</Badge>}
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                             <ItemsHoverCard
-                                parentDocId={prId}
+                                parentDoc={data}
                                 parentDoctype={DOCTYPE} // 'Procurement Requests'
                                 childTableName={"order_list"} // Or "procurement_list" - check your DocType
                                 isPR={true} // Pass relevant flags
@@ -125,7 +126,7 @@ export const ApprovePR: React.FC = () => {
             }, size: 150,
             meta: {
                 exportHeaderName: "PR ID",
-                exportValue: (row) => {
+                exportValue: (row: ProcurementRequest) => {
                     return row.name
                 }
             }
@@ -136,7 +137,7 @@ export const ApprovePR: React.FC = () => {
             size: 150,
             meta: {
                 exportHeaderName: "Created On",
-                exportValue: (row) => {
+                exportValue: (row: ProcurementRequest) => {
                     return formatDate(row.creation)
                 }
             }
@@ -149,8 +150,10 @@ export const ApprovePR: React.FC = () => {
             },
             enableColumnFilter: true, size: 200,
             meta: {
+                enableFacet: true,
+                facetTitle: "Project",
                 exportHeaderName: "Project",
-                exportValue: (row) => {
+                exportValue: (row: ProcurementRequest) => {
                     const project = projectOptions.find(i => i.value === row.project);
                     return project?.label || row.project;
                 }
@@ -162,8 +165,10 @@ export const ApprovePR: React.FC = () => {
             enableColumnFilter: true,
             size: 150,
             meta: {
+                enableFacet: true,
+                facetTitle: "Work Package",
                 exportHeaderName: "Package",
-                exportValue: (row) => {
+                exportValue: (row: ProcurementRequest) => {
                     return row.work_package || "--";
                 }
             }
@@ -194,7 +199,7 @@ export const ApprovePR: React.FC = () => {
             enableColumnFilter: true,
             meta: {
                 exportHeaderName: "Created By",
-                exportValue: (row) => {
+                exportValue: (row: ProcurementRequest) => {
                     const ownerUser = userList?.find((entry) => row.owner === entry.name);
                     return ownerUser?.full_name || row.owner || "--";
                 }
@@ -208,8 +213,8 @@ export const ApprovePR: React.FC = () => {
             }, size: 180,
             meta: {
                 exportHeaderName: "Est. Value (excl GST)",
-                exportValue: (row) => {
-                    const targetValue: string = Math.round(row.getValue("target_value")) !== 0 ? row.getValue("target_value") : "N/A";
+                exportValue: (row: ProcurementRequest) => {
+                    const targetValue: any = Math.round(row.target_value || 0) !== 0 ? row.target_value : "N/A";
                     return targetValue === "N/A" ? targetValue : formatToRoundedIndianRupee(targetValue);
                 }
             }
@@ -219,11 +224,8 @@ export const ApprovePR: React.FC = () => {
 
 
     // --- (6) UPDATED: Faceted Filter Options ---
-    const facetFilterOptions = useMemo(() => ({
-        project: { title: "Project", options: projectOptions },
-        work_package: { title: "Package", options: workPackageOptions },
-        owner: { title: "Created By", options: userOptions }
-    }), [projectOptions, workPackageOptions, userOptions]);
+    // --- Dynamic Facet Values ---
+
 
     // --- Use the Server Data Table Hook ---
     const {
@@ -232,6 +234,7 @@ export const ApprovePR: React.FC = () => {
         // isItemSearchEnabled, toggleItemSearch, showItemSearchToggle, // Use item search state
         selectedSearchField, setSelectedSearchField,
         searchTerm, setSearchTerm,
+        columnFilters,
         isRowSelectionActive,
         refetch,
     } = useServerDataTable<ProcurementRequest>({
@@ -246,6 +249,34 @@ export const ApprovePR: React.FC = () => {
         enableRowSelection: false, // Enable for bulk actions
         additionalFilters: staticFilters, // Filter by workflow_state = Pending
     });
+
+    // --- Dynamic Facet Values ---
+    const { facetOptions: projectFacetOptions, isLoading: isProjectFacetLoading } = useFacetValues({
+        doctype: DOCTYPE,
+        field: 'project',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        additionalFilters: staticFilters,
+        enabled: true
+    });
+
+    const { facetOptions: workPackageFacetOptions, isLoading: isWPFacetLoading } = useFacetValues({
+        doctype: DOCTYPE,
+        field: 'work_package',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        additionalFilters: staticFilters,
+        enabled: true
+    });
+
+    // --- (6) UPDATED: Faceted Filter Options ---
+    const facetFilterOptions = useMemo(() => ({
+        project: { title: "Project", options: projectFacetOptions, isLoading: isProjectFacetLoading },
+        work_package: { title: "Package", options: workPackageFacetOptions, isLoading: isWPFacetLoading },
+        owner: { title: "Created By", options: userOptions }
+    }), [projectFacetOptions, isProjectFacetLoading, workPackageFacetOptions, isWPFacetLoading, userOptions]);
 
 
     // --- Combined Loading State & Error Handling ---

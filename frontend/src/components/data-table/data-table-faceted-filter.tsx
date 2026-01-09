@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { CheckIcon, PlusCircledIcon } from '@radix-ui/react-icons';
+import { CheckIcon } from '@radix-ui/react-icons';
 import { Column } from '@tanstack/react-table';
 
 import { cn } from '@/lib/utils'; // Adjust path
@@ -28,6 +28,8 @@ interface DataTableFacetedFilterProps<TData, TValue> {
         value: string;
         icon?: React.ComponentType<{ className?: string }>;
     }[];
+    /** Optional: Show loading state while fetching dynamic options */
+    isLoading?: boolean;
     /** The key used for this filter in the URL state (e.g., column id 'category') */
     // urlSyncKey: string;
     /** Optional base key if using nested URL state (e.g., 'items') */
@@ -38,6 +40,7 @@ export function DataTableFacetedFilter<TData, TValue>({
     column, // May not be strictly needed now, but good for context
     title,
     options,
+    isLoading = false,
     // urlSyncKey,
     // urlBaseKey,
 }: DataTableFacetedFilterProps<TData, TValue>) {
@@ -118,23 +121,21 @@ export function DataTableFacetedFilter<TData, TValue>({
 
     return (
         <Popover>
-             <PopoverTrigger asChild>
-                 <div
-                     className={`cursor-pointer ${
-                         selectedValues.size > 0 && "bg-gray-200"
-                     } hover:bg-gray-100 px-1 py-1 rounded-md`}
-                 >
-                     {selectedValues.size > 0 ? (
-                         <FilterX
-                             className={`text-primary h-4 w-4 ${
-                                 selectedValues.size > 0 && "animate-bounce"
-                             }`}
-                         />
-                     ) : (
-                         <Filter className="text-primary h-4 w-4" />
-                     )}
-                 </div>
-             </PopoverTrigger>
+            <PopoverTrigger asChild>
+                <div
+                    className={`cursor-pointer ${selectedValues.size > 0 && "bg-gray-200"
+                        } hover:bg-gray-100 px-1 py-1 rounded-md`}
+                >
+                    {selectedValues.size > 0 ? (
+                        <FilterX
+                            className={`text-primary h-4 w-4 ${selectedValues.size > 0 && "animate-bounce"
+                                }`}
+                        />
+                    ) : (
+                        <Filter className="text-primary h-4 w-4" />
+                    )}
+                </div>
+            </PopoverTrigger>
             {/* <PopoverTrigger asChild>
                 <Button variant="outline" size="sm" className="h-8 border-dashed">
                     <PlusCircledIcon className="mr-2 h-4 w-4" />
@@ -178,41 +179,43 @@ export function DataTableFacetedFilter<TData, TValue>({
                 <Command>
                     <CommandInput placeholder={title || column.id} />
                     <div className="relative">
-                    <CommandList className={`overflow-y-auto ${selectedValues.size > 0 && "mb-10"}`}>
-                        <CommandEmpty>No results found.</CommandEmpty>
-                        <CommandGroup>
-                            {options.map((option) => {
-                                const isSelected = selectedValues.has(option.value);
-                                return (
-                                    <CommandItem
-                                        key={option.value}
-                                        onSelect={() => handleSelect(option.value)}
-                                    >
-                                        <div
-                                            className={cn(
-                                                'mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary',
-                                                isSelected
-                                                    ? 'bg-primary text-primary-foreground'
-                                                    : 'opacity-50 [&_svg]:invisible'
-                                            )}
+                        <CommandList className={`overflow-y-auto ${selectedValues.size > 0 && "mb-10"}`}>
+                            <CommandEmpty>
+                                {isLoading ? "Loading options..." : (!options || options.length === 0 ? "No options available" : "No results found.")}
+                            </CommandEmpty>
+                            <CommandGroup>
+                                {options?.map((option) => {
+                                    const isSelected = selectedValues.has(option.value);
+                                    return (
+                                        <CommandItem
+                                            key={option.value}
+                                            onSelect={() => handleSelect(option.value)}
                                         >
-                                            <CheckIcon className={cn('h-4 w-4')} />
-                                        </div>
-                                        {option.icon && (
-                                            <option.icon className="mr-2 h-4 w-4 text-muted-foreground" />
-                                        )}
-                                        <span>{option.label}</span>
-                                        {/* Optional: Display facets count if available from column
+                                            <div
+                                                className={cn(
+                                                    'mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary',
+                                                    isSelected
+                                                        ? 'bg-primary text-primary-foreground'
+                                                        : 'opacity-50 [&_svg]:invisible'
+                                                )}
+                                            >
+                                                <CheckIcon className={cn('h-4 w-4')} />
+                                            </div>
+                                            {option.icon && (
+                                                <option.icon className="mr-2 h-4 w-4 text-muted-foreground" />
+                                            )}
+                                            <span>{option.label}</span>
+                                            {/* Optional: Display facets count if available from column
                                         {facets?.get(option.value) && (
                                           <span className="ml-auto flex h-4 w-4 items-center justify-center font-mono text-xs">
                                             {facets.get(option.value)}
                                           </span>
                                         )} */}
-                                    </CommandItem>
-                                );
-                            })}
-                        </CommandGroup>
-                    </CommandList>
+                                        </CommandItem>
+                                    );
+                                })}
+                            </CommandGroup>
+                        </CommandList>
                         {selectedValues.size > 0 && (
                             <div className="absolute bottom-0 w-full bg-white">
                                 <CommandSeparator />
