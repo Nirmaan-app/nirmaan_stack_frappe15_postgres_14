@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { useFrappeGetDocCount, useFrappePostCall } from "frappe-react-sdk";
@@ -6,8 +6,8 @@ import { useFrappeGetDocCount, useFrappePostCall } from "frappe-react-sdk";
 // --- UI Components ---
 import { DataTable, SearchFieldOption } from '@/components/data-table/new-data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { UsersRound } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { UsersRound, ChevronDown } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 
 // --- Hooks & Utils ---
@@ -47,21 +47,54 @@ interface RoleCountPillProps {
     roleValue: string;
     roleLabel: string;
     count: number;
+    compact?: boolean;
 }
 
-const RoleCountPill: React.FC<RoleCountPillProps> = ({ roleValue, roleLabel, count }) => {
+const RoleCountPill: React.FC<RoleCountPillProps> = ({ roleValue, roleLabel, count, compact = false }) => {
     const colors = getRoleColors(roleValue);
     return (
         <div
             className={cn(
-                "inline-flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all hover:shadow-sm",
+                "inline-flex items-center gap-1.5 rounded-full border transition-all hover:shadow-sm flex-shrink-0",
+                compact ? "px-2 py-1" : "px-3 py-1.5",
                 colors.bg,
                 colors.border
             )}
         >
-            <span className={cn("w-2 h-2 rounded-full flex-shrink-0", colors.dot)} />
-            <span className={cn("text-xs font-medium", colors.text)}>{roleLabel}</span>
-            <span className={cn("text-xs font-bold tabular-nums", colors.text)}>{count}</span>
+            <span className={cn("rounded-full flex-shrink-0", compact ? "w-1.5 h-1.5" : "w-2 h-2", colors.dot)} />
+            <span className={cn("font-medium whitespace-nowrap", compact ? "text-[10px]" : "text-xs", colors.text)}>
+                {roleLabel}
+            </span>
+            <span className={cn("font-bold tabular-nums", compact ? "text-[10px]" : "text-xs", colors.text)}>
+                {count}
+            </span>
+        </div>
+    );
+};
+
+// --- Helper: Compact Role Summary (for mobile collapsed state) ---
+const CompactRoleSummary: React.FC<{ roleCounts: Record<string, number> }> = ({ roleCounts }) => {
+    // Show top 3 roles by count as colored dots with numbers
+    const topRoles = ROLE_OPTIONS
+        .map(role => ({ ...role, count: roleCounts[role.value] ?? 0 }))
+        .filter(r => r.count > 0)
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 4);
+
+    return (
+        <div className="flex items-center gap-2">
+            {topRoles.map(role => {
+                const colors = getRoleColors(role.value);
+                return (
+                    <div key={role.value} className="flex items-center gap-1">
+                        <span className={cn("w-2 h-2 rounded-full", colors.dot)} />
+                        <span className="text-xs text-muted-foreground tabular-nums">{role.count}</span>
+                    </div>
+                );
+            })}
+            {ROLE_OPTIONS.length > 4 && (
+                <span className="text-xs text-muted-foreground">...</span>
+            )}
         </div>
     );
 };
@@ -71,6 +104,8 @@ const UsersSummaryCard: React.FC = () => {
     const [roleCounts, setRoleCounts] = useState<Record<string, number>>({});
     const [isLoadingRoles, setIsLoadingRoles] = useState(true);
     const [roleError, setRoleError] = useState<string | null>(null);
+    const [isExpanded, setIsExpanded] = useState(false);
+    const contentRef = useRef<HTMLDivElement>(null);
 
     // Fetch total users
     const { data: totalCountData, isLoading: totalCountLoading } = useFrappeGetDocCount(USER_DOCTYPE, undefined, true, false, `${USER_DOCTYPE}_total_count`);
@@ -100,7 +135,7 @@ const UsersSummaryCard: React.FC = () => {
     if (roleError) {
         return (
             <Card className="my-2 border-red-200 bg-red-50">
-                <CardContent className="pt-6">
+                <CardContent className="py-3">
                     <p className="text-sm text-red-600">{roleError}</p>
                 </CardContent>
             </Card>
@@ -108,45 +143,101 @@ const UsersSummaryCard: React.FC = () => {
     }
 
     return (
-        <Card className="my-2 shadow-sm">
-            <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                            <UsersRound className="h-5 w-5 text-primary" />
+        <Card className="my-2 shadow-sm overflow-hidden">
+            <CardContent className="p-0">
+                {/* Header - Always visible */}
+                <div
+                    className="flex items-center justify-between p-3 md:p-4 cursor-pointer md:cursor-default"
+                    onClick={() => setIsExpanded(!isExpanded)}
+                >
+                    <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex h-9 w-9 md:h-10 md:w-10 items-center justify-center rounded-lg bg-primary/10 flex-shrink-0">
+                            <UsersRound className="h-4 w-4 md:h-5 md:w-5 text-primary" />
                         </div>
-                        <div>
-                            <CardTitle className="text-lg font-semibold">
+                        <div className="min-w-0">
+                            <div className="flex items-baseline gap-1.5">
                                 {totalCountLoading ? (
-                                    <TailSpin visible={true} height="20" width="20" color="#D03B45" radius="1" />
+                                    <TailSpin visible={true} height="18" width="18" color="#D03B45" radius="1" />
                                 ) : (
-                                    <span className="tabular-nums">{totalCountData ?? 0}</span>
+                                    <span className="text-lg md:text-xl font-semibold tabular-nums">{totalCountData ?? 0}</span>
                                 )}
-                                <span className="ml-2 text-muted-foreground font-normal">Users</span>
-                            </CardTitle>
-                            <p className="text-xs text-muted-foreground">Total registered in system</p>
+                                <span className="text-sm text-muted-foreground font-normal">Users</span>
+                            </div>
+                            {/* Mobile: Show compact role summary when collapsed */}
+                            <div className="md:hidden">
+                                {!isLoadingRoles && !isExpanded && (
+                                    <CompactRoleSummary roleCounts={roleCounts} />
+                                )}
+                            </div>
                         </div>
+                    </div>
+
+                    {/* Mobile expand/collapse button */}
+                    <button
+                        className="md:hidden p-1.5 rounded-md hover:bg-muted/50 transition-colors"
+                        aria-label={isExpanded ? "Collapse role details" : "Expand role details"}
+                    >
+                        <ChevronDown
+                            className={cn(
+                                "h-4 w-4 text-muted-foreground transition-transform duration-200",
+                                isExpanded && "rotate-180"
+                            )}
+                        />
+                    </button>
+                </div>
+
+                {/* Role Pills Section */}
+                {/* Desktop & Tablet: Always visible */}
+                <div className="hidden md:block px-4 pb-4">
+                    {isLoadingRoles ? (
+                        <div className="flex items-center gap-2 text-muted-foreground text-sm">
+                            <TailSpin visible={true} height="16" width="16" color="#6b7280" radius="1" />
+                            <span>Loading roles...</span>
+                        </div>
+                    ) : (
+                        /* Tablet: Horizontal scroll | Desktop: Wrap */
+                        <div className="lg:flex lg:flex-wrap lg:gap-2 md:flex md:gap-2 md:overflow-x-auto md:pb-1 md:-mb-1 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent">
+                            {ROLE_OPTIONS.map(role => (
+                                <RoleCountPill
+                                    key={role.value}
+                                    roleValue={role.value}
+                                    roleLabel={role.label}
+                                    count={roleCounts[role.value] ?? 0}
+                                />
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* Mobile: Collapsible section */}
+                <div
+                    ref={contentRef}
+                    className={cn(
+                        "md:hidden overflow-hidden transition-all duration-200 ease-in-out",
+                        isExpanded ? "max-h-48 opacity-100" : "max-h-0 opacity-0"
+                    )}
+                >
+                    <div className="px-3 pb-3 pt-1">
+                        {isLoadingRoles ? (
+                            <div className="flex items-center gap-2 text-muted-foreground text-sm py-2">
+                                <TailSpin visible={true} height="14" width="14" color="#6b7280" radius="1" />
+                                <span>Loading...</span>
+                            </div>
+                        ) : (
+                            <div className="flex flex-wrap gap-1.5">
+                                {ROLE_OPTIONS.map(role => (
+                                    <RoleCountPill
+                                        key={role.value}
+                                        roleValue={role.value}
+                                        roleLabel={role.label}
+                                        count={roleCounts[role.value] ?? 0}
+                                        compact
+                                    />
+                                ))}
+                            </div>
+                        )}
                     </div>
                 </div>
-            </CardHeader>
-            <CardContent className="pt-0">
-                {isLoadingRoles ? (
-                    <div className="flex items-center gap-2 text-muted-foreground text-sm">
-                        <TailSpin visible={true} height="16" width="16" color="#6b7280" radius="1" />
-                        Loading role distribution...
-                    </div>
-                ) : (
-                    <div className="flex flex-wrap gap-2">
-                        {ROLE_OPTIONS.map(role => (
-                            <RoleCountPill
-                                key={role.value}
-                                roleValue={role.value}
-                                roleLabel={role.label}
-                                count={roleCounts[role.value] ?? 0}
-                            />
-                        ))}
-                    </div>
-                )}
             </CardContent>
         </Card>
     );
