@@ -389,9 +389,8 @@ function CashSheetReport() {
 
   return (
     <div
-      className={`flex flex-col gap-2 ${
-        totalCount > 0 ? "h-[calc(100vh-130px)] overflow-hidden" : ""
-      }`}
+      className={`flex flex-col gap-2 ${totalCount > 0 ? "h-[calc(100vh-130px)] overflow-hidden" : ""
+        }`}
     >
       <StandaloneDateFilter
         value={dateRange}
@@ -544,11 +543,10 @@ function CashSheetReport() {
                     Total Cashflow Gap
                   </dt>
                   <dd
-                    className={`sm:text-left font-bold text-base sm:text-sm tabular-nums ${
-                      financialSummary.totalCashflowGap > 0
+                    className={`sm:text-left font-bold text-base sm:text-sm tabular-nums ${financialSummary.totalCashflowGap > 0
                         ? "text-red-600"
                         : "text-green-600"
-                    }`}
+                      }`}
                   >
                     {formatValueToLakhsString(
                       financialSummary.totalCashflowGap
