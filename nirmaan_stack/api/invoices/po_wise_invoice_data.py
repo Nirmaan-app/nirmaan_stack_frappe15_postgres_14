@@ -1,19 +1,19 @@
 import frappe
 from frappe import _
-from frappe.utils.caching import redis_cache
 
 @frappe.whitelist()
-@redis_cache(shared=True)
 def generate_all_po_invoice_data():
     """
-    Generate consolidated invoice data for all Procurement Orders in the system.
-    
+    Generate consolidated invoice data for all APPROVED invoices in Procurement Orders.
+
     Returns:
         dict: {
                 "message": {
                     "invoice_entries": List[InvoiceEntry],
                     "total_invoices": number,
-                    "total_amount": number
+                    "total_amount": number,
+                    "total_2b_activated": number,
+                    "pending_2b_activation": number
                  },
                  "status": 200
               }
@@ -27,7 +27,10 @@ def generate_all_po_invoice_data():
             - project (str, optional) (Project ID, if available on PO)
             - vendor (str) (Vendor ID)
             - vendor_name (str) (Vendor Name)
-            
+            - is_2b_activated (bool, optional)
+            - reconciled_date (str, optional)
+            - reconciled_by (str, optional)
+
     Raises:
         Exception: For unexpected errors.
     """
@@ -39,10 +42,11 @@ def generate_all_po_invoice_data():
            filters={
                 "status": ("not in", [ "Merged", "Inactive", "PO Amendment"])
                 },
-            fields=["name", "invoice_data", "vendor", "vendor_name", "project"] # Added 'project'
+            fields=["name", "invoice_data", "vendor", "vendor_name", "project"]
         )
 
         invoice_entries = []
+        total_2b_activated = 0
 
         # Loop through each procurement order and extract invoice data.
         for po in procurement_orders:
@@ -51,7 +55,7 @@ def generate_all_po_invoice_data():
                 continue
 
             # Expecting invoice_data to have a "data" key with a dictionary of invoice entries.
-            invoice_data_dict = po.invoice_data.get("data", {}) # Renamed to avoid conflict
+            invoice_data_dict = po.invoice_data.get("data", {})
 
             for date_str, invoice_item in invoice_data_dict.items():
                 # Validate that required keys are present before adding the entry.
@@ -62,6 +66,17 @@ def generate_all_po_invoice_data():
                     )
                     continue
 
+                # Only include APPROVED invoices
+                status = invoice_item.get("status", "Pending")
+                if status != "Approved":
+                    continue
+
+                is_2b_activated = invoice_item.get("is_2b_activated", False)
+
+                # Count 2B activated invoices
+                if is_2b_activated:
+                    total_2b_activated += 1
+
                 entry = {
                     "date": date_str,
                     "invoice_no": invoice_item["invoice_no"],
@@ -69,16 +84,22 @@ def generate_all_po_invoice_data():
                     "updated_by": invoice_item["updated_by"],
                     "invoice_attachment_id": invoice_item.get("invoice_attachment_id"),
                     "procurement_order": po.name,
-                    "project": po.project, # Include project ID if available
+                    "project": po.project,
                     "vendor": po.vendor,
-                    "vendor_name": po.vendor_name
+                    "vendor_name": po.vendor_name,
+                    "is_2b_activated": is_2b_activated,
+                    "reconciled_date": invoice_item.get("reconciled_date"),
+                    "reconciled_by": invoice_item.get("reconciled_by")
                 }
                 invoice_entries.append(entry)
 
+        total_invoices = len(invoice_entries)
         formatted_invoice_entries = {
             "invoice_entries": invoice_entries,
-            "total_invoices": len(invoice_entries),
-            "total_amount": sum(entry["amount"] for entry in invoice_entries)
+            "total_invoices": total_invoices,
+            "total_amount": sum(entry["amount"] for entry in invoice_entries),
+            "total_2b_activated": total_2b_activated,
+            "pending_2b_activation": total_invoices - total_2b_activated
         }
 
         return {"message": formatted_invoice_entries, "status": 200}
