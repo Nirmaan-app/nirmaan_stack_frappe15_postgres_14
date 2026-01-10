@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useFrappePostCall, useFrappeCreateDoc } from "frappe-react-sdk";
+import { useFrappePostCall, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useNavigate } from "react-router-dom";
 import { X } from "lucide-react";
 
@@ -59,12 +59,14 @@ export const ProjectForm = () => {
     const [creationStage, setCreationStage] = useState<CreationStage>("idle");
     const [creationDialogOpen, setCreationDialogOpen] = useState(false);
     const [assigneeCount, setAssigneeCount] = useState(0);
+    const [progressSetupEnabled, setProgressSetupEnabled] = useState(false);
     const [creationError, setCreationError] = useState<string>();
 
     // API calls
     const { call: createProjectAndAddress, loading: createProjectAndAddressLoading } =
         useFrappePostCall("nirmaan_stack.api.projects.new_project.create_project_with_address");
     const { createDoc } = useFrappeCreateDoc();
+    const { updateDoc } = useFrappeUpdateDoc();
 
     // Draft management
     const {
@@ -180,8 +182,18 @@ export const ProjectForm = () => {
                 throw new Error("Please select at least one work package associated with this project!");
             }
 
-            // Extract assignees from form values (not sent to backend)
-            const { assignees, ...projectValues } = values;
+            // Extract assignees, daily_progress_setup, and deprecated single-assignee fields (not sent to backend)
+            const {
+                assignees,
+                daily_progress_setup,
+                // Deprecated single-assignee fields - don't send to backend
+                project_lead,
+                project_manager,
+                design_lead,
+                procurement_lead,
+                estimates_exec,
+                ...projectValues
+            } = values;
 
             // Collect unique users from assignees
             const uniqueUsers = new Set<string>();
@@ -190,6 +202,10 @@ export const ProjectForm = () => {
             assignees?.procurement_executives?.forEach((u) => uniqueUsers.add(u.value));
             const userCount = uniqueUsers.size;
             setAssigneeCount(userCount);
+
+            // Check if progress setup is enabled
+            const isProgressSetupEnabled = daily_progress_setup?.enabled === true;
+            setProgressSetupEnabled(isProgressSetupEnabled);
 
             // Open dialog and start creation
             setCreationDialogOpen(true);
@@ -224,6 +240,52 @@ export const ProjectForm = () => {
                         // Log but don't fail the entire operation
                         console.warn(`Failed to create permission for ${userId}:`, permError);
                     }
+                }
+            }
+
+            // Step 3: Set up Daily Progress Tracking (if enabled)
+            if (isProgressSetupEnabled && daily_progress_setup) {
+                setCreationStage("setting_up_progress");
+
+                try {
+                    // Prepare zones for backend (field name is zone_name in Project Zone Child Table)
+                    const zonesToSave = daily_progress_setup.zone_type === 'single'
+                        ? [{ zone_name: "Default" }]
+                        : daily_progress_setup.zones.map(z => ({ zone_name: z.zone_name }));
+
+                    // Prepare work headers for backend (Project Work Headers child table)
+                    // Fields: project_work_header_name (Link to Work Headers), enabled
+                    // Note: enabled must be string "True" to match the reading code filter
+                    const headersToSave = daily_progress_setup.work_headers.map(wh => ({
+                        project_work_header_name: wh.work_header_doc_name,
+                        enabled: "True",
+                    }));
+
+                    // Debug logging
+                    console.log("[Progress Setup] Saving to project:", projectName);
+                    console.log("[Progress Setup] Zones:", zonesToSave);
+                    console.log("[Progress Setup] Work Headers:", headersToSave);
+                    console.log("[Progress Setup] Raw form data:", daily_progress_setup);
+
+                    // Update the project with progress tracking settings
+                    const updatePayload = {
+                        enable_project_milestone_tracking: true,
+                        project_zones: zonesToSave,
+                        project_work_header_entries: headersToSave,
+                    };
+                    console.log("[Progress Setup] Full payload:", updatePayload);
+
+                    await updateDoc("Projects", projectName, updatePayload);
+                    console.log("[Progress Setup] Update successful");
+                } catch (progressError) {
+                    // Log error details
+                    console.error("Failed to set up progress tracking:", progressError);
+                    // Don't fail the entire operation, but toast the error
+                    toast({
+                        title: "Warning",
+                        description: "Project created but progress tracking setup failed. You can set it up later from the project page.",
+                        variant: "destructive",
+                    });
                 }
             }
 
@@ -402,6 +464,7 @@ export const ProjectForm = () => {
                 stage={creationStage}
                 projectName={newProjectId}
                 assigneeCount={assigneeCount}
+                progressSetupEnabled={progressSetupEnabled}
                 errorMessage={creationError}
                 onGoBack={handleGoToProjects}
                 onCreateNew={handleCreateNew}

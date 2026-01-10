@@ -56,6 +56,17 @@ export interface ProjectDraftFormValues {
     list: Array<{ location: string; gst: string }>;
   };
   carpet_area?: number;
+  // Daily Progress Report Setup
+  daily_progress_setup?: {
+    enabled: boolean;
+    zone_type?: 'single' | 'multiple';
+    zones: Array<{ zone_name: string }>;
+    work_headers: Array<{
+      work_header_doc_name: string;
+      work_header_display_name: string;
+      work_package_link: string;
+    }>;
+  };
 }
 
 export interface AreaName {

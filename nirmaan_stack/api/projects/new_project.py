@@ -180,14 +180,9 @@ def create_project_with_address(values: dict):
         project_doc.project_city = values.get("project_city")
         project_doc.project_state = values.get("project_state")
         
-        # Assignees
-        project_doc.project_lead = values.get("project_lead")
-        project_doc.procurement_lead = values.get("procurement_lead")
-        project_doc.estimates_exec = values.get("estimates_exec")
-        project_doc.design_lead = values.get("design_lead")
-        project_doc.accountant = values.get("accountant")
-        project_doc.project_manager = values.get("project_manager")
-        
+        # Note: Assignee fields (project_lead, procurement_lead, etc.) are no longer set here.
+        # Frontend handles multi-select assignees via User Permissions after project creation.
+
         # Other JSON fields (if they remain JSON)
         project_doc.project_scopes = values.get("project_scopes") 
         # --- NEW: Set the enable_project_milestone_tracking field ---

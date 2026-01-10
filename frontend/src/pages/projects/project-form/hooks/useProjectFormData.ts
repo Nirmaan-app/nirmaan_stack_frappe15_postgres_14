@@ -15,6 +15,12 @@ export interface WorkPackageType {
     work_package_name: string;
 }
 
+export interface WorkHeaderType {
+    name: string;
+    work_header_name: string;
+    work_package_link: string;
+}
+
 /**
  * Hook to fetch all data needed for the project form
  *
@@ -84,6 +90,16 @@ export const useProjectFormData = () => {
         isLoading: categoryMakeListLoading
     } = useFrappeGetDocList<CategoryMakelist>("Category Makelist", {
         fields: ["make", "category"],
+        limit: 0,
+    });
+
+    // Work Headers (for Daily Progress Report Setup)
+    const {
+        data: workHeaders,
+        isLoading: workHeadersLoading,
+        error: workHeadersError
+    } = useFrappeGetDocList<WorkHeaderType>("Work Headers", {
+        fields: ["name", "work_header_name", "work_package_link"],
         limit: 0,
     });
 
@@ -158,6 +174,7 @@ export const useProjectFormData = () => {
     // Loading states
     const isLoading = workPackagesLoading || customersLoading || projectTypesLoading || usersLoading;
     const isPackageDataLoading = categoriesLoading || categoryMakeListLoading;
+    const isWorkHeadersLoading = workHeadersLoading;
 
     return {
         // Raw data
@@ -165,6 +182,7 @@ export const useProjectFormData = () => {
         users,
         categories,
         categoryMakeList,
+        workHeaders,
 
         // Options for selects
         customerOptions,
@@ -187,6 +205,7 @@ export const useProjectFormData = () => {
         // Loading states
         isLoading,
         isPackageDataLoading,
+        isWorkHeadersLoading,
         customersLoading,
         projectTypesLoading,
         usersLoading,
@@ -196,6 +215,7 @@ export const useProjectFormData = () => {
         customersError,
         projectTypesError,
         usersError,
+        workHeadersError,
     };
 };
 

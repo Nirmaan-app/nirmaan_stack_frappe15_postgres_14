@@ -1,5 +1,5 @@
 import { UseFormReturn } from "react-hook-form";
-import { Building2, MapPin, Calendar, Users, Package, ListChecks } from "lucide-react";
+import { Building2, MapPin, Calendar, Users, Package, ListChecks, ClipboardList } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ButtonLoading } from "@/components/ui/button-loading";
 import {
@@ -207,6 +207,69 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({
                         />
                     </div>
                 </ReviewSection>
+
+                {/* Daily Progress Reports Section (only show if enabled) */}
+                {form.getValues("daily_progress_setup")?.enabled && (
+                    <ReviewSection
+                        title="Daily Progress Reports"
+                        icon={ClipboardList}
+                        onEdit={() => onNavigateToSection("packageSelection")}
+                        iconColorClass="bg-indigo-500/10 text-indigo-600 dark:text-indigo-400"
+                        columns={1}
+                    >
+                        <div className="col-span-full space-y-4">
+                            {/* Zone Configuration */}
+                            <div>
+                                <p className="text-xs font-medium text-gray-500 mb-2">Zone Configuration</p>
+                                <div className="flex flex-wrap gap-2">
+                                    {form.getValues("daily_progress_setup")?.zone_type === 'single' ? (
+                                        <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-700 border border-gray-200">
+                                            Single Zone (Default)
+                                        </span>
+                                    ) : (
+                                        <>
+                                            {form.getValues("daily_progress_setup")?.zones?.map((zone) => (
+                                                <span
+                                                    key={zone.zone_name}
+                                                    className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200"
+                                                >
+                                                    {zone.zone_name}
+                                                </span>
+                                            ))}
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Work Headers */}
+                            <div>
+                                <p className="text-xs font-medium text-gray-500 mb-2">Work Headers to Track</p>
+                                <div className="flex flex-wrap gap-2">
+                                    {form.getValues("daily_progress_setup")?.work_headers?.length ? (
+                                        form.getValues("daily_progress_setup")?.work_headers?.map((header) => (
+                                            <span
+                                                key={header.work_header_doc_name}
+                                                className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-teal-50 text-teal-700 border border-teal-200"
+                                            >
+                                                {header.work_header_display_name}
+                                            </span>
+                                        ))
+                                    ) : (
+                                        <span className="text-xs text-gray-400 italic">No work headers selected</span>
+                                    )}
+                                </div>
+                                {(form.getValues("daily_progress_setup")?.work_headers?.length ?? 0) > 0 && (
+                                    <p className="text-xs text-gray-400 mt-2">
+                                        {form.getValues("daily_progress_setup")?.work_headers?.length ?? 0} work header
+                                        {(form.getValues("daily_progress_setup")?.work_headers?.length ?? 0) !== 1 ? 's' : ''} across{' '}
+                                        {new Set(form.getValues("daily_progress_setup")?.work_headers?.map(h => h.work_package_link) ?? []).size} package
+                                        {new Set(form.getValues("daily_progress_setup")?.work_headers?.map(h => h.work_package_link) ?? []).size !== 1 ? 's' : ''}
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+                    </ReviewSection>
+                )}
             </ReviewContainer>
 
             {/* Navigation */}

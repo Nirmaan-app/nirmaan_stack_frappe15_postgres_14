@@ -151,6 +151,18 @@ export const projectFormSchema = z.object({
             gst: z.string(),
         })),
     }),
+
+    // Daily Progress Report Setup (Optional - Phase 5, Section 2)
+    daily_progress_setup: z.object({
+        enabled: z.boolean().default(false),
+        zone_type: z.enum(['single', 'multiple']).optional(),
+        zones: z.array(z.object({ zone_name: z.string() })).default([]),
+        work_headers: z.array(z.object({
+            work_header_doc_name: z.string(),
+            work_header_display_name: z.string(),
+            work_package_link: z.string(),
+        })).default([]),
+    }).optional(),
 });
 
 export type ProjectFormValues = z.infer<typeof projectFormSchema>;
@@ -200,6 +212,13 @@ export const defaultFormValues: ProjectFormValues = {
         project_managers: [],
         procurement_executives: [],
     },
+    // Daily Progress Report Setup
+    daily_progress_setup: {
+        enabled: false,
+        zone_type: undefined,
+        zones: [],
+        work_headers: [],
+    },
 };
 
 /**
@@ -220,4 +239,23 @@ export const sectionFields: Record<string, (keyof ProjectFormValues)[]> = {
 export interface AssigneeOption {
     label: string;
     value: string;
+}
+
+/**
+ * Type for work header entry in daily progress setup
+ */
+export interface DailyProgressWorkHeader {
+    work_header_doc_name: string;
+    work_header_display_name: string;
+    work_package_link: string;
+}
+
+/**
+ * Type for daily progress setup configuration
+ */
+export interface DailyProgressSetup {
+    enabled: boolean;
+    zone_type?: 'single' | 'multiple';
+    zones: Array<{ zone_name: string }>;
+    work_headers: DailyProgressWorkHeader[];
 }

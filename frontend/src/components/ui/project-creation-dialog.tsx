@@ -1,4 +1,4 @@
-import { CheckCircle2, Loader2, FolderPlus, Users, CirclePlus, Undo2, BadgeIndianRupee } from "lucide-react";
+import { CheckCircle2, Loader2, FolderPlus, Users, CirclePlus, Undo2, BadgeIndianRupee, ClipboardList } from "lucide-react";
 import {
     AlertDialog,
     AlertDialogContent,
@@ -10,13 +10,14 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 
-export type CreationStage = "idle" | "creating_project" | "assigning_users" | "complete" | "error";
+export type CreationStage = "idle" | "creating_project" | "assigning_users" | "setting_up_progress" | "complete" | "error";
 
 interface ProjectCreationDialogProps {
     open: boolean;
     stage: CreationStage;
     projectName?: string;
     assigneeCount?: number;
+    progressSetupEnabled?: boolean;
     errorMessage?: string;
     onGoBack: () => void;
     onCreateNew: () => void;
@@ -78,6 +79,7 @@ export const ProjectCreationDialog: React.FC<ProjectCreationDialogProps> = ({
     stage,
     projectName,
     assigneeCount = 0,
+    progressSetupEnabled = false,
     errorMessage,
     onGoBack,
     onCreateNew,
@@ -85,6 +87,7 @@ export const ProjectCreationDialog: React.FC<ProjectCreationDialogProps> = ({
 }) => {
     const isCreatingProject = stage === "creating_project";
     const isAssigningUsers = stage === "assigning_users";
+    const isSettingUpProgress = stage === "setting_up_progress";
     const isComplete = stage === "complete";
     const isError = stage === "error";
 
@@ -152,15 +155,23 @@ export const ProjectCreationDialog: React.FC<ProjectCreationDialogProps> = ({
                         <StageItem
                             label="Creating project"
                             isActive={isCreatingProject}
-                            isComplete={isAssigningUsers || isComplete}
+                            isComplete={isAssigningUsers || isSettingUpProgress || isComplete}
                             icon={<FolderPlus className="h-4 w-4" />}
                         />
                         <StageItem
                             label={`Assigning team members${assigneeCount > 0 ? ` (${assigneeCount})` : ""}`}
                             isActive={isAssigningUsers}
-                            isComplete={isComplete}
+                            isComplete={isSettingUpProgress || isComplete}
                             icon={<Users className="h-4 w-4" />}
                         />
+                        {progressSetupEnabled && (
+                            <StageItem
+                                label="Setting up progress tracking"
+                                isActive={isSettingUpProgress}
+                                isComplete={isComplete}
+                                icon={<ClipboardList className="h-4 w-4" />}
+                            />
+                        )}
                     </div>
                 )}
 

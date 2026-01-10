@@ -37,41 +37,14 @@ interface WorkPackage {
 
 interface CategoryBadgeProps {
   category: Category;
-  showMakes?: boolean;
 }
 
-const CategoryBadge: React.FC<CategoryBadgeProps> = ({ category, showMakes = false }) => {
-  const makeCount = category.makes?.length || 0;
-
-  if (!showMakes) {
-    return (
-      <Badge variant="secondary" className="font-normal gap-1.5">
-        {category.name}
-        {makeCount > 0 && (
-          <span className="text-xs text-muted-foreground">({makeCount})</span>
-        )}
-      </Badge>
-    );
-  }
-
+const CategoryBadge: React.FC<CategoryBadgeProps> = ({ category }) => {
+  // Simplified display - just show category name as badge
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <span className="text-sm font-medium text-foreground">{category.name}</span>
-        {makeCount === 0 && (
-          <span className="text-xs text-muted-foreground">(No makes selected)</span>
-        )}
-      </div>
-      {makeCount > 0 && (
-        <div className="flex flex-wrap gap-1.5 pl-3">
-          {category.makes.map((make, idx) => (
-            <Badge key={idx} variant="outline" className="text-xs font-normal">
-              {make.label}
-            </Badge>
-          ))}
-        </div>
-      )}
-    </div>
+    <Badge variant="secondary" className="font-normal">
+      {category.name}
+    </Badge>
   );
 };
 
@@ -97,7 +70,6 @@ export const PackageReviewCard: React.FC<PackageReviewCardProps> = ({
 
   const categories = workPackage.category_list?.list || [];
   const categoryCount = categories.length;
-  const makeCount = categories.reduce((acc, cat) => acc + (cat.makes?.length || 0), 0);
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen} className={className}>
@@ -116,7 +88,7 @@ export const PackageReviewCard: React.FC<PackageReviewCardProps> = ({
                   {workPackage.work_package_name}
                 </h4>
                 <p className="text-xs text-muted-foreground">
-                  {categoryCount} {categoryCount === 1 ? 'category' : 'categories'} · {makeCount} {makeCount === 1 ? 'make' : 'makes'}
+                  {categoryCount} {categoryCount === 1 ? 'category' : 'categories'}
                 </p>
               </div>
             </div>
@@ -153,9 +125,9 @@ export const PackageReviewCard: React.FC<PackageReviewCardProps> = ({
                 No categories selected
               </p>
             ) : (
-              <div className="space-y-3 pt-3">
+              <div className="flex flex-wrap gap-2 pt-3">
                 {categories.map((category, idx) => (
-                  <CategoryBadge key={idx} category={category} showMakes />
+                  <CategoryBadge key={idx} category={category} />
                 ))}
               </div>
             )}
