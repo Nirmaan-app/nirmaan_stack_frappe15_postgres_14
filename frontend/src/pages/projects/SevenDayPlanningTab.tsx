@@ -10,7 +10,7 @@ import { urlStateManager } from "@/utils/urlStateManager";
 import { SevenDayPlanningHeader } from "./components/planning/SevenDayPlanningHeader";
 import { SevenDayPlanningTabs, PLANNING_TABS, PlanningTabValue } from "./components/planning/SevenDayPlanningTabs";
 
-export const SevenDayPlanningTab = ({ isOverview }: { isOverview?: boolean }) => {
+export const SevenDayPlanningTab = ({ isOverview, projectName }: { isOverview?: boolean; projectName?: string }) => {
   const { projectId } = useParams<{ projectId: string }>();
 
   // --- URL State Management ---
@@ -118,6 +118,7 @@ export const SevenDayPlanningTab = ({ isOverview }: { isOverview?: boolean }) =>
             startDate={dateRange?.from} 
             endDate={dateRange?.to} 
             isOverview={isOverview}
+            projectName={projectName}
           />
         )}
         {activeTab === PLANNING_TABS.MATERIAL_PLAN && (
@@ -126,6 +127,7 @@ export const SevenDayPlanningTab = ({ isOverview }: { isOverview?: boolean }) =>
             startDate={dateRange?.from} 
             endDate={dateRange?.to}
             isOverview={isOverview}
+            projectName={projectName}
           />
         )}
         {activeTab === PLANNING_TABS.FINANCIAL_PLAN && (

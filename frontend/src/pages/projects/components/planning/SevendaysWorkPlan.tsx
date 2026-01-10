@@ -1,8 +1,8 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { useFrappeGetCall } from "frappe-react-sdk";
-import { format } from "date-fns";
+import { format, addDays, subDays } from "date-fns";
 import { safeFormatDate } from "@/lib/utils";
-import { AlertCircle, Calendar, CheckCircle, Circle, Loader2, ChevronDown, ChevronUp, Pencil, Trash2,Download } from "lucide-react";
+import { AlertCircle, Calendar, CheckCircle, Circle, Loader2, ChevronDown, ChevronUp, Pencil, Trash2, Download } from "lucide-react";
 import { ProgressCircle } from "@/components/ui/ProgressCircle";
 import { CreateWorkplantask } from "./CreateWorkplantask";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,7 @@ import { WorkPlanOverview } from "./WorkPlanOverview";
 import { useFrappeDeleteDoc } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
+import { EditMilestoneDialog } from "./EditMilestoneDialog";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -20,12 +21,17 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface SevendaysWorkPlanProps {
     projectId: string;
     startDate: Date | undefined;
     endDate: Date | undefined;
     isOverview?: boolean;
+    projectName?: string;
 }
 
 export interface WorkPlanItem {
@@ -40,6 +46,7 @@ export interface WorkPlanItem {
     work_plan_doc?: WorkPlanDoc[];
     source: string;
     weightage?: number;
+    dpr_name?: string;
 }
 
 export interface WorkPlanDoc {
@@ -61,11 +68,12 @@ export const getColorForProgress = (value: number): string => {
     return "text-green-500";
 };
 
-const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, isOverview }: { 
+const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilestone, isOverview }: { 
     item: WorkPlanItem, 
     onAddTask: (item: WorkPlanItem) => void,
     onEditTask: (plan: WorkPlanDoc, item: WorkPlanItem) => void,
     onDeleteTask: (planName: string) => void,
+    onEditMilestone: (item: WorkPlanItem) => void,
     isOverview?: boolean
 }) => {
     const [isExpanded, setIsExpanded] = useState(false);
@@ -79,13 +87,13 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, isOverview }:
                     <div className="font-medium text-gray-900">{item.work_milestone_name}</div>
                 </td>
                 <td className="px-4 py-3 font-medium text-gray-900 border-b-0 text-center">
-                    <span className="inline-flex items-center justify-center h-6 w-[100px] rounded border border-dashed border-gray-300 bg-gray-50 px-2 text-xs text-gray-600 truncate">
+                    <span className="inline-flex items-center justify-center h-6 min-w-[100px] w-fit rounded border border-dashed border-gray-300 bg-gray-50 px-3 text-xs text-gray-600 whitespace-nowrap">
                         {item.zone || "Zone 1"}
                     </span>
                 </td>
                 <td className="px-4 py-3 border-b-0 text-center">
                         <span
-                        className={`inline-flex items-center justify-center h-6 w-[100px] rounded-full px-2 text-xs font-medium truncate ${
+                        className={`inline-flex items-center justify-center h-6 min-w-[100px] w-fit rounded-full px-3 text-xs font-medium whitespace-nowrap ${
                             item.status === "Completed"
                                 ? "bg-green-100 text-green-800 border border-green-200"
                                 : item.status === "WIP" || item.status === "In Progress"
@@ -96,7 +104,20 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, isOverview }:
                         }`}
                     >
                         {item.status}
+                        {!isOverview && (
+                        <button 
+                            className="ml-2 p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50  transition-all inline-flex items-center"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onEditMilestone(item);
+                            }}
+                            title="Edit Milestone"
+                        >
+                            <Pencil className="h-3 w-3" />
+                        </button>
+                    )}
                     </span>
+                    
                 </td>
 
                 <td className="px-4 py-3 text-gray-700 border-b-0 text-center">
@@ -232,10 +253,17 @@ export const SevendaysWorkPlan = ({
     startDate,
     endDate,
     isOverview,
+    projectName
 }: SevendaysWorkPlanProps) => {
-    // ... no change to props ...
-
+    
+    const [isBufferDialogOpen, setIsBufferDialogOpen] = useState(false);
+    const [bufferDays, setBufferDays] = useState<number | string>("");
+    const [addToStart, setAddToStart] = useState<boolean>(true);
+    const [addToEnd, setAddToEnd] = useState<boolean>(true);
     const [isMainExpanded, setIsMainExpanded] = useState(true);
+
+    // console.log("Work Plan projectName",projectName)
+
     const { toast } = useToast();
     const { deleteDoc } = useFrappeDeleteDoc();
 
@@ -267,6 +295,14 @@ export const SevendaysWorkPlan = ({
             [header]: prev[header] === false ? true : false,
         }));
     };
+
+    const [editMilestoneState, setEditMilestoneState] = useState<{
+        isOpen: boolean;
+        item: WorkPlanItem | null;
+    }>({
+        isOpen: false,
+        item: null,
+    });
 
     const [createTaskState, setCreateTaskState] = useState<{
         isOpen: boolean;
@@ -338,6 +374,13 @@ export const SevendaysWorkPlan = ({
         });
     };
 
+    const handleEditMilestone = (item: WorkPlanItem) => {
+        setEditMilestoneState({
+            isOpen: true,
+            item: item,
+        });
+    };
+
     const confirmDelete = async () => {
         if (deleteDialogState.planName) {
             try {
@@ -361,14 +404,12 @@ export const SevendaysWorkPlan = ({
     };
 
     const [isDownloading, setIsDownloading] = useState(false);
+    const [isBufferDownloading, setIsBufferDownloading] = useState(false);
 
-    const handleDownload = async (e: React.MouseEvent) => {
-        e.stopPropagation();
+    // Refactored download logic to accept dates
+    const performDownload = async (downloadStartDate: Date | undefined, downloadEndDate: Date | undefined) => {
         setIsDownloading(true);
         try {
-            // Attempt to download using the "Work Plan" print format on the Project
-            // If the user meant a specific "Work Plan" document, this might need adjustment,
-            // but usually a summary print is done via the parent (Project).
             const formatName = "Project Work Plan"; 
             
             const params = new URLSearchParams({
@@ -379,16 +420,14 @@ export const SevendaysWorkPlan = ({
                 _lang: "en",
             });
 
-            if (startDate) {
-                params.append("start_date", format(startDate, "yyyy-MM-dd"));
+            if (downloadStartDate) {
+                params.append("start_date", format(downloadStartDate, "yyyy-MM-dd"));
             }
-            if (endDate) {
-                params.append("end_date", format(endDate, "yyyy-MM-dd"));
+            if (downloadEndDate) {
+                params.append("end_date", format(downloadEndDate, "yyyy-MM-dd"));
             }
 
             const url = `/api/method/frappe.utils.print_format.download_pdf?${params.toString()}`;
-
-            console.log("params",params)
             
             const response = await fetch(url);
             if (!response.ok) throw new Error("Network response was not ok");
@@ -397,7 +436,9 @@ export const SevendaysWorkPlan = ({
             const downloadUrl = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = downloadUrl;
-            link.download = `WorkPlan_${projectId}_${format(new Date(), "yyyy-MM-dd")}.pdf`;
+
+            const safeProjectName = (projectName || projectId).replace(/ /g, "_");
+            link.download = `WorkPlan_${safeProjectName}_${format(new Date(), "dd-MMM-yyyy")}.pdf`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -413,6 +454,62 @@ export const SevendaysWorkPlan = ({
             setIsDownloading(false);
         }
     };
+
+    const handleDownload = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        performDownload(startDate, endDate);
+    };
+
+    const handleBufferDownload = async (start: Date | undefined, end: Date | undefined, days: number | string, toStart: boolean, toEnd: boolean) => {
+        setIsBufferDownloading(true);
+        try {
+            const formatName = "Project Work Plan Buffered"; 
+            
+            const params = new URLSearchParams({
+                doctype: "Projects",
+                name: projectId,
+                format: formatName,
+                no_letterhead: "0",
+                _lang: "en",
+            });
+
+            if (start) params.append("start_date", format(start, "yyyy-MM-dd"));
+            if (end) params.append("end_date", format(end, "yyyy-MM-dd"));
+            
+            
+            // Pass extra parameters for the buffered print format
+            params.append("buffer_days", String(days));
+            params.append("add_to_start", String(toStart));
+            params.append("add_to_end", String(toEnd));
+
+            const url = `/api/method/frappe.utils.print_format.download_pdf?${params.toString()}`;
+            
+            const response = await fetch(url);
+            if (!response.ok) throw new Error("Network response was not ok");
+            
+            const blob = await response.blob();
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+
+            const safeProjectName = (projectName || projectId).replace(/ /g, "_");
+            link.download = `WorkPlan_${safeProjectName}_${format(new Date(), "dd-MMM-yyyy")}.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(downloadUrl);
+        } catch (error) {
+            console.error("Buffer download failed:", error);
+            toast({
+                title: "Download Failed",
+                description: "Could not download the Buffer Work Plan PDF.",
+                variant: "destructive",
+            });
+        } finally {
+            setIsBufferDownloading(false);
+            setIsBufferDialogOpen(false);
+        }
+    }
 
     const closeCreateTask = () => {
         setCreateTaskState((prev) => ({ ...prev, isOpen: false }));
@@ -479,20 +576,38 @@ export const SevendaysWorkPlan = ({
                                  {totalPlannedActivities}
                             </Badge>
                         </div>
-                        <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className="gap-2 h-8 text-xs border-gray-300 text-gray-700"
-                            onClick={handleDownload}
-                            disabled={isDownloading}
-                        >
-                            {isDownloading ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
+                        <div className="flex gap-2">
+                             <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className="gap-2 h-8 text-xs border-gray-300 text-gray-700"
+                                onClick={(e) => { 
+                                    e.stopPropagation(); 
+                                    setBufferDays("");
+                                    setAddToStart(true);
+                                    setAddToEnd(true);
+                                    setIsBufferDialogOpen(true); 
+                                }}
+                                disabled={isDownloading}
+                            >
                                 <Download className="h-3.5 w-3.5" />
-                            )}
-                            {isDownloading ? "Exporting..." : "Export"}
-                        </Button>
+                                Buffer Export
+                            </Button>
+                            <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className="gap-2 h-8 text-xs border-gray-300 text-gray-700"
+                                onClick={handleDownload}
+                                disabled={isDownloading}
+                            >
+                                {isDownloading ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                    <Download className="h-3.5 w-3.5" />
+                                )}
+                                {isDownloading ? "Exporting..." : "Export"}
+                            </Button>
+                        </div>
                     </div>
                 }
                 
@@ -582,6 +697,7 @@ export const SevendaysWorkPlan = ({
                                                             onAddTask={handleAddTask}
                                                             onEditTask={handleEditTask}
                                                             onDeleteTask={handleDeleteTask}
+                                                            onEditMilestone={handleEditMilestone}
                                                             isOverview={isOverview}
                                                         />
                                                     ))}
@@ -609,6 +725,79 @@ export const SevendaysWorkPlan = ({
                     initialData={createTaskState.initialData}
                 />
             )}
+            {editMilestoneState.isOpen && (
+                <EditMilestoneDialog
+                    isOpen={editMilestoneState.isOpen}
+                    onClose={() => setEditMilestoneState({ isOpen: false, item: null })}
+                    item={editMilestoneState.item}
+                    onSuccess={() => mutate()}
+                />
+            )}
+             {/* Buffer Export Dialog */}
+             <Dialog open={isBufferDialogOpen} onOpenChange={setIsBufferDialogOpen}>
+                <DialogContent className="sm:max-w-[425px] p-0 overflow-hidden">
+                    <DialogHeader className="px-6 pt-6 pb-4 border-b bg-gray-50/50">
+                        <DialogTitle className="text-xl font-bold text-gray-900 leading-none">Client Version Export</DialogTitle>
+                    </DialogHeader>
+                    <div className="grid gap-6 px-6 py-6">
+                        <div className="grid grid-cols-[auto_1fr] items-center gap-4 pt-1">
+                            <Label htmlFor="bufferDays" className="font-semibold whitespace-nowrap">Add Buffer Days:</Label>
+                            <Input
+                                id="bufferDays"
+                                type="number"
+                                value={bufferDays}
+                                onChange={(e) => setBufferDays(e.target.value === "" ? "" : Number(e.target.value))}
+                                className="w-full h-9"
+                                placeholder="Enter days"
+                            />
+                        </div>
+                        <div className="flex gap-6">
+                            <div className="flex items-center space-x-2">
+                                <Checkbox 
+                                    id="addToStart" 
+                                    checked={addToStart}
+                                    onCheckedChange={(checked) => setAddToStart(checked as boolean)}
+                                />
+                                <Label htmlFor="addToStart" className="text-sm font-medium cursor-pointer">
+                                    Add to Start Date
+                                </Label>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                                <Checkbox 
+                                    id="addToEnd" 
+                                    checked={addToEnd}
+                                    onCheckedChange={(checked) => setAddToEnd(checked as boolean)}
+                                />
+                                <Label htmlFor="addToEnd" className="text-sm font-medium cursor-pointer">
+                                    Add to End Date
+                                </Label>
+                            </div>
+                        </div>
+                    </div>
+                    <DialogFooter className="px-6 py-4 border-t bg-gray-50/50 flex items-center justify-end gap-3">
+                        <Button 
+                            variant="outline" 
+                            onClick={() => setIsBufferDialogOpen(false)}
+                            disabled={isBufferDownloading}
+                            className="h-9 px-4 text-sm font-medium border-gray-300 hover:bg-gray-100 transition-colors"
+                        >
+                            Cancel
+                        </Button>
+                        <Button 
+                            onClick={() => handleBufferDownload(startDate, endDate, bufferDays, addToStart, addToEnd)}
+                            disabled={(!addToStart && !addToEnd) || isBufferDownloading || bufferDays === ""}
+                            className="h-9 px-4 text-sm font-medium transition-all"
+                        >
+                            {isBufferDownloading ? (
+                                <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Exporting...</>
+                            ) : (
+                                "Confirm"
+                            )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
              <AlertDialog open={deleteDialogState.isOpen} onOpenChange={(open) => setDeleteDialogState(prev => ({ ...prev, isOpen: open }))}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
@@ -628,6 +817,3 @@ export const SevendaysWorkPlan = ({
         </div>
     );
 };
-
-
-

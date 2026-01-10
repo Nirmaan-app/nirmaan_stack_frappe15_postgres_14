@@ -40,9 +40,8 @@ import { parse, formatISO, startOfDay, endOfDay, format } from 'date-fns';
 import { DateRange } from "react-day-picker"; 
 
 
-// Define base fields for Projects doctype fetch
 const projectBaseFields: (keyof Projects)[] = [
-    'name', 'project_name', 'project_value', 'creation', 'modified', 'status',
+    'name', 'project_name', 'project_value', 'project_value_gst', 'creation', 'modified', 'status',
 ];
 const projectReportListOptions = () => ({
     fields: projectBaseFields as string[],
@@ -93,7 +92,7 @@ function CashSheetReport() {
     const { data: allProjects } = useFrappeGetDocList<Projects>(
         "Projects",
         {
-            fields: ['name', 'project_name', 'project_value', 'creation', 'modified', 'status'],
+            fields: ['name', 'project_name', 'project_value', 'project_value_gst', 'creation', 'modified', 'status'],
             limit: 0, // Fetch ALL
              orderBy: { field: "creation", order: "desc" }
         }
@@ -195,7 +194,7 @@ function CashSheetReport() {
     const financialSummary = useMemo(() => {
         return filteredDataForSummary.reduce((acc, row) => {
              // ACCUMULATE ALL FIELDS
-                acc.projectValue += parseNumber(row.project_value); 
+                acc.projectValue += parseNumber(row.project_value_gst); 
                 acc.totalInvoiced += parseNumber(row.totalInvoiced); 
                 acc.totalPoSrInvoiced += parseNumber(row.totalPoSrInvoiced);
                 acc.totalProjectInvoiced += parseNumber(row.totalProjectInvoiced);
@@ -247,7 +246,7 @@ function CashSheetReport() {
         const dataToExport = filteredDataForSummary.map(row => {
             return {
                 project_name: row.project_name,
-                project_value_lakhs: formatValueToLakhsString(row.project_value),
+                project_value_lakhs: formatValueToLakhsString(row.project_value_gst),
                 totalInvoiced_lakhs: formatValueToLakhsString(row.totalInvoiced),
                 totalPoSrInvoiced_lakhs: formatValueToLakhsString(row.totalPoSrInvoiced),
                 totalProjectInvoiced_lakhs: formatValueToLakhsString(row.totalProjectInvoiced),
@@ -381,7 +380,7 @@ function CashSheetReport() {
                                     pr-4
                                 ">
                                     <dt className="font-semibold text-gray-600 text-xs">
-                                        Project Value (excl. GST)
+                                        Project Value (incl. GST)
                                     </dt>
                                     <dd className="sm:text-left font-bold text-base sm:text-sm tabular-nums text-gray-700">
                                         {formatValueToLakhsString(financialSummary.projectValue)}

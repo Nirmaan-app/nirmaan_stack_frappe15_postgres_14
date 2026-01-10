@@ -317,11 +317,11 @@ export const Projects: React.FC<ProjectsProps> = ({
     // Remove the existing "project_financials" column and replace with these six columns:
 
     {
-      accessorKey: "project_value", header: "Value (excl.GST)",
-      cell: ({ row }) => (<span className="tabular-nums">{formatToApproxLakhs(row.original.project_value)}</span>),
+      accessorKey: "project_value_gst", header: "Value (incl.GST)",
+      cell: ({ row }) => (<span className="tabular-nums">{formatToApproxLakhs(row.original.project_value_gst)}</span>),
       size: 100,
       meta: {
-        exportHeaderName: "Value ",
+        exportHeaderName: "Value (incl. GST)",
       }
     },
     {
