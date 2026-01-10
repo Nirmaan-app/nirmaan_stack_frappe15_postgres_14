@@ -1,21 +1,18 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { KeyedMutator, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeUpdateDoc } from "frappe-react-sdk";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/use-toast";
 import { TailSpin } from "react-loader-spinner";
-import { CircleCheckBig, ArrowRightIcon, ArrowLeftIcon, PlusIcon, CircleX, CheckCircle2, XIcon } from "lucide-react";
-import { Projects, ProjectWorkHeaderEntry ,ProjectZoneEntry} from "@/types/NirmaanStack/Projects";
-// Assuming these shadcn/ui components are available
+import { X, Plus, Check, ChevronRight, ChevronLeft } from "lucide-react";
+import { Projects, ProjectWorkHeaderEntry, ProjectZoneEntry } from "@/types/NirmaanStack/Projects";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 
-const INVALID_CHARS_REGEX = /[^a-zA-Z0-9\s,]/g; 
-// 2. VALID_KEY_REGEX: Used for onKeyDown to allow only specific single keys.
+const INVALID_CHARS_REGEX = /[^a-zA-Z0-9\s,]/g;
 const VALID_KEY_REGEX = /^[a-zA-Z0-9\s,]$/;
-
 
 interface WorkHeaderDoc {
     name: string;
@@ -35,25 +32,48 @@ interface ProjectsWithZones extends Projects {
     project_zones: ProjectZoneEntry[];
 }
 
-
-// --- Setup Progress Tracking Dialog Component Props ---
-
 export interface SetupProgressTrackingDialogProps {
     projectData: ProjectsWithZones;
     allWorkHeaders: WorkHeaderDoc[];
     allWorkHeadersLoading: boolean;
     isOpen: boolean;
     onClose: () => void;
-    onSuccess: () => Promise<void>; // Mutate and close
+    onSuccess: () => Promise<void>;
     generateCombinedHeaders: (
-        projectData: Projects, 
-        allWorkHeaders: WorkHeaderDoc[], 
-        toBoolean: (val: any) => boolean, 
+        projectData: Projects,
+        allWorkHeaders: WorkHeaderDoc[],
+        toBoolean: (val: any) => boolean,
         getLinkedWorkHeaderName: (entry: ProjectWorkHeaderEntry) => string | null
     ) => LocalProjectWorkHeaderEntry[];
     toBoolean: (val: any) => boolean;
     getLinkedWorkHeaderName: (entry: ProjectWorkHeaderEntry) => string | null;
 }
+
+// Simple step indicator component
+const StepIndicator: React.FC<{ currentStep: number; totalSteps: number }> = ({ currentStep, totalSteps }) => {
+    return (
+        <div className="flex items-center justify-center gap-2 py-3 border-b border-gray-200">
+            {Array.from({ length: totalSteps }, (_, i) => i + 1).map((step) => (
+                <React.Fragment key={step}>
+                    <div
+                        className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium border ${
+                            step < currentStep
+                                ? "bg-emerald-500 border-emerald-500 text-white"
+                                : step === currentStep
+                                ? "bg-sky-500 border-sky-500 text-white"
+                                : "bg-gray-100 border-gray-300 text-gray-500"
+                        }`}
+                    >
+                        {step < currentStep ? <Check className="h-3.5 w-3.5" /> : step}
+                    </div>
+                    {step < totalSteps && (
+                        <div className={`w-8 h-0.5 ${step < currentStep ? "bg-emerald-500" : "bg-gray-200"}`} />
+                    )}
+                </React.Fragment>
+            ))}
+        </div>
+    );
+};
 
 export const SetupProgressTrackingDialog: React.FC<SetupProgressTrackingDialogProps> = ({
     projectData,
@@ -71,190 +91,186 @@ export const SetupProgressTrackingDialog: React.FC<SetupProgressTrackingDialogPr
     const [currentStep, setCurrentStep] = useState(1);
     const [isSaving, setIsSaving] = useState(false);
 
-    // STEP 2 State
-    // Default to null to force user selection
+    // Step 2: Zone configuration
     const [useMultipleZones, setUseMultipleZones] = useState<'yes' | 'no' | null>(null);
     const [localProjectZones, setLocalProjectZones] = useState<ProjectZoneEntry[]>([]);
     const [newZoneName, setNewZoneName] = useState("");
-    const [zoneErrors, setZoneErrors] = useState<{ empty: boolean, unique: boolean }>({ empty: false, unique: false });
+    const [zoneErrors, setZoneErrors] = useState<{ empty: boolean; unique: boolean }>({ empty: false, unique: false });
 
-
-    // STEP 3 State
-    const [dialogMilestoneEnabled, setDialogMilestoneEnabled] = useState(true); // Default to ON for setup wizard
+    // Step 3: Work headers
     const [localWorkHeaders, setLocalWorkHeaders] = useState<LocalProjectWorkHeaderEntry[]>([]);
-    
-    // --- Initial Setup Logic ---
+
+    // Initialize on dialog open
     useEffect(() => {
         if (isOpen) {
-            // Reset wizard to Step 1 on open
             setCurrentStep(1);
             setIsSaving(false);
-            setDialogMilestoneEnabled(true);
 
-            // Determine initial state based on existing data
             const initialZones = projectData.project_zones || [];
             if (initialZones.length > 0) {
-                 setUseMultipleZones(initialZones.length > 1 || (initialZones.length === 1 && initialZones[0].zone_name !== "Default") ? 'yes' : 'no');
-                 setLocalProjectZones(initialZones);
+                setUseMultipleZones(
+                    initialZones.length > 1 || (initialZones.length === 1 && initialZones[0].zone_name !== "Default")
+                        ? "yes"
+                        : "no"
+                );
+                setLocalProjectZones(initialZones);
             } else {
-                 setUseMultipleZones(null); // Force selection if empty
-                 setLocalProjectZones([]);
+                setUseMultipleZones(null);
+                setLocalProjectZones([]);
             }
-            
+
             setZoneErrors({ empty: false, unique: false });
 
-            // Initialize work headers
             if (allWorkHeaders.length > 0) {
-                 // Pre-select existing or none if starting setup
-                 setLocalWorkHeaders(generateCombinedHeaders(projectData, allWorkHeaders, toBoolean, getLinkedWorkHeaderName));
+                setLocalWorkHeaders(generateCombinedHeaders(projectData, allWorkHeaders, toBoolean, getLinkedWorkHeaderName));
             } else {
-                 setLocalWorkHeaders([]);
+                setLocalWorkHeaders([]);
             }
         }
     }, [isOpen, projectData, allWorkHeaders, toBoolean, getLinkedWorkHeaderName, generateCombinedHeaders]);
 
-    // Grouping for rendering (Step 3/4)
+    // Group work headers by package
     const groupedWorkHeaders = useMemo(() => {
         const groups = new Map<string, LocalProjectWorkHeaderEntry[]>();
-        localWorkHeaders.forEach(header => {
-            const packageLink = header.work_package_link;
+        localWorkHeaders.forEach((header) => {
+            const packageLink = header.work_package_link || "Uncategorized";
             if (!groups.has(packageLink)) {
                 groups.set(packageLink, []);
             }
             groups.get(packageLink)!.push(header);
         });
-        return Array.from(groups.entries());
+        return Array.from(groups.entries()).sort(([a], [b]) => {
+            if (a === "Uncategorized") return 1;
+            if (b === "Uncategorized") return -1;
+            return a.localeCompare(b);
+        });
     }, [localWorkHeaders]);
 
     const handleWorkHeaderCheckboxChange = useCallback((docName: string, checked: boolean | "indeterminate") => {
-        setLocalWorkHeaders(prevHeaders => {
-            const index = prevHeaders.findIndex(h => h.work_header_doc_name === docName);
+        setLocalWorkHeaders((prevHeaders) => {
+            const index = prevHeaders.findIndex((h) => h.work_header_doc_name === docName);
             if (index === -1) return prevHeaders;
-
             const newHeaders = [...prevHeaders];
             newHeaders[index] = { ...newHeaders[index], enabled: checked as boolean };
             return newHeaders;
         });
     }, []);
 
-    // --- Zone Handlers (Step 2) ---
-
+    // Zone validation
     const validateZones = (zones: ProjectZoneEntry[]): boolean => {
         if (useMultipleZones === null) {
             setZoneErrors({ empty: false, unique: false });
-            return false; // Must select an option first
+            return false;
         }
 
-        const trimmedNames = zones.map(z => z.zone_name.trim()).filter(Boolean);
-        const hasEmptyName = zones.some(z => !z.zone_name.trim());
+        const trimmedNames = zones.map((z) => z.zone_name.trim()).filter(Boolean);
+        const hasEmptyName = zones.some((z) => !z.zone_name.trim());
         const hasDuplicates = new Set(trimmedNames).size !== trimmedNames.length;
-        
-        // 1. Check for empty or duplicates globally
+
         if (hasEmptyName || hasDuplicates) {
             setZoneErrors({ empty: hasEmptyName, unique: hasDuplicates });
             return false;
         }
 
-        // 2. Check minimum requirement based on radio selection
         let minRequirementMet = true;
-        if (useMultipleZones === 'no' && trimmedNames.length !== 1) {
-            minRequirementMet = false; 
-        } else if (useMultipleZones === 'yes' && trimmedNames.length < 2) {
+        if (useMultipleZones === "no" && trimmedNames.length !== 1) {
+            minRequirementMet = false;
+        } else if (useMultipleZones === "yes" && trimmedNames.length < 2) {
             minRequirementMet = false;
         }
-        
-        setZoneErrors({ empty: false, unique: false }); // Clear on success
+
+        setZoneErrors({ empty: false, unique: false });
         return minRequirementMet;
-    }
+    };
 
     const handleAddZone = () => {
         const trimmedZone = newZoneName.trim();
         if (!trimmedZone) return;
 
-        // Check against current list including already defined ones
-        const existingNames = localProjectZones.map(z => z.zone_name.trim());
-        if (existingNames.includes(trimmedZone)) {
-            setZoneErrors(prev => ({ ...prev, unique: true }));
+        const existingNames = localProjectZones.map((z) => z.zone_name.trim().toLowerCase());
+        if (existingNames.includes(trimmedZone.toLowerCase())) {
+            setZoneErrors((prev) => ({ ...prev, unique: true }));
             return;
         }
 
-        const newEntry: ProjectZoneEntry = { zone_name: trimmedZone };
-        setLocalProjectZones(prev => [...prev, newEntry]);
+        setLocalProjectZones((prev) => [...prev, { zone_name: trimmedZone }]);
         setNewZoneName("");
         setZoneErrors({ empty: false, unique: false });
     };
-    
+
     const handleRemoveZone = (zoneName: string) => {
-        const newZones = localProjectZones.filter(z => z.zone_name !== zoneName);
+        const newZones = localProjectZones.filter((z) => z.zone_name !== zoneName);
         setLocalProjectZones(newZones);
-        validateZones(newZones); // Re-validate after removal
-    }
+        validateZones(newZones);
+    };
 
-      // --- INPUT VALIDATION HANDLERS ---
-
-    // 1. Block invalid keys (Special chars)
     const handleZoneKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-        const allowedControlKeys = ['Backspace', 'Delete', 'Tab', 'Escape', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'];
-        
-        if (e.key === 'Enter') {
-            e.preventDefault(); // Stop form submit
-            handleAddZone();    // Trigger Add
+        const allowedControlKeys = ["Backspace", "Delete", "Tab", "Escape", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"];
+
+        if (e.key === "Enter") {
+            e.preventDefault();
+            handleAddZone();
             return;
         }
 
         if (allowedControlKeys.includes(e.key) || e.ctrlKey || e.metaKey) return;
 
         if (!VALID_KEY_REGEX.test(e.key)) {
-            e.preventDefault(); // Block key
+            e.preventDefault();
         }
     };
 
-    // 2. Clean Pasted Text
     const handleZonePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
         e.preventDefault();
-        const text = e.clipboardData.getData('text');
-        const sanitized = text.replace(INVALID_CHARS_REGEX, '');
+        const text = e.clipboardData.getData("text");
+        const sanitized = text.replace(INVALID_CHARS_REGEX, "");
         if (sanitized !== text) {
-             toast({ title: "Warning", description: "Special characters removed.", variant: "warning" });
+            toast({ title: "Note", description: "Special characters removed." });
         }
-        setNewZoneName(sanitized); // Simple replacement
+        setNewZoneName(sanitized);
     };
 
-    // 3. Clean Input Change (Safety net)
     const handleZoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const raw = e.target.value;
-        const clean = raw.replace(INVALID_CHARS_REGEX, '');
+        const clean = raw.replace(INVALID_CHARS_REGEX, "");
         setNewZoneName(clean);
         setZoneErrors({ empty: false, unique: false });
     };
 
+    const handleZoneRadioChange = (value: "yes" | "no") => {
+        setUseMultipleZones(value);
+        if (value === "no") {
+            setLocalProjectZones([{ zone_name: "Default" }]);
+            setZoneErrors({ empty: false, unique: false });
+        } else {
+            if (localProjectZones.length === 1 && localProjectZones[0].zone_name === "Default") {
+                setLocalProjectZones([]);
+            }
+            validateZones(localProjectZones);
+        }
+    };
 
-    // --- Final Save Handler ---
+    // Final save
     const handleFinalSave = async () => {
         setIsSaving(true);
         try {
-            // 1. Prepare Work Header entries
             const headersToSave = localWorkHeaders
-                .filter(entry => entry.enabled)
-                .map(entry => {
-                    return {
-                        name: entry.name,
-                        project_work_header_name: entry.work_header_doc_name,
-                        enabled: true,
-                    };
-                });
-            
-            // 2. Prepare Zones
-            const zonesToSave = localProjectZones
-                .filter(z => z.zone_name.trim()) // Save only valid names
-                .map(zone => ({
-                    name: zone.name, 
-                    zone_name: zone.zone_name.trim()
+                .filter((entry) => entry.enabled)
+                .map((entry) => ({
+                    name: entry.name,
+                    project_work_header_name: entry.work_header_doc_name,
+                    enabled: true,
                 }));
 
-            // 3. Prepare final payload
+            const zonesToSave = localProjectZones
+                .filter((z) => z.zone_name.trim())
+                .map((zone) => ({
+                    name: zone.name,
+                    zone_name: zone.zone_name.trim(),
+                }));
+
             const payload = {
-                enable_project_milestone_tracking: true, // Always set to true on successful setup
+                enable_project_milestone_tracking: true,
                 project_work_header_entries: headersToSave,
                 project_zones: zonesToSave,
             };
@@ -263,14 +279,14 @@ export const SetupProgressTrackingDialog: React.FC<SetupProgressTrackingDialogPr
             await onSuccess();
             toast({
                 title: "Success",
-                description: "Project Progress Tracking setup complete!",
+                description: "Progress tracking setup complete.",
                 variant: "success",
             });
         } catch (error) {
             console.error("Failed to save project setup:", error);
             toast({
                 title: "Error",
-                description: "Failed to complete Project Setup.",
+                description: "Failed to complete setup.",
                 variant: "destructive",
             });
         } finally {
@@ -278,293 +294,303 @@ export const SetupProgressTrackingDialog: React.FC<SetupProgressTrackingDialogPr
         }
     };
 
-    // --- Render Logic for Steps ---
-
-
-
-    // --- Step 1: Introduction ---
-    const renderStep1 = () => (
-        <>
-            <DialogHeader>
-                <DialogTitle className="text-xl text-center border-b">Setup Progress Tracking</DialogTitle>
-                <DialogDescription className="text-center text-xs">
-                    This wizard will guide you through the initial setup for tracking work progress on this project.
-                </DialogDescription>
-            </DialogHeader>
-            <div className="py-8 space-y-6">
-                <div className="flex items-center space-x-3 text-lg">
-                    <CheckCircle2 className="h-6 w-6 text-blue-500" />
-                    <span>Define Project Zones</span>
-                </div>
-                <div className="flex items-center space-x-3 text-lg">
-                    <CheckCircle2 className="h-6 w-6 text-blue-500" />
-                    <span>Select Trackable Work Headers</span>
-                </div>
-            </div>
-            <DialogFooter className="flex justify-end gap-4">
-                <Button variant="outline" onClick={onClose} disabled={isSaving}>
-                    Cancel
-                </Button>
-                <Button onClick={() => setCurrentStep(2)} disabled={isSaving}>
-                    Next <ArrowRightIcon className="h-4 w-4 ml-2" />
-                </Button>
-            </DialogFooter>
-        </>
-    );
-
-    // --- Step 2: Zone Setup ---
     const isStep2NextDisabled = useMemo(() => {
-        // Validation depends on a selection being made AND the zones being valid
         if (useMultipleZones === null) return true;
-        
-        // Call validateZones to update errors and check validity
         return !validateZones(localProjectZones);
     }, [localProjectZones, useMultipleZones]);
-    
-    const handleZoneRadioChange = (value: 'yes' | 'no') => {
-        setUseMultipleZones(value);
-        if (value === 'no') {
-            // Set to default zone for single zone project
-            setLocalProjectZones([{ zone_name: "Default" }]);
-            setZoneErrors({ empty: false, unique: false });
-        } else {
-             // If switching to yes, clear existing zones (if only default was present)
-             if (localProjectZones.length === 1 && localProjectZones[0].zone_name === "Default") {
-                 setLocalProjectZones([]);
-             }
-             // Ensure existing custom zones are re-validated
-             validateZones(localProjectZones); 
-        }
-    };
 
-
-    const renderStep2 = () => (
-        <>
-            <DialogHeader>
-                <DialogTitle className="text-xl text-center border-b">Step 2: Setup Zones</DialogTitle>
-                <DialogDescription className="text-center text-xs">
-                    A zone allows you to track progress across different geographical or structural areas of your project.
-                </DialogDescription>
-            </DialogHeader>
-            <div className="py-4 space-y-6">
-                <div className="space-y-2">
-                    <Label className="font-semibold mb-2">Do you want to set up multiple Zones for this Project?</Label>
-                    <div className="flex space-x-8">
-                        {/* Custom Radio Button for YES */}
-                        <div className="flex items-center space-x-2 cursor-pointer" onClick={() => handleZoneRadioChange('yes')}>
-                            <input 
-                                type="radio" 
-                                id="multi-yes" 
-                                name="multiple-zones" 
-                                value="yes" 
-                                checked={useMultipleZones === 'yes'}
-                                onChange={() => handleZoneRadioChange('yes')}
-                                className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
-                            />
-                            <Label htmlFor="multi-yes" className="cursor-pointer">Yes, I need multiple zones (Min 2)</Label>
-                        </div>
-                        {/* Custom Radio Button for NO */}
-                        <div className="flex items-center space-x-2 cursor-pointer" onClick={() => handleZoneRadioChange('no')}>
-                            <input 
-                                type="radio" 
-                                id="multi-no" 
-                                name="multiple-zones" 
-                                value="no" 
-                                checked={useMultipleZones === 'no'}
-                                onChange={() => handleZoneRadioChange('no')}
-                                className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
-                            />
-                            <Label htmlFor="multi-no" className="cursor-pointer">No, use a single zone (Default)</Label>
-                        </div>
-                    </div>
-                    {useMultipleZones === null && <p className="text-red-500 text-sm mt-1">Please select an option to proceed.</p>}
-                </div>
-
-                {useMultipleZones === 'no' && (
-                    <div className="p-3 border rounded-md bg-gray-100">
-                        <p className="text-sm font-medium">Zone Name: Default</p>
-                    </div>
-                )}
-                
-                {useMultipleZones === 'yes' && (
-                    <div className="space-y-3">
-                        <h4 className="font-medium text-sm">Define Custom Zones ({localProjectZones.length} / Min 2)</h4>
-                        <div className="flex space-x-2">
-                            <Input
-                                placeholder="Enter Zone Name (e.g., Block A)"
-                                value={newZoneName}
-                                onChange={handleZoneChange}   // Clean on change
-                                onKeyDown={handleZoneKeyDown} // Block bad keys
-                                onPaste={handleZonePaste}     // Clean paste
-                            />
-                            <Button onClick={handleAddZone} disabled={!newZoneName.trim()} variant="outline">
-                                <PlusIcon className="h-4 w-4 mr-2" /> Add
-                            </Button>
-                        </div>
-
-                        {/* Zone List */}
-                        <div className="w-full border rounded-md p-2">
-                            <div className="space-y-2">
-                                {localProjectZones.map((zone) => (
-                                    <div key={zone.zone_name} className="flex items-center justify-between p-1 border rounded-md bg-white">
-                                        <span className="text-sm">{zone.zone_name}</span>
-                                        <Button variant="ghost" size="icon" onClick={() => handleRemoveZone(zone.zone_name)}>
-                                            <XIcon className="h-4 w-4 text-red-500" />
-                                        </Button>
-                                    </div>
-                                ))}
-                            </div>
-                            {localProjectZones.length === 0 && (
-                                <p className="text-center text-gray-500 text-sm italic pt-3">Add at least 2 zones above.</p>
-                            )}
-                        </div>
-                        
-                        {/* Display Errors */}
-                        {isStep2NextDisabled && (
-                           <p className="text-red-500 text-sm">
-                               {zoneErrors.empty && "Zone names cannot be empty."}
-                               {zoneErrors.unique && "Zone names must be unique."}
-                               {!(zoneErrors.empty || zoneErrors.unique) && (useMultipleZones === 'yes' ? "You must define at least 2 zones." : "")}
-                           </p>
-                        )}
-                        
-                    </div>
-                )}
-            </div>
-            <DialogFooter className="flex justify-between gap-4">
-                <Button variant="outline" onClick={() => setCurrentStep(1)} disabled={isSaving}>
-                    <ArrowLeftIcon className="h-4 w-4 mr-2" /> Back
-                </Button>
-                <Button onClick={() => setCurrentStep(3)} disabled={isSaving || isStep2NextDisabled}>
-                    Next <ArrowRightIcon className="h-4 w-4 ml-2" />
-                </Button>
-            </DialogFooter>
-        </>
-    );
-
-    // --- Step 3: Select Work Headers ---
-    const enabledHeadersCount = localWorkHeaders.filter(h => h.enabled).length;
+    const enabledHeadersCount = localWorkHeaders.filter((h) => h.enabled).length;
     const isStep3NextDisabled = enabledHeadersCount === 0;
 
-    const renderStep3 = () => (
-        <>
-            <DialogHeader>
-                <DialogTitle className="text-xl text-center border-b">Step 3: Enable Work Headers</DialogTitle>
-                <DialogDescription className="text-center text-xs">
-                    Select the specific work headers for which progress tracking will be enabled.(Min 1 required)
-                </DialogDescription>
-            </DialogHeader>
-            <div className="py-4 space-y-6"> 
-                <h4 className="font-medium text-md text-gray-700">Available Work Headers ({enabledHeadersCount} Selected)</h4>
-                {allWorkHeadersLoading ? (
-                    <div className="flex justify-center"><TailSpin width={30} height={30} color="#007bff" /></div>
-                ) : (
-                    <div className="w-full border p-4 rounded-md">
-                        {groupedWorkHeaders.map(([workPackage, headers]) => (
-                            <div key={workPackage} className="mb-4">
-                                <h5 className="text-sm font-semibold mb-2 text-gray-800 border-b pb-1">{workPackage}</h5>
-                                <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                                    {headers.map((entry) => (
-                                        <div
-                                            key={entry.work_header_doc_name}
-                                            className="flex items-center space-x-2"
-                                        >
-                                            <Checkbox
-                                                id={`wh-dialog-${entry.work_header_doc_name}`}
-                                                checked={entry.enabled}
-                                                onCheckedChange={(checked) => handleWorkHeaderCheckboxChange(entry.work_header_doc_name, checked)}
-                                            />
-                                            <Label htmlFor={`wh-dialog-${entry.work_header_doc_name}`} className="text-sm cursor-pointer">
-                                                {entry.work_header_display_name}
-                                            </Label>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-                
-                {isStep3NextDisabled && <p className="text-red-500 text-sm">At least one Work Header must be selected.</p>}
+    // Step 1: Introduction
+    const renderStep1 = () => (
+        <div className="space-y-4 py-4">
+            <p className="text-sm text-gray-600">
+                This wizard will guide you through configuring progress tracking for this project.
+            </p>
+            <div className="space-y-2 text-sm text-gray-700">
+                <div className="flex items-center gap-2">
+                    <span className="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center text-xs font-medium">1</span>
+                    <span>Configure project zones</span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center text-xs font-medium">2</span>
+                    <span>Select work headers to track</span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center text-xs font-medium">3</span>
+                    <span>Review and confirm</span>
+                </div>
             </div>
-            <DialogFooter className="flex justify-between gap-4">
-                <Button variant="outline" onClick={() => setCurrentStep(2)} disabled={isSaving}>
-                    <ArrowLeftIcon className="h-4 w-4 mr-2" /> Back
-                </Button>
-                <Button onClick={() => setCurrentStep(4)} disabled={isSaving || isStep3NextDisabled}>
-                    Next <ArrowRightIcon className="h-4 w-4 ml-2" />
-                </Button>
-            </DialogFooter>
-        </>
+        </div>
     );
 
-    // --- Step 4: Summary ---
+    // Step 2: Zones
+    const renderStep2 = () => (
+        <div className="space-y-4 py-4">
+            <div className="space-y-3">
+                <Label className="text-sm font-medium text-gray-700">Zone Configuration</Label>
+                <p className="text-xs text-gray-500">
+                    Zones allow tracking progress across different areas of the project.
+                </p>
 
+                <RadioGroup
+                    value={useMultipleZones || ""}
+                    onValueChange={(value: string) => handleZoneRadioChange(value as "yes" | "no")}
+                    className="space-y-2"
+                >
+                    <label className="flex items-center gap-3 px-3 py-2 border border-gray-200 rounded cursor-pointer hover:bg-gray-50">
+                        <RadioGroupItem value="no" id="zone-single" />
+                        <div>
+                            <span className="text-sm text-gray-700">Single Zone (Default)</span>
+                            <p className="text-xs text-gray-400">All work tracked under one zone</p>
+                        </div>
+                    </label>
+                    <label className="flex items-center gap-3 px-3 py-2 border border-gray-200 rounded cursor-pointer hover:bg-gray-50">
+                        <RadioGroupItem value="yes" id="zone-multiple" />
+                        <div>
+                            <span className="text-sm text-gray-700">Multiple Zones</span>
+                            <p className="text-xs text-gray-400">Track progress by floor, wing, or area (min. 2)</p>
+                        </div>
+                    </label>
+                </RadioGroup>
+
+                {useMultipleZones === null && (
+                    <p className="text-xs text-amber-600">Please select an option to proceed.</p>
+                )}
+            </div>
+
+            {useMultipleZones === "no" && (
+                <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded">
+                    <span className="text-sm text-gray-600">Zone: Default</span>
+                </div>
+            )}
+
+            {useMultipleZones === "yes" && (
+                <div className="space-y-3">
+                    <div className="flex gap-2">
+                        <Input
+                            type="text"
+                            placeholder="Enter zone name (e.g., Ground Floor)"
+                            value={newZoneName}
+                            onChange={handleZoneChange}
+                            onKeyDown={handleZoneKeyDown}
+                            onPaste={handleZonePaste}
+                            className="flex-1 h-9 text-sm"
+                        />
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={handleAddZone}
+                            disabled={!newZoneName.trim()}
+                            className="h-9 px-3"
+                        >
+                            <Plus className="h-4 w-4" />
+                        </Button>
+                    </div>
+
+                    {localProjectZones.length > 0 && (
+                        <div className="border border-gray-200 rounded divide-y divide-gray-200">
+                            {localProjectZones.map((zone) => (
+                                <div key={zone.zone_name} className="flex items-center justify-between px-3 py-2">
+                                    <span className="text-sm text-gray-700">{zone.zone_name}</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleRemoveZone(zone.zone_name)}
+                                        className="text-gray-400 hover:text-red-500 p-1"
+                                    >
+                                        <X className="h-4 w-4" />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {localProjectZones.length === 0 && (
+                        <p className="text-xs text-gray-500 text-center py-3 border border-dashed border-gray-200 rounded">
+                            No zones added yet. Add at least 2 zones.
+                        </p>
+                    )}
+
+                    {(zoneErrors.empty || zoneErrors.unique || (useMultipleZones === "yes" && localProjectZones.length < 2)) && (
+                        <p className="text-xs text-red-500">
+                            {zoneErrors.empty && "Zone names cannot be empty. "}
+                            {zoneErrors.unique && "Zone names must be unique. "}
+                            {!zoneErrors.empty && !zoneErrors.unique && localProjectZones.length < 2 && "Add at least 2 zones."}
+                        </p>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+
+    // Step 3: Work Headers
+    const renderStep3 = () => (
+        <div className="space-y-4 py-4">
+            <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium text-gray-700">Select Work Headers</Label>
+                <span className="text-xs text-gray-500">{enabledHeadersCount} selected</span>
+            </div>
+            <p className="text-xs text-gray-500">
+                Select the work headers for which you want to track daily progress.
+            </p>
+
+            {allWorkHeadersLoading ? (
+                <div className="flex justify-center py-8">
+                    <TailSpin width={24} height={24} color="#6b7280" />
+                </div>
+            ) : (
+                <div className="border border-gray-200 rounded max-h-64 overflow-y-auto">
+                    {groupedWorkHeaders.map(([packageName, headers], groupIdx) => (
+                        <div key={packageName} className={groupIdx > 0 ? "border-t border-gray-200" : ""}>
+                            <div className="px-3 py-2 bg-gray-50 sticky top-0">
+                                <span className="text-xs font-medium text-gray-600 uppercase tracking-wide">
+                                    {packageName}
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-1 px-3 py-2">
+                                {headers.map((header) => (
+                                    <label
+                                        key={header.work_header_doc_name}
+                                        className="flex items-center gap-2 py-1.5 cursor-pointer"
+                                    >
+                                        <Checkbox
+                                            checked={header.enabled}
+                                            onCheckedChange={(checked) =>
+                                                handleWorkHeaderCheckboxChange(header.work_header_doc_name, checked)
+                                            }
+                                        />
+                                        <span className="text-sm text-gray-700">{header.work_header_display_name}</span>
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {isStep3NextDisabled && (
+                <p className="text-xs text-amber-600">Select at least one work header to continue.</p>
+            )}
+        </div>
+    );
+
+    // Step 4: Review
     const renderStep4 = () => (
-        <>
-            <DialogHeader>
-                <DialogTitle className="text-xl text-center border-b">Step 4: Review & Submit</DialogTitle>
-                <DialogDescription className="text-center text-xs">
-                    Review your setup before enabling progress tracking for the project.
-                </DialogDescription>
-            </DialogHeader>
-            <div className="py-4 space-y-6">
-                {/* Zones Summary */}
-                <div className="space-y-2 p-3 border rounded-md">
-                    <h4 className="font-semibold flex items-center">
-                        <CheckCircle2 className="h-5 w-5 mr-2 text-green-600" />
-                        Project Zones ({localProjectZones.length})
-                    </h4>
-                    <div className="grid grid-cols-3 gap-2">
+        <div className="space-y-4 py-4">
+            <p className="text-sm text-gray-600">Review your configuration before enabling progress tracking.</p>
+
+            {/* Zones summary */}
+            <div className="border border-gray-200 rounded">
+                <div className="px-3 py-2 bg-gray-50 border-b border-gray-200">
+                    <span className="text-xs font-medium text-gray-600 uppercase tracking-wide">
+                        Zones ({localProjectZones.length})
+                    </span>
+                </div>
+                <div className="px-3 py-2">
+                    <div className="flex flex-wrap gap-2">
                         {localProjectZones.map((zone) => (
-                             <span key={zone.zone_name} className="px-3 py-1 text-xs bg-gray-100 rounded-full border border-gray-300">
+                            <span
+                                key={zone.zone_name}
+                                className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded"
+                            >
                                 {zone.zone_name}
                             </span>
                         ))}
                     </div>
                 </div>
+            </div>
 
-                {/* Work Headers Summary */}
-                <div className="space-y-2 p-3 border rounded-md">
-                    <h4 className="font-semibold flex items-center">
-                        <CheckCircle2 className="h-5 w-5 mr-2 text-green-600" />
-                        Tracked Work Headers ({enabledHeadersCount})
-                    </h4>
-                    <ScrollArea className="h-24 pr-4">
-                        <ul className="text-sm list-disc pl-5 space-y-1">
-                            {localWorkHeaders.filter(h => h.enabled).map(h => (
-                                <li key={h.work_header_doc_name} className="text-gray-700">{h.work_header_display_name}</li>
+            {/* Work headers summary */}
+            <div className="border border-gray-200 rounded">
+                <div className="px-3 py-2 bg-gray-50 border-b border-gray-200">
+                    <span className="text-xs font-medium text-gray-600 uppercase tracking-wide">
+                        Work Headers ({enabledHeadersCount})
+                    </span>
+                </div>
+                <div className="px-3 py-2 max-h-32 overflow-y-auto">
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                        {localWorkHeaders
+                            .filter((h) => h.enabled)
+                            .map((h) => (
+                                <span key={h.work_header_doc_name} className="text-sm text-gray-700">
+                                    {h.work_header_display_name}
+                                </span>
                             ))}
-                        </ul>
-                    </ScrollArea>
+                    </div>
                 </div>
             </div>
-            <DialogFooter className="flex justify-between gap-4">
-                <Button variant="outline" onClick={() => setCurrentStep(3)} disabled={isSaving}>
-                    <ArrowLeftIcon className="h-4 w-4 mr-2" /> Back
-                </Button>
-                <Button onClick={handleFinalSave} disabled={isSaving || updateDocLoading}>
-                    {isSaving || updateDocLoading ? (
-                        <TailSpin width={20} height={20} color="white" />
-                    ) : (
-                        <>
-                            <CircleCheckBig size={20} className="mr-2" /> Submit & Enable Tracking
-                        </>
-                    )}
-                </Button>
-            </DialogFooter>
-        </>
+        </div>
     );
-    
-    // --- Main Render ---
+
+    const stepTitles = ["Setup Progress Tracking", "Configure Zones", "Select Work Headers", "Review & Submit"];
 
     return (
-        <Dialog open={isOpen} onOpenChange={(open) => !isSaving && open ? {} : onClose()}>
-            <DialogContent className="max-h-[70vh] sm:max-w-[650px] lg:max-h-[90vh] overflow-y-auto">      
-                {currentStep === 1 && renderStep1()}
-                {currentStep === 2 && renderStep2()}
-                {currentStep === 3 && renderStep3()}
-                {currentStep === 4 && renderStep4()}
+        <Dialog open={isOpen} onOpenChange={(open) => !isSaving && !open && onClose()}>
+            <DialogContent className="sm:max-w-[550px] p-0 overflow-hidden">
+                <DialogHeader className="px-6 pt-6 pb-0">
+                    <DialogTitle className="text-base font-medium text-gray-900">{stepTitles[currentStep - 1]}</DialogTitle>
+                    <DialogDescription className="text-xs text-gray-500">
+                        Step {currentStep} of 4
+                    </DialogDescription>
+                </DialogHeader>
+
+                <StepIndicator currentStep={currentStep} totalSteps={4} />
+
+                <div className="px-6">
+                    {currentStep === 1 && renderStep1()}
+                    {currentStep === 2 && renderStep2()}
+                    {currentStep === 3 && renderStep3()}
+                    {currentStep === 4 && renderStep4()}
+                </div>
+
+                <DialogFooter className="px-6 py-4 border-t border-gray-200 bg-gray-50">
+                    <div className="flex items-center justify-between w-full">
+                        <Button
+                            variant="ghost"
+                            onClick={currentStep === 1 ? onClose : () => setCurrentStep(currentStep - 1)}
+                            disabled={isSaving}
+                            className="text-gray-600"
+                        >
+                            {currentStep === 1 ? (
+                                "Cancel"
+                            ) : (
+                                <>
+                                    <ChevronLeft className="h-4 w-4 mr-1" /> Back
+                                </>
+                            )}
+                        </Button>
+
+                        {currentStep < 4 ? (
+                            <Button
+                                onClick={() => setCurrentStep(currentStep + 1)}
+                                disabled={
+                                    isSaving ||
+                                    (currentStep === 2 && isStep2NextDisabled) ||
+                                    (currentStep === 3 && isStep3NextDisabled)
+                                }
+                                className="bg-sky-500 hover:bg-sky-600 text-white"
+                            >
+                                Next <ChevronRight className="h-4 w-4 ml-1" />
+                            </Button>
+                        ) : (
+                            <Button
+                                onClick={handleFinalSave}
+                                disabled={isSaving || updateDocLoading}
+                                className="bg-emerald-500 hover:bg-emerald-600 text-white"
+                            >
+                                {isSaving || updateDocLoading ? (
+                                    <TailSpin width={16} height={16} color="white" />
+                                ) : (
+                                    <>
+                                        <Check className="h-4 w-4 mr-1" /> Enable Tracking
+                                    </>
+                                )}
+                            </Button>
+                        )}
+                    </div>
+                </DialogFooter>
             </DialogContent>
         </Dialog>
     );
