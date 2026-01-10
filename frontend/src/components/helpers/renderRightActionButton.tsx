@@ -53,7 +53,7 @@ export const RenderRightActionButton = ({
   const navigate = useNavigate();
   const { role, user_id } = useUserData()
   const { selectedProject } = useContext(UserContext);
-  const { toggleNewInflowDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog, toggleNewNonProjectExpenseDialog } = useDialogStore()
+  const { toggleNewInflowDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog, toggleNewNonProjectExpenseDialog, toggleNewProjectExpenseDialog } = useDialogStore()
 
   if (newButtonRoutes[locationPath]) {
     const routeInfo = newButtonRoutes[locationPath];
@@ -134,6 +134,15 @@ export const RenderRightActionButton = ({
         <CirclePlus className="w-5 h-5 pr-1" />
         Add <span className="hidden md:flex pl-1">New Expense</span>
       </Button>
+    );
+  } else if (locationPath === "/project-expenses") {
+    return (
+      (role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || role === "Nirmaan Accountant Profile") ? (
+        <Button onClick={toggleNewProjectExpenseDialog} className="sm:mr-4 mr-2">
+          <CirclePlus className="w-5 h-5 pr-1" />
+          Add <span className="hidden md:flex pl-1">New Project Expense</span>
+        </Button>
+      ) : null
     );
   } else {
     return (

@@ -37,6 +37,7 @@ import {
 } from "./config/projectExpensesTable.config";
 import { NewProjectExpenseDialog } from "./components/NewProjectExpenseDialog";
 import { EditProjectExpenseDialog } from "./components/EditProjectExpenseDialog";
+import { ProjectExpenseSummaryCard } from "./components/ProjectExpenseSummaryCard";
 
 // UI Components
 import { DataTable } from "@/components/data-table/new-data-table";
@@ -226,23 +227,23 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
       // --- (Indicator) MODIFIED: Project column is now conditional ---
       ...(!projectId
         ? [
-            {
-              accessorKey: "projects",
-              header: ({ column }) => (
-                <DataTableColumnHeader column={column} title="Project" />
-              ),
-              cell: ({ row }) => (
-                <Link
-                  to={`/projects/${row.original.projects}`}
-                  className="text-blue-600 hover:underline"
-                >
-                  {getProjectName(row.original.projects)}
-                </Link>
-              ),
-              enableColumnFilter: true,
-              meta: { exportValue: (row) => getProjectName(row.projects) },
-            } as ColumnDef<ProjectExpenses>,
-          ]
+          {
+            accessorKey: "projects",
+            header: ({ column }) => (
+              <DataTableColumnHeader column={column} title="Project" />
+            ),
+            cell: ({ row }) => (
+              <Link
+                to={`/projects/${row.original.projects}`}
+                className="text-blue-600 hover:underline"
+              >
+                {getProjectName(row.original.projects)}
+              </Link>
+            ),
+            enableColumnFilter: true,
+            meta: { exportValue: (row) => getProjectName(row.projects) },
+          } as ColumnDef<ProjectExpenses>,
+        ]
         : []),
       {
         accessorKey: "payment_date",
@@ -355,14 +356,14 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
                 </DropdownMenuItem>
                 {(role === "Nirmaan Admin Profile" ||
                   role === "Nirmaan PMO Executive Profile") && (
-                  <DropdownMenuItem
-                    onClick={() => handleOpenDeleteDialog(row.original)}
-                    className="text-destructive focus:text-destructive"
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Delete
-                  </DropdownMenuItem>
-                )}
+                    <DropdownMenuItem
+                      onClick={() => handleOpenDeleteDialog(row.original)}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete
+                    </DropdownMenuItem>
+                  )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -528,8 +529,8 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
         totalCount > 10
           ? "h-[calc(100vh-80px)]"
           : totalCount > 0
-          ? "h-auto"
-          : ""
+            ? "h-auto"
+            : ""
       )}
     >
       <DataTable
