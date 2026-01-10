@@ -9,6 +9,7 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | File | Domain | When to Load |
 |------|--------|--------------|
 | [role-access.md](./role-access.md) | Access Control | Role checks, sidebar visibility, page permissions |
+| [testing.md](./testing.md) | Feature Testing | After implementing forms, dialogs, persistence, multi-step workflows |
 | [domain/invoices.md](./domain/invoices.md) | Invoices | PO/SR invoices, 2B reconciliation, date filters |
 
 ### Module References (in-code)
@@ -54,6 +55,7 @@ const { role, user_id } = useUserData();
 └── context/
     ├── _index.md         # This file
     ├── role-access.md    # Role-based access control reference
+    ├── testing.md        # Playwright browser testing guide
     └── domain/
         └── invoices.md   # Invoice management & 2B reconciliation
 ```
