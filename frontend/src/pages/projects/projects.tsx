@@ -38,7 +38,7 @@ import {
 } from './config/projectTable.config';
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
-import { useCredits } from "../credits/hooks/useCredits";
+import { useProjectAllCredits } from "./hooks/useProjectAllCredits";
 import { useUsersList } from "../ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 // --- Constants ---
 const DOCTYPE = 'Projects';
