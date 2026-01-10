@@ -40,7 +40,7 @@ import Customers from "@/pages/customers/customers";
 import Dashboard from "@/pages/dashboard";
 import { PDF } from "@/pages/pdf";
 import { InFlowPayments } from "@/pages/inflow-payments/InFlowPayments";
-import { ProjectForm } from "@/pages/projects/project-form";
+import { ProjectForm } from "@/pages/projects/project-form/index";
 import Projects from "@/pages/projects/projects";
 import Roles from "@/pages/roles";
 import EditUserForm from "@/pages/users/EditUserForm";

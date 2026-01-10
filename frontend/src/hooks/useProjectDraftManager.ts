@@ -7,57 +7,7 @@ import {
   ProjectDraftFormValues,
   AreaName,
 } from '@/zustand/useProjectDraftStore';
-
-/* ─────────────────────────────────────────────────────────────
-   TYPE DEFINITIONS
-   ───────────────────────────────────────────────────────────── */
-
-/**
- * Form values as they exist in React Hook Form (with Date objects)
- */
-interface ProjectFormValues {
-  project_name: string;
-  customer: string;
-  project_type?: string;
-  project_value?: string;
-  project_value_gst?: string;
-  address_line_1: string;
-  address_line_2: string;
-  project_city: string;
-  project_state: string;
-  pin: string;
-  email?: string;
-  phone?: string;
-  project_start_date: Date;
-  project_end_date?: Date;
-  project_lead?: string;
-  project_manager?: string;
-  design_lead?: string;
-  procurement_lead?: string;
-  estimates_exec?: string;
-  accountant?: string;
-  project_work_packages: {
-    work_packages: Array<{
-      work_package_name: string;
-      category_list: {
-        list: Array<{
-          name: string;
-          makes: Array<{ label: string; value: string }>;
-        }>;
-      };
-    }>;
-  };
-  project_scopes: {
-    scopes: Array<{
-      scope_of_work_name: string;
-      work_package: string;
-    }>;
-  };
-  project_gst_number: {
-    list: Array<{ location: string; gst: string }>;
-  };
-  carpet_area?: number;
-}
+import { ProjectFormValues } from '@/pages/projects/project-form/schema';
 
 interface UseProjectDraftManagerOptions {
   form: UseFormReturn<ProjectFormValues>;
