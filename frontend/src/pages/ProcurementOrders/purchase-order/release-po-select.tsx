@@ -21,6 +21,7 @@ import { Badge } from "../../../components/ui/badge";
 import { TableSkeleton } from "../../../components/ui/skeleton";
 import { PaymentsDataDialog } from "../../ProjectPayments/PaymentsDataDialog";
 import { InvoiceDataDialog } from "./components/InvoiceDataDialog";
+import { PORemarksPopover } from "./components/PORemarksPopover";
 import { getUrlStringParam, useServerDataTable } from "@/hooks/useServerDataTable";
 import { useFacetValues } from "@/hooks/useFacetValues";
 import { urlStateManager } from "@/utils/urlStateManager";
@@ -626,6 +627,18 @@ export const ReleasePOSelect: React.FC = () => {
         //         }
         //     } as ColumnDef<ProcurementOrdersType>
         // ] : []),
+        // Remarks Column
+        {
+            id: "remarks",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Remarks" />,
+            cell: ({ row }) => <PORemarksPopover poId={row.original.name} />,
+            size: 100,
+            enableSorting: false,
+            meta: {
+                exportHeaderName: "Remarks",
+                exportValue: () => "--" // Remarks are not exported
+            }
+        },
         ...(["All POs"].includes(tab) ? [
             {
                 accessorKey: 'status',

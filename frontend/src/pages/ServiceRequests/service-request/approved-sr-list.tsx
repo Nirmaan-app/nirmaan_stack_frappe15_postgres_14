@@ -27,6 +27,7 @@ import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
 import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
+import { SRRemarksPopover } from "@/pages/ServiceRequests/approved-sr/components/SRRemarksPopover";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { parseNumber } from "@/utils/parseNumber";
 import { useOrderTotals } from "@/hooks/useOrderTotals";
@@ -244,6 +245,13 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
             accessorKey: "amount_paid", header: ({ column }) => <DataTableColumnHeader column={column} title="Amt. Paid" />,
             cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(row.original.amount_paid)}</div>, // Example badge
             enableColumnFilter: true, size: 120,
+        },
+        {
+            id: "remarks",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Remarks" />,
+            cell: ({ row }) => <SRRemarksPopover srId={row.original.name} />,
+            size: 100,
+            enableSorting: false,
         },
         // {
         //     id: "amount_paid_sr", header: ({ column }) => <DataTableColumnHeader column={column} title="Amt Paid" />,

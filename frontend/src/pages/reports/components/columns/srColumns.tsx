@@ -6,6 +6,7 @@ import { Info } from "lucide-react";
 import { Link } from "react-router-dom";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters"; // Assuming you have this utility file
+import { SRRemarksHoverCard } from "./SRRemarksHoverCard";
 
 export const srColumns: ColumnDef<SRReportRowData>[] = [
     {
@@ -83,5 +84,18 @@ export const srColumns: ColumnDef<SRReportRowData>[] = [
             exportValue: (row: SRReportRowData) => formatForReport(row.amountPaid),
             exportHeaderName: "Amt Paid", isNumeric: true
         }
+    },
+    {
+        id: "remarks",
+        header: ({ column }) => (
+            <DataTableColumnHeader column={column} title="Remarks" />
+        ),
+        cell: ({ row }) => <SRRemarksHoverCard srId={row.original.name} />,
+        size: 80,
+        enableSorting: false,
+        meta: {
+            exportHeaderName: "Remarks",
+            exportValue: () => "-", // Remarks are not exported
+        },
     },
 ];

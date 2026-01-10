@@ -11,6 +11,7 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ReportType } from "../../store/useReportStore";
 import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
+import { PORemarksHoverCard } from "./PORemarksHoverCard";
 
 // Base columns, always present for PO reports
 export const basePOColumns: ColumnDef<POReportRowData>[] = [
@@ -225,7 +226,19 @@ export const basePOColumns: ColumnDef<POReportRowData>[] = [
       isNumeric: true,
     },
   },
-
+  {
+    id: "remarks",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Remarks" />
+    ),
+    cell: ({ row }) => <PORemarksHoverCard poId={row.original.name} />,
+    size: 80,
+    enableSorting: false,
+    meta: {
+      exportHeaderName: "Remarks",
+      exportValue: () => "-", // Remarks are not exported
+    },
+  },
 ];
 
 export const basePOColumnsForPM: ColumnDef<POReportRowData>[] = [
@@ -313,7 +326,7 @@ export const basePOColumnsForPM: ColumnDef<POReportRowData>[] = [
   },
   {
     accessorKey: "invoiceAmount", // This is pre-calculated in POReportRowData
-    header: ({ column }) => ( 
+    header: ({ column }) => (
     //  <DataTableColumnHeader column={column} title="Total Invoice Amt (incl. GST)" />
      <DataTableColumnHeader column={column}
         title={
@@ -365,6 +378,19 @@ export const basePOColumnsForPM: ColumnDef<POReportRowData>[] = [
       exportValue: (row: POReportRowData) => formatForReport(row.amountPaid - row.invoiceAmount),
       exportHeaderName: "Pending Invoice Amt",
       isNumeric: true,
+    },
+  },
+  {
+    id: "remarks",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Remarks" />
+    ),
+    cell: ({ row }) => <PORemarksHoverCard poId={row.original.name} />,
+    size: 80,
+    enableSorting: false,
+    meta: {
+      exportHeaderName: "Remarks",
+      exportValue: () => "-", // Remarks are not exported
     },
   },
 ];

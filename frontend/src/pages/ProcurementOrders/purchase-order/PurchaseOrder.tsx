@@ -116,6 +116,7 @@ import { InvoiceDialog } from "../invoices-and-dcs/components/InvoiceDialog";
 import POAttachments from "./components/POAttachments";
 import POPaymentTermsCard from "./components/POPaymentTermsCard";
 import TransactionDetailsCard from "./components/TransactionDetailsCard";
+import PORemarks from "./components/PORemarks";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/RequestPaymentDialog"; // Import the dialog component
 import { DocumentAttachments } from "../invoices-and-dcs/DocumentAttachments";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
@@ -1537,6 +1538,7 @@ export const PurchaseOrder = ({
           </AccordionItem>
         </Accordion>
       </Card>
+
       {/* PO Attachments Accordion */}
 
       {PO?.status && (
@@ -2286,6 +2288,13 @@ export const PurchaseOrder = ({
           deliveryData={deliveryHistory.data}
           onPrintHistory={triggerHistoryPrint}
         />
+      )}
+
+      {/* PO Remarks Section */}
+      {poId && (
+        <Card className="rounded-sm md:col-span-3 p-2">
+          <PORemarks poId={poId} />
+        </Card>
       )}
 
       {/* {["Delivered", "Partially Delivered","PO Approved","Dispatched"].includes(PO?.status) && (

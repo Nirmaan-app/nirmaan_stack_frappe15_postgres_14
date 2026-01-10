@@ -13,6 +13,7 @@ import { SRNewPaymentDialog } from './components/SRNewPaymentDialog';
 import { SRRequestPaymentDialog } from './components/SRRequestPaymentDialog';
 import { SRInvoicePreviewSheet } from './components/SRInvoicePreviewSheet';
 import { SRActionButtons } from './components/SRActionButtons';
+import { SRRemarks } from './components/SRRemarks';
 import { InvoiceDialog } from "@/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceDialog"; // Your existing
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { useApprovedSRData } from './hooks/useApprovedSRData';
@@ -166,6 +167,9 @@ export const ApprovedSRView: React.FC<ApprovedSRViewProps> = ({
                         />
                     </div>
                 </div>
+
+                {/* SR Remarks Section */}
+                <SRRemarks srId={serviceRequest.name} />
             </div>
 
             {/* Dialogs and Sheets */}
