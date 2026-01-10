@@ -41,8 +41,7 @@ import {
 import { StandaloneDateFilter } from "@/components/ui/StandaloneDateFilter";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Button } from "@/components/ui/button";
-import { TableSkeleton } from "@/components/ui/skeleton"; // Assuming this exists
-import { AlertDestructive } from "@/components/layout/alert-banner/error-alert"; // Assuming this exists
+import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import SITEURL from "@/constants/siteURL";
 import {
   AlertDialog,
@@ -85,6 +84,7 @@ import { NewNonProjectExpense } from "./components/NewNonProjectExpense";
 import { EditNonProjectExpense } from "./components/EditNonProjectExpense"; // NEW
 import { UpdatePaymentDetailsDialog } from "./components/UpdatePaymentDetailsDialog";
 import { UpdateInvoiceDetailsDialog } from "./components/UpdateInvoiceDetailsDialog";
+import { NonProjectExpenseSummaryCard } from "./components/NonProjectExpenseSummaryCard";
 import { useUserData } from "@/hooks/useUserData";
 
 const DOCTYPE = "Non Project Expenses";
@@ -283,10 +283,10 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
             <DropdownMenuContent align="end">
               {(role === "Nirmaan Admin Profile" ||
                 role === "Nirmaan PMO Executive Profile") && (
-                <DropdownMenuItem onClick={() => handleOpenEditDialog(expense)}>
-                  <Edit2 className="mr-2 h-4 w-4" /> Edit Expense
-                </DropdownMenuItem>
-              )}
+                  <DropdownMenuItem onClick={() => handleOpenEditDialog(expense)}>
+                    <Edit2 className="mr-2 h-4 w-4" /> Edit Expense
+                  </DropdownMenuItem>
+                )}
               <DropdownMenuItem
                 onClick={() => handleOpenPaymentUpdateDialog(expense)}
               >
@@ -299,16 +299,16 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
               </DropdownMenuItem>
               {(role === "Nirmaan Admin Profile" ||
                 role === "Nirmaan PMO Executive Profile") && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => handleOpenDeleteConfirmation(expense)}
-                    className="text-destructive focus:text-destructive focus:bg-destructive/10"
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" /> Delete Expense
-                  </DropdownMenuItem>
-                </>
-              )}
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => handleOpenDeleteConfirmation(expense)}
+                      className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" /> Delete Expense
+                    </DropdownMenuItem>
+                  </>
+                )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -616,8 +616,8 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
         totalCount > 10
           ? "h-[calc(100vh-80px)]"
           : totalCount > 0
-          ? "h-auto"
-          : ""
+            ? "h-auto"
+            : ""
       )}
     >
       <StandaloneDateFilter
@@ -723,7 +723,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
             </CardContent>
           </Card>
         }
-        // errorMessage="Could not load expenses. Please try again." // Already handled by main error display
+      // errorMessage="Could not load expenses. Please try again." // Already handled by main error display
       />
       <NewNonProjectExpense refetchList={refetch} />
 
