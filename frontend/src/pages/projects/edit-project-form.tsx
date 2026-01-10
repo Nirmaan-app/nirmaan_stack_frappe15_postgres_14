@@ -31,6 +31,7 @@ import {
   Building2,
   CalendarIcon,
   Calendar as CalendarIconAlt,
+  CheckCircle2,
   CirclePlus,
   Info,
   ListChecks,
@@ -99,9 +100,7 @@ const projectFormSchema = z.object({
     .min(6, {
       message: "Must Provide Project Name",
     }),
-  customer: z.string({
-    required_error: "Please select associated customer",
-  }),
+  customer: z.string().optional(),
   project_type: z.string().optional(),
   project_value: z.string().optional(),
   project_value_gst: z.string().optional(),
@@ -430,6 +429,8 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
 
   const startDate = form.watch("project_start_date");
   const endDate = form.watch("project_end_date");
+  // Watch customer field to show conditional message
+  const customerValue = form.watch("customer");
 
   useEffect(() => {
     if (startDate && endDate) {
@@ -703,9 +704,9 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
               render={({ field }) => (
                 <FormItem className="md:flex md:items-start gap-4">
                   <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">
-                    Customer<sup className="text-sm text-red-600">*</sup>
+                    Customer
                   </FormLabel>
-                  <div className="flex-1">
+                  <div className="flex-1 space-y-2">
                     <Select onValueChange={field.onChange} value={field.value}>
                       <div className="flex flex-col items-start">
                         <FormControl>
@@ -727,6 +728,23 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
                         ))}
                       </SelectContent>
                     </Select>
+                    {/* Conditional message about customer requirement for invoices */}
+                    {customerValue ? (
+                      <div className="flex items-start gap-2 p-2.5 rounded-md bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800/50">
+                        <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 shrink-0" />
+                        <p className="text-xs text-green-700 dark:text-green-300">
+                          Now Invoices and Inflows can be added.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="flex items-start gap-2 p-2.5 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50">
+                        <Info className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                        <p className="text-xs text-amber-700 dark:text-amber-300">
+                          Project Invoice and Inflow Upload will not work if customer
+                          remains unselected.
+                        </p>
+                      </div>
+                    )}
                   </div>
                   <Sheet>
                     <SheetTrigger asChild>

@@ -1,5 +1,5 @@
 import { UseFormReturn } from "react-hook-form";
-import { CirclePlus, Info } from "lucide-react";
+import { CirclePlus, Info, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -62,6 +62,9 @@ export const ProjectDetailsStep: React.FC<ProjectDetailsStepProps> = ({
         projectTypesError,
     } = formData;
 
+    // Watch customer field to show conditional message
+    const customerValue = form.watch("customer");
+
     return (
         <>
             <p className="text-sky-600 font-semibold">Project Details</p>
@@ -113,14 +116,23 @@ export const ProjectDetailsStep: React.FC<ProjectDetailsStepProps> = ({
                                     ))}
                                 </SelectContent>
                             </Select>
-                            {/* Info message about customer requirement for invoices */}
-                            <div className="flex items-start gap-2 p-2.5 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50">
-                                <Info className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
-                                <p className="text-xs text-amber-700 dark:text-amber-300">
-                                    Project Invoice and Inflow Upload will not work if customer
-                                    remains unselected.
-                                </p>
-                            </div>
+                            {/* Conditional message about customer requirement for invoices */}
+                            {customerValue ? (
+                                <div className="flex items-start gap-2 p-2.5 rounded-md bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800/50">
+                                    <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 shrink-0" />
+                                    <p className="text-xs text-green-700 dark:text-green-300">
+                                        Now Invoices and Inflows can be added.
+                                    </p>
+                                </div>
+                            ) : (
+                                <div className="flex items-start gap-2 p-2.5 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50">
+                                    <Info className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                                    <p className="text-xs text-amber-700 dark:text-amber-300">
+                                        Project Invoice and Inflow Upload will not work if customer
+                                        remains unselected.
+                                    </p>
+                                </div>
+                            )}
                         </div>
                         <Sheet>
                             <SheetTrigger asChild>
