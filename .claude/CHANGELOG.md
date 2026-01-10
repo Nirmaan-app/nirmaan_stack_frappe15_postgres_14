@@ -4,6 +4,66 @@ Changes made by Claude Code sessions.
 
 ---
 
+### 2026-01-10: Remarks Functionality for PO and Work Orders (SR)
+
+**Summary:** Added role-based remarks system for Purchase Orders and Service Requests (Work Orders), allowing Accountant, Procurement, and Admin users to add categorized remarks with full audit trail.
+
+**Backend Files Created:**
+- `nirmaan_stack/api/po_remarks.py` - PO remarks API (add, get, delete, count, recent)
+- `nirmaan_stack/api/sr_remarks.py` - SR remarks API (add, get, delete, count, recent)
+
+**Frontend Files Created:**
+- `frontend/src/pages/ProcurementOrders/purchase-order/hooks/usePORemarks.ts` - PO remarks hooks
+- `frontend/src/pages/ProcurementOrders/purchase-order/components/PORemarks.tsx` - Full remarks section for PO summary
+- `frontend/src/pages/ProcurementOrders/purchase-order/components/PORemarksPopover.tsx` - Inline popover for PO tables
+- `frontend/src/pages/reports/components/columns/PORemarksHoverCard.tsx` - Hover card for PO reports
+- `frontend/src/pages/ServiceRequests/approved-sr/hooks/useSRRemarks.ts` - SR remarks hooks
+- `frontend/src/pages/ServiceRequests/approved-sr/components/SRRemarks.tsx` - Full remarks section for SR summary
+- `frontend/src/pages/ServiceRequests/approved-sr/components/SRRemarksPopover.tsx` - Inline popover for SR tables
+- `frontend/src/pages/reports/components/columns/SRRemarksHoverCard.tsx` - Hover card for SR reports
+
+**Frontend Files Modified:**
+- `PurchaseOrder.tsx` - Integrated PORemarks section
+- `release-po-select.tsx` - Added remarks column with popover
+- `poColumns.tsx` - Added remarks column (last) to PO reports
+- `ApprovedSRView.tsx` - Integrated SRRemarks section
+- `approved-sr-list.tsx` - Added remarks column with popover
+- `srColumns.tsx` - Added remarks column (last) to SR reports
+
+**Features:**
+- Role-based categorization (Accountant, Procurement, Admin remarks)
+- Reuses existing `Nirmaan Comments` doctype with `comment_type: "po_remark"` or `"sr_remark"`
+- Tab filtering by remark category
+- Users can only delete their own remarks
+- Hover cards in reports show last 3 remarks
+- Ctrl+Enter keyboard shortcut to submit remarks
+
+**Data Model:**
+```
+Nirmaan Comments:
+  comment_type: "po_remark" | "sr_remark"
+  reference_doctype: "Procurement Orders" | "Service Requests"
+  reference_name: <document ID>
+  subject: "accountant_remark" | "procurement_remark" | "admin_remark"
+  content: <remark text>
+  comment_by: <user email>
+```
+
+---
+
+### 2026-01-10: UI Refactoring and Mobile View Enhancements
+
+**Summary:** Refactored InFlowPayments component and added Progress UI component.
+
+**Files Created:**
+- `frontend/src/components/ui/progress.tsx` - New shadcn/ui Progress component
+
+**Files Modified:**
+- `frontend/src/pages/inflow-payments/InFlowPayments.tsx` - Refactored to use extracted InflowSummaryCard component, removed unused code
+- `frontend/src/pages/projects/projects.tsx` - Updated hook import (useCredits → useProjectAllCredits)
+
+---
+
 ### 2026-01-09: Asset Management Frontend - Full UI Implementation
 
 **Summary:** Built complete frontend for asset management including dashboard, asset lists, assignment workflow, and detail pages.
