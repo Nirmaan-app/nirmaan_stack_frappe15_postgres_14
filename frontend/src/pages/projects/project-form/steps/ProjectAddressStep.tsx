@@ -1,5 +1,5 @@
 import { UseFormReturn } from "react-hook-form";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -28,8 +28,14 @@ export const ProjectAddressStep: React.FC<ProjectAddressStepProps> = ({
 }) => {
     const { pincodeData, debouncedPincodeFetch } = formData;
 
+    // Track if pincode lookup was triggered by user input
+    const [pincodeLookupTriggered, setPincodeLookupTriggered] = useState(false);
+
     // Update city and state when pincode data changes
+    // Only update if the lookup was triggered by user input (not on initial load from draft)
     useEffect(() => {
+        if (!pincodeLookupTriggered) return;
+
         const pinValue = form.getValues("pin");
         if (typeof pinValue === 'string' && pinValue.length >= 6 && !pincodeData) {
             form.setValue("project_city", "Not Found");
@@ -38,9 +44,10 @@ export const ProjectAddressStep: React.FC<ProjectAddressStepProps> = ({
             form.setValue("project_city", pincodeData?.city || "");
             form.setValue("project_state", pincodeData?.state || "");
         }
-    }, [pincodeData, form]);
+    }, [pincodeData, form, pincodeLookupTriggered]);
 
     const handlePincodeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        setPincodeLookupTriggered(true);
         debouncedPincodeFetch(event.target.value);
     };
 
@@ -202,11 +209,23 @@ export const ProjectAddressStep: React.FC<ProjectAddressStepProps> = ({
                 )}
             />
 
-            <div className="flex items-center justify-end gap-2">
-                <Button variant="outline" onClick={onPrevious}>
-                    Previous
+            {/* Navigation */}
+            <div className="flex items-center justify-between pt-4 border-t border-gray-100">
+                <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={onPrevious}
+                    className="text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                >
+                    ← Previous
                 </Button>
-                <Button onClick={onNext}>Next</Button>
+                <Button
+                    type="button"
+                    onClick={onNext}
+                    className="bg-sky-500 hover:bg-sky-600 text-white px-6"
+                >
+                    Continue →
+                </Button>
             </div>
         </>
     );

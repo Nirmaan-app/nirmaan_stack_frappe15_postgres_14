@@ -337,8 +337,15 @@ export const ProjectDetailsStep: React.FC<ProjectDetailsStepProps> = ({
                 )}
             />
 
-            <div className="flex items-center justify-end">
-                <Button onClick={onNext}>Next</Button>
+            {/* Navigation */}
+            <div className="flex items-center justify-end pt-4 border-t border-gray-100">
+                <Button
+                    type="button"
+                    onClick={onNext}
+                    className="bg-sky-500 hover:bg-sky-600 text-white px-6"
+                >
+                    Continue →
+                </Button>
             </div>
         </>
     );

@@ -31,7 +31,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({
     onSubmit,
     onNavigateToSection,
 }) => {
-    const { customers, users } = formData;
+    const { customers } = formData;
 
     return (
         <>
@@ -128,47 +128,66 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({
                     icon={Users}
                     onEdit={() => onNavigateToSection("projectAssignees")}
                     iconColorClass="bg-purple-500/10 text-purple-600 dark:text-purple-400"
+                    columns={1}
                 >
-                    <ReviewDetail
-                        label="Project Lead"
-                        value={
-                            form.getValues("project_lead")
-                                ? users?.find(
-                                      (u) => u.name === form.getValues("project_lead")
-                                  )?.full_name
-                                : ""
-                        }
-                    />
-                    <ReviewDetail
-                        label="Procurement Lead"
-                        value={
-                            form.getValues("procurement_lead")
-                                ? users?.find(
-                                      (u) => u.name === form.getValues("procurement_lead")
-                                  )?.full_name
-                                : ""
-                        }
-                    />
-                    <ReviewDetail
-                        label="Project Manager"
-                        value={
-                            form.getValues("project_manager")
-                                ? users?.find(
-                                      (u) => u.name === form.getValues("project_manager")
-                                  )?.full_name
-                                : ""
-                        }
-                    />
-                    <ReviewDetail
-                        label="Accountant"
-                        value={
-                            form.getValues("accountant")
-                                ? users?.find(
-                                      (u) => u.name === form.getValues("accountant")
-                                  )?.full_name
-                                : ""
-                        }
-                    />
+                    <div className="col-span-full space-y-4">
+                        {/* Project Leads */}
+                        <div>
+                            <p className="text-xs font-medium text-gray-500 mb-2">Project Leads</p>
+                            <div className="flex flex-wrap gap-2">
+                                {form.getValues("assignees.project_leads")?.length ? (
+                                    form.getValues("assignees.project_leads")?.map((user) => (
+                                        <span
+                                            key={user.value}
+                                            className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-sky-50 text-sky-700 border border-sky-200"
+                                        >
+                                            {user.label}
+                                        </span>
+                                    ))
+                                ) : (
+                                    <span className="text-xs text-gray-400 italic">No project leads assigned</span>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Project Managers */}
+                        <div>
+                            <p className="text-xs font-medium text-gray-500 mb-2">Project Managers</p>
+                            <div className="flex flex-wrap gap-2">
+                                {form.getValues("assignees.project_managers")?.length ? (
+                                    form.getValues("assignees.project_managers")?.map((user) => (
+                                        <span
+                                            key={user.value}
+                                            className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200"
+                                        >
+                                            {user.label}
+                                        </span>
+                                    ))
+                                ) : (
+                                    <span className="text-xs text-gray-400 italic">No project managers assigned</span>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Procurement Executives */}
+                        <div>
+                            <p className="text-xs font-medium text-gray-500 mb-2">Procurement Executives</p>
+                            <div className="flex flex-wrap gap-2">
+                                {form.getValues("assignees.procurement_executives")?.length ? (
+                                    form.getValues("assignees.procurement_executives")?.map((user) => (
+                                        <span
+                                            key={user.value}
+                                            className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200"
+                                        >
+                                            {user.label}
+                                        </span>
+                                    ))
+                                ) : (
+                                    <span className="text-xs text-gray-400 italic">No procurement executives assigned</span>
+                                )}
+                            </div>
+                        </div>
+                    </div>
                 </ReviewSection>
 
                 {/* Packages Section */}
@@ -190,16 +209,26 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({
                 </ReviewSection>
             </ReviewContainer>
 
-            <div className="pt-2 flex items-center justify-end gap-2">
-                <Button variant="outline" onClick={onPrevious}>
-                    Previous
+            {/* Navigation */}
+            <div className="flex items-center justify-between pt-4 border-t border-gray-100">
+                <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={onPrevious}
+                    className="text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                >
+                    ← Previous
                 </Button>
                 {isSubmitting ? (
                     <ButtonLoading />
                 ) : (
-                    <Button onClick={onSubmit} className="flex items-center gap-1">
+                    <Button
+                        type="button"
+                        onClick={onSubmit}
+                        className="bg-emerald-500 hover:bg-emerald-600 text-white px-6 flex items-center gap-2"
+                    >
                         <ListChecks className="h-4 w-4" />
-                        Submit
+                        Create Project
                     </Button>
                 )}
             </div>

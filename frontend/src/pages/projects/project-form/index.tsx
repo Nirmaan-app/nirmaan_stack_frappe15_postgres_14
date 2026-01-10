@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useFrappePostCall } from "frappe-react-sdk";
+import { useFrappePostCall, useFrappeCreateDoc } from "frappe-react-sdk";
 import { useNavigate } from "react-router-dom";
-import { BadgeIndianRupee, CirclePlus, Undo2, X } from "lucide-react";
+import { X } from "lucide-react";
 
 import { FormSkeleton } from "@/components/ui/skeleton";
 import { Form } from "@/components/ui/form";
@@ -12,14 +12,7 @@ import { WizardSteps } from "@/components/ui/wizard-steps";
 import { DraftIndicator, DraftHeader } from "@/components/ui/draft-indicator";
 import { DraftCancelDialog } from "@/components/ui/draft-cancel-dialog";
 import { DraftResumeDialog } from "@/components/ui/draft-resume-dialog";
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogContent,
-    AlertDialogHeader,
-    AlertDialogTitle,
-    AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+import { ProjectCreationDialog, CreationStage } from "@/components/ui/project-creation-dialog";
 import { useToast } from "@/components/ui/use-toast";
 import { useProjectDraftManager } from "@/hooks/useProjectDraftManager";
 
@@ -62,9 +55,16 @@ export const ProjectForm = () => {
     const [newProjectId, setNewProjectId] = useState<string>();
     const [duration, setDuration] = useState(0);
 
-    // API call
+    // Creation dialog state
+    const [creationStage, setCreationStage] = useState<CreationStage>("idle");
+    const [creationDialogOpen, setCreationDialogOpen] = useState(false);
+    const [assigneeCount, setAssigneeCount] = useState(0);
+    const [creationError, setCreationError] = useState<string>();
+
+    // API calls
     const { call: createProjectAndAddress, loading: createProjectAndAddressLoading } =
         useFrappePostCall("nirmaan_stack.api.projects.new_project.create_project_with_address");
+    const { createDoc } = useFrappeCreateDoc();
 
     // Draft management
     const {
@@ -169,6 +169,7 @@ export const ProjectForm = () => {
         const values = form.getValues();
 
         try {
+            // Validation
             if (values.project_city === "Not Found" || values.project_state === "Not Found") {
                 throw new Error('City and State are "Not Found", Please Enter a Valid Pincode!');
             }
@@ -179,34 +180,85 @@ export const ProjectForm = () => {
                 throw new Error("Please select at least one work package associated with this project!");
             }
 
+            // Extract assignees from form values (not sent to backend)
+            const { assignees, ...projectValues } = values;
+
+            // Collect unique users from assignees
+            const uniqueUsers = new Set<string>();
+            assignees?.project_leads?.forEach((u) => uniqueUsers.add(u.value));
+            assignees?.project_managers?.forEach((u) => uniqueUsers.add(u.value));
+            assignees?.procurement_executives?.forEach((u) => uniqueUsers.add(u.value));
+            const userCount = uniqueUsers.size;
+            setAssigneeCount(userCount);
+
+            // Open dialog and start creation
+            setCreationDialogOpen(true);
+            setCreationStage("creating_project");
+            setCreationError(undefined);
+
+            // Step 1: Create project
             const response = await createProjectAndAddress({
-                values: { ...values, areaNames },
+                values: { ...projectValues, areaNames },
             });
 
-            if (response.message.status === 200) {
-                clearDraftAfterSubmit();
-                toast({
-                    title: "Success!",
-                    description: `Project ${response.message.project_name} created successfully!`,
-                    variant: "success",
-                });
-                setNewProjectId(response.message.project_name);
-                document.getElementById("alertOpenProject")?.click();
-            } else if (response.message.status === 400) {
-                toast({
-                    title: "Failed!",
-                    description: response.message.error,
-                    variant: "destructive",
-                });
+            if (response.message.status !== 200) {
+                throw new Error(response.message.error || "Failed to create project");
             }
+
+            const projectName = response.message.project_name;
+            setNewProjectId(projectName);
+
+            // Step 2: Assign users (create User Permissions)
+            if (userCount > 0) {
+                setCreationStage("assigning_users");
+
+                // Create User Permission for each unique user
+                for (const userId of uniqueUsers) {
+                    try {
+                        await createDoc("User Permission", {
+                            user: userId,
+                            allow: "Projects",
+                            for_value: projectName,
+                        });
+                    } catch (permError) {
+                        // Log but don't fail the entire operation
+                        console.warn(`Failed to create permission for ${userId}:`, permError);
+                    }
+                }
+            }
+
+            // Complete
+            clearDraftAfterSubmit();
+            setCreationStage("complete");
+
         } catch (error: any) {
-            toast({
-                title: "Failed!",
-                description: error?.message,
-                variant: "destructive",
-            });
+            setCreationStage("error");
+            setCreationError(error?.message || "An unexpected error occurred");
             console.error("Error:", error);
         }
+    };
+
+    // Dialog action handlers
+    const handleGoToProjects = () => {
+        setCreationDialogOpen(false);
+        setCreationStage("idle");
+        navigate("/projects");
+    };
+
+    const handleCreateNew = () => {
+        setCreationDialogOpen(false);
+        setCreationStage("idle");
+        setNewProjectId(undefined);
+        form.reset(defaultFormValues);
+        form.clearErrors();
+        setSection("projectDetails");
+        setCurrentStep(0);
+    };
+
+    const handleAddEstimates = () => {
+        setCreationDialogOpen(false);
+        setCreationStage("idle");
+        navigate(`/projects/${newProjectId}/add-estimates`);
     };
 
     // Loading state
@@ -301,64 +353,15 @@ export const ProjectForm = () => {
                         )}
 
                         {section === "reviewDetails" && (
-                            <>
-                                <ReviewStep
-                                    form={form}
-                                    formData={formData}
-                                    duration={duration}
-                                    isSubmitting={createProjectAndAddressLoading}
-                                    onPrevious={goToPreviousSection}
-                                    onSubmit={handleSubmit}
-                                    onNavigateToSection={navigateToSection}
-                                />
-
-                                {/* Success Dialog */}
-                                <AlertDialog>
-                                    <AlertDialogTrigger asChild>
-                                        <button className="hidden" id="alertOpenProject">
-                                            Trigger Dialog
-                                        </button>
-                                    </AlertDialogTrigger>
-                                    <AlertDialogContent>
-                                        <AlertDialogHeader className="flex items-center justify-center">
-                                            <AlertDialogTitle className="text-green-500">
-                                                Project Created Successfully! You can start adding
-                                                project estimates.
-                                            </AlertDialogTitle>
-                                            <div className="flex gap-2">
-                                                <AlertDialogAction
-                                                    onClick={() => navigate("/projects")}
-                                                    className="flex items-center gap-1 bg-gray-100 text-black"
-                                                >
-                                                    <Undo2 className="h-4 w-4" />
-                                                    Go Back
-                                                </AlertDialogAction>
-                                                <AlertDialogAction
-                                                    onClick={() => {
-                                                        form.reset();
-                                                        form.clearErrors();
-                                                    }}
-                                                    className="flex items-center gap-1"
-                                                >
-                                                    <CirclePlus className="h-4 w-4" />
-                                                    Create New
-                                                </AlertDialogAction>
-                                                <AlertDialogAction
-                                                    onClick={() =>
-                                                        navigate(
-                                                            `/projects/${newProjectId}/add-estimates`
-                                                        )
-                                                    }
-                                                    className="flex items-center gap-1 bg-gray-100 text-black"
-                                                >
-                                                    <BadgeIndianRupee className="h-4 w-4" />
-                                                    Next: Fill Estimates
-                                                </AlertDialogAction>
-                                            </div>
-                                        </AlertDialogHeader>
-                                    </AlertDialogContent>
-                                </AlertDialog>
-                            </>
+                            <ReviewStep
+                                form={form}
+                                formData={formData}
+                                duration={duration}
+                                isSubmitting={createProjectAndAddressLoading || creationDialogOpen}
+                                onPrevious={goToPreviousSection}
+                                onSubmit={handleSubmit}
+                                onNavigateToSection={navigateToSection}
+                            />
                         )}
                     </div>
                 </form>
@@ -391,6 +394,18 @@ export const ProjectForm = () => {
                 onCancel={() => setShowCancelDialog(false)}
                 currentStep={currentStep + 1}
                 totalSteps={sections.length}
+            />
+
+            {/* Project Creation Progress Dialog */}
+            <ProjectCreationDialog
+                open={creationDialogOpen}
+                stage={creationStage}
+                projectName={newProjectId}
+                assigneeCount={assigneeCount}
+                errorMessage={creationError}
+                onGoBack={handleGoToProjects}
+                onCreateNew={handleCreateNew}
+                onAddEstimates={handleAddEstimates}
             />
         </div>
     );

@@ -23,12 +23,18 @@ export interface ProjectDraftFormValues {
   phone?: string;
   project_start_date: string | null; // ISO string
   project_end_date: string | null;   // ISO string
+  // Deprecated single fields (kept for backward compatibility)
   project_lead?: string;
   project_manager?: string;
   design_lead?: string;
   procurement_lead?: string;
   estimates_exec?: string;
-  accountant?: string;
+  // New multi-select assignees structure
+  assignees?: {
+    project_leads?: Array<{ label: string; value: string }>;
+    project_managers?: Array<{ label: string; value: string }>;
+    procurement_executives?: Array<{ label: string; value: string }>;
+  };
   project_work_packages: {
     work_packages: Array<{
       work_package_name: string;

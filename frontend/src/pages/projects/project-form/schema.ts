@@ -88,25 +88,28 @@ export const projectFormSchema = z.object({
         .date()
         .optional(),
 
-    // Assignees
-    project_lead: z
-        .string()
-        .optional(),
-    project_manager: z
-        .string()
-        .optional(),
-    design_lead: z
-        .string()
-        .optional(),
-    procurement_lead: z
-        .string()
-        .optional(),
-    estimates_exec: z
-        .string()
-        .optional(),
-    accountant: z
-        .string()
-        .optional(),
+    // Assignees (deprecated single fields - kept for backward compatibility)
+    project_lead: z.string().optional(),
+    project_manager: z.string().optional(),
+    design_lead: z.string().optional(),
+    procurement_lead: z.string().optional(),
+    estimates_exec: z.string().optional(),
+
+    // Assignees (new multi-select structure)
+    assignees: z.object({
+        project_leads: z.array(z.object({
+            label: z.string(),
+            value: z.string(), // user email/ID
+        })).optional(),
+        project_managers: z.array(z.object({
+            label: z.string(),
+            value: z.string(),
+        })).optional(),
+        procurement_executives: z.array(z.object({
+            label: z.string(),
+            value: z.string(),
+        })).optional(),
+    }).optional(),
 
     // Work Packages
     project_work_packages: z
@@ -185,12 +188,18 @@ export const defaultFormValues: ProjectFormValues = {
     phone: "",
     customer: "",
     project_type: "",
+    // Deprecated single fields (kept for backward compatibility)
     project_lead: "",
     procurement_lead: "",
     estimates_exec: "",
     design_lead: "",
     project_manager: "",
-    accountant: "",
+    // New multi-select assignees
+    assignees: {
+        project_leads: [],
+        project_managers: [],
+        procurement_executives: [],
+    },
 };
 
 /**
@@ -200,7 +209,15 @@ export const sectionFields: Record<string, (keyof ProjectFormValues)[]> = {
     projectDetails: ["project_name", "project_type", "project_value", "project_value_gst", "carpet_area"],
     projectAddressDetails: ["address_line_1", "address_line_2", "project_city", "project_state", "pin", "email", "phone"],
     projectTimeline: ["project_start_date", "project_end_date"],
-    projectAssignees: ["project_lead", "project_manager", "design_lead", "procurement_lead", "estimates_exec"],
+    projectAssignees: ["assignees"], // Updated to use new multi-select structure
     packageSelection: ["project_work_packages", "project_scopes"],
     reviewDetails: [],
 };
+
+/**
+ * Type for assignee option (react-select compatible)
+ */
+export interface AssigneeOption {
+    label: string;
+    value: string;
+}

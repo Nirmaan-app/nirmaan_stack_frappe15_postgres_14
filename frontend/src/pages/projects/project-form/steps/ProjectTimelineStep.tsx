@@ -163,11 +163,23 @@ export const ProjectTimelineStep: React.FC<ProjectTimelineStepProps> = ({
                 </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2">
-                <Button variant="outline" onClick={onPrevious}>
-                    Previous
+            {/* Navigation */}
+            <div className="flex items-center justify-between pt-4 border-t border-gray-100">
+                <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={onPrevious}
+                    className="text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                >
+                    ← Previous
                 </Button>
-                <Button onClick={onNext}>Next</Button>
+                <Button
+                    type="button"
+                    onClick={onNext}
+                    className="bg-sky-500 hover:bg-sky-600 text-white px-6"
+                >
+                    Continue →
+                </Button>
             </div>
         </>
     );
