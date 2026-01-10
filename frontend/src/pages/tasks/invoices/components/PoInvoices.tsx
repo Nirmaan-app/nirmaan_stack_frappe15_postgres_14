@@ -3,7 +3,7 @@ import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 import memoize from "lodash/memoize";
-import { Info, Check, X, Calendar, Edit2 } from "lucide-react";
+import { Info, Check, X, Calendar, Edit2, FileText, CheckCircle2 } from "lucide-react";
 
 // --- UI Components ---
 import { DataTable } from '@/components/data-table/new-data-table';
@@ -489,57 +489,133 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId }) => {
         const hasFilters = columnFilters.length > 0 || !!searchTerm;
 
         return (
-            <Card>
-                <CardHeader className="p-4 pb-2">
-                    <CardTitle className="text-lg">
-                        {vendorId ? "Vendor PO Invoices (Approved)" : "PO Invoices Summary (Approved)"}
-                    </CardTitle>
-                </CardHeader>
-                <CardContent className="p-4 pt-2">
-                    <div className="grid grid-cols-3 gap-4">
-                        <div className="bg-green-50 rounded-lg p-3 border border-green-100">
-                            <dt className="text-sm font-medium text-gray-600">Total Amount</dt>
-                            <dd className="text-xl font-bold text-green-600 mt-1">
-                                {formatToRoundedIndianRupee(totalAmount)}
-                            </dd>
+            <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-50 to-white dark:from-slate-900 dark:to-slate-800">
+                {/* ===== COMPACT MOBILE VIEW ===== */}
+                <div className="sm:hidden">
+                    <CardContent className="p-3">
+                        <div className="flex items-center gap-3 mb-2">
+                            {/* Color accent + Icon */}
+                            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center">
+                                <FileText className="h-5 w-5 text-white" />
+                            </div>
+                            {/* Primary metric - Total Amount */}
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-baseline gap-2">
+                                    <span className="text-lg font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                                        {formatToRoundedIndianRupee(totalAmount)}
+                                    </span>
+                                    <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase">
+                                        Total
+                                    </span>
+                                </div>
+                                {/* Filters inline */}
+                                {hasFilters && (
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                        {searchTerm && (
+                                            <span className="px-1.5 py-0.5 text-[9px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded">
+                                                "{searchTerm.slice(0, 10)}"
+                                            </span>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                            {/* Count badge */}
+                            <div className="flex-shrink-0 text-right">
+                                <span className="inline-flex items-center justify-center px-2 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 rounded-md tabular-nums">
+                                    {totalInvoices}
+                                </span>
+                                <span className="block text-[9px] text-slate-400 dark:text-slate-500 mt-0.5">
+                                    invoices
+                                </span>
+                            </div>
                         </div>
-                        <div className="bg-blue-50 rounded-lg p-3 border border-blue-100">
-                            <dt className="text-sm font-medium text-gray-600">Total Invoices</dt>
-                            <dd className="text-xl font-bold text-blue-600 mt-1">
-                                {totalInvoices}
-                            </dd>
+                        {/* 2B Status compact */}
+                        <div className="flex items-center gap-2 bg-violet-50 dark:bg-violet-950/30 rounded-md p-2 border border-violet-100 dark:border-violet-900/50">
+                            <CheckCircle2 className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+                            <span className="text-[10px] font-medium text-violet-600 dark:text-violet-400 uppercase">2B:</span>
+                            <span className="text-sm font-bold text-violet-700 dark:text-violet-400 tabular-nums">
+                                {total2bActivated}/{totalInvoices}
+                            </span>
+                            <Progress value={activationProgress} className="h-1.5 flex-1 max-w-[60px]" />
+                            <span className="text-[9px] text-slate-400 dark:text-slate-500">
+                                {pending2bActivation} pending
+                            </span>
                         </div>
-                        <div className="bg-purple-50 rounded-lg p-3 border border-purple-100">
-                            <dt className="text-sm font-medium text-gray-600">2B Activation</dt>
-                            <dd className="mt-1">
+                    </CardContent>
+                </div>
+
+                {/* ===== EXPANDED DESKTOP VIEW ===== */}
+                <div className="hidden sm:block">
+                    <CardHeader className="pb-2 pt-4 px-5">
+                        <div className="flex items-center justify-between">
+                            <CardTitle className="text-base font-semibold tracking-tight text-slate-800 dark:text-slate-200">
+                                {vendorId ? "Vendor PO Invoices" : "PO Invoices Summary"}
+                            </CardTitle>
+                            <div className="flex items-center gap-1.5 text-xs font-medium text-slate-400 dark:text-slate-500">
+                                <FileText className="h-3.5 w-3.5" />
+                                <span className="uppercase tracking-wider">
+                                    {totalInvoices} Invoice{totalInvoices !== 1 ? 's' : ''} (Approved)
+                                </span>
+                            </div>
+                        </div>
+                        {hasFilters && (
+                            <div className="flex flex-wrap gap-1.5 items-center mt-2">
+                                <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider">Filtered:</span>
+                                {searchTerm && (
+                                    <span className="px-2 py-0.5 text-[10px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full">
+                                        "{searchTerm}"
+                                    </span>
+                                )}
+                                {columnFilters.map(filter => (
+                                    <span
+                                        key={filter.id}
+                                        className="px-2 py-0.5 text-[10px] font-medium bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 rounded-full capitalize"
+                                    >
+                                        {filter.id.replace(/_/g, ' ')}
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+                    </CardHeader>
+                    <CardContent className="px-5 pb-4 pt-0">
+                        <div className="grid grid-cols-3 gap-3">
+                            {/* Total Amount */}
+                            <div className="bg-gradient-to-br from-emerald-50 to-teal-50/50 dark:from-emerald-950/40 dark:to-teal-950/30 rounded-lg p-4 border border-emerald-100 dark:border-emerald-900/50">
+                                <dt className="text-xs font-medium text-emerald-600/80 dark:text-emerald-400/80 uppercase tracking-wide mb-1">
+                                    Total Amount
+                                </dt>
+                                <dd className="text-2xl font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                                    {formatToRoundedIndianRupee(totalAmount)}
+                                </dd>
+                            </div>
+                            {/* Total Invoices */}
+                            <div className="bg-slate-50/80 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
+                                <dt className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">
+                                    Total Invoices
+                                </dt>
+                                <dd className="text-2xl font-bold text-slate-700 dark:text-slate-300 tabular-nums">
+                                    {totalInvoices}
+                                </dd>
+                            </div>
+                            {/* 2B Activation */}
+                            <div className="bg-gradient-to-br from-violet-50 to-purple-50/50 dark:from-violet-950/40 dark:to-purple-950/30 rounded-lg p-4 border border-violet-100 dark:border-violet-900/50">
+                                <dt className="text-xs font-medium text-violet-600/80 dark:text-violet-400/80 uppercase tracking-wide mb-1 flex items-center gap-1.5">
+                                    <CheckCircle2 className="h-3 w-3" />
+                                    2B Activation
+                                </dt>
                                 <div className="flex items-center justify-between mb-1">
-                                    <span className="text-lg font-bold text-purple-600">
+                                    <span className="text-xl font-bold text-violet-700 dark:text-violet-400 tabular-nums">
                                         {total2bActivated}/{totalInvoices}
                                     </span>
-                                    <span className="text-xs text-gray-500">
+                                    <span className="text-[10px] text-slate-400 dark:text-slate-500">
                                         {pending2bActivation} pending
                                     </span>
                                 </div>
                                 <Progress value={activationProgress} className="h-2" />
-                            </dd>
+                            </div>
                         </div>
-                    </div>
-                    {hasFilters && (
-                        <div className="flex flex-wrap gap-2 items-center pt-3 mt-3 border-t border-gray-100">
-                            <span className="text-xs font-medium text-gray-500">Active filters:</span>
-                            {searchTerm && (
-                                <Badge variant="outline" className="text-xs bg-gray-100">
-                                    Search: "{searchTerm}"
-                                </Badge>
-                            )}
-                            {columnFilters.map(filter => (
-                                <Badge key={filter.id} variant="outline" className="text-xs bg-blue-50 text-blue-700">
-                                    {filter.id}
-                                </Badge>
-                            ))}
-                        </div>
-                    )}
-                </CardContent>
+                    </CardContent>
+                </div>
             </Card>
         );
     }, [invoicesData, columnFilters, searchTerm, vendorSummary, vendorId]);
