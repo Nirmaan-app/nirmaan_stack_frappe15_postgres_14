@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Trash2, Edit2 } from "lucide-react";
 import { SearchFieldOption } from '@/components/data-table/new-data-table';
+import { AggregationConfig } from "@/hooks/useServerDataTable";
 import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
@@ -26,6 +27,11 @@ export const PROJECT_INVOICE_SEARCHABLE_FIELDS: SearchFieldOption[] = [
 ];
 
 export const PROJECT_INVOICE_DATE_COLUMNS = ["invoice_date"];
+
+// Backend aggregation config for summary card
+export const PROJECT_INVOICE_AGGREGATES_CONFIG: AggregationConfig[] = [
+    { field: 'amount', function: 'sum' }
+];
 
 // =================================================================================
 // 2. TYPES & INTERFACES FOR COLUMN GENERATION

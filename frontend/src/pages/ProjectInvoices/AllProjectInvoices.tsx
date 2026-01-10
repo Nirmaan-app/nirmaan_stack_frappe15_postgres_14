@@ -38,6 +38,7 @@ import { toast } from "@/components/ui/use-toast";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { NewProjectInvoiceDialog } from "./components/NewProjectInvoiceDialog"; // Import the renamed/refactored create dialog
 import { EditProjectInvoiceDialog } from "./components/EditProjectInvoiceDialog"; // Import the new edit dialog
+import { ProjectInvoiceSummaryCard } from "./components/ProjectInvoiceSummaryCard";
 import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { useDialogStore } from "@/zustand/useDialogStore"; // For managing edit dialog state
@@ -285,8 +286,8 @@ export const AllProjectInvoices: React.FC<{
         totalCount > 10
           ? "h-[calc(100vh-80px)]"
           : totalCount > 0
-          ? "h-auto"
-          : ""
+            ? "h-auto"
+            : ""
       )}
     >
       {isLoadingOverall && !projectInvoicesData?.length ? (
@@ -316,7 +317,7 @@ export const AllProjectInvoices: React.FC<{
       <NewProjectInvoiceDialog
         listMutate={refetch as any}
         ProjectId={projectId}
-        // onClose can be added if needed by NewProjectInvoiceDialog, but not strictly necessary for this split
+      // onClose can be added if needed by NewProjectInvoiceDialog, but not strictly necessary for this split
       />
 
       {/* Render Edit Project Invoice Dialog conditionally */}
