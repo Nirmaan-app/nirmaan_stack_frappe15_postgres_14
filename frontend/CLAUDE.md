@@ -277,6 +277,25 @@ pages/[feature]/[form-name]/
 - Use Zustand store with `persist` middleware for localStorage
 - `useProjectDraftManager` hook pattern for auto-save with debounce
 
+**Multi-select user assignment pattern:**
+When assigning multiple users to roles (e.g., project leads, managers):
+```typescript
+// Schema: Store as array of {label, value} for react-select compatibility
+assignees: z.object({
+  project_leads: z.array(z.object({ label: z.string(), value: z.string() })).optional(),
+  // ...
+}).optional()
+
+// Submission: Create User Permissions after document creation
+const uniqueUsers = new Set<string>();
+assignees?.project_leads?.forEach(u => uniqueUsers.add(u.value));
+for (const userId of uniqueUsers) {
+  await createDoc("User Permission", { user: userId, allow: "Projects", for_value: projectName });
+}
+```
+- Don't store assignees in the document itself - use User Permissions for access control
+- Use `ProjectCreationDialog` pattern for multi-stage progress (creating → assigning)
+
 ### Working with Procurement Flow
 
 The procurement flow is the core workflow:
@@ -328,3 +347,4 @@ The system uses 10 role profiles for access control. Role checks use `useUserDat
 - **Deprecated Components**: `src/pages/Retired Components/` contains old implementations for reference
 - **Role-Based Access**: User roles from Frappe control UI visibility and permissions (see Role-Based Access Control section above)
 - **Project Context**: Many operations are scoped to a selected project (stored in UserContext)
+- **Customer Required for Financials**: Projects without a customer cannot have invoices or inflow payments created - UI shows validation warnings and disables forms

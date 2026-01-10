@@ -4,6 +4,32 @@ Changes made by Claude Code sessions.
 
 ---
 
+### 2026-01-10: Multi-Select Project Assignees with User Permission Creation
+
+**Summary:** Replaced single-select assignees with react-select multi-select, creating User Permissions after project creation instead of storing in Project document.
+
+**Files Created:**
+- `frontend/src/components/ui/project-creation-dialog.tsx` - Two-stage progress dialog
+
+**Files Modified:**
+- `frontend/src/pages/projects/project-form/schema.ts` - New assignees structure with label/value arrays
+- `frontend/src/pages/projects/project-form/index.tsx` - Multi-stage submission with User Permission creation
+- `frontend/src/pages/projects/project-form/steps/ProjectAssigneesStep.tsx` - React-select multi-select UI
+- `frontend/src/pages/projects/project-form/steps/ReviewStep.tsx` - Multi-select assignees display
+- `frontend/src/pages/projects/project-form/steps/ProjectAddressStep.tsx` - City/state draft resume fix
+- `frontend/src/pages/projects/project-form/steps/*.tsx` - Standardized navigation buttons
+- `frontend/src/zustand/useProjectDraftStore.ts` - Updated for new assignees schema
+
+**Features:**
+- Multi-select for Project Leads, Project Managers, Procurement Executives
+- Removed Accountant selection (accountants now see all projects)
+- User Permissions created after project (not stored in Project document)
+- Two-stage progress dialog: "Creating project..." → "Assigning team members..."
+- Standardized navigation: "← Previous" / "Continue →" across all steps
+- Fixed city/state reset bug when resuming drafts
+
+---
+
 ### 2026-01-10: Customer Validation and Dialog Redesign
 
 **Summary:** Added customer validation across project forms and financial dialogs, with enterprise minimalist UI redesign.
