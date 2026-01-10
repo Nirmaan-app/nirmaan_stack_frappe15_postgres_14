@@ -4,11 +4,15 @@ import NewCustomer from "@/pages/customers/add-new-customer"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { format } from "date-fns"
 import { useFrappeDocTypeEventListener, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk"
-import { BadgeIndianRupee, Building2, CalendarIcon, CirclePlus, Info, ListChecks, MapPin, Package, Undo2, Users, Calendar as CalendarLucide } from "lucide-react"
+import { BadgeIndianRupee, Building2, CalendarIcon, CirclePlus, Info, ListChecks, MapPin, Package, Undo2, Users, Calendar as CalendarLucide, X } from "lucide-react"
 import { WizardSteps, WizardStep } from "@/components/ui/wizard-steps"
 import { ReviewSection, ReviewDetail, ReviewContainer } from "@/components/ui/review-section"
 import { PackagesReviewGrid } from "@/components/ui/package-review-card"
 import { FormActions } from "@/components/ui/form-field-row"
+import { DraftIndicator, DraftHeader } from "@/components/ui/draft-indicator"
+import { DraftCancelDialog } from "@/components/ui/draft-cancel-dialog"
+import { DraftResumeDialog } from "@/components/ui/draft-resume-dialog"
+import { useProjectDraftManager } from "@/hooks/useProjectDraftManager"
 import React, { useCallback, useEffect, useState } from "react"
 import { Controller, useForm } from "react-hook-form"
 import { useNavigate } from "react-router-dom"
@@ -323,6 +327,31 @@ export const ProjectForm = () => {
     const [section, setSection] = useState("projectDetails")
     const [currentStep, setCurrentStep] = useState(0);
 
+    // Draft management hook
+    const {
+        hasDraft,
+        lastSavedText,
+        isSaving,
+        draftProjectName,
+        draftLastSavedAt,
+        showResumeDialog,
+        setShowResumeDialog,
+        showCancelDialog,
+        setShowCancelDialog,
+        saveDraftNow,
+        resumeDraft,
+        discardDraft,
+        clearDraftAfterSubmit,
+    } = useProjectDraftManager({
+        form,
+        areaNames,
+        setAreaNames,
+        currentStep,
+        section,
+        setCurrentStep,
+        setSection,
+    });
+
     // List of sections and their order in the form
     const sections = [
         "projectDetails",
@@ -389,6 +418,9 @@ export const ProjectForm = () => {
             });
 
             if (response.message.status === 200) {
+                // Clear draft after successful project creation
+                clearDraftAfterSubmit();
+
                 toast({
                     title: "Success!",
                     description: `Project ${response.message.project_name} created successfully!`,
@@ -613,12 +645,23 @@ export const ProjectForm = () => {
     return (
 
         <div className="flex-1 space-y-4">
-            {/* <div className="space-y-0.5">
-                <div className="flex">
-                    <ArrowLeft className="mt-1 cursor-pointer" onClick={() => navigate("/projects")} />
-                    <h2 className="pl-8 text-2xl font-bold tracking-tight">Add New Project</h2>
-                </div>
-            </div> */}
+            {/* Draft Header with Cancel button and Save indicator */}
+            <DraftHeader>
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowCancelDialog(true)}
+                    className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground -ml-2"
+                >
+                    <X className="h-4 w-4" />
+                    <span className="hidden sm:inline">Cancel</span>
+                </Button>
+
+                <DraftIndicator
+                    lastSavedText={lastSavedText}
+                    isSaving={isSaving}
+                />
+            </DraftHeader>
 
             <WizardSteps
                 steps={wizardStepsConfig}
@@ -1485,6 +1528,35 @@ export const ProjectForm = () => {
                     </div>
                 </form >
             </Form >
+
+            {/* Draft Resume Dialog - shown when returning with existing draft */}
+            <DraftResumeDialog
+                open={showResumeDialog}
+                onOpenChange={setShowResumeDialog}
+                onResume={resumeDraft}
+                onStartFresh={discardDraft}
+                draftDate={draftLastSavedAt}
+                projectName={draftProjectName}
+                currentStep={currentStep}
+                totalSteps={sections.length}
+            />
+
+            {/* Draft Cancel Dialog - shown when user clicks Cancel */}
+            <DraftCancelDialog
+                open={showCancelDialog}
+                onOpenChange={setShowCancelDialog}
+                onSaveDraft={() => {
+                    saveDraftNow();
+                    navigate("/projects");
+                }}
+                onDiscard={() => {
+                    discardDraft();
+                    navigate("/projects");
+                }}
+                onCancel={() => setShowCancelDialog(false)}
+                currentStep={currentStep + 1}
+                totalSteps={sections.length}
+            />
         </div>
     )
 }
