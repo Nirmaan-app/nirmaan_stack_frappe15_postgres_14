@@ -330,37 +330,34 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   type MenuItem = Required<MenuProps>["items"][number];
 
+  // Tabs to hide from Accountant role
+  const isAccountant = role === "Nirmaan Accountant Profile";
+
   const items: MenuItem[] = useMemo(() => [
     {
       label: "Overview",
       key: PROJECT_PAGE_TABS.OVERVIEW,
     },
-    { // ADD THIS NEW MENU ITEM
-      label: "Work Report", // This is the displayed text
-      key: PROJECT_PAGE_TABS.WORK_REPORT, // This is the unique key
-    },
-    { // ADD THIS NEW MENU ITEM
+    // Hide Work Report from Accountant
+    ...(!isAccountant ? [{
+      label: "Work Report",
+      key: PROJECT_PAGE_TABS.WORK_REPORT,
+    }] : []),
+    // Hide Planning from Accountant
+    ...(!isAccountant ? [{
       label: "Planning",
       key: PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
-    },
-    {
+    }] : []),
+    // Hide Critical POs from Accountant
+    ...(!isAccountant ? [{
       label: "Critical POs",
       key: PROJECT_PAGE_TABS.CRITICAL_POS,
-    },
-    {
+    }] : []),
+    // Hide Design Tracker from Accountant
+    ...(!isAccountant ? [{
       label: "Design Tracker",
       key: PROJECT_PAGE_TABS.DESIGN_TRACKER,
-    },
-    // role === "Nirmaan Admin Profile"
-    //   ? {
-    //     label: "Project Tracking",
-    //     key: "projectTracking",
-    //   }
-    //   : null,
-    // {
-    //   label: "PR Summary",
-    //   key: PROJECT_PAGE_TABS.PR_SUMMARY,
-    // },
+    }] : []),
     {
       label: "Financials",
       key: PROJECT_PAGE_TABS.FINANCIALS,
@@ -373,46 +370,34 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       label: "PO Summary",
       key: PROJECT_PAGE_TABS.PO_SUMMARY,
     },
-    // ["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(
-    //   role
-    // )
-    //   ? {
-    //     label: "Project Spends",
-    //     key: "projectspends",
-    //   }
-    //   : null,
      {
       label: "Material Usage",
       key: PROJECT_PAGE_TABS.MATERIAL_USAGE
     },
-     {
+    // Hide Project Makes from Accountant
+    ...(!isAccountant ? [{
       label: "Project Makes",
       key: PROJECT_PAGE_TABS.MAKES
-    },
-    
-    // {
-    //   label: "Financials",
-    //   key: PROJECT_PAGE_TABS.FINANCIALS,
-    // },
+    }] : []),
     {
       label: "Misc. Project Expenses",
       key: PROJECT_PAGE_TABS.PROJECT_EXPENSES
     },
-    
-    {
+    // Hide PR Summary from Accountant
+    ...(!isAccountant ? [{
       label: "PR Summary",
       key: PROJECT_PAGE_TABS.PR_SUMMARY,
-    },
+    }] : []),
     {
       label: "Project Spends",
       key: PROJECT_PAGE_TABS.SPENDS,
     },
-    // --- (Indicator) NEW MENU ITEM ---
-   {
+    // Hide Project Estimates from Accountant
+    ...(!isAccountant ? [{
       label: "Project Estimates",
       key: PROJECT_PAGE_TABS.ESTIMATES
-    },
-  ], [role]);
+    }] : []),
+  ], [role, isAccountant]);
 
   // Define tabs available based on role or other logic
   // const availableTabs = useMemo(() => {
@@ -1042,7 +1027,7 @@ const advanceAgainstPO = useMemo(() => {
           <span className="text-xl md:text-3xl font-bold tracking-tight text-wrap mr-1 md:ml-2">
             {data?.project_name.toUpperCase()}
           </span>
-          {["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) && (
+          {["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
             <Sheet open={editSheetOpen} onOpenChange={toggleEditSheet} modal={false}>
               <SheetTrigger>
                 <FilePenLine className="max-md:w-4 max-md:h-4 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer inline-block -mt-3 max-md:-mt-1" />
@@ -1055,7 +1040,7 @@ const advanceAgainstPO = useMemo(() => {
         </div>
         {/* </div> */}
         <div className="flex max-sm:text-xs max-md:text-sm items-center max-md:justify-between max-md:w-full">
-          {role === "Nirmaan Admin Profile" && (
+          {(role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile") && (
             <>
               <Popover open={popOverOpen} onOpenChange={setPopOverStatus}>
                 <PopoverTrigger asChild>

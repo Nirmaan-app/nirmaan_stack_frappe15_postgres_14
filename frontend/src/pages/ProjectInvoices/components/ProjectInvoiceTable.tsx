@@ -56,7 +56,7 @@ export const ProjectInvoiceTable: React.FC<ProjectInvoiceTableProps> = ({
   handleEditInvoiceEntry // --- (Indicator) Destructure onEdit ---
 }) => {
   const { role } = useUserData();
-  const isAdmin = role === "Nirmaan Admin Profile";
+  const isAdmin = role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile";
   const { data: projectdata, isLoading: projectloading, error: projecterror } = useFrappeGetDocList<Projects>("Projects", {
     fields: ['name', 'project_name', 'customer', "status"],
     limit: 1000,

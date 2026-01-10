@@ -244,7 +244,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                     {/* Added Items Section */}
                     {/* {addedItems.length > 0 && ( */}
                     <ItemListSection
-                        canCreateItem={["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(userData?.role ?? '')}
+                        canCreateItem={["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(userData?.role ?? '')}
                         toggleNewItemsCard={toggleNewItemsCard}
                         categories={addedCategoriesForDisplay}
                         items={addedItems}
@@ -275,7 +275,7 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                 onAdd={handleAddItemToList}
                 onClose={() => toggleNewItemsCard()} // Use onClose to hide
                 onToggleNewItemDialog={handleOpenNewItemDialog} // Pass handler
-                canCreateItem={["Nirmaan Admin Profile"].includes(userData?.role ?? '')} // Example permission check
+                canCreateItem={["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(userData?.role ?? '')} // Example permission check
                 isLoading={isLoading}
                 // --- Pass Make Props ---
                 allMakeOptions={allMakeOptions || []}

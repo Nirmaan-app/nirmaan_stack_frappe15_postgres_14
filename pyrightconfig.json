@@ -1,0 +1,15 @@
+{
+  "venvPath": "/workspace/development/frappe-bench",
+  "venv": "env",
+  "pythonVersion": "3.11",
+  "extraPaths": [
+    "/workspace/development/frappe-bench/apps/frappe",
+    "/workspace/development/frappe-bench/apps/nirmaan_stack",
+    "/workspace/development/frappe-bench/apps/doppio",
+    "/workspace/development/frappe-bench/apps/frappe_s3_attachment",
+    "/workspace/development/frappe-bench/apps/frappe_types"
+  ],
+  "typeCheckingMode": "basic",
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": false
+}

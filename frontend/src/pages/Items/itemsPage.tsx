@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useContext } from "react";
+import { useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { useFrappeGetDocList } from "frappe-react-sdk";
@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { AddItemDialog } from "./components/AddItemDialog"; // Adjust path
 import { ItemsSummaryCard } from "./components/ItemsSummaryCard"; // Adjust path
 import { useServerDataTable } from '@/hooks/useServerDataTable';
+import { useFacetValues } from '@/hooks/useFacetValues';
 import { useUserData } from "@/hooks/useUserData";
 import { formatDate } from "@/utils/FormatDate";
 import { Items as ItemsType } from "@/types/NirmaanStack/Items";
@@ -21,17 +22,11 @@ import {
     CATEGORY_DOCTYPE, CATEGORY_LIST_FIELDS_TO_FETCH
 } from "./items.constants"; // Adjust path
 import { useDialogStore } from "@/zustand/useDialogStore";
-import { useNirmaanUnitOptions } from '@/components/helpers/SelectUnit';
 
 
 
 
 
-// --- (1) NEW: Define the static options for the status filter ---
-const ITEM_STATUS_OPTIONS = [
-    { label: "Active", value: "Active" },
-    { label: "Inactive", value: "Inactive" },
-];
 
 
 export default function ItemsPage() {
@@ -39,8 +34,8 @@ export default function ItemsPage() {
     const userData = useUserData();
 
     const { newItemDialog, toggleNewItemDialog } = useDialogStore();
-     const { UnitOptions, isunitOptionsLoading } = useNirmaanUnitOptions();
 
+    // Keep category list for display purposes (showing work package in table)
     const { data: categoryList, isLoading: categoryUiLoading, error: categoryUiError } = useFrappeGetDocList<CategoryType>(
         CATEGORY_DOCTYPE,
         {
@@ -49,14 +44,6 @@ export default function ItemsPage() {
             limit: 1000,
         },
         'category_list_for_item_page_ui'
-    );
-
-    const categoryFacetOptions = useMemo(() =>
-        categoryList?.map(cat => ({
-            label: `${cat.name} (${cat.work_package?.slice(0, 4).toUpperCase() || 'N/A'})`,
-            value: cat.name,
-        })) || [],
-        [categoryList]
     );
 
     const columns = useMemo<ColumnDef<ItemsType>[]>(() => [
@@ -72,7 +59,7 @@ export default function ItemsPage() {
             meta: {
                 exportHeaderName: "ID",
                 exportValue: (row: ItemsType) => {
-                    return row.name.slice(-6);
+                    return (row as ItemsType).name.slice(-6);
                 }
             }
         },
@@ -134,7 +121,7 @@ export default function ItemsPage() {
             size: 120,
             meta: {
                 exportHeaderName: "Status",
-                exportValue: (row: ItemsType) => row.item_status || "--"
+                exportValue: (row: any) => row.item_status || "--"
             }
         },
         {
@@ -152,6 +139,7 @@ export default function ItemsPage() {
     const {
         table, totalCount, isLoading: tableIsLoading, error: tableError,
         searchTerm, setSearchTerm, selectedSearchField, setSelectedSearchField,
+        columnFilters,
         refetch: refetchTable,
     } = useServerDataTable<ItemsType>({
         doctype: ITEM_DOCTYPE,
@@ -164,16 +152,55 @@ export default function ItemsPage() {
         shouldCache: true
     });
 
-    const facetFilterOptions = useMemo(() => ({
-        category: { title: "Category", options: categoryFacetOptions },
-        unit_name: { title: "Unit", options: UnitOptions },
-        item_status: { title: "Status", options: ITEM_STATUS_OPTIONS }, // Add new config
-    }), [categoryFacetOptions, UnitOptions]);
+    // Dynamic facet values for category
+    const {
+        facetOptions: categoryFacetOptions,
+        isLoading: isCategoryFacetLoading
+    } = useFacetValues({
+        doctype: ITEM_DOCTYPE,
+        field: 'category',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        enabled: true
+    });
 
-    const canManageItems = userData?.role === "Nirmaan Admin Profile"; // Define roles that can add/edit
+    // Dynamic facet values for unit
+    const {
+        facetOptions: unitFacetOptions,
+        isLoading: isUnitFacetLoading
+    } = useFacetValues({
+        doctype: ITEM_DOCTYPE,
+        field: 'unit_name',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        enabled: true
+    });
+
+    // Dynamic facet values for status
+    const {
+        facetOptions: statusFacetOptions,
+        isLoading: isStatusFacetLoading
+    } = useFacetValues({
+        doctype: ITEM_DOCTYPE,
+        field: 'item_status',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        enabled: true
+    });
+
+    const facetFilterOptions = useMemo(() => ({
+        category: { title: "Category", options: categoryFacetOptions, isLoading: isCategoryFacetLoading },
+        unit_name: { title: "Unit", options: unitFacetOptions, isLoading: isUnitFacetLoading },
+        item_status: { title: "Status", options: statusFacetOptions, isLoading: isStatusFacetLoading },
+    }), [categoryFacetOptions, isCategoryFacetLoading, unitFacetOptions, isUnitFacetLoading, statusFacetOptions, isStatusFacetLoading]);
+
+    const canManageItems = userData?.role === "Nirmaan Admin Profile" || userData?.role === "Nirmaan PMO Executive Profile"; // Define roles that can add/edit
 
     return (
-         <div className="h-[calc(100vh-80px)] flex flex-col gap-2 overflow-hidden">
+        <div className="h-[calc(100vh-80px)] flex flex-col gap-2 overflow-hidden">
 
             {/* <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"> */}
             <ItemsSummaryCard />

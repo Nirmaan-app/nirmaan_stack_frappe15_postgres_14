@@ -116,6 +116,7 @@ import { InvoiceDialog } from "../invoices-and-dcs/components/InvoiceDialog";
 import POAttachments from "./components/POAttachments";
 import POPaymentTermsCard from "./components/POPaymentTermsCard";
 import TransactionDetailsCard from "./components/TransactionDetailsCard";
+import PORemarks from "./components/PORemarks";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/RequestPaymentDialog"; // Import the dialog component
 import { DocumentAttachments } from "../invoices-and-dcs/DocumentAttachments";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
@@ -139,6 +140,10 @@ export const PurchaseOrder = ({
   const userData = useUserData();
   const estimatesViewing = useMemo(
     () => userData?.role === "Nirmaan Estimates Executive Profile",
+    [userData?.role]
+  );
+  const isAccountant = useMemo(
+    () => userData?.role === "Nirmaan Accountant Profile",
     [userData?.role]
   );
 
@@ -1042,11 +1047,12 @@ export const PurchaseOrder = ({
       !accountsPage &&
       PO?.custom != "true" &&
       !estimatesViewing &&
+      !isAccountant &&
       PO?.status === "PO Approved" &&
       PO?.merged !== "true" &&
       !((poPayments || [])?.length > 0) &&
       mergeablePOs.length > 0,
-    [PO, mergeablePOs, poPayments, summaryPage, accountsPage, estimatesViewing]
+    [PO, mergeablePOs, poPayments, summaryPage, accountsPage, estimatesViewing, isAccountant]
   );
 
   const CANCELPOVALIDATION = useMemo(
@@ -1055,10 +1061,11 @@ export const PurchaseOrder = ({
       !accountsPage &&
       !PO?.custom &&
       !estimatesViewing &&
+      !isAccountant &&
       ["PO Approved"].includes(PO?.status) &&
       !((poPayments || []).length > 0) &&
       PO?.merged !== "true",
-    [PO, poPayments, summaryPage, accountsPage, estimatesViewing]
+    [PO, poPayments, summaryPage, accountsPage, estimatesViewing, isAccountant]
   );
 
   const totalInvoiceAmount = useMemo(
@@ -1088,15 +1095,10 @@ export const PurchaseOrder = ({
       !summaryPage &&
       !accountsPage &&
       !estimatesViewing &&
+      !isAccountant &&
       ["PO Approved"].includes(PO?.status) &&
-      PO?.merged !== "true" && [
-        // !((poPayments || [])?.length > 0),
-        PO,
-        poPayments,
-        summaryPage,
-        accountsPage,
-        estimatesViewing,
-      ]
+      PO?.merged !== "true",
+    [PO, poPayments, summaryPage, accountsPage, estimatesViewing, isAccountant]
   );
 
   const UNMERGEPOVALIDATIONS = useMemo(
@@ -1105,8 +1107,9 @@ export const PurchaseOrder = ({
       !accountsPage &&
       !PO?.custom &&
       !estimatesViewing &&
+      !isAccountant &&
       PO?.merged === "true",
-    [PO, summaryPage, accountsPage, estimatesViewing]
+    [PO, summaryPage, accountsPage, estimatesViewing, isAccountant]
   );
 
   if (isRedirecting) {
@@ -1535,6 +1538,7 @@ export const PurchaseOrder = ({
           </AccordionItem>
         </Accordion>
       </Card>
+
       {/* PO Attachments Accordion */}
 
       {PO?.status && (
@@ -2284,6 +2288,13 @@ export const PurchaseOrder = ({
           deliveryData={deliveryHistory.data}
           onPrintHistory={triggerHistoryPrint}
         />
+      )}
+
+      {/* PO Remarks Section */}
+      {poId && (
+        <Card className="rounded-sm md:col-span-3 p-2">
+          <PORemarks poId={poId} />
+        </Card>
       )}
 
       {/* {["Delivered", "Partially Delivered","PO Approved","Dispatched"].includes(PO?.status) && (

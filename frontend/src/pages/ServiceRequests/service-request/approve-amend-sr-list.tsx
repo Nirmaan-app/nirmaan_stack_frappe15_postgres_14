@@ -11,6 +11,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
+import { useFacetValues } from '@/hooks/useFacetValues';
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
@@ -104,14 +105,14 @@ export const ApproveSelectAmendSR: React.FC = () => {
                             {srId?.slice(-5)}
                         </Link>
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                            <ItemsHoverCard parentDocId={data} parentDoctype="Service Requests" childTableName="service_order_list" isSR />
+                            <ItemsHoverCard parentDoc={data} parentDoctype="Service Requests" childTableName="service_order_list" isSR />
                         </div>
                     </div>
                 );
             }, size: 150,
             meta: {
                 exportHeaderName: "SR ID",
-                exportValue: (row) => row.name,
+                exportValue: (row: ServiceRequests) => row.name,
             }
         },
         {
@@ -120,7 +121,7 @@ export const ApproveSelectAmendSR: React.FC = () => {
             size: 150,
             meta: {
                 exportHeaderName: "Created On",
-                exportValue: (row) => formatDate(row.creation),
+                exportValue: (row: ServiceRequests) => formatDate(row.creation),
             }
         },
         {
@@ -132,7 +133,7 @@ export const ApproveSelectAmendSR: React.FC = () => {
             enableColumnFilter: true, size: 200,
             meta: {
                 exportHeaderName: "Project",
-                exportValue: (row) => {
+                exportValue: (row: ServiceRequests) => {
                     const project = projectOptions.find(p => p.value === row.project);
                     return project?.label || row.project;
                 }
@@ -145,7 +146,7 @@ export const ApproveSelectAmendSR: React.FC = () => {
             enableColumnFilter: true, size: 200,
             meta: {
                 exportHeaderName: "Vendor",
-                exportValue: (row) => getVendorName(row.vendor),
+                exportValue: (row: ServiceRequests) => getVendorName(row.vendor),
             }
         },
         {
@@ -156,7 +157,7 @@ export const ApproveSelectAmendSR: React.FC = () => {
             }, size: 180,
             meta: {
                 exportHeaderName: "Created By",
-                exportValue: (row) => {
+                exportValue: (row: ServiceRequests) => {
                     const ownerUser = userList?.find((entry) => row.owner === entry.name);
                     return ownerUser?.full_name || row.owner || "--";
                 }
@@ -168,20 +169,12 @@ export const ApproveSelectAmendSR: React.FC = () => {
             size: 150, enableSorting: false,
             meta: {
                 exportHeaderName: "Amended Value",
-                exportValue: (row) => formatForReport(getTotalAmount(row.name, 'Service Requests')?.totalWithTax),
+                exportValue: (row: ServiceRequests) => formatForReport(getTotalAmount(row.name, 'Service Requests')?.totalWithTax),
             }
         }
     ], [notifications, projectOptions, vendorOptions, userList, handleNewSRSeen, getVendorName, getTotalAmount]);
 
-
-    // --- Faceted Filter Options ---
-    const facetFilterOptions = useMemo(() => ({
-        project: { title: "Project", options: projectOptions },
-        vendor: { title: "Vendor", options: vendorOptions },
-    }), [projectOptions, vendorOptions]);
-
-
-    // --- Use the Server Data Table Hook ---
+    // --- (MOVED UP) Use the Server Data Table Hook ---
     const {
         table, data, totalCount, isLoading: listIsLoading, error: listError,
         // globalFilter, setGlobalFilter,
@@ -190,6 +183,7 @@ export const ApproveSelectAmendSR: React.FC = () => {
         searchTerm, setSearchTerm,
         isRowSelectionActive,
         refetch,
+        columnFilters // NEW
     } = useServerDataTable<ServiceRequests>({
         doctype: DOCTYPE,
         columns: columns,
@@ -202,6 +196,41 @@ export const ApproveSelectAmendSR: React.FC = () => {
         enableRowSelection: false, // For bulk approval
         additionalFilters: staticFilters,
     });
+
+    // --- Dynamic Facet Values ---
+    const { facetOptions: projectFacetOptions, isLoading: isProjectFacetLoading } = useFacetValues({
+        doctype: DOCTYPE,
+        field: 'project',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        additionalFilters: staticFilters,
+        enabled: true
+    });
+
+    const { facetOptions: vendorFacetOptions, isLoading: isVendorFacetLoading } = useFacetValues({
+        doctype: DOCTYPE,
+        field: 'vendor',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        additionalFilters: staticFilters,
+        enabled: true
+    });
+
+    // --- Faceted Filter Options ---
+    const facetFilterOptions = useMemo(() => ({
+        project: { title: "Project", options: projectFacetOptions, isLoading: isProjectFacetLoading },
+        vendor: { title: "Vendor", options: vendorFacetOptions, isLoading: isVendorFacetLoading },
+    }), [projectFacetOptions, isProjectFacetLoading, vendorFacetOptions, isVendorFacetLoading]);
+
+
+    // --- Faceted Filter Options ---
+
+
+
+    // --- Use the Server Data Table Hook ---
+
 
 
     // --- Combined Loading & Error States ---

@@ -516,14 +516,14 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
         if (linkOrAttachmentChoice === 'attachment' && formData.file) {
             try {
                 const fileResponse = await upload(formData.file, {
-                    isPrivate: 0, 
-                    attachedToName: projectName,
-                    attachedToDoctype: 'Projects',
-                    // attachedToFieldName: 'customer_po_attachment', // Not needed for file DocType
+                    isPrivate: true,  // Must be private to avoid S3 ACL issues
+                    doctype: 'Projects',
+                    docname: projectName,
+                    fieldname: 'customer_po_attachment',
                 });
-                
+
                 // Frappe file upload returns the file URL or file name in 'file_url'
-                finalAttachmentName = fileResponse.file_url; 
+                finalAttachmentName = fileResponse.file_url;
             } catch (error: any) {
                 console.error("Failed to upload file:", error);
                 const errorMessage = error?.messages?.[0]?.message || error?.message || "An unknown error occurred during file upload.";

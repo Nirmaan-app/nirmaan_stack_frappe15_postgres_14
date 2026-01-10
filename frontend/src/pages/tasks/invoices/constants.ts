@@ -14,3 +14,5 @@ export const INVOICE_TASK_TABS = {
 export const INVOICE_TASK_TYPE = "po_invoice_approval";
 
 export const API_UPDATE_INVOICE_TASK_STATUS = "nirmaan_stack.api.tasks.update_task_status.update_invoice_task_status";
+
+export const API_UPDATE_INVOICE_RECONCILIATION = "nirmaan_stack.api.invoices.update_invoice_reconciliation.update_invoice_reconciliation";

@@ -25,6 +25,7 @@ import PaymentSummaryCards from "../PaymentSummaryCards";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
+import { useFacetValues } from '@/hooks/useFacetValues';
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getPOTotal, getSRTotal, getTotalAmountPaid } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
@@ -37,7 +38,7 @@ import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { DEFAULT_PP_FIELDS_TO_FETCH, PP_DATE_COLUMNS, PP_SEARCHABLE_FIELDS } from "../config/projectPaymentsTable.config";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
-import {useSWRConfig} from 'swr'
+import { useSWRConfig } from 'swr'
 
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
@@ -49,7 +50,7 @@ interface SelectOption { label: string; value: string; }
 export const ApprovePayments: React.FC = () => {
     const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
-     const { mutate } = useSWRConfig();
+    const { mutate } = useSWRConfig();
     // --- State for Dialogs ---
     const [selectedPayment, setSelectedPayment] = useState<ProjectPayments | null>(null);
     const [dialogActionType, setDialogActionType] = useState<DialogActionType>(DIALOG_ACTION_TYPES.APPROVE);
@@ -104,7 +105,7 @@ export const ApprovePayments: React.FC = () => {
     const getDocumentTotal = useMemo(() => memoize((docName: string, docType: string) => {
         if (docType === DOC_TYPES.PROCUREMENT_ORDERS) {
             const order = purchaseOrders?.find(po => po.name === docName);
-            return order?.total_amount||0;
+            return order?.total_amount || 0;
         } else if (docType === DOC_TYPES.SERVICE_REQUESTS) {
             const order = serviceOrders?.find(sr => sr.name === docName);
             if (!order || !order.service_order_list?.list) return 0;
@@ -255,7 +256,7 @@ export const ApprovePayments: React.FC = () => {
                     <HoverCard><HoverCardTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-green-600 hover:text-green-700" onClick={() => openDialog(row.original, DIALOG_ACTION_TYPES.APPROVE)}><CircleCheck className="h-5 w-5" /></Button></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">Approve</HoverCardContent></HoverCard>
 
                     <HoverCard><HoverCardTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-red-600 hover:text-red-700" onClick={() => openDialog(row.original, DIALOG_ACTION_TYPES.REJECT)}><CircleX className="h-5 w-5" /></Button></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">Reject</HoverCardContent></HoverCard>
-                    
+
                     {/* <HoverCard><HoverCardTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-blue-600 hover:text-blue-700" onClick={() => openDialog(row.original, DIALOG_ACTION_TYPES.EDIT)}><SquarePen className="h-4 w-4" /></Button></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">Edit & Approve</HoverCardContent></HoverCard> */}
                 </div>
             ), size: 120,
@@ -265,14 +266,49 @@ export const ApprovePayments: React.FC = () => {
         },
     ], [notifications, projectOptions, vendorOptions, userList, handleNewPaymentSeen, openDialog, getDocumentTotal, getAmountPaid, allPaidPayments]);
 
+    // --- useServerDataTable Hook Instantiation (moved up for columnFilters access) ---
+    const {
+        table, data, totalCount, isLoading: listIsLoading, error: listError,
+        selectedSearchField, setSelectedSearchField,
+        searchTerm, setSearchTerm,
+        isRowSelectionActive,
+        refetch,
+        columnFilters,
+    } = useServerDataTable<ProjectPayments>({
+        doctype: DOCTYPE,
+        columns: columns,
+        fetchFields: fieldsToFetchPP,
+        searchableFields: ppSearchableFields,
+        urlSyncKey: URL_SYNC_KEY,
+        defaultSort: 'creation desc',
+        enableRowSelection: false,
+        additionalFilters: staticFilters,
+    });
+
+    // --- Dynamic Facet Values with Counts ---
+    const { facetOptions: projectFacetOptions, isLoading: isProjectFacetLoading } = useFacetValues({
+        doctype: DOCTYPE,
+        field: 'project',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        additionalFilters: staticFilters,
+    });
+
+    const { facetOptions: vendorFacetOptions, isLoading: isVendorFacetLoading } = useFacetValues({
+        doctype: DOCTYPE,
+        field: 'vendor',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        additionalFilters: staticFilters,
+    });
 
     // --- Faceted Filter Options ---
     const facetFilterOptions = useMemo(() => ({
-        project: { title: "Project", options: projectOptions },
-        vendor: { title: "Vendor", options: vendorOptions },
-        // Add document_type if needed:
-        // document_type: { title: "Doc Type", options: [{label: "PO", value:"Procurement Orders"}, {label:"SR", value:"Service Requests"}]}
-    }), [projectOptions, vendorOptions]);
+        project: { title: "Project", options: projectFacetOptions, isLoading: isProjectFacetLoading },
+        vendor: { title: "Vendor", options: vendorFacetOptions, isLoading: isVendorFacetLoading },
+    }), [projectFacetOptions, isProjectFacetLoading, vendorFacetOptions, isVendorFacetLoading]);
 
     // --- Update Logic using useFrappeUpdateDoc ---
     const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
@@ -284,13 +320,13 @@ export const ApprovePayments: React.FC = () => {
             await updateDoc(DOCTYPE, selectedPayment.name, {
                 status: newStatus,
                 amount: amount, // Already a number
-                approval_date: formatDate(new Date(), 'YYYY-MM-DD'),    
+                approval_date: formatDate(new Date(), 'YYYY-MM-DD'),
                 ...(payment_details && { payment_details: JSON.stringify(payment_details) }) // Add UTR, Date etc.
             });
             refetch();
             closeDialog();
 
-        //    mutate("payment_dashboard_stats_summary")
+            //    mutate("payment_dashboard_stats_summary")
 
             toast({ title: "Success!", description: `Payment ${actionType} successfully!`, variant: "success" });
             // Refetch is handled by useServerDataTable on data change (via useFrappeDocTypeEventListener)
@@ -301,27 +337,7 @@ export const ApprovePayments: React.FC = () => {
     }, [selectedPayment, updateDoc, closeDialog, toast]);
 
 
-    // --- useServerDataTable Hook Instantiation ---
-    const {
-        table, data, totalCount, isLoading: listIsLoading, error: listError,
-        // globalFilter, setGlobalFilter,
-        // isItemSearchEnabled, toggleItemSearch, showItemSearchToggle,
-        selectedSearchField, setSelectedSearchField,
-        searchTerm, setSearchTerm,
-        isRowSelectionActive,
-        refetch,
-    } = useServerDataTable<ProjectPayments>({
-        doctype: DOCTYPE,
-        columns: columns,
-        fetchFields: fieldsToFetchPP,
-        searchableFields: ppSearchableFields,
-        // globalSearchFieldList: globalSearchFields,
-        // enableItemSearch: false, // Item search not applicable to ProjectPayments main doc
-        urlSyncKey: URL_SYNC_KEY,
-        defaultSort: 'creation desc',
-        enableRowSelection: false, // No bulk actions defined yet for payment requests
-        additionalFilters: staticFilters,
-    });
+    // --- useServerDataTable Hook moved up above facets for columnFilters access ---
 
     // --- Combined Loading & Error States ---
     const isPageLoading = projectsLoading || vendorsLoading || userListLoading || poLoading || srLoading || paidPaymentsLoading;
@@ -333,7 +349,7 @@ export const ApprovePayments: React.FC = () => {
     }
 
     return (
-         <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'max-h-[calc(100vh-80px)] overflow-hidden' : ''}`}>
+        <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'max-h-[calc(100vh-80px)] overflow-hidden' : ''}`}>
             {isPageLoading && !data?.length ? (
                 <TableSkeleton />
             ) : (

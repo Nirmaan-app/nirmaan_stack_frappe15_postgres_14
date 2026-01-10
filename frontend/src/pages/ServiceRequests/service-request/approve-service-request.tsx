@@ -17,10 +17,10 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { TailSpin } from "react-loader-spinner"
 import { useNavigate, useParams } from "react-router-dom"
 
-export const ApproveServiceRequest : React.FC = () => {
+export const ApproveServiceRequest: React.FC = () => {
     const { srId: id } = useParams<{ srId: string }>()
 
-    if(!id) return <div>No Service Request ID Provided</div>
+    if (!id) return <div>No Service Request ID Provided</div>
 
     const navigate = useNavigate()
     const [serviceOrderData, setServiceOrderData] = useState<ServiceItemType[] | null>(null)
@@ -38,20 +38,20 @@ export const ApproveServiceRequest : React.FC = () => {
             description: `Service Requests ${event.name} has been modified.`,
         });
         srMutate(); // Re-fetch this specific document
-      },
-      true // emitOpenCloseEventsOnMount (default)
-      )
+    },
+        true // emitOpenCloseEventsOnMount (default)
+    )
 
     const { data: serviceVendor, isLoading: serviceVendor_loading } = useFrappeGetDoc("Vendors", service_request?.vendor, service_request ? service_request?.vendor : null)
 
     const { data: usersList, isLoading: usersListLoading } = useUsersList()
 
     const { data: universalComment, isLoading: universalCommentLoading } = useFrappeGetDocList<NirmaanComments>("Nirmaan Comments", {
-            fields: ["*"],
-            filters: [["reference_name", "=", id]]
-        },
+        fields: ["*"],
+        filters: [["reference_name", "=", id]]
+    },
         id ? undefined : null
-      )
+    )
 
     const { createDoc: createDoc } = useFrappeCreateDoc()
     const { updateDoc: updateDoc } = useFrappeUpdateDoc()
@@ -77,7 +77,7 @@ export const ApproveServiceRequest : React.FC = () => {
     // }, [serviceOrderData]);
 
     const groupedData = useMemo(() => {
-        return (serviceOrderData || [])?.reduce((acc : Record<string, { items :ServiceItemType[], total : number, totalWithGST : number}>, item) => {
+        return (serviceOrderData || [])?.reduce((acc: Record<string, { items: ServiceItemType[], total: number, totalWithGST: number }>, item) => {
             const category = item.category
             acc[category] = acc[category] || { items: [], total: 0, totalWithGST: 0 }
             acc[category].items.push(item)
@@ -227,15 +227,15 @@ export const ApproveServiceRequest : React.FC = () => {
         }
     }
 
-    const getUserName = useCallback((id : string | undefined) => {
+    const getUserName = useCallback((id: string | undefined) => {
         return usersList?.find((user) => user?.name === id)?.full_name || ""
     }, [usersList]);
 
-    if(serviceVendor_loading || service_request_loading || usersListLoading || universalCommentLoading) {
+    if (serviceVendor_loading || service_request_loading || usersListLoading || universalCommentLoading) {
         return (
             <LoadingFallback />
         )
-    } 
+    }
 
 
     if (service_request?.status !== "Vendor Selected") return (
@@ -268,11 +268,11 @@ export const ApproveServiceRequest : React.FC = () => {
     );
 
     return (
-            <div className="flex-1 space-y-4">
-                <div className="space-y-2">
-                    <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Approve/Reject</h2>
-                    <ProcurementActionsHeaderCard orderData={service_request} sr={true} />
-                </div>
+        <div className="flex-1 space-y-4">
+            <div className="space-y-2">
+                <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Approve/Reject</h2>
+                <ProcurementActionsHeaderCard orderData={service_request} sr={true} />
+            </div>
 
             <div className="overflow-x-auto">
                 <ConfigProvider
@@ -387,7 +387,7 @@ export const ApproveServiceRequest : React.FC = () => {
                 <h2 className="text-base pl-2 font-bold tracking-tight">SR Comments</h2>
                 <RenderPRorSBComments universalComment={universalComment} getUserName={getUserName} />
             </div>
-            </div>
+        </div>
     )
 }
 

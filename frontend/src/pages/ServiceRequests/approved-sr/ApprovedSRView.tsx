@@ -13,6 +13,7 @@ import { SRNewPaymentDialog } from './components/SRNewPaymentDialog';
 import { SRRequestPaymentDialog } from './components/SRRequestPaymentDialog';
 import { SRInvoicePreviewSheet } from './components/SRInvoicePreviewSheet';
 import { SRActionButtons } from './components/SRActionButtons';
+import { SRRemarks } from './components/SRRemarks';
 import { InvoiceDialog } from "@/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceDialog"; // Your existing
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { useApprovedSRData } from './hooks/useApprovedSRData';
@@ -94,7 +95,7 @@ export const ApprovedSRView: React.FC<ApprovedSRViewProps> = ({
     const canAddInvoice = !summaryPage && serviceRequest?.status === "Approved"; // Or other relevant statuses
     const canAmend = !summaryPage && !accountsPage && serviceRequest?.status === "Approved"; // Conditions for amend
     const canDeleteSR = !summaryPage && !accountsPage &&
-        (serviceRequest?.owner === useUserData().user_id || currentUserRole === "Nirmaan Admin Profile") &&
+        (serviceRequest?.owner === useUserData().user_id || currentUserRole === "Nirmaan Admin Profile" || currentUserRole === "Nirmaan PMO Executive Profile") &&
         (!payments || payments.length === 0) && // Cannot delete if payments exist
         (!serviceRequest?.invoice_data?.data || Object.keys(serviceRequest.invoice_data.data).length === 0); // Cannot delete if invoices exist
 
@@ -166,6 +167,9 @@ export const ApprovedSRView: React.FC<ApprovedSRViewProps> = ({
                         />
                     </div>
                 </div>
+
+                {/* SR Remarks Section */}
+                <SRRemarks srId={serviceRequest.name} />
             </div>
 
             {/* Dialogs and Sheets */}

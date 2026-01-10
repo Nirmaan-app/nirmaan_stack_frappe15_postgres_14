@@ -20,7 +20,7 @@ export default function InvoiceReconciliationContainer() {
     // --- Tab State Management ---
     const initialTab = useMemo(() => {
         // Determine initial tab based on role, default to "Approved PO" if not admin/lead
-        const defaultTab = ["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role) ? INVOICE_TASK_TABS.PENDING : INVOICE_TASK_TABS.HISTORY;
+        const defaultTab = ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile"].includes(role) ? INVOICE_TASK_TABS.PENDING : INVOICE_TASK_TABS.HISTORY;
         return getUrlStringParam("tab", defaultTab);
     }, [role]); // Calculate only once based on role
     
@@ -48,7 +48,7 @@ export default function InvoiceReconciliationContainer() {
 
 
     const tabs = useMemo(() => [
-            ...(["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role) ? [
+            ...(["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile"].includes(role) ? [
                 {
                     label: (
                         <div className="flex items-center">

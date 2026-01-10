@@ -43,9 +43,12 @@ import Cookies from "js-cookie";
 import {
   LayoutGrid,
   List,
+  Package,
   Shapes,
   ShoppingCart,
-  SquareSquare
+  SquareSquare,
+  Store,
+  UsersRound
 } from "lucide-react";
 import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -200,7 +203,7 @@ export function NewSidebar() {
 
   const items = useMemo(() => [
     { key: "/", icon: LayoutGrid, label: "Dashboard" },
-    ...(user_id == "Administrator" || role == "Nirmaan Admin Profile"
+    ...(user_id == "Administrator" || role == "Nirmaan Admin Profile" || role == "Nirmaan PMO Executive Profile"
       ? [
         {
           key: "admin-actions",
@@ -210,12 +213,13 @@ export function NewSidebar() {
             { key: "/projects", label: "Projects" },
             { key: "/users", label: "Users" },
             { key: "/products", label: "Products" },
+            { key: "/asset-management", label: "Assets" },
             { key: "/vendors", label: "Vendors" },
             { key: "/customers", label: "Customers" },
             { key: "/product-packages", label: "Product Packages" },
             { key: "/milestone-packages", label: "Milestone Packages" },
             { key: "/design-packages", label: "Design Packages" },
-            ...(user_id == "Administrator" || role == "Nirmaan Project Lead Profile"
+            ...(user_id == "Administrator" || role == "Nirmaan Admin Profile" || role == "Nirmaan PMO Executive Profile" || role == "Nirmaan Project Lead Profile"
               ? [{ key: "/critical-po-categories", label: "Critical PO Categories" }]
               : []),
             // { key: "/all-AQs", label: "Approved Quotations" },
@@ -224,12 +228,40 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(role == "Nirmaan Project Lead Profile"
+    ...(role == "Nirmaan HR Executive Profile"
+      ? [
+        {
+          key: "/users",
+          icon: UsersRound,
+          label: "Users",
+        },
+        {
+          key: "/asset-management",
+          icon: Package,
+          label: "Assets",
+        },
+      ]
+      : []),
+    ...(role == "Nirmaan Project Lead Profile" || role == "Nirmaan Accountant Profile"
       ? [
         {
           key: "/projects",
           icon: BlendIcon,
           label: "Projects",
+        },
+      ]
+      : []),
+    ...(role == "Nirmaan Accountant Profile"
+      ? [
+        {
+          key: "/vendors",
+          icon: Store,
+          label: "Vendors",
+        },
+        {
+          key: "/customers",
+          icon: UsersRound,
+          label: "Customers",
         },
       ]
       : []),
@@ -313,7 +345,7 @@ export function NewSidebar() {
     //   ]
     // : []),
 
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile"].includes(role)
       ? [
         {
           key: '/item-price',
@@ -326,6 +358,7 @@ export function NewSidebar() {
     ...([
       "Nirmaan Procurement Executive Profile",
       "Nirmaan Admin Profile",
+      "Nirmaan PMO Executive Profile",
       "Nirmaan Project Lead Profile"
     ].includes(role) || user_id == "Administrator"
       ? [
@@ -333,33 +366,25 @@ export function NewSidebar() {
           key: "/procurement-requests",
           icon: List,
           label: "Procurement Requests",
-          // count: role === "Nirmaan Admin Profile" ||
-          //         user_id === "Administrator"
-          //         ? adminPrCounts.approved
-          //         : prCounts.approved,
         },
-        // {
-        //   key: "/service-requests",
-        //   icon: SquareSquare,
-        //   label: "Work Orders",
-        //   // count: role === "Nirmaan Admin Profile" ||
-        //   //         user_id === "Administrator"
-        //   //         ? (adminPendingSRCount || 0) + (adminApprovedSRCount || 0)
-        //   //         : (pendingSRCount || 0) + (approvedSRCount || 0),
-        // },
+      ]
+      : []),
+    ...(user_id == "Administrator" || [
+      "Nirmaan Procurement Executive Profile",
+      "Nirmaan Admin Profile",
+      "Nirmaan PMO Executive Profile",
+      "Nirmaan Project Lead Profile",
+      "Nirmaan Accountant Profile"
+    ].includes(role)
+      ? [
         {
           key: "/purchase-orders",
           icon: ShoppingCart,
           label: "Purchase Orders",
-          // count:
-          //      role === "Nirmaan Admin Profile" ||
-          //      user_id === "Administrator"
-          //        ? adminNewPOCount
-          //        : newPOCount,
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
       ? [
 
         {
@@ -391,7 +416,7 @@ export function NewSidebar() {
     //       },
     //     ]
     //   : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role)
       ? [
         {
           key: '/project-payments',
@@ -400,7 +425,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
       ? [
         {
           key: '/credits',
@@ -411,7 +436,7 @@ export function NewSidebar() {
       ]
       : []),
 
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role)
       ? [
         {
           key: '/in-flow-payments',
@@ -420,7 +445,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Procurement Executive Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile"].includes(role)
       ? [
         {
           key: '/invoice-reconciliation',
@@ -429,7 +454,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role)
       ? [
         {
           key: '/project-invoices',
@@ -438,7 +463,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role)
       ? [
         {
           key: '/project-expenses',
@@ -447,7 +472,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role)
       ? [
         {
           key: '/non-project',
@@ -456,7 +481,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile"].includes(role)
       ? [
         {
           key: '/reports',
@@ -465,7 +490,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Design Lead Profile", "Nirmaan Admin Profile", "Nirmaan Design Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Design Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Design Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role)
       ? [
         {
           key: '/design-tracker',
@@ -482,6 +507,7 @@ export function NewSidebar() {
     "projects",
     "users",
     "products",
+    "asset-management",
     "vendors",
     "customers",
     "product-packages",
@@ -526,19 +552,15 @@ export function NewSidebar() {
 
 
   const groupMappings = useMemo(() => ({
-    "admin-actions": ["users", "products", "vendors", "customers", "product-packages", "milestone-packages", "design-packages", "critical-po-categories", "all-AQs"],
-    // "admin-actions": ["users", "products", "vendors", "customers", "product-packages", "approved-quotes","vendors-aq2"],
-    // "pl-actions": [
-    //   "prs&milestones", "approve-po", "approve-sent-back",
-    //   "approve-amended-po", "approve-payments"
-    // ],
-    // "/approved-quotes": ["approved-quotes"],
+    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "product-packages", "milestone-packages", "design-packages", "critical-po-categories", "all-AQs"],
+    "/asset-management": ["asset-management"],
+    "/projects": ["projects"],
+    "/vendors": ["vendors"],
+    "/customers": ["customers"],
     "/item-price": ["item-price"],
-
     "/procurement-requests": ["procurement-requests", "prs&milestones", "sent-back-requests"],
     "/service-requests": ["service-requests", "service-requests-list"],
     "/purchase-orders": ["purchase-orders"],
-    // "/sent-back-requests": ["sent-back-requests"],
     "/project-payments": ["project-payments"],
     "/credits": ["credits"],
     "/in-flow-payments": ["in-flow-payments"],
@@ -551,14 +573,21 @@ export function NewSidebar() {
   }), []);
 
   const openKey = useMemo(() => {
+    // For roles with standalone menu items, prioritize standalone routes
+    const standaloneRoles = ["Nirmaan Project Lead Profile", "Nirmaan Accountant Profile"];
+    const isStandaloneRole = standaloneRoles.includes(role);
+
+    // Check standalone routes first for standalone roles
+    if (isStandaloneRole) {
+      if (selectedKeys === "projects") return "/projects";
+      if (selectedKeys === "vendors") return "/vendors";
+      if (selectedKeys === "customers") return "/customers";
+    }
+
     for (const [group, keys] of Object.entries(groupMappings)) {
       if (keys.includes(selectedKeys)) return group;
     }
-    return selectedKeys === "projects"
-      ? role === "Nirmaan Project Lead Profile"
-        ? "/projects"
-        : "admin-actions"
-      : "";
+    return "";
   }, [selectedKeys, role, groupMappings]);
 
 
@@ -580,15 +609,15 @@ export function NewSidebar() {
 
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader className="flex flex-row items-center justify-center">
+      <SidebarHeader className="h-14 min-h-[56px] flex flex-row items-center justify-between px-3 border-b border-border/40">
         {!isMobile ? (
-          state === "expanded" && (
-            <Link to={"/"}>
+          state === "expanded" ? (
+            <Link to={"/"} className="flex items-center">
               <img src={logo} alt="Nirmaan" width="140" height="40" />
             </Link>
-          )
+          ) : null
         ) : (
-          <Link to={"/"}>
+          <Link to={"/"} className="flex items-center">
             <img
               onClick={handleCloseMobile}
               src={logo}
@@ -599,10 +628,9 @@ export function NewSidebar() {
           </Link>
         )}
         <SidebarTrigger
-          className={`${state === "expanded" && "bg-gray-100"}`}
+          className={`${state === "expanded" ? "bg-gray-100" : "mx-auto"}`}
         />
       </SidebarHeader>
-      <Separator />
       <SidebarContent className="scrollbar-container overflow-x-hidden">
         <SidebarGroup>
           <SidebarMenu>
@@ -617,7 +645,7 @@ export function NewSidebar() {
                 <SidebarMenuItem>
 
                   {new Set(["Dashboard", "Item Price Search", "Procurement Requests", "Purchase Orders", "Project Payments", "Credit Payments", "Sent Back Requests", "Projects", "Work Orders", "In-Flow Payments", "Invoice Recon", "Reports",
-                    "Design Tracker", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses"]).has(item?.label) ? (
+                    "Design Tracker", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses", "Users", "Assets", "Vendors", "Customers"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
                         ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"

@@ -1,0 +1,15 @@
+{
+  "python": {
+    "command": "pyright-langserver",
+    "args": ["--stdio"],
+    "extensionToLanguage": {
+      ".py": "python",
+      ".pyi": "python"
+    },
+    "env": {
+      "PYTHONPATH": "/workspace/development/frappe-bench/apps/frappe:/workspace/development/frappe-bench/apps/nirmaan_stack:/workspace/development/frappe-bench/apps/doppio:/workspace/development/frappe-bench/apps/frappe_s3_attachment:/workspace/development/frappe-bench/apps/frappe_types"
+    },
+    "startupTimeout": 10000,
+    "restartOnCrash": true
+  }
+}

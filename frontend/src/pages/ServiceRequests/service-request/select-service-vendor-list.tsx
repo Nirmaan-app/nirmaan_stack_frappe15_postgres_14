@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
+import { useFacetValues } from '@/hooks/useFacetValues';
 import { useUserData } from "@/hooks/useUserData";
 import { formatDate } from "@/utils/FormatDate";
 
@@ -182,9 +183,9 @@ export const SelectServiceVendorList: React.FC = () => {
             cell: ({ row }) => {
                 const serviceRequest = row.original;
                 // const deleteddisabled=serviceRequest.status==="Vendor Selected";
-                const canDelete = serviceRequest.owner === user_id || ["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role);
+                const canDelete = serviceRequest.owner === user_id || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile"].includes(role);
 
-                const canEdit = serviceRequest.owner === user_id || ["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role);
+                const canEdit = serviceRequest.owner === user_id || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile"].includes(role);
                 if (!canEdit) return "--";
 
                 return (
@@ -212,20 +213,7 @@ export const SelectServiceVendorList: React.FC = () => {
         },
     ], [projectOptions, userList, role, user_id]); // Dependencies
 
-    // --- Faceted Filter Options ---
-    const statusOptions = useMemo(() => [
-        { label: "Created", value: "Created" },
-        { label: "Rejected", value: "Rejected" },
-        { label: "Edit", value: "Edit" },
-        { label: "Vendor Selected", value: "Vendor Selected" }
-    ], []);
-
-    const facetFilterOptions = useMemo(() => ({
-        project: { title: "Project", options: projectOptions },
-        status: { title: "Status", options: statusOptions },
-    }), [projectOptions, statusOptions]);
-
-    // --- Use the Server Data Table Hook ---
+    // --- (MOVED UP) Use the Server Data Table Hook ---
     const {
         table, data, totalCount, isLoading: listIsLoading, error: listError,
         // globalFilter, setGlobalFilter,
@@ -234,6 +222,7 @@ export const SelectServiceVendorList: React.FC = () => {
         searchTerm, setSearchTerm,
         isRowSelectionActive,
         refetch,
+        columnFilters // NEW
     } = useServerDataTable<ServiceRequests>({
         doctype: DOCTYPE,
         columns: columns,
@@ -246,6 +235,37 @@ export const SelectServiceVendorList: React.FC = () => {
         enableRowSelection: false, // For potential bulk actions
         additionalFilters: staticFilters,
     });
+
+    // --- Dynamic Facet Values ---
+    const { facetOptions: projectFacetOptions, isLoading: isProjectFacetLoading } = useFacetValues({
+        doctype: DOCTYPE,
+        field: 'project',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        additionalFilters: staticFilters,
+        enabled: true
+    });
+
+    // Status options are static, no need to dynamic fetch unless we want dynamic counts
+    const statusOptions = useMemo(() => [
+        { label: "Created", value: "Created" },
+        { label: "Rejected", value: "Rejected" },
+        { label: "Edit", value: "Edit" },
+        { label: "Vendor Selected", value: "Vendor Selected" }
+    ], []);
+
+    // --- Faceted Filter Options ---
+    const facetFilterOptions = useMemo(() => ({
+        project: { title: "Project", options: projectFacetOptions, isLoading: isProjectFacetLoading },
+        status: { title: "Status", options: statusOptions },
+    }), [projectFacetOptions, isProjectFacetLoading, statusOptions]);
+
+    // --- Faceted Filter Options ---
+
+
+    // --- Use the Server Data Table Hook ---
+
 
     // Use the custom hook for deletion logic
     const { deleteServiceRequest, isDeleting } = useServiceRequestLogic({
@@ -294,7 +314,7 @@ export const SelectServiceVendorList: React.FC = () => {
     }
 
     return (
-       <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'h-[calc(100vh-80px)] overflow-hidden' : ''}`}>
+        <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'h-[calc(100vh-80px)] overflow-hidden' : ''}`}>
             {isLoading ? (
                 <TableSkeleton />
             ) : (

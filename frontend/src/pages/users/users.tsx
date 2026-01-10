@@ -1,20 +1,23 @@
-import React, { useMemo, useState, useEffect, useContext } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import { ColumnDef } from "@tanstack/react-table";
-import { Link, useNavigate } from "react-router-dom";
-import { FrappeConfig, FrappeContext, useFrappeGetCall, useFrappeGetDocCount, useFrappePostCall } from "frappe-react-sdk";
+import { Link } from "react-router-dom";
+import { useFrappeGetDocCount, useFrappePostCall } from "frappe-react-sdk";
 
 // --- UI Components ---
-import { DataTable, SearchFieldOption } from '@/components/data-table/new-data-table'; // Your new DataTable
+import { DataTable, SearchFieldOption } from '@/components/data-table/new-data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { ArrowLeft, UsersRound, CirclePlus } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { UsersRound, ChevronDown } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
+import { useFacetValues } from '@/hooks/useFacetValues';
 import { formatDate } from "@/utils/FormatDate";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
+import { getRoleColors, ROLE_OPTIONS } from "@/utils/roleColors";
+import { RoleBadge, UserRowActions } from "./components";
+import { cn } from "@/lib/utils";
 
 export const USER_DOCTYPE = 'Nirmaan Users';
 
@@ -36,22 +39,73 @@ export const USER_SEARCHABLE_FIELDS: SearchFieldOption[] = [
 
 export const USER_DATE_COLUMNS: string[] = ["creation", "modified"];
 
-export const USER_ROLE_PROFILE_OPTIONS = [
-    { label: "Admin", value: "Nirmaan Admin Profile" }, // Shortened for display if needed
-    { label: "Project Lead", value: "Nirmaan Project Lead Profile" },
-    { label: "Project Manager", value: "Nirmaan Project Manager Profile" },
-    { label: "Procurement Executive", value: "Nirmaan Procurement Executive Profile" },
-    { label: "Accountant", value: "Nirmaan Accountant Profile" },
-    { label: "Estimates Executive", value: "Nirmaan Estimates Executive Profile" },
-    { label: "Design Executive", value: "Nirmaan Design Executive Profile" },
-    { label: "Design Lead", value: "Nirmaan Design Lead Profile" },
-];
+// Re-export for backwards compatibility
+export const USER_ROLE_PROFILE_OPTIONS = ROLE_OPTIONS;
+
+// --- Helper: RoleCountPill ---
+interface RoleCountPillProps {
+    roleValue: string;
+    roleLabel: string;
+    count: number;
+    compact?: boolean;
+}
+
+const RoleCountPill: React.FC<RoleCountPillProps> = ({ roleValue, roleLabel, count, compact = false }) => {
+    const colors = getRoleColors(roleValue);
+    return (
+        <div
+            className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border transition-all hover:shadow-sm flex-shrink-0",
+                compact ? "px-2 py-1" : "px-3 py-1.5",
+                colors.bg,
+                colors.border
+            )}
+        >
+            <span className={cn("rounded-full flex-shrink-0", compact ? "w-1.5 h-1.5" : "w-2 h-2", colors.dot)} />
+            <span className={cn("font-medium whitespace-nowrap", compact ? "text-[10px]" : "text-xs", colors.text)}>
+                {roleLabel}
+            </span>
+            <span className={cn("font-bold tabular-nums", compact ? "text-[10px]" : "text-xs", colors.text)}>
+                {count}
+            </span>
+        </div>
+    );
+};
+
+// --- Helper: Compact Role Summary (for mobile collapsed state) ---
+const CompactRoleSummary: React.FC<{ roleCounts: Record<string, number> }> = ({ roleCounts }) => {
+    // Show top 3 roles by count as colored dots with numbers
+    const topRoles = ROLE_OPTIONS
+        .map(role => ({ ...role, count: roleCounts[role.value] ?? 0 }))
+        .filter(r => r.count > 0)
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 4);
+
+    return (
+        <div className="flex items-center gap-2">
+            {topRoles.map(role => {
+                const colors = getRoleColors(role.value);
+                return (
+                    <div key={role.value} className="flex items-center gap-1">
+                        <span className={cn("w-2 h-2 rounded-full", colors.dot)} />
+                        <span className="text-xs text-muted-foreground tabular-nums">{role.count}</span>
+                    </div>
+                );
+            })}
+            {ROLE_OPTIONS.length > 4 && (
+                <span className="text-xs text-muted-foreground">...</span>
+            )}
+        </div>
+    );
+};
 
 // --- Helper: UsersSummaryCard ---
 const UsersSummaryCard: React.FC = () => {
     const [roleCounts, setRoleCounts] = useState<Record<string, number>>({});
     const [isLoadingRoles, setIsLoadingRoles] = useState(true);
     const [roleError, setRoleError] = useState<string | null>(null);
+    const [isExpanded, setIsExpanded] = useState(false);
+    const contentRef = useRef<HTMLDivElement>(null);
 
     // Fetch total users
     const { data: totalCountData, isLoading: totalCountLoading } = useFrappeGetDocCount(USER_DOCTYPE, undefined, true, false, `${USER_DOCTYPE}_total_count`);
@@ -80,8 +134,8 @@ const UsersSummaryCard: React.FC = () => {
 
     if (roleError) {
         return (
-            <Card className="hover:animate-shadow-drop-center my-2 border-red-200 bg-red-50">
-                <CardContent className="pt-6">
+            <Card className="my-2 border-red-200 bg-red-50">
+                <CardContent className="py-3">
                     <p className="text-sm text-red-600">{roleError}</p>
                 </CardContent>
             </Card>
@@ -89,35 +143,98 @@ const UsersSummaryCard: React.FC = () => {
     }
 
     return (
-        <Card className="hover:animate-shadow-drop-center my-2">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-base font-semibold">
-                    User Statistics
-                </CardTitle>
-                <UsersRound className="h-5 w-5 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-                <div className="flex justify-between items-start">
-                    <div>
-                        <div className="text-2xl font-bold mb-2">
-                            {totalCountLoading ? (
-                                <TailSpin visible={true} height="28" width="28" color="#D03B45" radius="1" />
-                            ) : (
-                                totalCountData ?? 'N/A'
-                            )}
+        <Card className="my-2 shadow-sm overflow-hidden">
+            <CardContent className="p-0">
+                {/* Header - Always visible */}
+                <div
+                    className="flex items-center justify-between p-3 md:p-4 cursor-pointer md:cursor-default"
+                    onClick={() => setIsExpanded(!isExpanded)}
+                >
+                    <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex h-9 w-9 md:h-10 md:w-10 items-center justify-center rounded-lg bg-primary/10 flex-shrink-0">
+                            <UsersRound className="h-4 w-4 md:h-5 md:w-5 text-primary" />
                         </div>
-                        <p className="text-xs text-muted-foreground">Total Registered Users</p>
+                        <div className="min-w-0">
+                            <div className="flex items-baseline gap-1.5">
+                                {totalCountLoading ? (
+                                    <TailSpin visible={true} height="18" width="18" color="#D03B45" radius="1" />
+                                ) : (
+                                    <span className="text-lg md:text-xl font-semibold tabular-nums">{totalCountData ?? 0}</span>
+                                )}
+                                <span className="text-sm text-muted-foreground font-normal">Users</span>
+                            </div>
+                            {/* Mobile: Show compact role summary when collapsed */}
+                            <div className="md:hidden">
+                                {!isLoadingRoles && !isExpanded && (
+                                    <CompactRoleSummary roleCounts={roleCounts} />
+                                )}
+                            </div>
+                        </div>
                     </div>
-                    <div className="flex flex-col text-sm items-end">
+
+                    {/* Mobile expand/collapse button */}
+                    <button
+                        className="md:hidden p-1.5 rounded-md hover:bg-muted/50 transition-colors"
+                        aria-label={isExpanded ? "Collapse role details" : "Expand role details"}
+                    >
+                        <ChevronDown
+                            className={cn(
+                                "h-4 w-4 text-muted-foreground transition-transform duration-200",
+                                isExpanded && "rotate-180"
+                            )}
+                        />
+                    </button>
+                </div>
+
+                {/* Role Pills Section */}
+                {/* Desktop & Tablet: Always visible */}
+                <div className="hidden md:block px-4 pb-4">
+                    {isLoadingRoles ? (
+                        <div className="flex items-center gap-2 text-muted-foreground text-sm">
+                            <TailSpin visible={true} height="16" width="16" color="#6b7280" radius="1" />
+                            <span>Loading roles...</span>
+                        </div>
+                    ) : (
+                        /* Tablet: Horizontal scroll | Desktop: Wrap */
+                        <div className="lg:flex lg:flex-wrap lg:gap-2 md:flex md:gap-2 md:overflow-x-auto md:pb-1 md:-mb-1 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent">
+                            {ROLE_OPTIONS.map(role => (
+                                <RoleCountPill
+                                    key={role.value}
+                                    roleValue={role.value}
+                                    roleLabel={role.label}
+                                    count={roleCounts[role.value] ?? 0}
+                                />
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* Mobile: Collapsible section */}
+                <div
+                    ref={contentRef}
+                    className={cn(
+                        "md:hidden overflow-hidden transition-all duration-200 ease-in-out",
+                        isExpanded ? "max-h-48 opacity-100" : "max-h-0 opacity-0"
+                    )}
+                >
+                    <div className="px-3 pb-3 pt-1">
                         {isLoadingRoles ? (
-                            <div className="text-muted-foreground text-xs">Loading roles...</div>
+                            <div className="flex items-center gap-2 text-muted-foreground text-sm py-2">
+                                <TailSpin visible={true} height="14" width="14" color="#6b7280" radius="1" />
+                                <span>Loading...</span>
+                            </div>
                         ) : (
-                            USER_ROLE_PROFILE_OPTIONS.map(role => (
-                                <div key={role.value} className="flex justify-between w-full gap-4">
-                                    <span className="text-muted-foreground">{role.label}:</span>
-                                    <span className="font-medium">{roleCounts[role.value] ?? 0}</span>
-                                </div>
-                            ))
+                            <div className="flex flex-wrap gap-1.5">
+                                {ROLE_OPTIONS.map(role => (
+                                    <RoleCountPill
+                                        key={role.value}
+                                        roleValue={role.value}
+                                        roleLabel={role.label}
+                                        count={roleCounts[role.value] ?? 0}
+                                        compact
+                                    />
+                                ))}
+                            </div>
                         )}
                     </div>
                 </div>
@@ -129,7 +246,6 @@ const UsersSummaryCard: React.FC = () => {
 
 // --- Main Page Component ---
 export default function UsersPage() {
-
     const columns = useMemo<ColumnDef<NirmaanUsers>[]>(
         () => [
             {
@@ -181,10 +297,9 @@ export default function UsersPage() {
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Role" />,
                 cell: ({ row }) => {
                     const roleValue = row.getValue<string>("role_profile");
-                    const roleLabel = USER_ROLE_PROFILE_OPTIONS.find(opt => opt.value === roleValue)?.label || roleValue?.replace("Nirmaan ", "").replace(" Profile", "");
-                    return <Badge variant="outline">{roleLabel}</Badge>;
+                    return <RoleBadge roleProfile={roleValue} size="sm" />;
                 },
-                size: 180,
+                size: 200,
                 meta: {
                     exportHeaderName: "Role",
                     exportValue: (row: NirmaanUsers) => {
@@ -216,6 +331,14 @@ export default function UsersPage() {
                     }
                 }
             },
+            {
+                id: "actions",
+                header: () => <span className="text-muted-foreground">Action</span>,
+                cell: ({ row }) => <UserRowActions user={row.original} />,
+                size: 60,
+                enableSorting: false,
+                enableHiding: false,
+            },
         ],
         []
     );
@@ -229,6 +352,7 @@ export default function UsersPage() {
         setSearchTerm,
         selectedSearchField,
         setSelectedSearchField,
+        columnFilters, // Destructure columnFilters
     } = useServerDataTable<NirmaanUsers>({
         doctype: USER_DOCTYPE,
         columns: columns,
@@ -239,42 +363,45 @@ export default function UsersPage() {
         enableRowSelection: false, // No row selection needed for users list generally
     });
 
+    // --- Dynamic Facet Values ---
+    const { facetOptions: roleFacetOptions, isLoading: isRoleFacetLoading } = useFacetValues({
+        doctype: USER_DOCTYPE,
+        field: 'role_profile',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        enabled: true
+    });
+
     const facetFilterOptions = useMemo(() => ({
-        role_profile: { title: "Role", options: USER_ROLE_PROFILE_OPTIONS },
-    }), []);
+        role_profile: { title: "Role", options: roleFacetOptions, isLoading: isRoleFacetLoading },
+    }), [roleFacetOptions, isRoleFacetLoading]);
 
     return (
         <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'h-[calc(100vh-80px)] overflow-hidden' : ''}`}>
-            {/* <div className="flex items-center justify-between">
-                <h1 className="text-2xl font-semibold">Manage Users</h1>
-                <Button onClick={() => navigate("/new-user")}>
-                    <CirclePlus className="mr-2 h-4 w-4" /> Add New User
-                </Button>
-            </div> */}
-
             <div className="flex-shrink-0 overflow-y-auto">
                 <UsersSummaryCard />
             </div>
 
             <div className="flex-1 overflow-hidden">
                 <DataTable<NirmaanUsers>
-                table={table}
-                columns={columns}
-                isLoading={isLoading}
-                error={error}
-                totalCount={totalCount}
-                searchFieldOptions={USER_SEARCHABLE_FIELDS}
-                selectedSearchField={selectedSearchField}
-                onSelectedSearchFieldChange={setSelectedSearchField}
-                searchTerm={searchTerm}
-                onSearchTermChange={setSearchTerm}
-                facetFilterOptions={facetFilterOptions}
-                dateFilterColumns={USER_DATE_COLUMNS}
-                showExportButton={true}
-                onExport={'default'}
-                exportFileName="nirmaan_users_list"
-                showRowSelection={false}
-            // toolbarActions={<div>Custom Action Button</div>} // Example for custom actions
+                    table={table}
+                    columns={columns}
+                    isLoading={isLoading}
+                    error={error}
+                    totalCount={totalCount}
+                    searchFieldOptions={USER_SEARCHABLE_FIELDS}
+                    selectedSearchField={selectedSearchField}
+                    onSelectedSearchFieldChange={setSelectedSearchField}
+                    searchTerm={searchTerm}
+                    onSearchTermChange={setSearchTerm}
+                    facetFilterOptions={facetFilterOptions}
+                    dateFilterColumns={USER_DATE_COLUMNS}
+                    showExportButton={true}
+                    onExport={'default'}
+                    exportFileName="nirmaan_users_list"
+                    showRowSelection={false}
+                // toolbarActions={<div>Custom Action Button</div>} // Example for custom actions
                 />
             </div>
         </div>

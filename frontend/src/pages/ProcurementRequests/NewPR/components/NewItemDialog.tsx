@@ -80,7 +80,7 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
             value: cat.name, // Use name (DocType key) as value
             label: cat.category_name,
             tax: parseFloat(cat.tax || "0"),
-            newItemsDisabled: cat.new_items === "false" && userData?.role !== "Nirmaan Admin Profile" // Calculate disabled flag
+            newItemsDisabled: cat.new_items === "false" && userData?.role !== "Nirmaan Admin Profile" && userData?.role !== "Nirmaan PMO Executive Profile" // Calculate disabled flag
         })) || [];
     }, [categories, userData?.role]);
 

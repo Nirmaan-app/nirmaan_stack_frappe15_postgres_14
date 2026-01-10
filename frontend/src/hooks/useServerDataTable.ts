@@ -113,6 +113,8 @@ export interface SimpleAggregationConfig {
 }
 // =================== END OF MODIFIED TYPES ===================
 
+export type AggregationConfig = SimpleAggregationConfig | CustomAggregationConfig;
+
 // NEW: Interfaces for Group By functionality
 export interface GroupByConfig {
     groupByField: string;
@@ -796,7 +798,10 @@ export function useServerDataTable<TData extends { name: string }>({
         // State Setters -> Update hook state (which then updates URL & triggers fetch)
         onPaginationChange: setPagination,
         onSortingChange: setSorting,
-        onColumnFiltersChange: setColumnFilters, // Update local state, URL effect handles sync
+        onColumnFiltersChange: (updater) => {
+            setColumnFilters(updater);
+            setPagination(prev => ({ ...prev, pageIndex: 0 }));
+        },
         onGlobalFilterChange: setSearchTerm, // Update local state immediately for input field
         globalFilterFn: fuzzyFilter,
         onColumnVisibilityChange: setColumnVisibility,
@@ -837,7 +842,7 @@ export function useServerDataTable<TData extends { name: string }>({
             // In client mode, a "refetch" might mean re-evaluating the clientData source,
             // which should happen outside this hook (e.g., the parent component re-passes new clientData).
             // Or, if it means re-applying filters/sorts, TanStack table does that reactively.
-            toast({ title: "Client Data", description: "Table is using client-side data. Refresh the source to update.", variant: "info" });
+            toast({ title: "Client Data", description: "Table is using client-side data. Refresh the source to update.", variant: "default" });
         }
     }, [isClientSideMode, fetchData]);
 

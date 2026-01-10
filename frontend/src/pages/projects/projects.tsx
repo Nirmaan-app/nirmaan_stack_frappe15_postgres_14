@@ -15,6 +15,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
+import { useFacetValues } from '@/hooks/useFacetValues';
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee, formatToApproxLakhs } from "@/utils/FormatPrice";
 import { getTotalInflowAmount, getPOSTotals, getPOTotal, getSRTotal, getTotalAmountPaid, getTotalExpensePaid } from "@/utils/getAmounts";
@@ -26,7 +27,7 @@ import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
-import { ProjectTypes } from "@/types/NirmaanStack/ProjectTypes";
+// import { ProjectTypes } from "@/types/NirmaanStack/ProjectTypes";
 
 // --- Config ---
 import {
@@ -37,8 +38,8 @@ import {
 } from './config/projectTable.config';
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
-// import { useCredits } from "../credits/hooks/useCredits";
 import { useProjectAllCredits } from "./hooks/useProjectAllCredits";
+import { useUsersList } from "../ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 // --- Constants ---
 const DOCTYPE = 'Projects';
 
@@ -119,11 +120,8 @@ export const Projects: React.FC<ProjectsProps> = ({
     fetchCounts();
   }, []); // Runs once
 
-  // --- Supporting Data Fetches (for calculations in columns) ---
-  // These fetch broader data sets, then we'll map them to projects client-side.
-  const { data: projectTypesList, isLoading: projectTypesLoading, error: projectTypesError } = useFrappeGetDocList<ProjectTypes>(
-    "Project Types", { fields: ["name"], limit: 1000 }, "ProjectTypes_For_ProjectsList"
-  );
+  // --- Supporting Data & Hooks ---
+  const { data: userList, isLoading: userListLoading, error: userError } = useUsersList();
 
 
   // const { data: prData, isLoading: prDataLoading, error: prDataError } = useFrappeGetDocList<ProcurementRequest>(
@@ -157,7 +155,6 @@ export const Projects: React.FC<ProjectsProps> = ({
   );
 
   // --- Memoized Lookups & Pre-processing for Column Calculations ---
-  const projectTypeOptions = useMemo(() => projectTypesList?.map(pt => ({ label: pt.name, value: pt.name })) || [], [projectTypesList]);
 
   const getProjectFinancials = useMemo(() => {
     if (!poData || !srData || !projectInflows || !projectPayments || !projectExpenses || !CreditData) return () => ({ calculatedTotalInvoiced: 0, calculatedTotalInflow: 0, calculatedTotalOutflow: 0, totalCreditPurchase: 0, totalCreditPaid: 0, totalCreditDue: 0, totalLiabilities: 0 });
@@ -168,7 +165,7 @@ export const Projects: React.FC<ProjectsProps> = ({
     const inflowsByProject = memoize((projId: string) => projectInflows.filter(pi => pi.project === projId));
     const paymentsByProject = memoize((projId: string) => projectPayments.filter(pp => pp.project === projId));
     const expensesByProject = memoize((projId: string) => projectExpenses.filter(pe => pe.projects === projId));
-    
+
     // CreditData is now the raw list of all credit terms for all projects
     const creditsByProject = memoize((projId: string) => CreditData.filter(cr => cr.project == projId));
 
@@ -178,18 +175,18 @@ export const Projects: React.FC<ProjectsProps> = ({
       const relatedInflows = inflowsByProject(projectId);
       const relatedPayments = paymentsByProject(projectId);
       const relatedExpenses = expensesByProject(projectId);
-      
+
       const projectCredits = creditsByProject(projectId);
 
       const totalCreditPurchase = projectCredits.reduce((sum, term) => sum + parseNumber(term.amount), 0);
-      
+
       const totalCreditDue = projectCredits
-          .filter(cr => cr.term_status === "Scheduled")
-          .reduce((sum, term) => sum + parseNumber(term.amount), 0);
+        .filter(cr => cr.term_status === "Scheduled")
+        .reduce((sum, term) => sum + parseNumber(term.amount), 0);
 
       const totalCreditPaid = projectCredits
-          .filter(cr => cr.term_status === "Paid")
-          .reduce((sum, term) => sum + parseNumber(term.amount), 0);
+        .filter(cr => cr.term_status === "Paid")
+        .reduce((sum, term) => sum + parseNumber(term.amount), 0);
 
       // let totalInvoiced = 0;
       // relatedPOs.forEach(po => totalInvoiced += getPOTotal(po)?.totalAmt || 0);
@@ -281,15 +278,20 @@ export const Projects: React.FC<ProjectsProps> = ({
       accessorKey: "status", header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
       cell: ({ row }) => <Badge variant={row.original.status === "Completed" ? "default" : (row.original.status === "Halted" ? "destructive" : "secondary")}>{row.original.status}</Badge>,
       enableColumnFilter: true,
+      meta: {
+        enableFacet: true,
+        facetTitle: "Status"
+      }
     },
-    // {
-    //   accessorKey: "project_type", header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
-    //   cell: ({ row }) => <div>{row.original.project_type || "--"}</div>,
-    //   enableColumnFilter: true,
-    //   meta: {
-    //     exportHeaderName: "Project Type",
-    //   }
-    // },
+    {
+      accessorKey: "project_type", header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
+      cell: ({ row }) => <div>{row.original.project_type || "--"}</div>,
+      enableColumnFilter: true,
+      meta: {
+        enableFacet: true,
+        facetTitle: "Project Type",
+      }
+    },
     // {
     //   id: "location", header: "Location",
     //   accessorFn: row => `${row.project_city || ''}, ${row.project_state || ''}`.replace(/^, |, $/g, ''), // Clean leading/trailing commas
@@ -560,6 +562,7 @@ export const Projects: React.FC<ProjectsProps> = ({
   const {
     table, data: projectsDataForTable, totalCount, isLoading: listIsLoading, error: listError,
     searchTerm, setSearchTerm, selectedSearchField, setSelectedSearchField,
+    columnFilters, // Destructure columnFilters
     isRowSelectionActive, refetch,
   } = useServerDataTable<ProjectsType>({ // Fetches ProjectsType
     doctype: DOCTYPE,
@@ -590,17 +593,37 @@ export const Projects: React.FC<ProjectsProps> = ({
 
 
 
+  // --- Dynamic Facet Values ---
+  const { facetOptions: statusFacetOptions, isLoading: isStatusFacetLoading } = useFacetValues({
+    doctype: DOCTYPE,
+    field: 'status',
+    currentFilters: columnFilters,
+    searchTerm,
+    selectedSearchField,
+    additionalFilters: staticFilters, // Important: include static filters (like customer restriction)
+    enabled: true
+  });
+
+  const { facetOptions: projectTypeFacetOptions, isLoading: isProjectTypeFacetLoading } = useFacetValues({
+    doctype: DOCTYPE,
+    field: 'project_type',
+    currentFilters: columnFilters,
+    searchTerm,
+    selectedSearchField,
+    additionalFilters: staticFilters,
+    enabled: true
+  });
+
   // --- Faceted Filter Options ---
   const facetFilterOptions = useMemo(() => ({
-    status: { title: "Status", options: statusOptions },
-    project_type: { title: "Project Type", options: projectTypeOptions },
-    // customer: { title: "Customer", options: customerOptions }, // If customer is a direct field on Project and searchable
-  }), [statusOptions, projectTypeOptions]);
+    status: { title: "Status", options: statusFacetOptions, isLoading: isStatusFacetLoading },
+    project_type: { title: "Project Type", options: projectTypeFacetOptions, isLoading: isProjectTypeFacetLoading },
+  }), [statusFacetOptions, isStatusFacetLoading, projectTypeFacetOptions, isProjectTypeFacetLoading]);
 
   // --- Combined Loading & Error States ---
-  const isLoadingOverall = poDataLoading || srDataLoading || projectInflowsLoading || projectPaymentsLoading || projectExpensesLoading || projectTypesLoading;
+  const isLoadingOverall = poDataLoading || srDataLoading || projectInflowsLoading || projectPaymentsLoading || projectExpensesLoading || listIsLoading || userListLoading;
 
-  const combinedErrorOverall = poDataError || srDataError || projectInflowsError || projectPaymentsError || projectExpensesError || projectTypesError || listError;
+  const combinedErrorOverall = poDataError || srDataError || projectInflowsError || projectPaymentsError || projectExpensesError || userError || listError;
 
   if (combinedErrorOverall && !projectsDataForTable?.length) {
     // Display prominent error from data fetching/processing
@@ -647,27 +670,27 @@ export const Projects: React.FC<ProjectsProps> = ({
           </CardContent>
         </Card>
       )}
-       <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'h-[calc(100vh-80px)] overflow-hidden' : ''}`}>
+      <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'h-[calc(100vh-80px)] overflow-hidden' : ''}`}>
         {isLoadingOverall && !projectsDataForTable?.length ? (
           <TableSkeleton />
         ) : (
           <DataTable<ProjectsType>
-          table={table} // The table instance from useServerDataTable, now operating on clientData
-          columns={columns} // Your defined display columns
-          isLoading={listIsLoading} //isLoading for the table data itself
-          error={listError}
-          totalCount={totalCount} // This will be total of processedProjects
-          searchFieldOptions={PROJECT_SEARCHABLE_FIELDS}
-          selectedSearchField={selectedSearchField}
-          onSelectedSearchFieldChange={setSelectedSearchField}
-          searchTerm={searchTerm}
-          onSearchTermChange={setSearchTerm}
-          facetFilterOptions={facetFilterOptions}
-          dateFilterColumns={PROJECT_DATE_COLUMNS}
-          showExportButton={true}
-          onExport={'default'}
-          exportFileName="Projects_Report"
-        />
+            table={table} // The table instance from useServerDataTable, now operating on clientData
+            columns={columns} // Your defined display columns
+            isLoading={listIsLoading} //isLoading for the table data itself
+            error={listError}
+            totalCount={totalCount} // This will be total of processedProjects
+            searchFieldOptions={PROJECT_SEARCHABLE_FIELDS}
+            selectedSearchField={selectedSearchField}
+            onSelectedSearchFieldChange={setSelectedSearchField}
+            searchTerm={searchTerm}
+            onSearchTermChange={setSearchTerm}
+            facetFilterOptions={facetFilterOptions}
+            dateFilterColumns={PROJECT_DATE_COLUMNS}
+            showExportButton={true}
+            onExport={'default'}
+            exportFileName="Projects_Report"
+          />
         )}
       </div>
     </div>

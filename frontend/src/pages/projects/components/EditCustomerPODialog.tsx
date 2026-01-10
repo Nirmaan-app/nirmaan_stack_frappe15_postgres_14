@@ -132,9 +132,10 @@ export const EditCustomerPODialog: React.FC<EditCustomerPODialogProps> = ({
     if (linkOrAttachmentChoice === "attachment" && formData.file) {
       try {
         const fileResponse = await upload(formData.file, {
-          isPrivate: 0,
-          attachedToName: projectName,
-          attachedToDoctype: "Projects",
+          isPrivate: true,  // Must be private to avoid S3 ACL issues
+          doctype: "Projects",
+          docname: projectName,
+          fieldname: "customer_po_attachment",
         });
         finalAttachmentName = fileResponse.file_url;
       } catch (error: any) {

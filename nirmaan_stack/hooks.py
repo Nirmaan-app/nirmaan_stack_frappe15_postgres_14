@@ -135,6 +135,7 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.nirmaan_users.on_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
         ],
+        "after_rename": "nirmaan_stack.integrations.controllers.nirmaan_users.after_rename",
     },
     "User Permission": {
         "after_insert": [
@@ -142,6 +143,11 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.user_permission.add_nirmaan_user_permissions"
         ],
         "on_trash": "nirmaan_stack.integrations.controllers.user_permission.on_trash"
+    },
+    "Asset Management": {
+        "after_insert": "nirmaan_stack.integrations.controllers.asset_management.after_insert",
+        "on_update": "nirmaan_stack.integrations.controllers.asset_management.on_update",
+        "on_trash": "nirmaan_stack.integrations.controllers.asset_management.on_trash"
     },
     "Projects": {
         "after_insert": [

@@ -12,14 +12,14 @@
 //     };
 
 //     useEffect(() => {
-//         if ((userData.user_id === "Administrator" || userData.role === "Nirmaan Admin Profile") && selectedValue === '') {
+//         if ((userData.user_id === "Administrator" || userData.role === "Nirmaan Admin Profile" || userData.role === "Nirmaan PMO Executive Profile") && selectedValue === '') {
 //             setSelectedValue("default");
 //         }
 //     }, [userData]);
 
 //     return (
 //         <>
-//         {(userData.user_id === "Administrator" || userData.role === "Nirmaan Admin Profile") && (
+//         {(userData.user_id === "Administrator" || userData.role === "Nirmaan Admin Profile" || userData.role === "Nirmaan PMO Executive Profile") && (
 //             <div className="flex flex-col justify-center">
 //                 <div className="flex space-y-2 justify-center bg-red-100 pb-2">
 //                     <h1 className="pt-4 pl-12 pr-10 text-xl font-bold text-red-500 hidden md:flex">Role Selector:</h1>
@@ -61,14 +61,14 @@ const RoleSelector = ({ selectedValue, setSelectedValue }) => {
 
 
     useEffect(() => {
-        if ((userData.user_id === "Administrator" || userData.role === "Nirmaan Admin Profile") && selectedValue === '') {
+        if ((userData.user_id === "Administrator" || userData.role === "Nirmaan Admin Profile" || userData.role === "Nirmaan PMO Executive Profile") && selectedValue === '') {
             setSelectedValue("default");
         }
     }, []);
 
     return (
         <>
-        {(userData.user_id === "Administrator" || userData.role === "Nirmaan Admin Profile") && (
+        {(userData.user_id === "Administrator" || userData.role === "Nirmaan Admin Profile" || userData.role === "Nirmaan PMO Executive Profile") && (
             <div className="flex flex-col justify-center">
                 <div className="flex space-y-2 justify-center bg-red-100 pb-2">
                     <h1 className="pt-4 pl-12 pr-10 text-xl font-bold text-red-500 hidden md:flex">Role Selector:</h1>

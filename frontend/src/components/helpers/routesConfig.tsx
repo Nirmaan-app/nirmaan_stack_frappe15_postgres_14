@@ -53,13 +53,14 @@ import CreditsPage from "@/pages/credits/CreditsPage";
 //---New Vendors-AQ2 Page
 import VendorsAQ2 from "@/pages/vendors-wp-categories/vendors-aq2";
 import WorkPackages from "@/pages/work-packages";
-import { ProtectedRoute } from "@/utils/auth/ProtectedRoute";
+import { ProtectedRoute, UsersRoute, UserProfileRoute, InflowPaymentsRoute } from "@/utils/auth/ProtectedRoute";
 import { ProjectManager } from "../layout/dashboards/dashboard-pm";
 import InvoiceReconciliationContainer from "@/pages/tasks/invoices/InvoiceReconciliationContainer";
 import { NewProcurementRequestPage } from "@/pages/ProcurementRequests/NewPR/NewProcurementRequestPage";
 import ReportsContainer from "@/pages/reports/ReportsContainer";
 // import ProcurementOrdersTesting from "@/pages/ProcurementOrders/testing/ProcurementOrdersTesting";
 import ItemsPage from "@/pages/Items/itemsPage";
+import AssetsPage from "@/pages/Assets/AssetsPage";
 import AllProjectInvocies from "@/pages/ProjectInvoices/AllProjectInvoices";
 import NonProjectExpensesPage from "@/pages/NonProjectExpenses/NonProjectExpensesPage";
 import AllProjectExpensesPage from "@/pages/ProjectExpenses/AllProjectExpenses";
@@ -348,6 +349,7 @@ export const appRoutes: RouteObject[] = [
           },
           {
             path: "in-flow-payments",
+            element: <InflowPaymentsRoute />,
             children: [
               { index: true, element: <InFlowPayments /> },
             ]
@@ -357,10 +359,23 @@ export const appRoutes: RouteObject[] = [
           {
             path: "users",
             children: [
-              { index: true, element: <Users /> },
-              { path: "new-user", element: <UserForm /> },
-              { path: ":userId", element: <Profile /> },
-              { path: ":userId/edit", element: <EditUserForm /> },
+              // UsersRoute guards only list and new-user (Admin/PMO/HR only)
+              {
+                element: <UsersRoute />,
+                children: [
+                  { index: true, element: <Users /> },
+                  { path: "new-user", element: <UserForm /> },
+                ],
+              },
+              // UserProfileRoute guards profile routes independently (Admin/PMO/HR OR own profile)
+              {
+                path: ":userId",
+                element: <UserProfileRoute />,
+                children: [
+                  { index: true, element: <Profile /> },
+                  { path: "edit", element: <EditUserForm /> },
+                ],
+              },
             ],
           },
 
@@ -371,6 +386,15 @@ export const appRoutes: RouteObject[] = [
               // { index: true, element: <ItemsTesting /> },
               { index: true, element: <ItemsPage /> },
               { path: ":productId", lazy: () => import("@/pages/Items/item") },
+            ],
+          },
+
+          // --- Assets Section ---
+          {
+            path: "asset-management",
+            children: [
+              { index: true, element: <AssetsPage /> },
+              { path: ":assetId", lazy: () => import("@/pages/Assets/AssetOverview") },
             ],
           },
 

@@ -3,11 +3,12 @@
 import React, { useMemo, useState, useCallback } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useFrappeDeleteDoc, useFrappeGetDocList, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
+import { useFrappeDeleteDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useUserData } from "@/hooks/useUserData";
 import { useServerDataTable, AggregationConfig, GroupByConfig } from "@/hooks/useServerDataTable";
+import { useFacetValues } from '@/hooks/useFacetValues';
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import memoize from 'lodash/memoize';
@@ -30,7 +31,7 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { Button } from "@/components/ui/button";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Edit2, MoreHorizontal, PlusCircle, Trash2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { TailSpin } from 'react-loader-spinner';
@@ -93,25 +94,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({ projec
     const getExpenseTypeName = useCallback(memoize((id?: string) => expenseTypes?.find(et => et.name === id)?.expense_name || id || '--'), [expenseTypes]);
 
     // --- (1) NEW: Prepare options for the faceted filters ---
-    const projectOptions = useMemo(() =>
-        projects?.map(p => ({ label: p.project_name, value: p.name })) || [],
-        [projects]
-    );
 
-    const userOptions = useMemo(() =>
-        users?.map(u => ({ label: u.full_name, value: u.name })) || [],
-        [users]
-    );
-
-    const vendorOptions = useMemo(() =>
-        vendors?.map(v => ({ label: v.vendor_name, value: v.name })) || [],
-        [vendors]
-    );
-
-    const expenseTypeOptions = useMemo(() =>
-        expenseTypes?.map(et => ({ label: et.expense_name, value: et.name })) || [],
-        [expenseTypes]
-    );
 
     // --- Handlers for Actions ---
     const handleOpenEditDialog = useCallback((expense: ProjectExpenses) => { setExpenseToEdit(expense); setEditProjectExpenseDialog(true); }, [setEditProjectExpenseDialog]);
@@ -157,7 +140,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({ projec
                         <DropdownMenuTrigger asChild><Button variant="ghost" className="h-8 w-8 p-0"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                             <DropdownMenuItem onClick={() => handleOpenEditDialog(row.original)}><Edit2 className="mr-2 h-4 w-4" />Edit</DropdownMenuItem>
-                            {role === "Nirmaan Admin Profile" &&
+                            {(role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile") &&
                                 <DropdownMenuItem onClick={() => handleOpenDeleteDialog(row.original)} className="text-destructive focus:text-destructive"><Trash2 className="mr-2 h-4 w-4" />Delete</DropdownMenuItem>}
                         </DropdownMenuContent>
                     </DropdownMenu>
@@ -169,23 +152,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({ projec
         }
     ], [projectId, getProjectName, getVendorName, getUserName, getExpenseTypeName, handleOpenEditDialog, handleOpenDeleteDialog]);
 
-    // --- (2) NEW: Define the facet filter configurations ---
-    const facetFilterOptions = useMemo(() => {
-        const filters: any = {
-            payment_by: { title: "Requested By", options: userOptions },
-            vendor: { title: "Vendor", options: vendorOptions },
-            type: { title: "Expense Type", options: expenseTypeOptions }
-        };
-
-        // Conditionally add the project filter only if we are on the main list view
-        if (!projectId) {
-            filters.projects = { title: "Project", options: projectOptions };
-        }
-
-        return filters;
-    }, [userOptions, projectOptions, vendorOptions, expenseTypeOptions, projectId]);
-
-    // --- Data Table Hook ---
+    // --- Data Table Hook (MOVED UP) ---
     const { table, data, totalCount, isLoading, error, refetch, searchTerm,                // <-- Destructure this
         setSearchTerm,             // <-- Destructure this
         selectedSearchField,       // <-- Destructure this
@@ -206,11 +173,78 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({ projec
         groupByConfig: PE_GROUP_BY_CONFIG, // NEW: Pass the group by config
     });
 
+
+    // --- Dynamic Facet Values ---
+    const staticFilters = useMemo(() => projectId ? [["projects", "=", projectId]] : [], [projectId]);
+
+    const { facetOptions: projectFacetOptions, isLoading: isProjectFacetLoading } = useFacetValues({
+        doctype: DOCTYPE,
+        field: 'projects', // Confirm field name in Doctype is 'projects'? Based on accessorKey.
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        additionalFilters: staticFilters,
+        enabled: !projectId
+    });
+
+    const { facetOptions: vendorFacetOptions, isLoading: isVendorFacetLoading } = useFacetValues({
+        doctype: DOCTYPE,
+        field: 'vendor',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        additionalFilters: staticFilters,
+        enabled: true
+    });
+
+    const { facetOptions: userFacetOptions, isLoading: isUserFacetLoading } = useFacetValues({
+        doctype: DOCTYPE,
+        field: 'payment_by',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        additionalFilters: staticFilters,
+        enabled: true
+    });
+
+    const { facetOptions: expenseTypeFacetOptions, isLoading: isExpenseTypeFacetLoading } = useFacetValues({
+        doctype: DOCTYPE,
+        field: 'type',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        additionalFilters: staticFilters,
+        enabled: true
+    });
+
+
+    // --- (2) NEW: Define the facet filter configurations ---
+    const facetFilterOptions = useMemo(() => {
+        const filters: any = {
+            payment_by: { title: "Requested By", options: userFacetOptions, isLoading: isUserFacetLoading },
+            vendor: { title: "Vendor", options: vendorFacetOptions, isLoading: isVendorFacetLoading },
+            type: { title: "Expense Type", options: expenseTypeFacetOptions, isLoading: isExpenseTypeFacetLoading }
+        };
+
+        // Conditionally add the project filter only if we are on the main list view
+        if (!projectId) {
+            filters.projects = { title: "Project", options: projectFacetOptions, isLoading: isProjectFacetLoading };
+        }
+
+        return filters;
+    }, [userFacetOptions, isUserFacetLoading, vendorFacetOptions, isVendorFacetLoading, expenseTypeFacetOptions, isExpenseTypeFacetLoading, projectFacetOptions, isProjectFacetLoading, projectId]);
+
+    // --- (2) NEW: Define the facet filter configurations ---
+
+
+    // --- Data Table Hook ---
+
+
     const isLoadingLookups = vendorsLoading || usersLoading || expenseTypesLoading || (!projectId && projectsLoading);
     if (error) return <AlertDestructive error={error} />;
 
     return (
-         <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'h-[calc(100vh-80px)] overflow-hidden' : ''}`}>
+        <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'h-[calc(100vh-80px)] overflow-hidden' : ''}`}>
             <DataTable
                 table={table}
                 columns={columns}
@@ -224,7 +258,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({ projec
                 onExport="default"
                 exportFileName={`Project_Expenses_${projectId || 'All'}`}
                 toolbarActions={
-                    (role === "Nirmaan Admin Profile" || role === "Nirmaan Accountant Profile") &&
+                    (role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || role === "Nirmaan Accountant Profile") &&
                     <Button onClick={toggleNewProjectExpenseDialog} size="sm"><PlusCircle className="mr-2 h-4 w-4" />Add Project Expense</Button>
                 }
                 // --- (Indicator) FIX: Explicitly pass the required props with the correct names ---

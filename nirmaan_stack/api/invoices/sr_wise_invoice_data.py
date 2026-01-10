@@ -1,19 +1,19 @@
 import frappe
 from frappe import _
-from frappe.utils.caching import redis_cache
 
 @frappe.whitelist()
-@redis_cache(shared=True)
 def generate_all_sr_invoice_data():
     """
-    Generate consolidated invoice data for all Service Receipts in the system.
-    
+    Generate consolidated invoice data for all APPROVED invoices in Service Requests.
+
     Returns:
         dict: {
                 "message": {
                     "invoice_entries": List[InvoiceEntry],
                     "total_invoices": number,
-                    "total_amount": number
+                    "total_amount": number,
+                    "total_2b_activated": number,
+                    "pending_2b_activation": number
                  },
                  "status": 200
               }
@@ -23,27 +23,30 @@ def generate_all_sr_invoice_data():
             - invoice_attachment_id (str, optional)
             - updated_by (str)
             - date (str)  (The key from each invoice_data object)
-            - service_receipt (str) (SR ID)
+            - service_request (str) (SR ID)
             - project (str, optional) (Project ID, if available on SR)
             - vendor (str) (Vendor ID)
             - vendor_name (str) (Vendor Name)
-            
+            - is_2b_activated (bool, optional)
+            - reconciled_date (str, optional)
+            - reconciled_by (str, optional)
+
     Raises:
         Exception: For unexpected errors.
     """
     try:
-        # Fetch all Service Receipts from the system.
-        # Include 'project', 'vendor', 'vendor_name' fields.
-        service_receipts = frappe.get_all(
-            "Service Requests", # Assuming the DocType name for Service Receipts
-            filters={}, # No filters applied, fetches all
+        # Fetch all Service Requests from the system.
+        service_requests = frappe.get_all(
+            "Service Requests",
+            filters={},
             fields=["name", "invoice_data", "vendor", "project"]
         )
 
         invoice_entries = []
+        total_2b_activated = 0
 
-        # Loop through each service receipt and extract invoice data.
-        for sr in service_receipts:
+        # Loop through each service request and extract invoice data.
+        for sr in service_requests:
             # Skip if there is no invoice data or if the structure is not a dict.
             if not sr.get("invoice_data") or not isinstance(sr.invoice_data, dict):
                 continue
@@ -55,10 +58,21 @@ def generate_all_sr_invoice_data():
                 # Validate that required keys are present before adding the entry.
                 if not all(key in invoice_item for key in ["invoice_no", "amount", "updated_by"]):
                     frappe.log_error(
-                        _("Invalid invoice data structure in Service Receipt {0}").format(sr.name),
-                        "Service Receipt Invoice Data Validation"
+                        _("Invalid invoice data structure in Service Request {0}").format(sr.name),
+                        "Service Request Invoice Data Validation"
                     )
                     continue
+
+                # Only include APPROVED invoices
+                status = invoice_item.get("status", "Pending")
+                if status != "Approved":
+                    continue
+
+                is_2b_activated = invoice_item.get("is_2b_activated", False)
+
+                # Count 2B activated invoices
+                if is_2b_activated:
+                    total_2b_activated += 1
 
                 entry = {
                     "date": date_str,
@@ -66,17 +80,23 @@ def generate_all_sr_invoice_data():
                     "amount": invoice_item["amount"],
                     "updated_by": invoice_item["updated_by"],
                     "invoice_attachment_id": invoice_item.get("invoice_attachment_id"),
-                    "service_request": sr.name, # Use 'service_receipt' as the key for SR ID
+                    "service_request": sr.name,
                     "project": sr.project,
                     "vendor": sr.vendor,
-                    "vendor_name": sr.vendor_name
+                    "vendor_name": sr.vendor_name,
+                    "is_2b_activated": is_2b_activated,
+                    "reconciled_date": invoice_item.get("reconciled_date"),
+                    "reconciled_by": invoice_item.get("reconciled_by")
                 }
                 invoice_entries.append(entry)
 
+        total_invoices = len(invoice_entries)
         formatted_invoice_entries = {
             "invoice_entries": invoice_entries,
-            "total_invoices": len(invoice_entries),
-            "total_amount": sum(entry["amount"] for entry in invoice_entries)
+            "total_invoices": total_invoices,
+            "total_amount": sum(entry["amount"] for entry in invoice_entries),
+            "total_2b_activated": total_2b_activated,
+            "pending_2b_activation": total_invoices - total_2b_activated
         }
 
         return {"message": formatted_invoice_entries, "status": 200}

@@ -36,12 +36,12 @@ interface ReportState {
 const getDefaultReportTypeForTabAndRole = (tab: string, userRole?: string): ReportType => {
     if (tab === REPORTS_TABS.PROJECTS) {
         // Only Admin and Accountant see Project reports
-        if (["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(userRole || "")) {
+        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(userRole || "")) {
             return 'Cash Sheet';
         }
         return null; // No default if role cannot see this tab's reports
     } else if (tab === REPORTS_TABS.VENDORS) { // 👈 ADD THIS ENTIRE BLOCK
-        if (["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(userRole || "")) {
+        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(userRole || "")) {
             return 'Vendor Ledger';
         }
         return null;
@@ -51,13 +51,13 @@ const getDefaultReportTypeForTabAndRole = (tab: string, userRole?: string): Repo
             return 'Dispatched for 1 days';
         }
         // Other roles (Admin, Accountant) who can see PO tab
-        if (["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(userRole || "")) {
+        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(userRole || "")) {
             return 'Pending Invoices'; // Default for Admin/Accountant on PO tab
         }
         return null; // No default if role cannot see this tab's reports
     } else if (tab === REPORTS_TABS.SR) {
         // Assuming SR tab is visible to Admin, Accountant, PM
-        if (["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(userRole || "")) {
+        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(userRole || "")) {
             return 'Pending Invoices'; // Default for SR tab for allowed roles
         }
         return null;

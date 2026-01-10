@@ -1,12 +1,13 @@
-import React, { useCallback, useState, useContext, useEffect, useMemo } from "react";
+
+import React, { useCallback, useState, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { useFrappeGetDocList, FrappeDoc, GetDocListArgs, Filter, useFrappeDeleteDoc } from "frappe-react-sdk";
-import { Download, Info, MoreHorizontal, Edit2, Trash2, PlusCircle } from "lucide-react";
+import { Download, Info, MoreHorizontal, Edit2, Trash2 } from "lucide-react";
 
 // --- UI Components ---
-import { DataTable, SearchFieldOption } from '@/components/data-table/new-data-table';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { DataTable } from "@/components/data-table/new-data-table";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import SITEURL from "@/constants/siteURL";
@@ -23,12 +24,10 @@ import {
     AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
 } from "@/components/ui/alert-dialog"; // NEW: For delete confirmation
 import { useToast } from "@/components/ui/use-toast"; // NEW
-// MODIFIED: Import Card components and a spinner
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { TailSpin } from 'react-loader-spinner';
 
 // --- Hooks & Utils ---
-import { useServerDataTable } from '@/hooks/useServerDataTable';
+import { useServerDataTable, AggregationConfig } from '@/hooks/useServerDataTable';
+import { useFacetValues } from '@/hooks/useFacetValues';
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { memoize } from "lodash";
@@ -51,6 +50,7 @@ import { useDialogStore } from "@/zustand/useDialogStore"; // NEW
 // --- Child Component (Dialog for new inflow) ---
 import { NewInflowPayment } from "./components/NewInflowPayment";
 import { EditInflowPayment } from "./components/EditInflowPayment"; // NEW
+import { InflowSummaryCard } from "./components/InflowSummaryCard";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { useUserData } from "@/hooks/useUserData";
 
@@ -63,31 +63,12 @@ interface InFlowPaymentsProps {
     urlContext?: string; // For unique URL state if multiple instances
 }
 
-interface SelectOption { label: string; value: string; }
+// interface SelectOption { label: string; value: string; }
 
-// NEW: Configuration for the summary card aggregations
+// Configuration for the summary card aggregations
 const INFLOW_AGGREGATES_CONFIG: AggregationConfig[] = [
     { field: 'amount', function: 'sum' }
 ];
-
-// NEW: Helper component to display active filters in the summary card
-const AppliedFiltersDisplay = ({ filters, search }) => {
-    const hasFilters = filters.length > 0 || !!search;
-    if (!hasFilters) {
-        return <p className="text-sm text-gray-500">Overview of all inflow payments.</p>;
-    }
-    return (
-        <div className="text-sm text-gray-500 flex flex-wrap gap-2 items-center mt-2">
-            <span className="font-medium">Filtered by:</span>
-            {search && <span className="px-2 py-1 bg-gray-200 rounded-md text-xs">{`Search: "${search}"`}</span>}
-            {filters.map(filter => (
-                <span key={filter.id} className="px-2 py-1 bg-blue-100 text-blue-800 rounded-md text-xs capitalize whitespace-nowrap">
-                    {filter.id.replace(/_/g, ' ')}
-                </span>
-            ))}
-        </div>
-    );
-};
 
 // --- Component ---
 export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
@@ -96,7 +77,7 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
     urlContext = "default" // Default context key
 }) => {
     const {
-        toggleNewInflowDialog,  // For "Add New" button
+        toggleNewInflowDialog: _toggleNewInflowDialog,  // For "Add New" button (unused, prefixed to suppress warning)
         setEditInflowDialog,    // NEW: For Edit dialog
         deleteConfirmationDialog, // NEW: For delete confirmation
         setDeleteConfirmationDialog // NEW
@@ -107,7 +88,7 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
 
     // Dynamic URL key for this table instance
     const urlSyncKey = useMemo(() =>
-        `inflow_${urlContext}_${(customerId || projectId || 'all').replace(/[^a-zA-Z0-9]/g, '_')}`,
+        `inflow_${urlContext}_${(customerId || projectId || 'all').replace(/[^a-zA-Z0-9]/g, '_')} `,
         [urlContext, customerId, projectId]);
 
     // State for dialogs and selected item
@@ -139,9 +120,6 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
 
 
     // --- Memoized Lookups ---
-    const projectOptions = useMemo<SelectOption[]>(() => projects?.map(p => ({ label: p.project_name, value: p.name })) || [], [projects]);
-    const customerOptions = useMemo<SelectOption[]>(() => customers?.map(c => ({ label: c.company_name, value: c.name })) || [], [customers]);
-
     const getProjectName = useCallback(memoize((projId?: string) => projects?.find(p => p.name === projId)?.project_name || projId || "--"), [projects]);
     const getCustomerName = useCallback(memoize((custId?: string) => customers?.find(c => c.name === custId)?.company_name || custId || "--"), [customers]);
 
@@ -191,7 +169,7 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
             size: 150,
             meta: {
                 exportHeaderName: "Payment Date",
-                exportValue: (row) => {
+                exportValue: (row: ProjectInflows) => {
                     return formatDate(row.payment_date || row.creation)
                 }
             }
@@ -211,7 +189,7 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
             }, size: 180,
             meta: {
                 exportHeaderName: "Payment Ref (UTR)",
-                exportValue: (row) => {
+                exportValue: (row: ProjectInflows) => {
                     return row.utr || '--'
                 }
             }
@@ -224,7 +202,7 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
                     return (
                         <div className="font-medium flex items-center gap-1.5 group min-w-[170px]">
                             <span className="truncate" title={projectName}>{projectName}</span>
-                            <HoverCard><HoverCardTrigger asChild><Link to={`/projects/${row.original.project}`}><Info className="w-4 h-4 text-blue-600 opacity-70 group-hover:opacity-100" /></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View Project</HoverCardContent></HoverCard>
+                            <HoverCard><HoverCardTrigger asChild><Link to={`/ projects / ${row.original.project} `}><Info className="w-4 h-4 text-blue-600 opacity-70 group-hover:opacity-100" /></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View Project</HoverCardContent></HoverCard>
                         </div>
                     );
                 },
@@ -232,7 +210,7 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
                 size: 200,
                 meta: {
                     exportHeaderName: "Project",
-                    exportValue: (row) => {
+                    exportValue: (row: ProjectInflows) => {
                         return getProjectName(row.project)
                     }
                 }
@@ -245,14 +223,14 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
                 return (
                     <div className="font-medium flex items-center gap-1.5 group">
                         <span className="truncate" title={customerName}>{customerName}</span>
-                        <HoverCard><HoverCardTrigger asChild><Link to={`/customers/${row.original.customer}`}><Info className="w-4 h-4 text-blue-600 opacity-70 group-hover:opacity-100" /></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View Customer</HoverCardContent></HoverCard>
+                        <HoverCard><HoverCardTrigger asChild><Link to={`/ customers / ${row.original.customer} `}><Info className="w-4 h-4 text-blue-600 opacity-70 group-hover:opacity-100" /></Link></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">View Customer</HoverCardContent></HoverCard>
                     </div>
                 );
             },
             enableColumnFilter: true, size: 200,
             meta: {
                 exportHeaderName: "Customer",
-                exportValue: (row) => {
+                exportValue: (row: ProjectInflows) => {
                     return getCustomerName(row.customer)
                 }
             }
@@ -264,7 +242,7 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
             size: 150,
             meta: {
                 exportHeaderName: "Amount Received",
-                exportValue: (row) => {
+                exportValue: (row: ProjectInflows) => {
                     return formatForReport(row.amount)
                 }
             }
@@ -277,12 +255,13 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
                 excludeFromExport: true, // Exclude from export
             }
         },// --- NEW: Actions Column ---
-        ...(role === "Nirmaan Admin Profile" ? [
+        ...((role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || role === "Nirmaan Accountant Profile") ? [
             {
                 id: "actions",
                 header: () => <div >Actions</div>,
-                cell: ({ row }) => {
+                cell: ({ row }: { row: any }) => {
                     const inflow = row.original;
+                    const canDelete = role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile";
                     return (
                         <div>
                             <DropdownMenu>
@@ -296,13 +275,17 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
                                     <DropdownMenuItem onClick={() => handleOpenEditDialog(inflow)}>
                                         <Edit2 className="mr-2 h-4 w-4" /> Edit
                                     </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                        onClick={() => handleOpenDeleteConfirmation(inflow)}
-                                        className="text-destructive focus:text-destructive focus:bg-destructive/10"
-                                    >
-                                        <Trash2 className="mr-2 h-4 w-4" /> Delete
-                                    </DropdownMenuItem>
+                                    {canDelete && (
+                                        <>
+                                            <DropdownMenuSeparator />
+                                            <DropdownMenuItem
+                                                onClick={() => handleOpenDeleteConfirmation(inflow)}
+                                                className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                                            >
+                                                <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                            </DropdownMenuItem>
+                                        </>
+                                    )}
                                 </DropdownMenuContent>
                             </DropdownMenu>
                         </div>
@@ -314,19 +297,9 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
             }
         ] : []),
         // --- End Actions Column ---
-    ], [getProjectName, getCustomerName, projectId, customerId, handleOpenEditDialog, handleOpenDeleteConfirmation]); // Added new handlers to dependencies
+    ], [getProjectName, getCustomerName, projectId, customerId, handleOpenEditDialog, handleOpenDeleteConfirmation, role]);
 
-
-    // --- Faceted Filter Options ---
-    const facetFilterOptions = useMemo(() => {
-        const opts: any = {};
-        if (!projectId) opts.project = { title: "Project", options: projectOptions };
-        if (!customerId) opts.customer = { title: "Customer", options: customerOptions };
-        return opts;
-    }, [projectOptions, customerOptions, projectId, customerId]);
-
-
-    // --- Use the Server Data Table Hook ---
+    // --- Use the Server Data Table Hook (MOVED UP) ---
     const {
         table, data, totalCount, isLoading: listIsLoading, error: listError,
         searchTerm, setSearchTerm, selectedSearchField, setSelectedSearchField
@@ -345,6 +318,47 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
         aggregatesConfig: INFLOW_AGGREGATES_CONFIG, // NEW: Pass the config
     });
 
+    // --- Dynamic Facet Values ---
+    const { facetOptions: projectFacetOptions, isLoading: isProjectFacetLoading } = useFacetValues({
+        doctype: DOCTYPE,
+        field: 'project',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        additionalFilters: staticFilters,
+        enabled: !projectId // Only if not already pre-filtered to a project
+    });
+
+    const { facetOptions: customerFacetOptions, isLoading: isCustomerFacetLoading } = useFacetValues({
+        doctype: DOCTYPE,
+        field: 'customer',
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+        additionalFilters: staticFilters,
+        enabled: !customerId // Only if not already pre-filtered to a customer
+    });
+
+    // --- Faceted Filter Options ---
+    const facetFilterOptions = useMemo(() => {
+        const opts: any = {};
+        if (!projectId) {
+            opts.project = { title: "Project", options: projectFacetOptions, isLoading: isProjectFacetLoading };
+        }
+        if (!customerId) {
+            opts.customer = { title: "Customer", options: customerFacetOptions, isLoading: isCustomerFacetLoading };
+        }
+        return opts;
+    }, [projectFacetOptions, isProjectFacetLoading, customerFacetOptions, isCustomerFacetLoading, projectId, customerId]);
+
+
+    // --- Faceted Filter Options ---
+
+
+
+    // --- Use the Server Data Table Hook ---
+
+
 
     // --- Combined Loading & Error States ---
     const isLoadingOverall = projectsLoading || customersLoading;
@@ -355,7 +369,7 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
     }
 
     return (
-        <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'max-h-[calc(100vh-80px)] overflow-hidden' : ''}`}>
+        <div className={`flex flex-col gap-2 ${totalCount > 0 ? 'max-h-[calc(100vh-80px)] overflow-hidden' : ''} `}>
             {isLoadingOverall ? (
                 <TableSkeleton />
             ) : (
@@ -374,7 +388,7 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
                     dateFilterColumns={dateColumns}
                     showExportButton={true}
                     onExport={'default'} // Use default CSV export
-                    exportFileName={`Inflow_Payments_${(customerId || projectId || 'all').replace(/[^a-zA-Z0-9]/g, '_')}`}
+                    exportFileName={`Inflow_Payments_${(customerId || projectId || 'all').replace(/[^a-zA-Z0-9]/g, '_')} `}
                     // toolbarActions={
                     //     !projectId && !customerId && ( // Only show if not in specific project/customer context
                     //         <Button onClick={toggleNewInflowDialog} size="sm">
@@ -382,47 +396,16 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
                     //         </Button>
                     //     )
                     // }
-                    // NEW: Pass the fully constructed summary card as a prop
                     summaryCard={
-                        <Card>
-                            <CardHeader className="p-4">
-                                <CardTitle className="text-lg">
-                                    {`Inflow Summary ${projectId ? `for ${getProjectName(projectId)}`
-                                        : customerId ? `for ${getCustomerName(customerId)}`
-                                            : ''
-                                        }`}
-                                </CardTitle>
-                                <CardDescription>
-                                    <AppliedFiltersDisplay filters={columnFilters} search={searchTerm} />
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent className="p-4 pt-0">
-                                {isAggregatesLoading ? (
-                                    <div className="flex justify-center items-center h-16">
-                                        <TailSpin height={24} width={24} color="#4f46e5" />
-                                    </div>
-                                ) : aggregates ? (
-                                    <dl className="flex flex-col sm:flex-row sm:justify-between space-y-2 sm:space-y-0 sm:space-x-4">
-                                        <div className="flex justify-between sm:block">
-                                            <dt className="font-semibold text-gray-600">Total Inflow</dt>
-                                            <dd className="sm:text-right font-bold text-lg text-green-600">
-                                                {formatToRoundedIndianRupee(aggregates.sum_of_amount || 0)}
-                                            </dd>
-                                        </div>
-                                        <div className="flex justify-between sm:block">
-                                            <dt className="font-semibold text-gray-600">Total Count</dt>
-                                            <dd className="sm:text-right font-bold text-lg text-green-600">
-                                                {totalCount}
-                                            </dd>
-                                        </div>
-                                    </dl>
-                                ) : (
-                                    <p className="text-sm text-center text-muted-foreground h-16 flex items-center justify-center">
-                                        No summary data available.
-                                    </p>
-                                )}
-                            </CardContent>
-                        </Card>
+                        <InflowSummaryCard
+                            aggregates={aggregates}
+                            isAggregatesLoading={isAggregatesLoading}
+                            totalCount={totalCount}
+                            columnFilters={columnFilters}
+                            searchTerm={searchTerm}
+                            projectName={projectId ? getProjectName(projectId) : undefined}
+                            customerName={customerId ? getCustomerName(customerId) : undefined}
+                        />
                     }
                 />
             )}

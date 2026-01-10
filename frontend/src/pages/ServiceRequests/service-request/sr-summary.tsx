@@ -187,7 +187,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                 Resolve</Button>
                         )
                     }
-                    {["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(userData.role) &&
+                    {["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(userData.role) &&
                         (["Created", "Rejected", userData?.role === "Nirmaan Procurement Executive Profile" ? "Vendor Selected" : ""].includes(sr_data?.status) && (
                             <AlertDialog>
                                 <AlertDialogTrigger>
