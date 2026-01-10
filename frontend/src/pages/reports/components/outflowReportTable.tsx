@@ -224,6 +224,19 @@ export function OutflowReportTable() {
         return rowsToSum.reduce((sum, row) => sum + row.original.amount, 0);
     }, [table.getFilteredRowModel().rows]); // Dependency is the array of filtered rows
 
+    // Calculate total amount excluding GST
+    // Formula: base_amount = amount / (1 + effective_gst / 100)
+    const totalAmountExclGST = useMemo(() => {
+        const rowsToSum = table.getFilteredRowModel().rows;
+        return rowsToSum.reduce((sum, row) => {
+            const gstRate = row.original.effective_gst || 0;
+            const amountExclGST = gstRate > 0
+                ? row.original.amount / (1 + gstRate / 100)
+                : row.original.amount;
+            return sum + amountExclGST;
+        }, 0);
+    }, [table.getFilteredRowModel().rows]);
+
 
     const isLoadingOverall = isLoadingInitialData || projectsLoading || vendorsLoading || expenseTypesLoading || isTableHookLoading;
     const combinedErrorOverall = initialDataError || tableHookError;
@@ -310,28 +323,42 @@ export function OutflowReportTable() {
                 onExport={'default'}
                 exportFileName={'Project_Outflow_Report'}
                 summaryCard={
-                    <Card>
-                        <CardHeader className="p-4">
-                            <CardTitle className="text-lg">Outflow Report Summary</CardTitle>
-                            <CardDescription>
-                                <AppliedFiltersDisplay filters={columnFilters} search={searchTerm} />
-                            </CardDescription>
+                    <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-50 to-white dark:from-slate-900 dark:to-slate-800">
+                        <CardHeader className="pb-2 pt-4 px-5">
+                            <div className="flex items-center justify-between">
+                                <CardTitle className="text-base font-semibold tracking-tight text-slate-800 dark:text-slate-200">
+                                    Outflow Summary
+                                </CardTitle>
+                                <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">
+                                    {filteredRowCount} Transaction{filteredRowCount !== 1 ? 's' : ''}
+                                </span>
+                            </div>
+                            <AppliedFiltersDisplay filters={columnFilters} search={searchTerm} />
                         </CardHeader>
-                        <CardContent className="p-4 pt-0">
-                            <dl className="flex flex-col sm:flex-row sm:justify-between space-y-2 sm:space-y-0 sm:space-x-4">
-                                <div className="flex justify-between sm:block">
-                                    <dt className="font-semibold text-gray-600">Total Outflow Amount</dt>
-                                    <dd className="sm:text-right font-bold text-lg text-red-600">
+                        <CardContent className="px-5 pb-4 pt-0">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                {/* Primary Metric - Total Paid (Incl GST) */}
+                                <div className="bg-red-50/80 dark:bg-red-950/30 rounded-lg p-4 border border-red-100 dark:border-red-900/50">
+                                    <dt className="text-xs font-medium text-red-600/80 dark:text-red-400/80 uppercase tracking-wide mb-1">
+                                        Total Paid (Incl. GST)
+                                    </dt>
+                                    <dd className="text-2xl font-bold text-red-700 dark:text-red-400 tabular-nums">
                                         {formatToRoundedIndianRupee(totalOutflowAmount || 0)}
                                     </dd>
                                 </div>
-                                <div className="flex justify-between sm:block">
-                                    <dt className="font-semibold text-gray-600">Total Transactions</dt>
-                                    <dd className="sm:text-right font-bold text-lg text-red-600">
-                                        {filteredRowCount}
+                                {/* Secondary Metric - Estimated Excl GST */}
+                                <div className="bg-slate-50/80 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
+                                    <dt className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">
+                                        Estimated (Excl. GST)
+                                    </dt>
+                                    <dd className="text-2xl font-bold text-slate-700 dark:text-slate-300 tabular-nums">
+                                        {formatToRoundedIndianRupee(totalAmountExclGST || 0)}
                                     </dd>
+                                    <span className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 block">
+                                        Approx. GST: {formatToRoundedIndianRupee((totalOutflowAmount - totalAmountExclGST) || 0)}
+                                    </span>
                                 </div>
-                            </dl>
+                            </div>
                         </CardContent>
                     </Card>
                 }
