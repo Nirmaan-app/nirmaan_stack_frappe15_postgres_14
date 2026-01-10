@@ -4,6 +4,70 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-10: Daily Progress Report Setup in Project Creation
+
+### Summary
+Added Section 2 (Daily Progress Report Setup) to the Package Selection step in project creation wizard. Users can optionally configure progress tracking with zones and work headers during project creation, with settings saved to the Projects doctype after creation.
+
+### Changes Made
+
+**Schema & Types (`schema.ts`):**
+- Added `daily_progress_setup` object to form schema with:
+  - `enabled: boolean` - Toggle for feature
+  - `zone_type: 'single' | 'multiple'` - Zone configuration mode
+  - `zones: Array<{ zone_name: string }>` - Custom zone names
+  - `work_headers: Array<{ work_header_doc_name, work_header_display_name, work_package_link }>` - Selected headers
+- Added `DailyProgressWorkHeader` and `DailyProgressSetup` type exports
+
+**Data Fetching (`useProjectFormData.ts`):**
+- Added `WorkHeaderType` interface
+- Added Work Headers fetch with `useFrappeGetDocList("Work Headers")`
+- Exposed `workHeaders`, `isWorkHeadersLoading`, `workHeadersError`
+
+**UI (`PackageSelectionStep.tsx`):**
+- Simplified work package selection to two-column list layout (enterprise utilitarian design)
+- Added Section 2: Daily Progress Reports (Optional)
+  - Enable toggle checkbox
+  - Zone configuration: Single (Default) or Multiple custom zones
+  - Work headers selection grouped by work_package_link with expandable accordions
+- Removed card-based flashy design in favor of clean borders and minimal styling
+
+**Submission Logic (`index.tsx`):**
+- Extract `daily_progress_setup` from form values (not sent to backend API)
+- After project creation, call `updateDoc` to set:
+  - `enable_project_milestone_tracking: true`
+  - `project_zones` child table (field: `zone_name`)
+  - `project_work_header_entries` child table (fields: `project_work_header_name`, `enabled: "True"`)
+- Added debug logging for troubleshooting
+
+**Creation Dialog (`project-creation-dialog.tsx`):**
+- Added third stage: "Setting up progress tracking"
+- Conditionally shown when `progressSetupEnabled` is true
+
+**Review Step (`ReviewStep.tsx`):**
+- Added Daily Progress Reports section showing zone configuration and selected work headers
+
+**Draft Store (`useProjectDraftStore.ts`):**
+- Added `daily_progress_setup` to `ProjectDraftFormValues` interface
+
+**Backend Fixes:**
+- `new_project.py`: Removed assignee field assignments (handled by frontend via User Permissions)
+- `projects.py`: Changed `generateUserPermissions` hook to use truthy checks instead of `!= ""`
+
+### Technical Notes
+
+**Child Table Field Names:**
+- `Project Zone Child Table`: `zone_name` (Data)
+- `Project Work Headers`: `project_work_header_name` (Link to Work Headers), `enabled` (Data)
+
+**Enabled Field Format:**
+The reading code at `MilestoneTab.tsx:422` filters with `entry.enabled === "True"` (string comparison), so we save `enabled: "True"` not boolean `true`.
+
+**Work Headers Doctype:**
+Uses `autoname: "field:work_header_name"`, so document names ARE the display names (e.g., "Fire Sprinkler System").
+
+---
+
 ## 2026-01-10: Project Draft System
 
 ### Summary
