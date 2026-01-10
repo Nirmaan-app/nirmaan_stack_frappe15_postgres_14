@@ -4,6 +4,67 @@ Changes made by Claude Code sessions.
 
 ---
 
+### 2026-01-10: Customer Validation and Dialog Redesign
+
+**Summary:** Added customer validation across project forms and financial dialogs, with enterprise minimalist UI redesign.
+
+**Files Modified:**
+- `frontend/src/pages/projects/project-form/steps/ProjectDetailsStep.tsx` - Added conditional customer message (success/warning)
+- `frontend/src/pages/projects/edit-project-form.tsx` - Made customer optional, added validation message
+- `frontend/src/pages/projects/ProjectOverviewTab.tsx` - Added warning banner when project has no customer
+- `frontend/src/pages/inflow-payments/components/NewInflowPayment.tsx` - Full UI redesign with emerald theme
+- `frontend/src/pages/inflow-payments/components/EditInflowPayment.tsx` - Full UI redesign with amber theme
+- `frontend/src/pages/ProjectInvoices/components/NewProjectInvoiceDialog.tsx` - Full UI redesign with customer validation
+- `frontend/src/pages/ProjectInvoices/components/EditProjectInvoiceDialog.tsx` - Full UI redesign with customer validation
+
+**Features:**
+- Customer validation: prevents invoice/inflow creation when project has no customer
+- Conditional messages: green success when customer selected, amber warning when missing
+- Enterprise minimalist design: dark gradient headers, badge-style context displays
+- Color-coded themes: emerald for create dialogs, amber for edit dialogs
+- Filename truncation (25 chars) for attachment displays
+- Removed sessionStorage dependency from invoice dialog project selector
+
+---
+
+### 2026-01-10: Project Creation Wizard - Modular Architecture with Draft System
+
+**Summary:** Refactored 1900+ line monolithic project form into modular step-based architecture with localStorage draft persistence.
+
+**Files Created:**
+- `frontend/src/pages/projects/project-form/index.tsx` - Main orchestrator component
+- `frontend/src/pages/projects/project-form/schema.ts` - Zod schema and types
+- `frontend/src/pages/projects/project-form/constants.ts` - Wizard config, GST options
+- `frontend/src/pages/projects/project-form/hooks/useProjectFormData.ts` - Data fetching hook
+- `frontend/src/pages/projects/project-form/steps/ProjectDetailsStep.tsx`
+- `frontend/src/pages/projects/project-form/steps/ProjectAddressStep.tsx`
+- `frontend/src/pages/projects/project-form/steps/ProjectTimelineStep.tsx`
+- `frontend/src/pages/projects/project-form/steps/ProjectAssigneesStep.tsx`
+- `frontend/src/pages/projects/project-form/steps/PackageSelectionStep.tsx`
+- `frontend/src/pages/projects/project-form/steps/ReviewStep.tsx`
+- `frontend/src/pages/projects/project-form/steps/index.ts` - Barrel export
+- `frontend/src/zustand/useProjectDraftStore.ts` - Draft persistence store
+- `frontend/src/hooks/useProjectDraftManager.ts` - Draft management hook
+- `frontend/src/components/ui/wizard-steps.tsx` - Reusable wizard progress component
+- `frontend/src/components/ui/form-field-row.tsx` - Form layout helpers
+- `frontend/src/components/ui/review-section.tsx` - Review step components
+- `frontend/src/components/ui/package-review-card.tsx` - Package display card
+- `frontend/src/components/ui/draft-indicator.tsx` - Save status indicator
+- `frontend/src/components/ui/draft-cancel-dialog.tsx` - Cancel confirmation dialog
+- `frontend/src/components/ui/draft-resume-dialog.tsx` - Resume draft dialog
+
+**Features:**
+- 6-step wizard: Details → Address → Timeline → Assignees → Packages → Review
+- Auto-save drafts to localStorage with 1.5s debounce
+- 30-day draft expiry with resume/discard options
+- Each step ~150-250 lines (down from 1900+ monolith)
+- Reusable UI components for other wizards
+
+**Files Retired:**
+- `frontend/src/pages/Retired Components/project-form.tsx` - Original monolith (kept for reference)
+
+---
+
 ### 2026-01-10: Remarks Functionality for PO and Work Orders (SR)
 
 **Summary:** Added role-based remarks system for Purchase Orders and Service Requests (Work Orders), allowing Accountant, Procurement, and Admin users to add categorized remarks with full audit trail.

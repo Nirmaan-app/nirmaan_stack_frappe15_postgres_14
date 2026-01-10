@@ -250,6 +250,33 @@ import { useUserData } from "@/hooks/useUserData"
 - Use Tailwind utility classes for styling
 - Use CVA (class-variance-authority) for variant-based component APIs
 
+### Step-Based Wizard Architecture
+
+For complex multi-step forms (like project creation), use the modular wizard pattern:
+
+```
+pages/[feature]/[form-name]/
+├── index.tsx              # Main orchestrator (form state, navigation, submission)
+├── schema.ts              # Zod schema, types, field mappings per step
+├── constants.ts           # Wizard config (steps, options)
+├── hooks/
+│   └── use[Form]Data.ts   # Data fetching for dropdowns/lookups
+└── steps/
+    ├── index.ts           # Barrel export
+    ├── Step1.tsx          # Each step ~150-250 lines
+    ├── Step2.tsx
+    └── ReviewStep.tsx     # Final review before submission
+```
+
+**Key components** (in `src/components/ui/`):
+- `wizard-steps.tsx` - Visual step progress indicator
+- `draft-indicator.tsx` - Auto-save status display
+- `draft-resume-dialog.tsx` / `draft-cancel-dialog.tsx` - Draft management dialogs
+
+**Draft persistence** (optional):
+- Use Zustand store with `persist` middleware for localStorage
+- `useProjectDraftManager` hook pattern for auto-save with debounce
+
 ### Working with Procurement Flow
 
 The procurement flow is the core workflow:
