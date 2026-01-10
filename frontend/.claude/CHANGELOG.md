@@ -4,6 +4,109 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-10: Invoice Reconciliation with 2B Activation Tracking
+
+### Summary
+Added 2B activation status tracking for PO and SR invoices with reconciliation workflow. Invoices can now be marked as reconciled with GST 2B form matching status.
+
+### Files Created
+
+**Config Files:**
+- `src/pages/tasks/invoices/config/poInvoicesTable.config.ts` - PO invoice table searchable fields and filter options
+- `src/pages/tasks/invoices/config/srInvoicesTable.config.ts` - SR invoice table searchable fields and filter options
+
+### Files Modified
+
+**Invoice Components:**
+- `src/pages/tasks/invoices/components/PoInvoices.tsx`:
+  - Added optional `vendorId` prop for vendor-specific filtering
+  - Added `2b_activation_status` column with reconciliation dialog
+  - Added `reconciled_date` column with date filter
+  - Added `updated_by` column showing full name from Nirmaan Users
+  - Added facet filter for `updated_by` field
+  - Fixed date filters by adding `filterFn: dateFilterFn`
+
+- `src/pages/tasks/invoices/components/SrInvoices.tsx`:
+  - Same enhancements as PoInvoices.tsx for SR invoices
+
+**Vendor Overview:**
+- `src/pages/vendors/vendor.tsx`:
+  - Added "PO Invoices" and "SR Invoices" tabs
+  - Tabs filtered by vendor_type (Material/Service/Both)
+  - Lazy loading for invoice components
+
+### Key Patterns
+
+**Optional Vendor Filtering:**
+```typescript
+interface PoInvoicesProps {
+    vendorId?: string; // Optional: filter to specific vendor
+}
+// When vendorId provided: client-side filter, hide vendor column, vendor-specific urlSyncKey
+```
+
+**User Full Name Lookup:**
+```typescript
+const getUserFullName = useMemo(() => memoize((userId: string) => {
+    const user = userValues.find(u => u.value === userId);
+    return user?.label || userId;
+}), [userValues]);
+```
+
+**Date Filter Fix:**
+```typescript
+{
+    accessorKey: "date",
+    filterFn: dateFilterFn, // Required for client-side date filtering
+}
+```
+
+---
+
+## 2026-01-10: Remarks System for PO and Work Orders (SR)
+
+### Summary
+Complete remarks/comments system for purchase orders and service requests with role-based categorization.
+
+### Files Created
+
+**PO Remarks:**
+- `src/pages/purchase-order/components/PORemarks.tsx` - Full remarks UI for PO summary
+- `src/pages/purchase-order/components/PORemarksPopover.tsx` - Compact remarks popover
+- `src/pages/purchase-order/hooks/usePORemarks.ts` - PO remarks hook
+
+**SR Remarks:**
+- `src/pages/ServiceRequests/approved-sr/components/SRRemarks.tsx` - Full remarks UI for SR
+- `src/pages/ServiceRequests/approved-sr/components/SRRemarksPopover.tsx` - Compact remarks popover
+- `src/pages/ServiceRequests/approved-sr/hooks/useSRRemarks.ts` - SR remarks hook
+
+**Reports Integration:**
+- `src/pages/reports/components/columns/PORemarksHoverCard.tsx` - Reports table hover card
+- `src/pages/reports/components/columns/SRRemarksHoverCard.tsx` - Reports table hover card
+
+**Backend:**
+- `nirmaan_stack/api/po_remarks.py` - Backend PO remarks API
+- `nirmaan_stack/api/sr_remarks.py` - Backend SR remarks API
+
+### Key Pattern
+Role-based remark categorization (Accountant, Procurement, Admin tabs). Users can only delete their own remarks.
+
+---
+
+## 2026-01-10: Code Cleanup and Refactoring
+
+### Summary
+Cleanup of InFlowPayments component and project hooks.
+
+### Files Modified
+- `src/pages/inflow-payments/InFlowPayments.tsx` - Refactored to use extracted components
+- `src/pages/projects/projects.tsx` - Updated to use `useProjectAllCredits` hook
+
+### Files Created
+- `src/components/ui/progress.tsx` - Added shadcn/ui Progress component
+
+---
+
 ## 2026-01-09: Header/Sidebar Alignment Fix & Mobile Menu
 
 ### Summary

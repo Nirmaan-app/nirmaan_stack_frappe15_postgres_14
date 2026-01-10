@@ -9,12 +9,16 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | File | Domain | When to Load |
 |------|--------|--------------|
 | [role-access.md](./role-access.md) | Access Control | Role checks, sidebar visibility, page permissions |
+| [domain/invoices.md](./domain/invoices.md) | Invoices | PO/SR invoices, 2B reconciliation, date filters |
 
 ### Module References (in-code)
 
 | Module | Location | Key Files |
 |--------|----------|-----------|
 | Assets | `src/pages/Assets/` | `assets.constants.ts` for doctypes/fields |
+| Invoices | `src/pages/tasks/invoices/` | `config/*.config.ts` for table config |
+| PO Remarks | `src/pages/purchase-order/` | `hooks/usePORemarks.ts`, `components/PORemarks.tsx` |
+| SR Remarks | `src/pages/ServiceRequests/approved-sr/` | `hooks/useSRRemarks.ts`, `components/SRRemarks.tsx` |
 
 ---
 
@@ -49,7 +53,9 @@ const { role, user_id } = useUserData();
 ├── settings.local.json   # Local Claude settings
 └── context/
     ├── _index.md         # This file
-    └── role-access.md    # Role-based access control reference
+    ├── role-access.md    # Role-based access control reference
+    └── domain/
+        └── invoices.md   # Invoice management & 2B reconciliation
 ```
 
 ---
