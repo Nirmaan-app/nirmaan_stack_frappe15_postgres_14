@@ -4,6 +4,196 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-10: Project Draft System
+
+### Summary
+Implemented a draft/resume system for the project creation wizard that auto-saves form progress to localStorage, allows users to cancel setup with save/discard options, and prompts users to resume or start fresh when returning. Drafts expire after 30 days.
+
+### Files Created
+
+**Zustand Store:**
+- `src/zustand/useProjectDraftStore.ts` - Draft persistence store:
+  - localStorage persistence via `createJSONStorage`
+  - Stores form values, areaNames, current step, section, and timestamp
+  - Auto-expires drafts after 30 days
+  - Date serialization (Date ↔ ISO string conversion)
+
+**Custom Hook:**
+- `src/hooks/useProjectDraftManager.ts` - Draft management hook:
+  - Auto-save with 1.5s debounce on form changes
+  - Relative time display ("Saved 5 minutes ago")
+  - Resume/discard dialog controls
+  - Form ↔ draft value conversion (handles Date objects)
+
+**UI Components:**
+- `src/components/ui/draft-indicator.tsx`:
+  - `DraftIndicator` - Pill-shaped status badge showing save state
+  - States: Saving (spinner), Saved (green cloud), Error (amber)
+  - `DraftHeader` - Container for cancel button + indicator
+
+- `src/components/ui/draft-cancel-dialog.tsx`:
+  - AlertDialog for cancel confirmation
+  - Shows progress (Step X of Y with progress bar)
+  - Three actions: Save Draft & Exit, Discard & Exit, Continue Editing
+
+- `src/components/ui/draft-resume-dialog.tsx`:
+  - AlertDialog shown when draft exists on page load
+  - Shows project name preview and last saved time
+  - Two actions: Resume Draft, Start Fresh
+
+### Files Modified
+
+- `src/pages/projects/project-form.tsx`:
+  - Added imports for draft system components
+  - Integrated `useProjectDraftManager` hook
+  - Added `DraftHeader` with Cancel button and `DraftIndicator`
+  - Added `DraftResumeDialog` and `DraftCancelDialog`
+  - Clear draft on successful project submission
+
+### Key Patterns
+
+**Draft Store with Persistence:**
+```typescript
+export const useProjectDraftStore = create<ProjectDraftStore>()(
+  persist(
+    (set, get) => ({
+      draft: null,
+      saveDraft: (draft) => set({ draft: { ...draft, lastSavedAt: new Date().toISOString() } }),
+      clearDraft: () => set({ draft: null }),
+      hasDraft: () => { /* check expiration */ },
+    }),
+    {
+      name: 'nirmaan-project-draft',
+      storage: createJSONStorage(() => localStorage),
+    }
+  )
+);
+```
+
+**Draft Manager Hook Usage:**
+```typescript
+const {
+  hasDraft, lastSavedText, isSaving,
+  showResumeDialog, showCancelDialog,
+  setShowResumeDialog, setShowCancelDialog,
+  resumeDraft, discardDraft, saveDraftNow, clearDraftAfterSubmit,
+} = useProjectDraftManager({
+  form, areaNames, setAreaNames,
+  currentStep, section, setCurrentStep, setSection,
+});
+```
+
+**Draft Header Integration:**
+```typescript
+<DraftHeader>
+  <Button variant="ghost" onClick={() => setShowCancelDialog(true)}>
+    <X className="h-4 w-4" />
+    <span className="hidden sm:inline">Cancel</span>
+  </Button>
+  <DraftIndicator lastSavedText={lastSavedText} isSaving={isSaving} />
+</DraftHeader>
+```
+
+---
+
+## 2026-01-10: New Design for Project Forms
+
+### Summary
+Redesigned project creation and edit forms with a modern wizard-based layout, responsive step indicator, and new reusable UI components. Replaced Ant Design Steps with custom WizardSteps component. Added consistent form field layouts and enhanced review section with collapsible cards.
+
+### Files Created
+
+**New UI Components:**
+- `src/components/ui/wizard-steps.tsx` - Custom multi-step wizard indicator with responsive layouts:
+  - Mobile: Progress bar with percentage and current step name
+  - Tablet: Compact horizontal with step numbers + current title
+  - Desktop: Full horizontal with short titles and connectors
+  - Animated current step indicator with pulse effect
+  - Color-coded step states (completed=green, current=primary, upcoming=muted)
+
+- `src/components/ui/form-field-row.tsx` - Unified form field layout component:
+  - Three variants: `default`, `sheet`, `compact`
+  - Responsive breakpoints (`md:` for horizontal layout)
+  - Consistent label/input proportions
+  - `FormSectionHeader` for section titles with icons
+  - `FormGrid` for multi-column layouts
+  - `FormActions` for button placement
+
+- `src/components/ui/review-section.tsx` - Review section components:
+  - `ReviewContainer` - Gradient wrapper with title/description
+  - `ReviewSection` - Collapsible section with icon, title, edit button
+  - `ReviewDetail` - Stacked label-value display (label=uppercase muted, value=prominent)
+
+- `src/components/ui/package-review-card.tsx` - Work package review:
+  - `PackageReviewCard` - Collapsible card for individual packages
+  - `PackagesReviewGrid` - Responsive grid of package cards
+  - Category badges with make counts
+
+**New Hooks:**
+- `src/hooks/useMediaQuery.ts` - Responsive breakpoint detection:
+  - `useMediaQuery(query)` - Check if media query matches
+  - `useBreakpoint()` - Get `isMobile`, `isTablet`, `isDesktop`, `current`
+
+### Files Modified
+
+**Project Forms:**
+- `src/pages/projects/project-form.tsx`:
+  - Replaced Ant Design `Steps` with custom `WizardSteps`
+  - Added `wizardStepsConfig` with short titles and icons
+  - Refactored `ReviewDetails` to use new `ReviewSection`, `ReviewDetail`, `PackagesReviewGrid`
+  - Removed legacy `Section` and `Detail` components
+  - Fixed `Calendar` naming conflict with `CalendarLucide` alias
+
+- `src/pages/projects/edit-project-form.tsx`:
+  - Updated form field layouts to use consistent classes:
+    - `md:flex md:items-start gap-4` (was `lg:flex lg:items-center`)
+    - `md:w-1/4 md:pt-2.5 shrink-0` for labels (was `md:basis-3/12`)
+    - `flex-1` for input containers (was `md:basis-2/4`)
+  - Added `FormSectionHeader` with icons for each section
+  - Fixed `Calendar` naming conflict with `CalendarIconAlt` alias
+
+### Key Patterns
+
+**Responsive Wizard Steps:**
+```typescript
+const wizardStepsConfig: WizardStep[] = [
+    { key: "projectDetails", title: "Project Details", shortTitle: "Details", icon: Building2 },
+    { key: "projectAddressDetails", title: "Project Address", shortTitle: "Address", icon: MapPin },
+    // ...
+];
+
+<WizardSteps
+    steps={wizardStepsConfig}
+    currentStep={currentStep}
+    onStepClick={(stepIndex) => { /* navigation */ }}
+/>
+```
+
+**Review Section with Edit:**
+```typescript
+<ReviewSection
+    title="Project Details"
+    icon={Building2}
+    onEdit={() => navigateToSection("projectDetails")}
+    iconColorClass="bg-blue-500/10 text-blue-600"
+>
+    <ReviewDetail label="Project Name" value={form.getValues("project_name")} />
+</ReviewSection>
+```
+
+**Consistent Form Field Layout:**
+```typescript
+<FormItem className="md:flex md:items-start gap-4">
+    <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">Label</FormLabel>
+    <div className="flex-1 space-y-1.5">
+        <FormControl><Input {...field} /></FormControl>
+        <FormMessage />
+    </div>
+</FormItem>
+```
+
+---
+
 ## 2026-01-10: Invoice Reconciliation with 2B Activation Tracking
 
 ### Summary
