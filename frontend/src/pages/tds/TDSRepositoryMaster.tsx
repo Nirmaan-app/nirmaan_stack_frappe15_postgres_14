@@ -66,10 +66,13 @@ export const TDSRepositoryMaster: React.FC = () => {
             filterFn: "arrIncludesSome",
         },
         {
-            id: "item_name",
-            accessorFn: (row) => row["tds_item_name.item_name"] || row.tds_item_name,
+            // id: "item_name",
+             accessorKey: "tds_item_name",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Item Name" />,
-            cell: ({ row }) => <div className="font-medium">{row.getValue("item_name")}</div>,
+
+            // accessorFn: (row) => row["tds_item_name.item_name"] || row.tds_item_name,
+            // header: ({ column }) => <DataTableColumnHeader column={column} title="Item Name" />,
+            cell: ({ row }) => <div className="font-medium">{row.getValue("tds_item_name")}</div>,
             enableColumnFilter: true,
             filterFn: "arrIncludesSome",
         },
@@ -113,6 +116,7 @@ export const TDSRepositoryMaster: React.FC = () => {
         },
         {
             id: "actions",
+            meta: { excludeFromExport: true }, // Exclude from export
             header: ({ column }) => <DataTableColumnHeader column={column} title="Actions" />,
             cell: ({ row }) => (
                 <div className="flex items-center gap-2">
@@ -202,9 +206,6 @@ export const TDSRepositoryMaster: React.FC = () => {
                 </div>
                 <div className="flex items-center gap-2">
                     <AddTDSItemDialog onSuccess={() => refetch()} />
-                    <Button variant="outline" className="bg-[#dc2626] hover:bg-[#b91c1c] text-white border-none">
-                        <FileText className="mr-2 h-4 w-4" /> Export
-                    </Button>
                 </div>
             </div>
 
@@ -221,7 +222,11 @@ export const TDSRepositoryMaster: React.FC = () => {
                 onSearchTermChange={setSearchTerm}
                 searchFieldOptions={searchableFields}
                 selectedSearchField={selectedSearchField}
+                selectedSearchField={selectedSearchField}
                 onSelectedSearchFieldChange={setSelectedSearchField}
+                showExportButton={true}
+                onExport="default"
+                exportFileName="TDS_Repository_Data"
             />
 
             <EditTDSItemDialog 
