@@ -108,6 +108,10 @@ export const ApprovedSRView: React.FC<ApprovedSRViewProps> = ({
         return <div className="p-6 text-center text-muted-foreground">Service Request data not available.</div>;
     }
 
+    // Define restricted roles that should have limited visibility
+    const RESTRICTED_ROLES = ["Nirmaan Project Manager Profile", "Nirmaan Estimates Executive Profile"];
+    const isRestrictedRole = RESTRICTED_ROLES.includes(currentUserRole || "");
+
     return (
         <>
             <div className="flex-1 space-y-4 md:space-y-6 p-4 md:p-6">
@@ -126,10 +130,11 @@ export const ApprovedSRView: React.FC<ApprovedSRViewProps> = ({
                     onDelete={deleteServiceRequest} // Directly call, dialog confirmation is inside SRDeleteConfirmationDialog
                     onAddInvoice={toggleAddInvoiceDialog}
                     onPreviewInvoice={toggleInvoicePreviewSheet}
+                    isRestrictedRole={isRestrictedRole}
                 />
-                
+
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
-                    <div className="lg:col-span-2 space-y-4 md:space-y-6">
+                    <div className={`${isRestrictedRole ? 'lg:col-span-3' : 'lg:col-span-2'} space-y-4 md:space-y-6`}>
                         <SRItemsTable
                             items={serviceRequest.parsed_service_order_list?.list}
                             gstEnabled={serviceRequest.gst === "true"}
@@ -146,26 +151,29 @@ export const ApprovedSRView: React.FC<ApprovedSRViewProps> = ({
                             onDeleteNote={deleteNote}
                         />
                     </div>
-                    <div className="lg:col-span-1 space-y-4 md:space-y-6">
-                        <SRFinancialSummary
-                            totalExclusiveGST={totalExclusiveGST}
-                            totalInclusiveGST={totalInclusiveGST}
-                            amountPaid={amountPaid}
-                            amountPendingForRequest={amountPendingForRequest}
-                            gstEnabled={serviceRequest.gst === "true"}
-                        />
-                        <SRPaymentsSection
-                            srId={serviceRequest.name}
-                            srDoc={serviceRequest}
-                            canRequestPayment={canRequestPayment}
-                            canRecordPaidEntry={canRecordPaidEntry}
-                            totalSrAmountInclGST={totalInclusiveGST}
-                            totalSrAmountExclGST={totalExclusiveGST}
-                            currentPaidAmount={amountPaid}
-                            currentPendingAmount={amountPendingForRequest}
-                            mutatePayments={mutatePayments}
-                        />
-                    </div>
+                    {/* Hide Financial Summary and Payments sections for restricted roles */}
+                    {!isRestrictedRole && (
+                        <div className="lg:col-span-1 space-y-4 md:space-y-6">
+                            <SRFinancialSummary
+                                totalExclusiveGST={totalExclusiveGST}
+                                totalInclusiveGST={totalInclusiveGST}
+                                amountPaid={amountPaid}
+                                amountPendingForRequest={amountPendingForRequest}
+                                gstEnabled={serviceRequest.gst === "true"}
+                            />
+                            <SRPaymentsSection
+                                srId={serviceRequest.name}
+                                srDoc={serviceRequest}
+                                canRequestPayment={canRequestPayment}
+                                canRecordPaidEntry={canRecordPaidEntry}
+                                totalSrAmountInclGST={totalInclusiveGST}
+                                totalSrAmountExclGST={totalExclusiveGST}
+                                currentPaidAmount={amountPaid}
+                                currentPendingAmount={amountPendingForRequest}
+                                mutatePayments={mutatePayments}
+                            />
+                        </div>
+                    )}
                 </div>
 
                 {/* SR Remarks Section */}
@@ -217,7 +225,7 @@ export const ApprovedSRView: React.FC<ApprovedSRViewProps> = ({
                     isOpen={isInvoicePreviewSheetOpen}
                     onOpenChange={toggleInvoicePreviewSheet}
                     srDoc={serviceRequest}
-                    // printParams can be passed if dialog inputs are collected before preview
+                // printParams can be passed if dialog inputs are collected before preview
                 />
             )}
 
@@ -226,7 +234,7 @@ export const ApprovedSRView: React.FC<ApprovedSRViewProps> = ({
                     docType="Service Requests"
                     docName={serviceRequest.name}
                     docMutate={mutateSR} // Mutate SR after invoice addition
-                    // isOpen and onOpenChange are managed by useDialogStore for InvoiceDialog
+                // isOpen and onOpenChange are managed by useDialogStore for InvoiceDialog
                 />
             )}
 
@@ -241,16 +249,16 @@ export const ApprovedSRView: React.FC<ApprovedSRViewProps> = ({
                             sr_data={serviceRequest} // Pass existing data for amendment
                             sr_data_mutate={mutateSR} // To refresh after amendment
                             amend={true} // Indicate it's an amendment
-                            // You might need a callback to close the sheet on successful amendment
-                            // onAmendmentComplete={() => {
-                            //     toggleAmendSheet();
-                            //     // navigate to new amended SR if that's the flow
-                            // }}
+                        // You might need a callback to close the sheet on successful amendment
+                        // onAmendmentComplete={() => {
+                        //     toggleAmendSheet();
+                        //     // navigate to new amended SR if that's the flow
+                        // }}
                         />
                     </SheetContent>
                 </Sheet>
             )}
-            
+
             {/* Global Loading Overlay for actions */}
             {isPageActionLoading && (
                 <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-60 z-[999]">

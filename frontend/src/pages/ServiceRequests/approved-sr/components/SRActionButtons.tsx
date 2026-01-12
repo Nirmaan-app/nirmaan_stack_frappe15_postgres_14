@@ -13,6 +13,7 @@ interface SRActionButtonsProps {
     onDelete: () => void; // Opens delete confirmation
     onAddInvoice: () => void; // Opens InvoiceDialog
     onPreviewInvoice: () => void; // Opens SRInvoicePreviewSheet
+    isRestrictedRole?: boolean; // For PM and Estimates Executive roles - hide all except Preview
 }
 
 export const SRActionButtons: React.FC<SRActionButtonsProps> = ({
@@ -23,11 +24,24 @@ export const SRActionButtons: React.FC<SRActionButtonsProps> = ({
     onAmend,
     onDelete,
     onAddInvoice,
-    onPreviewInvoice
+    onPreviewInvoice,
+    isRestrictedRole = false
 }) => {
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
     if (!srDoc) return null;
+
+    // For restricted roles (PM, Estimates Executive), only show Preview button
+    if (isRestrictedRole) {
+        return (
+            <div className="flex items-center gap-2">
+                {/* Only Preview Invoice button for restricted roles */}
+                <Button variant="outline" size="sm" className="text-xs" onClick={onPreviewInvoice} disabled={!srDoc.project_gst || isProcessingAction}>
+                    <Eye className="mr-1.5 h-3.5 w-3.5" /> Preview Invoice
+                </Button>
+            </div>
+        );
+    }
 
     return (
         <div className="flex items-center gap-2">
@@ -60,7 +74,7 @@ export const SRActionButtons: React.FC<SRActionButtonsProps> = ({
                     <PencilRuler className="mr-1.5 h-3.5 w-3.5" /> Amend
                 </Button>
             )}
-            
+
             {/* Always allow adding invoice if SR exists, permissions handled by dialog/API */}
             <Button variant="outline" size="sm" className="text-xs text-primary border-primary" onClick={onAddInvoice} disabled={isProcessingAction}>
                 <FilePlus2 className="mr-1.5 h-3.5 w-3.5" /> Add Invoice
