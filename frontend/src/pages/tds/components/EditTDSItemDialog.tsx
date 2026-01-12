@@ -27,7 +27,18 @@ interface EditTDSItemDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     item: TDSItem | null;
+    item: TDSItem | null;
     onSuccess: () => void;
+}
+
+// Simple debounce hook
+function useDebounce<T>(value: T, delay: number): T {
+    const [debouncedValue, setDebouncedValue] = useState<T>(value);
+    useEffect(() => {
+        const handler = setTimeout(() => setDebouncedValue(value), delay);
+        return () => clearTimeout(handler);
+    }, [value, delay]);
+    return debouncedValue;
 }
 
 export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOpenChange, item, onSuccess }) => {
@@ -56,6 +67,36 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
             make: "",
         },
     });
+
+    // Reactive Duplicate Check
+    const watchedTdsItemId = form.watch("tds_item_id");
+    const watchedMake = form.watch("make");
+    
+    // Debounce the entire filter object to avoid intermediate states
+    const debouncedFilters = useDebounce(
+        useMemo(() => {
+            if (!watchedTdsItemId || !watchedMake) return null;
+            return [
+                ["tds_item_id", "=", watchedTdsItemId],
+                ["make", "=", watchedMake],
+                ["name", "!=", item?.name] // Exclude self
+            ];
+        }, [watchedTdsItemId, watchedMake, item?.name]),
+        500
+    );
+
+    const { data: duplicateList, isLoading: checkingDuplicate } = useFrappeGetDocList("TDS Repository", {
+        filters: debouncedFilters as any,
+        fields: ["name"],
+        limit: 1
+    }, debouncedFilters ? undefined : null);
+
+    // Reactive File Document Lookup
+    const { data: fileDocList } = useFrappeGetDocList("File", {
+        filters: [["file_url", "=", existingAttachmentUrl || ""]],
+        fields: ["name"],
+        limit: 1
+    }, existingAttachmentUrl ? undefined : null);
 
     // Reset form when item changes
     useEffect(() => {
@@ -139,20 +180,10 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
     const onSubmit = async (values: TDSItemValues) => {
         if (!item) return;
 
-        // Duplicate Check using server API
         try {
-            const filters = JSON.stringify([
-                ["tds_item_id", "=", values.tds_item_id],
-                ["make", "=", values.make],
-                // ["description", "=", values.item_description],
-                ["name", "!=", item.name] // Exclude current item
-            ]);
-
-            const response = await fetch(`/api/resource/TDS Repository?fields=["name"]&filters=${encodeURIComponent(filters)}`);
-            const data = await response.json();
-
-            if (data.data && data.data.length > 0) {
-                toast({
+            // Check for duplicates using the hook data
+            if (duplicateList && duplicateList.length > 0) {
+                 toast({
                     title: "Duplicate Entry",
                     description: "This TDS Item ID and Make combination already exists.",
                     variant: "destructive"
@@ -170,19 +201,12 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
 
             if (attachmentAction === "remove" || (attachmentAction === "replace" && existingAttachmentUrl)) {
                 // If removing or replacing, unlink first AND delete the actual File document to prevent orphans
-                if (existingAttachmentUrl) {
+                if (existingAttachmentUrl && fileDocList && fileDocList.length > 0) {
                     try {
-                        // 1. Find the File document name by URL
-                        const fileRes = await fetch(`/api/resource/File?filters=[["file_url","=", "${encodeURIComponent(existingAttachmentUrl)}"]]&fields=["name"]`);
-                        const fileData = await fileRes.json();
-                        
-                        if (fileData.data && fileData.data.length > 0) {
-                            // 2. Delete the File document
-                            await deleteDoc("File", fileData.data[0].name);
-                        }
+                        // Delete the File document found by the hook
+                        await deleteDoc("File", fileDocList[0].name);
                     } catch (err) {
                         console.warn("Failed to cleanup old file:", err);
-                        // Continue even if cleanup fails, as main task is to update TDS item
                     }
                 }
                 
@@ -510,8 +534,15 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                 <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100">
                                     Cancel
                                 </Button>
-                                <Button type="submit" className="bg-[#dc2626] hover:bg-[#b91c1c] text-white" disabled={updating || uploading}>
-                                    {updating || uploading ? "Updating..." : "Update"}
+                                <Button type="submit" disabled={updating || uploading || checkingDuplicate} className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
+                                    {updating || uploading || checkingDuplicate ? (
+                                        <>
+                                            <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                            Updating...
+                                        </>
+                                    ) : (
+                                        "Update Item"
+                                    )}
                                 </Button>
                             </DialogFooter>
                         </form>

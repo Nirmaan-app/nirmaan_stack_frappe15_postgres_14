@@ -22,6 +22,16 @@ interface AddTDSItemDialogProps {
     onSuccess: () => void;
 }
 
+// Simple debounce hook
+function useDebounce<T>(value: T, delay: number): T {
+    const [debouncedValue, setDebouncedValue] = useState<T>(value);
+    useEffect(() => {
+        const handler = setTimeout(() => setDebouncedValue(value), delay);
+        return () => clearTimeout(handler);
+    }, [value, delay]);
+    return debouncedValue;
+}
+
 export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess }) => {
     const [open, setOpen] = useState(false);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -46,6 +56,28 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
             make: "",
         },
     });
+
+    // Reactive Duplicate Check
+    const watchedTdsItemId = form.watch("tds_item_id");
+    const watchedMake = form.watch("make");
+    
+    // Debounce the entire filter object
+    const debouncedFilters = useDebounce(
+        useMemo(() => {
+            if (!watchedTdsItemId || !watchedMake) return null;
+            return [
+                ["tds_item_id", "=", watchedTdsItemId],
+                ["make", "=", watchedMake]
+            ];
+        }, [watchedTdsItemId, watchedMake]),
+        500
+    );
+
+    const { data: duplicateList, isLoading: checkingDuplicate } = useFrappeGetDocList("TDS Repository", {
+        filters: debouncedFilters as any,
+        fields: ["name"],
+        limit: 1
+    }, debouncedFilters ? undefined : null);
 
     // Watch form values for dependent filtering
     const selectedWP = form.watch("work_package");
@@ -108,19 +140,10 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
     }, [open, form]);
 
     const onSubmit = async (values: TDSItemValues) => {
-        // Duplicate Check using server API
         try {
-            const filters = JSON.stringify([
-                ["tds_item_id", "=", values.tds_item_id],
-                ["make", "=", values.make],
-                // ["description", "=", values.item_description]
-            ]);
-
-            const response = await fetch(`/api/resource/TDS Repository?fields=["name"]&filters=${encodeURIComponent(filters)}`);
-            const data = await response.json();
-
-            if (data.data && data.data.length > 0) {
-                toast({
+            // Check for duplicates using the hook data
+             if (duplicateList && duplicateList.length > 0) {
+                 toast({
                     title: "Duplicate Entry",
                     description: "This TDS Item ID and Make combination already exists.",
                     variant: "destructive"
@@ -138,7 +161,6 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
             });
 
             if (newDoc && newDoc.name && selectedFile) {
-                // 2. Upload File if present
                 const uploadResp = await uploadFile(selectedFile, {
                     doctype: "TDS Repository",
                     docname: newDoc.name,
@@ -347,8 +369,8 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                                 <Button type="button" variant="outline" onClick={() => setOpen(false)} className="bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100">
                                     Cancel
                                 </Button>
-                                <Button type="submit" className="bg-[#dc2626] hover:bg-[#b91c1c] text-white" disabled={creating || uploading}>
-                                    {creating || uploading ? "Processing..." : "Confirm"}
+                                <Button type="submit" disabled={creating || uploading || checkingDuplicate} className="bg-[#dc2626] hover:bg-[#b91c1c] text-white">
+                                    {creating || uploading || checkingDuplicate ? "Saving..." : "Save"}
                                 </Button>
                             </DialogFooter>
                         </form>
