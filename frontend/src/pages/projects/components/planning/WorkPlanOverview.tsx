@@ -84,8 +84,8 @@ const OverviewMilestoneItem = ({ item, isProjectManager }: { item: WorkPlanItem;
                     {hasWorkPlans ? (
                         workPlans.map((plan) => (
                             <div key={plan.name} className="px-10 py-2 border-b border-gray-200 last:border-0 hover:bg-gray-50">
-                                <div className="flex items-center justify-between gap-4">
-                                    <div className="flex flex-col w-[40%] gap-0.5">
+                                <div className="flex items-center gap-4">
+                                    <div className="flex flex-col w-[35%] gap-0.5 shrink-0">
                                         <div className="font-medium text-sm text-gray-700 truncate" title={plan.wp_title}>
                                             {plan.wp_title}
                                         </div>
@@ -96,20 +96,42 @@ const OverviewMilestoneItem = ({ item, isProjectManager }: { item: WorkPlanItem;
                                             </div>
                                         )}
                                     </div>
-                                    <div className="text-xs text-gray-500 font-medium flex-1 text-center">
-                                        {safeFormatDate(plan.wp_start_date, "do MMM, yyyy")} 
-                                        {" - "}
-                                        {safeFormatDate(plan.wp_end_date, "do MMM, yyyy")}
+                                    <div className="flex flex-col items-center w-[25%] shrink-0">
+                                         <span className="text-[8px] text-gray-400 uppercase">Start Date - End Date</span>
+                                        <div className="text-xs text-gray-500 font-medium text-center">
+                                            {safeFormatDate(plan.wp_start_date, "do MMM, yyyy")} 
+                                            {" - "}
+                                            {safeFormatDate(plan.wp_end_date, "do MMM, yyyy")}
+                                        </div>
                                     </div>
-                                    <div className="shrink-0 w-[15%] flex justify-end">
-                                         <Badge variant="outline" className={`px-2 py-0 h-5 text-[10px] ${
-                                            plan.wp_status === 'Pending' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
-                                            plan.wp_status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' :
-                                            plan.wp_status === 'In Progress' ? 'bg-orange-50 text-orange-700 border-orange-200' :
-                                            'bg-gray-50 text-gray-700 border-gray-200'
-                                        }`}>
-                                            {plan.wp_status || 'Pending'}
-                                        </Badge>
+                                    <div className="flex items-center justify-end gap-3 flex-1 min-w-0">
+                                         <div className="flex flex-col items-center">
+                                              <span className="text-[8px] text-gray-400 uppercase">Status</span>
+                                             <Badge variant="outline" className={`px-2 py-0 h-5 text-[10px] whitespace-nowrap ${
+                                                plan.wp_status === 'Pending' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
+                                                plan.wp_status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' :
+                                                plan.wp_status === 'In Progress' ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                                                'bg-gray-50 text-gray-700 border-gray-200'
+                                            }`}>
+                                                {plan.wp_status || 'Pending'}
+                                            </Badge>
+                                         </div>
+
+                                        {/* Progress */}
+                                        <div className="flex flex-col items-center w-[40px]">
+                                             <span className="text-[8px] text-gray-400 uppercase">Prog</span>
+                                             <span className={`text-xs font-semibold ${getColorForProgress(parseFloat(plan.wp_progress || '0'))}`}>
+                                                {Math.round(parseFloat(plan.wp_progress || '0'))}%
+                                             </span>
+                                        </div>
+
+                                        {/* Estimate Date */}
+                                        <div className="flex flex-col items-end min-w-[100px]">
+                                             <span className="text-[8px] text-gray-400 uppercase">Est. Date</span>
+                                             <span className="text-xs font-medium text-gray-700 whitespace-nowrap">
+                                                {plan.wp_estimate_completion_date ? safeFormatDate(plan.wp_estimate_completion_date, "do MMM, yyyy") : "-"}
+                                             </span>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

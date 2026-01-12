@@ -255,7 +255,7 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                                                     </span>
                                                 </div>
                                                 <div className="flex flex-col items-center gap-1">
-                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Percentage</span>
+                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Progress</span>
                                                     <div className="text-center rounded border px-3 py-1 text-xs font-bold bg-white shadow-sm whitespace-nowrap">
                                                         {plan.wp_progress || '0'}%
                                                     </div>
@@ -269,31 +269,35 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                                             </div>
 
                                             {/* Col 4: Action */}
-                                            <div className="flex items-center justify-center gap-2 p-4">
-                                                {!isOverview ? (
-                                                    <>
-                                                        <button 
-                                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-sm"
-                                                            onClick={() => onEditTask(plan, item)}
-                                                            title="Update Task"
-                                                        >
-                                                            <Pencil className="h-3 w-3" />
-                                                            Update
-                                                        </button>
-                                                        {/* Delete button - visible only for Admin */}
-                                                        {!isProjectManager && (
+                                            {/* Col 4: Action */}
+                                            <div className="flex flex-col items-center gap-1 p-4">
+                                                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Action</span>
+                                                <div className="flex items-center justify-center gap-2">
+                                                    {!isOverview ? (
+                                                        <>
                                                             <button 
-                                                                className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all"
-                                                                onClick={() => onDeleteTask(plan.name)}
-                                                                title="Delete Task"
+                                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-sm"
+                                                                onClick={() => onEditTask(plan, item)}
+                                                                title="Update Task"
                                                             >
-                                                                <Trash2 className="h-4 w-4" />
+                                                                <Pencil className="h-3 w-3" />
+                                                                Update
                                                             </button>
-                                                        )}
-                                                    </>
-                                                ) : (
-                                                    <span className="text-xs text-gray-400">-</span>
-                                                )}
+                                                            {/* Delete button - visible only for Admin */}
+                                                            {!isProjectManager && (
+                                                                <button 
+                                                                    className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all"
+                                                                    onClick={() => onDeleteTask(plan.name)}
+                                                                    title="Delete Task"
+                                                                >
+                                                                    <Trash2 className="h-4 w-4" />
+                                                                </button>
+                                                            )}
+                                                        </>
+                                                    ) : (
+                                                        <span className="text-xs text-gray-400">-</span>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
                                     ))}
