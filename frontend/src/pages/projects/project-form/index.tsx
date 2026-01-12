@@ -494,6 +494,12 @@ export const ProjectForm = () => {
         navigate(`/projects/${newProjectId}/add-estimates`);
     };
 
+    const handleAddCustomerPO = () => {
+        setCreationDialogOpen(false);
+        setCreationStage("idle");
+        navigate(`/projects/${newProjectId}`);
+    };
+
     // Loading state
     if (formData.isLoading) {
         return <FormSkeleton />;
@@ -642,6 +648,7 @@ export const ProjectForm = () => {
                 onGoBack={handleGoToProjects}
                 onCreateNew={handleCreateNew}
                 onAddEstimates={handleAddEstimates}
+                onAddCustomerPO={handleAddCustomerPO}
             />
         </div>
     );

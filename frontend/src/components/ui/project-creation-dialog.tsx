@@ -1,4 +1,4 @@
-import { CheckCircle2, Loader2, FolderPlus, Users, CirclePlus, Undo2, BadgeIndianRupee, ClipboardList, PenTool, ListChecks } from "lucide-react";
+import { CheckCircle2, Loader2, FolderPlus, Users, CirclePlus, Undo2, BadgeIndianRupee, ClipboardList, PenTool, ListChecks, FileText } from "lucide-react";
 import {
     AlertDialog,
     AlertDialogContent,
@@ -24,6 +24,7 @@ interface ProjectCreationDialogProps {
     onGoBack: () => void;
     onCreateNew: () => void;
     onAddEstimates: () => void;
+    onAddCustomerPO: () => void;
 }
 
 interface StageItemProps {
@@ -88,6 +89,7 @@ export const ProjectCreationDialog: React.FC<ProjectCreationDialogProps> = ({
     onGoBack,
     onCreateNew,
     onAddEstimates,
+    onAddCustomerPO,
 }) => {
     const isCreatingProject = stage === "creating_project";
     const isAssigningUsers = stage === "assigning_users";
@@ -99,7 +101,7 @@ export const ProjectCreationDialog: React.FC<ProjectCreationDialogProps> = ({
 
     return (
         <AlertDialog open={open}>
-            <AlertDialogContent className="sm:max-w-md">
+            <AlertDialogContent className="sm:max-w-lg">
                 <AlertDialogHeader>
                     <AlertDialogTitle className="flex items-center gap-3">
                         {isComplete ? (
@@ -199,24 +201,31 @@ export const ProjectCreationDialog: React.FC<ProjectCreationDialogProps> = ({
 
                 {/* Success Actions */}
                 {isComplete && (
-                    <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+                    <AlertDialogFooter className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
                         <AlertDialogAction
                             onClick={onGoBack}
-                            className="bg-gray-100 text-gray-700 hover:bg-gray-200 flex items-center gap-2"
+                            className="bg-gray-100 text-gray-700 hover:bg-gray-200 flex items-center justify-center gap-2"
                         >
                             <Undo2 className="h-4 w-4" />
                             Go to Projects
                         </AlertDialogAction>
                         <AlertDialogAction
                             onClick={onCreateNew}
-                            className="bg-gray-100 text-gray-700 hover:bg-gray-200 flex items-center gap-2"
+                            className="bg-gray-100 text-gray-700 hover:bg-gray-200 flex items-center justify-center gap-2"
                         >
                             <CirclePlus className="h-4 w-4" />
                             Create Another
                         </AlertDialogAction>
                         <AlertDialogAction
+                            onClick={onAddCustomerPO}
+                            className="bg-sky-500 hover:bg-sky-600 text-white flex items-center justify-center gap-2"
+                        >
+                            <FileText className="h-4 w-4" />
+                            Add Customer PO
+                        </AlertDialogAction>
+                        <AlertDialogAction
                             onClick={onAddEstimates}
-                            className="bg-emerald-500 hover:bg-emerald-600 text-white flex items-center gap-2"
+                            className="bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center gap-2"
                         >
                             <BadgeIndianRupee className="h-4 w-4" />
                             Add Estimates
