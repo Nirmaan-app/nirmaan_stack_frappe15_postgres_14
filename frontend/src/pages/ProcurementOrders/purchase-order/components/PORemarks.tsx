@@ -64,7 +64,7 @@ export const PORemarks: React.FC<PORemarksProps> = ({ poId }) => {
     const { addRemark, isLoading: isAdding } = useAddPORemark();
     const { deleteRemark, isLoading: isDeleting } = useDeletePORemark();
 
-    // Check if user can add remarks (Admin, Accountant, Procurement roles)
+    // Check if user can add remarks (Admin, PMO, Accountant, Procurement, Project Lead roles only)
     const canAddRemarks = useMemo(() => {
         const allowedRoles = [
             "Nirmaan Admin Profile",
@@ -72,7 +72,6 @@ export const PORemarks: React.FC<PORemarksProps> = ({ poId }) => {
             "Nirmaan Accountant Profile",
             "Nirmaan Procurement Executive Profile",
             "Nirmaan Project Lead Profile",
-            "Nirmaan Project Manager Profile",
         ];
         return allowedRoles.includes(role || "");
     }, [role]);

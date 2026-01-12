@@ -337,9 +337,26 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   type MenuItem = Required<MenuProps>["items"][number];
 
-  // Tabs to hide based on role
+  // Roles that can see all tabs (privileged users)
+  const PRIVILEGED_ROLES = [
+    "Nirmaan Admin Profile",
+    "Nirmaan PMO Executive Profile",
+    "Nirmaan Accountant Profile",
+  ];
+
+  const isPrivilegedUser = PRIVILEGED_ROLES.includes(role);
   const isAccountant = role === "Nirmaan Accountant Profile";
   const isProcurementExecutive = role === "Nirmaan Procurement Executive Profile";
+
+  // Allowed tabs for non-privileged users (all roles except Admin, PMO, Accountant)
+  const nonPrivilegedAllowedTabs = useMemo(() => new Set([
+    PROJECT_PAGE_TABS.WORK_REPORT,
+    PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
+    PROJECT_PAGE_TABS.CRITICAL_POS,
+    PROJECT_PAGE_TABS.DESIGN_TRACKER,
+    PROJECT_PAGE_TABS.SR_SUMMARY,
+    PROJECT_PAGE_TABS.PO_SUMMARY,
+  ]), []);
 
   // Allowed tabs for Procurement Executive
   const procurementExecutiveAllowedTabs = useMemo(() => new Set([
@@ -350,81 +367,140 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.PROJECT_EXPENSES,
   ]), []);
 
-  // Redirect Procurement Executive to allowed tab if on restricted tab
+  // Redirect users to allowed tab if on restricted tab
   useEffect(() => {
     if (isProcurementExecutive && !procurementExecutiveAllowedTabs.has(activePage)) {
       setActivePage(PROJECT_PAGE_TABS.CRITICAL_POS);
+    } else if (!isPrivilegedUser && !isProcurementExecutive && !nonPrivilegedAllowedTabs.has(activePage)) {
+      // Redirect non-privileged users (except Procurement Executive who has their own rules)
+      setActivePage(PROJECT_PAGE_TABS.WORK_REPORT);
     }
-  }, [isProcurementExecutive, activePage, procurementExecutiveAllowedTabs]);
+  }, [isProcurementExecutive, isPrivilegedUser, activePage, procurementExecutiveAllowedTabs, nonPrivilegedAllowedTabs]);
 
-  const items: MenuItem[] = useMemo(() => [
-    // Hide Overview from Procurement Executive
-    ...(!isProcurementExecutive ? [{
-      label: "Overview",
-      key: PROJECT_PAGE_TABS.OVERVIEW,
-    }] : []),
-    // Hide Work Report from Accountant and Procurement Executive
-    ...(!isAccountant && !isProcurementExecutive ? [{
-      label: "Work Report",
-      key: PROJECT_PAGE_TABS.WORK_REPORT,
-    }] : []),
-    // Hide Planning from Accountant and Procurement Executive
-    ...(!isAccountant && !isProcurementExecutive ? [{
-      label: "Planning",
-      key: PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
-    }] : []),
-    // Hide Critical POs from Accountant only (Procurement Executive can see)
-    ...(!isAccountant ? [{
-      label: "Critical POs",
-      key: PROJECT_PAGE_TABS.CRITICAL_POS,
-    }] : []),
-    // Hide Design Tracker from Accountant and Procurement Executive
-    ...(!isAccountant && !isProcurementExecutive ? [{
-      label: "Design Tracker",
-      key: PROJECT_PAGE_TABS.DESIGN_TRACKER,
-    }] : []),
-    // Hide Financials from Procurement Executive
-    ...(!isProcurementExecutive ? [{
-      label: "Financials",
-      key: PROJECT_PAGE_TABS.FINANCIALS,
-    }] : []),
-    {
-      label: "WO Summary",
-      key: PROJECT_PAGE_TABS.SR_SUMMARY,
-    },
-    {
-      label: "PO Summary",
-      key: PROJECT_PAGE_TABS.PO_SUMMARY,
-    },
-    {
-      label: "Material Usage",
-      key: PROJECT_PAGE_TABS.MATERIAL_USAGE
-    },
-    // Hide Project Makes from Accountant and Procurement Executive
-    ...(!isAccountant && !isProcurementExecutive ? [{
-      label: "Project Makes",
-      key: PROJECT_PAGE_TABS.MAKES
-    }] : []),
-    {
-      label: "Misc. Project Expenses",
-      key: PROJECT_PAGE_TABS.PROJECT_EXPENSES
-    },
-    // Hide PR Summary from Accountant and Procurement Executive
-    ...(!isAccountant && !isProcurementExecutive ? [{
-      label: "PR Summary",
-      key: PROJECT_PAGE_TABS.PR_SUMMARY,
-    }] : []),
-    // Hide Project Spends from Procurement Executive
-    ...(!isProcurementExecutive ? [{
-      label: "Project Spends",
-      key: PROJECT_PAGE_TABS.SPENDS,
-    }] : []),
-    // Hide Project Estimates from Accountant and Procurement Executive
-    ...(!isAccountant && !isProcurementExecutive ? [{
-      label: "Project Estimates",
-      key: PROJECT_PAGE_TABS.ESTIMATES
-    }] : []),
-  ], [role, isAccountant, isProcurementExecutive]);
+  const items: MenuItem[] = useMemo(() => {
+    // For non-privileged users (not Admin, PMO, Accountant), show only limited tabs
+    if (!isPrivilegedUser && !isProcurementExecutive) {
+      return [
+        {
+          label: "Work Report",
+          key: PROJECT_PAGE_TABS.WORK_REPORT,
+        },
+        {
+          label: "Planning",
+          key: PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
+        },
+        {
+          label: "Critical POs",
+          key: PROJECT_PAGE_TABS.CRITICAL_POS,
+        },
+        {
+          label: "Design Tracker",
+          key: PROJECT_PAGE_TABS.DESIGN_TRACKER,
+        },
+        {
+          label: "WO Summary",
+          key: PROJECT_PAGE_TABS.SR_SUMMARY,
+        },
+        {
+          label: "PO Summary",
+          key: PROJECT_PAGE_TABS.PO_SUMMARY,
+        },
+      ];
+    }
+
+    // For Procurement Executive, show their specific tabs
+    if (isProcurementExecutive) {
+      return [
+        {
+          label: "Critical POs",
+          key: PROJECT_PAGE_TABS.CRITICAL_POS,
+        },
+        {
+          label: "WO Summary",
+          key: PROJECT_PAGE_TABS.SR_SUMMARY,
+        },
+        {
+          label: "PO Summary",
+          key: PROJECT_PAGE_TABS.PO_SUMMARY,
+        },
+        {
+          label: "Material Usage",
+          key: PROJECT_PAGE_TABS.MATERIAL_USAGE,
+        },
+        {
+          label: "Misc. Project Expenses",
+          key: PROJECT_PAGE_TABS.PROJECT_EXPENSES,
+        },
+      ];
+    }
+
+    // For privileged users (Admin, PMO, Accountant), show full tabs with existing restrictions
+    return [
+      {
+        label: "Overview",
+        key: PROJECT_PAGE_TABS.OVERVIEW,
+      },
+      // Hide Work Report from Accountant
+      ...(!isAccountant ? [{
+        label: "Work Report",
+        key: PROJECT_PAGE_TABS.WORK_REPORT,
+      }] : []),
+      // Hide Planning from Accountant
+      ...(!isAccountant ? [{
+        label: "Planning",
+        key: PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
+      }] : []),
+      // Hide Critical POs from Accountant
+      ...(!isAccountant ? [{
+        label: "Critical POs",
+        key: PROJECT_PAGE_TABS.CRITICAL_POS,
+      }] : []),
+      // Hide Design Tracker from Accountant
+      ...(!isAccountant ? [{
+        label: "Design Tracker",
+        key: PROJECT_PAGE_TABS.DESIGN_TRACKER,
+      }] : []),
+      {
+        label: "Financials",
+        key: PROJECT_PAGE_TABS.FINANCIALS,
+      },
+      {
+        label: "WO Summary",
+        key: PROJECT_PAGE_TABS.SR_SUMMARY,
+      },
+      {
+        label: "PO Summary",
+        key: PROJECT_PAGE_TABS.PO_SUMMARY,
+      },
+      {
+        label: "Material Usage",
+        key: PROJECT_PAGE_TABS.MATERIAL_USAGE,
+      },
+      // Hide Project Makes from Accountant
+      ...(!isAccountant ? [{
+        label: "Project Makes",
+        key: PROJECT_PAGE_TABS.MAKES,
+      }] : []),
+      {
+        label: "Misc. Project Expenses",
+        key: PROJECT_PAGE_TABS.PROJECT_EXPENSES,
+      },
+      // Hide PR Summary from Accountant
+      ...(!isAccountant ? [{
+        label: "PR Summary",
+        key: PROJECT_PAGE_TABS.PR_SUMMARY,
+      }] : []),
+      {
+        label: "Project Spends",
+        key: PROJECT_PAGE_TABS.SPENDS,
+      },
+      // Hide Project Estimates from Accountant
+      ...(!isAccountant ? [{
+        label: "Project Estimates",
+        key: PROJECT_PAGE_TABS.ESTIMATES,
+      }] : []),
+    ];
+  }, [role, isAccountant, isProcurementExecutive, isPrivilegedUser]);
 
   // Define tabs available based on role or other logic
   // const availableTabs = useMemo(() => {

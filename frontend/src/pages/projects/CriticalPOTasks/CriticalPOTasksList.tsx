@@ -29,6 +29,7 @@ interface CriticalPOTasksListProps {
   projectId: string;
   mutate: () => Promise<any>;
   onManageSetup?: () => void;
+  canEdit?: boolean; // Controls Edit button and delete associated POs visibility
 }
 
 export const CriticalPOTasksList: React.FC<CriticalPOTasksListProps> = ({
@@ -36,6 +37,7 @@ export const CriticalPOTasksList: React.FC<CriticalPOTasksListProps> = ({
   projectId,
   mutate,
   onManageSetup,
+  canEdit = false,
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -179,7 +181,7 @@ export const CriticalPOTasksList: React.FC<CriticalPOTasksListProps> = ({
                     <TableHead className="w-[10%]">Status</TableHead>
                     <TableHead className="w-[15%]">Remarks</TableHead>
                     <TableHead className="w-[14%]">Associated POs</TableHead>
-                    <TableHead className="w-[10%] text-right">Actions</TableHead>
+                    {canEdit && <TableHead className="w-[10%] text-right">Actions</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -197,15 +199,17 @@ export const CriticalPOTasksList: React.FC<CriticalPOTasksListProps> = ({
                       <TableCell>
                         <TaskStatusBadge status={task.status} />
                       </TableCell>
-                      <TableCell className="text-gray-500 text-sm max-w-[200px] truncate" title={task.remarks || ""}>
+                      <TableCell className="text-gray-500 text-sm max-w-[200px] whitespace-normal break-words">
                         {task.remarks || "-"}
                       </TableCell>
                       <TableCell>
-                        <LinkedPOsColumn task={task} projectId={projectId} mutate={mutate} />
+                        <LinkedPOsColumn task={task} projectId={projectId} mutate={mutate} canDelete={canEdit} />
                       </TableCell>
-                      <TableCell className="text-right">
-                        <EditTaskDialog task={task} projectId={projectId} mutate={mutate} />
-                      </TableCell>
+                      {canEdit && (
+                        <TableCell className="text-right">
+                          <EditTaskDialog task={task} projectId={projectId} mutate={mutate} />
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>

@@ -21,9 +21,10 @@ interface LinkedPOsColumnProps {
   task: CriticalPOTask;
   projectId: string;
   mutate: () => Promise<any>;
+  canDelete?: boolean; // Controls whether delete/unlink button is shown
 }
 
-export const LinkedPOsColumn: React.FC<LinkedPOsColumnProps> = ({ task, projectId, mutate }) => {
+export const LinkedPOsColumn: React.FC<LinkedPOsColumnProps> = ({ task, projectId, mutate, canDelete = false }) => {
   const [unlinkDialogOpen, setUnlinkDialogOpen] = useState(false);
   const [poToUnlink, setPoToUnlink] = useState<string | null>(null);
   const [isUnlinking, setIsUnlinking] = useState(false);
@@ -106,7 +107,7 @@ export const LinkedPOsColumn: React.FC<LinkedPOsColumnProps> = ({ task, projectI
           <Badge
             key={poName}
             variant="secondary"
-            className="flex items-center gap-1 pr-1 group hover:bg-red-100 transition-colors"
+            className={`flex items-center gap-1 ${canDelete ? "pr-1 group hover:bg-red-100" : "pr-2"} transition-colors`}
           >
             <Link
               to={`/projects/${projectId}/po/${encodePOName(poName)}`}
@@ -115,42 +116,46 @@ export const LinkedPOsColumn: React.FC<LinkedPOsColumnProps> = ({ task, projectI
             >
               {extractPOId(poName)}
             </Link>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-4 w-4 p-0 hover:bg-transparent group-hover:text-red-600"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleUnlinkClick(poName);
-              }}
-            >
-              <X className="h-3 w-3" />
-            </Button>
+            {canDelete && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-4 w-4 p-0 hover:bg-transparent group-hover:text-red-600"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleUnlinkClick(poName);
+                }}
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            )}
           </Badge>
         ))}
       </div>
 
-      {/* Unlink Confirmation Dialog */}
-      <AlertDialog open={unlinkDialogOpen} onOpenChange={setUnlinkDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Unlink PO?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to unlink <strong>{poToUnlink && extractPOId(poToUnlink)}</strong> from this task?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isUnlinking}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={confirmUnlink}
-              disabled={isUnlinking}
-              className="bg-red-600 hover:bg-red-700"
-            >
-              {isUnlinking ? "Unlinking..." : "Unlink"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Unlink Confirmation Dialog - Only rendered when canDelete is true */}
+      {canDelete && (
+        <AlertDialog open={unlinkDialogOpen} onOpenChange={setUnlinkDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Unlink PO?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to unlink <strong>{poToUnlink && extractPOId(poToUnlink)}</strong> from this task?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isUnlinking}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={confirmUnlink}
+                disabled={isUnlinking}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                {isUnlinking ? "Unlinking..." : "Unlink"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </>
   );
 };

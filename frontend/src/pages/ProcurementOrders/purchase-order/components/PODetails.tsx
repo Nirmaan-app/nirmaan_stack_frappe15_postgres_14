@@ -500,6 +500,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   poName={po?.name || ""}
                   projectId={po?.project || ""}
                   onUpdate={poMutate}
+                  canEdit={["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role)}
                 />
               </div>
 
