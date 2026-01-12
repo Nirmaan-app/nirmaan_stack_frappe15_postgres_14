@@ -57,6 +57,10 @@ export const RenderRightActionButton = ({
 
   if (newButtonRoutes[locationPath]) {
     const routeInfo = newButtonRoutes[locationPath];
+    // Hide "New WO" button for Estimates Executive
+    if (locationPath === "/service-requests" && role === "Nirmaan Estimates Executive Profile") {
+      return null;
+    }
     return (
       <Button
         className="sm:mr-4 mr-2"
@@ -97,7 +101,7 @@ export const RenderRightActionButton = ({
           Add <span className="hidden md:flex pl-1">New PR</span>
         </Button>)
     );
-  } else if (locationPath === "/service-requests-list" && selectedProject && role != "Nirmaan Project Manager Profile") {
+  } else if (locationPath === "/service-requests-list" && selectedProject && role !== "Nirmaan Project Manager Profile" && role !== "Nirmaan Estimates Executive Profile") {
     return (
       <Button
         className="sm:mr-4 mr-2"
