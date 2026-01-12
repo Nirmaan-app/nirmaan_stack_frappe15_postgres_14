@@ -70,15 +70,15 @@ export interface WorkPlanDoc {
 export const getColorForProgress = (value: number): string => {
     const val = Math.round(value);
     if (isNaN(val)) return "text-gray-500";
-    if (val === 0) return "text-gray-400"; 
+    if (val === 0) return "text-gray-400";
     if (val < 50) return "text-red-600";
     if (val < 75) return "text-yellow-600";
     if (val < 100) return "text-green-600";
     return "text-green-500";
 };
 
-const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilestone, isOverview, isProjectManager }: { 
-    item: WorkPlanItem, 
+const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilestone, isOverview, isProjectManager }: {
+    item: WorkPlanItem,
     onAddTask: (item: WorkPlanItem) => void,
     onEditTask: (plan: WorkPlanDoc, item: WorkPlanItem) => void,
     onDeleteTask: (planName: string) => void,
@@ -103,38 +103,37 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                     </span>
                 </td> */}
                 <td className="px-4 py-3 border-b-0 text-center">
-                        <span
-                        className={`inline-flex items-center justify-center h-6 min-w-[100px] w-fit rounded-full px-3 text-xs font-medium whitespace-nowrap ${
-                            item.status === "Completed"
-                                ? "bg-green-100 text-green-800 border border-green-200"
-                                : item.status === "WIP" || item.status === "In Progress"
+                    <span
+                        className={`inline-flex items-center justify-center h-6 min-w-[100px] w-fit rounded-full px-3 text-xs font-medium whitespace-nowrap ${item.status === "Completed"
+                            ? "bg-green-100 text-green-800 border border-green-200"
+                            : item.status === "WIP" || item.status === "In Progress"
                                 ? "bg-orange-100 text-orange-800 border border-orange-200"
                                 : item.status === "Not Started"
-                                ? "bg-red-100 text-red-800 border border-red-200"
-                                : "bg-gray-100 text-gray-800 border border-gray-200"
-                        }`}
+                                    ? "bg-red-100 text-red-800 border border-red-200"
+                                    : "bg-gray-100 text-gray-800 border border-gray-200"
+                            }`}
                     >
                         {item.status}
                         {!isOverview && !isProjectManager && (
-                        <button 
-                            className="ml-2 p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50  transition-all inline-flex items-center"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                onEditMilestone(item);
-                            }}
-                            title="Edit Milestone"
-                        >
-                            <Pencil className="h-3 w-3" />
-                        </button>
-                    )}
+                            <button
+                                className="ml-2 p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50  transition-all inline-flex items-center"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onEditMilestone(item);
+                                }}
+                                title="Edit Milestone"
+                            >
+                                <Pencil className="h-3 w-3" />
+                            </button>
+                        )}
                     </span>
-                    
+
                 </td>
 
                 <td className="px-4 py-3 text-gray-700 border-b-0 text-center">
                     <div className="flex items-center justify-center gap-2">
-                        <ProgressCircle 
-                            value={item.progress} 
+                        <ProgressCircle
+                            value={item.progress}
                             className={`size-10 ${getColorForProgress(item.progress)}`}
                             textSizeClassName="text-[10px]"
                         />
@@ -146,18 +145,18 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                     ) : "NA"}
                 </td>
                 <td className="px-4 py-3 text-xs font-medium text-gray-700 border-b-0 text-center">
-                        {item.expected_completion_date ? (
+                    {item.expected_completion_date ? (
                         <span className="text-red-600 font-bold">{safeFormatDate(item.expected_completion_date)}</span>
                     ) : "NA"}
                 </td>
                 {!isOverview && !isProjectManager && (
                     <td className="px-4 py-3 border-b-0">
-                            <button 
+                        <button
                             className="flex items-center rounded-md border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition-colors"
                             onClick={() => onAddTask(item)}
-                            >
+                        >
                             <span className="mr-1 text-lg leading-none">+</span> Add Task
-                            </button>
+                        </button>
                     </td>
                 )}
             </tr>
@@ -165,19 +164,19 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                 <tr>
                     <td colSpan={(isOverview || isProjectManager) ? 5 : 6} className=" pb-2 pt-0 m-0 p-0">
                         <div className="rounded-md border-b bg-blue-50/30">
-                            <button 
+                            <button
                                 className="flex w-full items-center justify-between px-4 py-2 text-sm text-blue-800 hover:bg-blue-50"
                                 onClick={() => setIsExpanded(!isExpanded)}
                             >
                                 <div className="flex items-center gap-2 font-semibold">
-                                    Planned Activities 
+                                    Planned Activities
                                     <Badge className="bg-blue-700 text-white hover:bg-blue-800 h-5 w-5 p-0 flex items-center justify-center rounded-full text-[10px]">
                                         {workPlans.length}
                                     </Badge>
                                 </div>
                                 {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                             </button>
-                            
+
                             {isExpanded && (
                                 <div className="space-y-2 p-4">
                                     {/* Header Row */}
@@ -208,33 +207,33 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                                                 )}
                                             </div> */}
                                             <div className="space-y-1.5 p-4">
-    {/* Title */}
-    <div className="font-semibold text-gray-900 text-sm leading-tight" title={plan.wp_title}>
-        {plan.wp_title}
-    </div>
+                                                {/* Title */}
+                                                <div className="font-semibold text-gray-900 text-sm leading-tight" title={plan.wp_title}>
+                                                    {plan.wp_title}
+                                                </div>
 
-    {/* Description - Removed 'line-clamp-2' */}
-    {plan.wp_description && (
-        <div 
-            className="text-xs text-gray-500 whitespace-normal break-words leading-relaxed" 
-            title={plan.wp_description}
-        >
-            <span className="font-semibold text-yellow-600">Note: </span>
-            {plan.wp_description}
-        </div>
-    )}
-</div>
-                                            
-                                            {/* Col 2: End Date and Start Date */}
+                                                {/* Description - Removed 'line-clamp-2' */}
+                                                {plan.wp_description && (
+                                                    <div
+                                                        className="text-xs text-gray-500 whitespace-normal break-words leading-relaxed"
+                                                        title={plan.wp_description}
+                                                    >
+                                                        <span className="font-semibold text-yellow-600">Note: </span>
+                                                        {plan.wp_description}
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Col 2: Planned End Date and Planned Start Date */}
                                             <div className="flex items-center justify-center gap-4 p-4">
                                                 <div className="flex flex-col items-center gap-1">
-                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">End Date</span>
+                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Planned222 End Date</span>
                                                     <div className="text-center rounded border px-3 py-1 text-xs font-semibold bg-white text-gray-700 shadow-sm whitespace-nowrap">
                                                         {safeFormatDate(plan.wp_end_date)}
                                                     </div>
                                                 </div>
                                                 <div className="flex flex-col items-center gap-1">
-                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Start Date</span>
+                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Planned Start Date</span>
                                                     <div className="text-center rounded border px-3 py-1 text-xs font-semibold bg-white text-gray-700 shadow-sm whitespace-nowrap">
                                                         {safeFormatDate(plan.wp_start_date)}
                                                     </div>
@@ -245,12 +244,11 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                                             <div className="flex items-center justify-center gap-4 p-4">
                                                 <div className="flex flex-col items-center gap-1">
                                                     <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Status</span>
-                                                    <span className={`text-center rounded-md px-3 py-1 text-xs font-semibold border whitespace-nowrap ${
-                                                        plan.wp_status === 'Pending' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
+                                                    <span className={`text-center rounded-md px-3 py-1 text-xs font-semibold border whitespace-nowrap ${plan.wp_status === 'Pending' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
                                                         plan.wp_status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' :
-                                                        plan.wp_status === 'In Progress' ? 'bg-orange-50 text-orange-700 border-orange-200' :
-                                                        'bg-gray-50 text-gray-700 border-gray-200'
-                                                    }`}>
+                                                            plan.wp_status === 'In Progress' ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                                                                'bg-gray-50 text-gray-700 border-gray-200'
+                                                        }`}>
                                                         {plan.wp_status || 'Pending'}
                                                     </span>
                                                 </div>
@@ -275,7 +273,7 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                                                 <div className="flex items-center justify-center gap-2">
                                                     {!isOverview ? (
                                                         <>
-                                                            <button 
+                                                            <button
                                                                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-sm"
                                                                 onClick={() => onEditTask(plan, item)}
                                                                 title="Update Task"
@@ -285,7 +283,7 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                                                             </button>
                                                             {/* Delete button - visible only for Admin */}
                                                             {!isProjectManager && (
-                                                                <button 
+                                                                <button
                                                                     className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all"
                                                                     onClick={() => onDeleteTask(plan.name)}
                                                                     title="Delete Task"
@@ -318,14 +316,14 @@ export const SevendaysWorkPlan = ({
     isOverview,
     projectName
 }: SevendaysWorkPlanProps) => {
-    
+
     const { role } = useUserData();
     const isProjectManager = role === "Nirmaan Project Manager Profile";
-    
+
     const [isBufferDialogOpen, setIsBufferDialogOpen] = useState(false);
     // Track which zone we are doing the buffer export for (undefined = All, string = specific zone)
     const [bufferTargetZone, setBufferTargetZone] = useState<string | undefined>(undefined);
-    
+
     const [bufferDays, setBufferDays] = useState<number | string>("");
     const [addToStart, setAddToStart] = useState<boolean>(true);
     const [addToEnd, setAddToEnd] = useState<boolean>(true);
@@ -346,10 +344,10 @@ export const SevendaysWorkPlan = ({
             : null,
         shouldFetch
             ? {
-                  project: projectId,
-                  start_date: startDate ? format(startDate, "yyyy-MM-dd") : undefined,
-                  end_date: endDate ? format(endDate, "yyyy-MM-dd") : undefined,
-              }
+                project: projectId,
+                start_date: startDate ? format(startDate, "yyyy-MM-dd") : undefined,
+                end_date: endDate ? format(endDate, "yyyy-MM-dd") : undefined,
+            }
             : undefined
     );
 
@@ -361,7 +359,7 @@ export const SevendaysWorkPlan = ({
     }, [projectDoc]);
 
     const urlZone = useUrlParam("planningZone");
-    
+
     // Derived state from URL or fallback
     const [activeZone, setActiveZone] = useState<string>("");
 
@@ -371,13 +369,13 @@ export const SevendaysWorkPlan = ({
             // If URL has valid zone, use it
             if (urlZone && zones.includes(urlZone)) {
                 setActiveZone(urlZone);
-            } 
+            }
             // If URL has no zone or invalid zone, default to first zone and update URL
             else if (!urlZone || !zones.includes(urlZone)) {
                 const defaultZone = zones[0];
                 setActiveZone(defaultZone);
                 if (urlZone !== defaultZone) {
-                   urlStateManager.updateParam("planningZone", defaultZone);
+                    urlStateManager.updateParam("planningZone", defaultZone);
                 }
             }
         }
@@ -545,8 +543,8 @@ export const SevendaysWorkPlan = ({
     const performDownload = async (downloadStartDate: Date | undefined, downloadEndDate: Date | undefined, zone: string | undefined) => {
         setIsDownloading(true);
         try {
-            const formatName = "Project Work Plan"; 
-            
+            const formatName = "Project Work Plan";
+
             const params = new URLSearchParams({
                 doctype: "Projects",
                 name: projectId,
@@ -567,10 +565,10 @@ export const SevendaysWorkPlan = ({
             }
 
             const url = `/api/method/frappe.utils.print_format.download_pdf?${params.toString()}`;
-            
+
             const response = await fetch(url);
             if (!response.ok) throw new Error("Network response was not ok");
-            
+
             const blob = await response.blob();
             const downloadUrl = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
@@ -619,8 +617,8 @@ export const SevendaysWorkPlan = ({
     const handleBufferDownload = async (start: Date | undefined, end: Date | undefined, days: number | string, toStart: boolean, toEnd: boolean) => {
         setIsBufferDownloading(true);
         try {
-            const formatName = "Project Work Plan Buffered"; 
-            
+            const formatName = "Project Work Plan Buffered";
+
             const params = new URLSearchParams({
                 doctype: "Projects",
                 name: projectId,
@@ -631,22 +629,22 @@ export const SevendaysWorkPlan = ({
 
             if (start) params.append("start_date", format(start, "yyyy-MM-dd"));
             if (end) params.append("end_date", format(end, "yyyy-MM-dd"));
-            
+
             // Use the stored target zone (from when dialog was opened)
             if (bufferTargetZone && bufferTargetZone !== "All") {
                 params.append("zone", bufferTargetZone);
             }
-            
+
             // Pass extra parameters for the buffered print format
             params.append("buffer_days", String(days));
             params.append("add_to_start", String(toStart));
             params.append("add_to_end", String(toEnd));
 
             const url = `/api/method/frappe.utils.print_format.download_pdf?${params.toString()}`;
-            
+
             const response = await fetch(url);
             if (!response.ok) throw new Error("Network response was not ok");
-            
+
             const blob = await response.blob();
             const downloadUrl = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
@@ -655,7 +653,7 @@ export const SevendaysWorkPlan = ({
             const safeProjectName = (projectName || projectId).replace(/ /g, "_");
             const zoneSuffix = (bufferTargetZone && bufferTargetZone !== "All") ? `_${bufferTargetZone.replace(/ /g, "_")}` : "_All_Zones";
             link.download = `WorkPlan_${safeProjectName}${zoneSuffix}_${format(new Date(), "dd-MMM-yyyy")}.pdf`;
-            
+
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -699,7 +697,7 @@ export const SevendaysWorkPlan = ({
     }
 
     let workHeaders = result?.message?.data ? Object.keys(result.message.data) : [];
-    
+
     // Filter headers if isOverview is true OR if user is Project Manager
     if ((isOverview || isProjectManager) && result?.message?.data) {
         workHeaders = workHeaders.filter(header => {
@@ -716,9 +714,9 @@ export const SevendaysWorkPlan = ({
     if (isProjectManager && result?.message?.data && activeZone) {
         hasZoneData = workHeaders.some(header => {
             const items = result.message.data[header];
-            return items?.some(item => 
-                item.zone === activeZone && 
-                item.work_plan_doc && 
+            return items?.some(item =>
+                item.zone === activeZone &&
+                item.work_plan_doc &&
                 item.work_plan_doc.length > 0
             );
         });
@@ -727,10 +725,10 @@ export const SevendaysWorkPlan = ({
     let totalPlannedActivities = 0;
     if (result?.message?.data) {
         Object.values(result.message.data).forEach((items) => {
-            const filteredItems = activeZone 
-                ? items.filter(item => item.zone === activeZone) 
+            const filteredItems = activeZone
+                ? items.filter(item => item.zone === activeZone)
                 : items;
-                
+
             filteredItems.forEach((item) => {
                 totalPlannedActivities += item.work_plan_doc?.length || 0;
             });
@@ -739,9 +737,9 @@ export const SevendaysWorkPlan = ({
 
     return (
         <div className="space-y-6">
-             <div className="overflow-hidden bg-white">
+            <div className="overflow-hidden bg-white">
                 {
-                    <div 
+                    <div
                         className="flex items-center justify-between bg-white py-2"
                     >
                         <div className="flex items-center gap-3">
@@ -749,9 +747,9 @@ export const SevendaysWorkPlan = ({
                         </div>
                         {/* GLOBAL EXPORT BUTTONS (ALL ZONES) */}
                         <div className="flex items-center gap-2">
-                             <Button 
-                                variant="outline" 
-                                size="sm" 
+                            <Button
+                                variant="outline"
+                                size="sm"
                                 className="gap-2 h-8 text-xs border-gray-300 text-gray-700"
                                 onClick={(e) => openBufferDialog(e, undefined)} // Undefined = All Zones
                                 disabled={isDownloading}
@@ -760,9 +758,9 @@ export const SevendaysWorkPlan = ({
                                 <Download className="h-3.5 w-3.5" />
                                 Buffer Export (All)
                             </Button>
-                            <Button 
-                                variant="outline" 
-                                size="sm" 
+                            <Button
+                                variant="outline"
+                                size="sm"
                                 className="gap-2 h-8 text-xs border-gray-300 text-gray-700"
                                 onClick={handleDownloadAll}
                                 disabled={isDownloading}
@@ -781,38 +779,38 @@ export const SevendaysWorkPlan = ({
             </div>
 
             {zones.length > 0 && (
-                <div   className="flex items-center justify-between bg-white py-2">
-                      <div className="flex items-center justify-between bg-gray-100/50 p-1 rounded-md">
-                    <Tabs value={activeZone} onValueChange={handleZoneChange} className="w-auto overflow-x-auto">
-                        <TabsList className="bg-transparent p-0 h-auto justify-start">
-                            {zones.map((zone) => (
-                                <TabsTrigger key={zone} value={zone} className="px-3 py-1.5 text-xs gap-2">
-                                    {zone}
-                                </TabsTrigger>
-                            ))}
-                        </TabsList>
-                    </Tabs>
+                <div className="flex items-center justify-between bg-white py-2">
+                    <div className="flex items-center justify-between bg-gray-100/50 p-1 rounded-md">
+                        <Tabs value={activeZone} onValueChange={handleZoneChange} className="w-auto overflow-x-auto">
+                            <TabsList className="bg-transparent p-0 h-auto justify-start">
+                                {zones.map((zone) => (
+                                    <TabsTrigger key={zone} value={zone} className="px-3 py-1.5 text-xs gap-2">
+                                        {zone}
+                                    </TabsTrigger>
+                                ))}
+                            </TabsList>
+                        </Tabs>
 
-                    {/* PER-ZONE EXPORT BUTTONS */}
-                  
-                </div>
+                        {/* PER-ZONE EXPORT BUTTONS */}
+
+                    </div>
 
                     <div className="flex items-center gap-2">
-                        <Button 
-                            variant="outline" 
-                            size="sm" 
+                        <Button
+                            variant="outline"
+                            size="sm"
                             className="h-7 text-[10px] text-gray-600 gap-1.5 px-2 border-gray-300"
                             onClick={(e) => openBufferDialog(e, activeZone)} // Specific Zone
                             disabled={isDownloading}
                             title={`Buffer Export ${activeZone}`}
                         >
                             <Download className="h-3 w-3" />
-                            Buffer Export 
+                            Buffer Export
                             {/* {activeZone} */}
                         </Button>
                         <Button
-                            variant="outline" 
-                            size="sm" 
+                            variant="outline"
+                            size="sm"
                             className="h-7 text-[10px] text-gray-600 hover:text-blue-600 gap-1.5 px-2 mr-1"
                             onClick={handleDownloadZone}
                             disabled={isDownloading}
@@ -823,131 +821,131 @@ export const SevendaysWorkPlan = ({
                             ) : (
                                 <Download className="h-3 w-3" />
                             )}
-                            Export 
+                            Export
                             {/* {activeZone} */}
                         </Button>
                     </div>
                 </div>
-              
+
             )}
-                
-                {isMainExpanded && (
-                    <div className="p-2 space-y-4">
-                        {/* Show different empty states based on role and zone */}
-                        {isProjectManager && !hasZoneData ? (
-                            <div className="rounded-lg border bg-blue-50 p-8 text-center text-gray-600">
-                                <div className="text-lg font-medium mb-1">No Plan Activities</div>
-                                <div className="text-sm">There are no planned activities available in <span className="font-semibold">{activeZone}</span> zone.</div>
-                            </div>
-                        ) : !hasData ? (
-                            <div className="rounded-lg border bg-gray-50 p-8 text-center text-gray-500">
-                                {result?.message?.reason || "No work plan items found."}
-                            </div>
-                        ) : (
-                            workHeaders.map((header) => {
-                                let items = result?.message?.data[header] || [];
-                                
-                                // Filter to only show milestones with plan activities for overview or PM
-                                if (isOverview || isProjectManager) {
-                                  items = items.filter(item => item.work_plan_doc && item.work_plan_doc.length > 0);
-                                }
 
-                                // Strict Filtering: Since we removed the "All" tab, activeZone should usually be set.
-                                // If for some reason activeZone is empty, this logic implies showing everything (fallback),
-                                // but the UI tabs enforce a selection.
-                                if(activeZone) {
-                                    items = items.filter(item => item.zone === activeZone);
-                                }
+            {isMainExpanded && (
+                <div className="p-2 space-y-4">
+                    {/* Show different empty states based on role and zone */}
+                    {isProjectManager && !hasZoneData ? (
+                        <div className="rounded-lg border bg-blue-50 p-8 text-center text-gray-600">
+                            <div className="text-lg font-medium mb-1">No Plan Activities</div>
+                            <div className="text-sm">There are no planned activities available in <span className="font-semibold">{activeZone}</span> zone.</div>
+                        </div>
+                    ) : !hasData ? (
+                        <div className="rounded-lg border bg-gray-50 p-8 text-center text-gray-500">
+                            {result?.message?.reason || "No work plan items found."}
+                        </div>
+                    ) : (
+                        workHeaders.map((header) => {
+                            let items = result?.message?.data[header] || [];
 
-                                if (items.length === 0) return null;
+                            // Filter to only show milestones with plan activities for overview or PM
+                            if (isOverview || isProjectManager) {
+                                items = items.filter(item => item.work_plan_doc && item.work_plan_doc.length > 0);
+                            }
 
-                                const totalWeightage = items.reduce((sum, item) => sum + (item.weightage || 1.0), 0);
-                                const totalWeightedProgress = items.reduce((sum, item) => sum + ((item.progress || 0) * (item.weightage || 1.0)), 0);
-                                
-                                const avgProgress = totalWeightage > 0 
-                                    ? Math.round(totalWeightedProgress / totalWeightage)
-                                    : 0;
+                            // Strict Filtering: Since we removed the "All" tab, activeZone should usually be set.
+                            // If for some reason activeZone is empty, this logic implies showing everything (fallback),
+                            // but the UI tabs enforce a selection.
+                            if (activeZone) {
+                                items = items.filter(item => item.zone === activeZone);
+                            }
 
-                                const plannedActivitiesCount = items.reduce((acc, item) => acc + (item.work_plan_doc?.length || 0), 0);
-                                const isExpanded = expandedHeaders[header] !== false;
+                            if (items.length === 0) return null;
 
-                                if (isOverview) {
-                                    return (
-                                        <WorkPlanOverview 
-                                            key={header}
-                                            header={header}
-                                            items={items}
-                                            getHeaderStats={() => ({ avgProgress, plannedActivitiesCount })}
-                                            isProjectManager={isProjectManager}
-                                        />
-                                    );
-                                }
+                            const totalWeightage = items.reduce((sum, item) => sum + (item.weightage || 1.0), 0);
+                            const totalWeightedProgress = items.reduce((sum, item) => sum + ((item.progress || 0) * (item.weightage || 1.0)), 0);
 
+                            const avgProgress = totalWeightage > 0
+                                ? Math.round(totalWeightedProgress / totalWeightage)
+                                : 0;
+
+                            const plannedActivitiesCount = items.reduce((acc, item) => acc + (item.work_plan_doc?.length || 0), 0);
+                            const isExpanded = expandedHeaders[header] !== false;
+
+                            if (isOverview) {
                                 return (
-                                    <div key={header} className="overflow-hidden bg-white">
-                                        <div 
-                                            className={`flex cursor-pointer flex-col md:flex-row md:items-center justify-between gap-3 ${isExpanded?"":"border bg-gray-100/50 px-3 py-3 rounded-md"} py-3 transition-colors`}
-                                            onClick={() => toggleHeader(header)}
-                                        >
-                                            <div className="flex flex-col items-start gap-3 md:flex-row md:items-center md:gap-3">
-                                                <h4 className="font-bold text-gray-900 text-base">{`${header} - ${items.length}`}</h4>
-                                                <span className="rounded-full bg-blue-200 px-2 py-0.5 text-xs font-medium text-gray-900 border border-blue-700 whitespace-nowrap">
-                                                    {plannedActivitiesCount} Planned Activities
-                                                </span>
-                                            </div>
-                                            <div className="flex items-center justify-between w-full md:w-auto md:gap-4 md:justify-start">
-                                                <div className="text-sm text-gray-600 flex items-center gap-2">
-                                                </div>
-                                                <div className={`flex h-8 w-8 items-center justify-center ${isExpanded?"":"bg-blue-100 rounded border border-gray-200 shadow-sm"}`}>
-                                                    {isExpanded ? (
-                                                        <ChevronUp className="h-4 w-4 text-gray-500" />
-                                                    ) : (
-                                                        <ChevronDown className="h-4 w-4 text-gray-500" />
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
-                                        {isExpanded && (
-                                    <div className="overflow-x-auto rounded-lg border bg-white shadow-sm mt-2 mx-2 border-[#D7D7EC]">
-                                        <div className="p-0">
-                                            <table className="w-full text-left text-sm">
-                                                <thead className="bg-gray-100/50">
-                                                    <tr>
-                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[300px]">Work</th>
-                                                        {/* <th className="px-4 py-3 font-semibold text-gray-900 w-[140px] text-center">Zone</th> */}
-                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[140px] text-center">Status</th>
-                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[100px] text-center">Progress</th>
-                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[120px] text-center">Start Date</th>
-                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[120px] text-center">End Date</th>
-                                                        {!isOverview && !isProjectManager && (
-                                                            <th className="px-4 py-3 font-semibold text-gray-900 w-[140px]">Admin Actions</th>
-                                                        )}
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-gray-100">
-                                                    {items.map((item, idx) => (
-                                                        <MilestoneRow 
-                                                            key={idx} 
-                                                            item={item} 
-                                                            onAddTask={handleAddTask}
-                                                            onEditTask={handleEditTask}
-                                                            onDeleteTask={handleDeleteTask}
-                                                            onEditMilestone={handleEditMilestone}
-                                                            isOverview={isOverview}
-                                                            isProjectManager={isProjectManager}
-                                                        />
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </div>
-                                )}
-                                    </div>
+                                    <WorkPlanOverview
+                                        key={header}
+                                        header={header}
+                                        items={items}
+                                        getHeaderStats={() => ({ avgProgress, plannedActivitiesCount })}
+                                        isProjectManager={isProjectManager}
+                                    />
                                 );
-                            })
-                        )}
-                    </div>
-                )}
+                            }
+
+                            return (
+                                <div key={header} className="overflow-hidden bg-white">
+                                    <div
+                                        className={`flex cursor-pointer flex-col md:flex-row md:items-center justify-between gap-3 ${isExpanded ? "" : "border bg-gray-100/50 px-3 py-3 rounded-md"} py-3 transition-colors`}
+                                        onClick={() => toggleHeader(header)}
+                                    >
+                                        <div className="flex flex-col items-start gap-3 md:flex-row md:items-center md:gap-3">
+                                            <h4 className="font-bold text-gray-900 text-base">{`${header} - ${items.length}`}</h4>
+                                            <span className="rounded-full bg-blue-200 px-2 py-0.5 text-xs font-medium text-gray-900 border border-blue-700 whitespace-nowrap">
+                                                {plannedActivitiesCount} Planned Activities
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center justify-between w-full md:w-auto md:gap-4 md:justify-start">
+                                            <div className="text-sm text-gray-600 flex items-center gap-2">
+                                            </div>
+                                            <div className={`flex h-8 w-8 items-center justify-center ${isExpanded ? "" : "bg-blue-100 rounded border border-gray-200 shadow-sm"}`}>
+                                                {isExpanded ? (
+                                                    <ChevronUp className="h-4 w-4 text-gray-500" />
+                                                ) : (
+                                                    <ChevronDown className="h-4 w-4 text-gray-500" />
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {isExpanded && (
+                                        <div className="overflow-x-auto rounded-lg border bg-white shadow-sm mt-2 mx-2 border-[#D7D7EC]">
+                                            <div className="p-0">
+                                                <table className="w-full text-left text-sm">
+                                                    <thead className="bg-gray-100/50">
+                                                        <tr>
+                                                            <th className="px-4 py-3 font-semibold text-gray-900 w-[300px]">Work</th>
+                                                            {/* <th className="px-4 py-3 font-semibold text-gray-900 w-[140px] text-center">Zone</th> */}
+                                                            <th className="px-4 py-3 font-semibold text-gray-900 w-[140px] text-center">Status</th>
+                                                            <th className="px-4 py-3 font-semibold text-gray-900 w-[100px] text-center">Progress</th>
+                                                            <th className="px-4 py-3 font-semibold text-gray-900 w-[120px] text-center">Start Date</th>
+                                                            <th className="px-4 py-3 font-semibold text-gray-900 w-[120px] text-center">End Date</th>
+                                                            {!isOverview && !isProjectManager && (
+                                                                <th className="px-4 py-3 font-semibold text-gray-900 w-[140px]">Admin Actions</th>
+                                                            )}
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-gray-100">
+                                                        {items.map((item, idx) => (
+                                                            <MilestoneRow
+                                                                key={idx}
+                                                                item={item}
+                                                                onAddTask={handleAddTask}
+                                                                onEditTask={handleEditTask}
+                                                                onDeleteTask={handleDeleteTask}
+                                                                onEditMilestone={handleEditMilestone}
+                                                                isOverview={isOverview}
+                                                                isProjectManager={isProjectManager}
+                                                            />
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })
+                    )}
+                </div>
+            )}
 
             {/* Dialogs and Modals */}
             {createTaskState.isOpen && createTaskState.data && (
@@ -955,7 +953,7 @@ export const SevendaysWorkPlan = ({
                     isOpen={createTaskState.isOpen}
                     onClose={closeCreateTask}
                     onSuccess={() => {
-                         mutate(); 
+                        mutate();
                     }}
                     defaultValues={createTaskState.data}
                     docName={createTaskState.docName}
@@ -964,13 +962,13 @@ export const SevendaysWorkPlan = ({
             )}
 
             {pmEditDialogState.isOpen && pmEditDialogState.initialData && (
-                 <ProjectManagerEditWorkPlanDialog 
+                <ProjectManagerEditWorkPlanDialog
                     isOpen={pmEditDialogState.isOpen}
                     onClose={() => setPmEditDialogState(prev => ({ ...prev, isOpen: false }))}
                     onSuccess={() => mutate()}
                     docName={pmEditDialogState.docName}
                     initialData={pmEditDialogState.initialData}
-                 />
+                />
             )}
 
             {editMilestoneState.isOpen && (
@@ -981,13 +979,13 @@ export const SevendaysWorkPlan = ({
                     onSuccess={() => mutate()}
                 />
             )}
-            
-             {/* Buffer Export Dialog */}
-             <Dialog open={isBufferDialogOpen} onOpenChange={setIsBufferDialogOpen}>
+
+            {/* Buffer Export Dialog */}
+            <Dialog open={isBufferDialogOpen} onOpenChange={setIsBufferDialogOpen}>
                 <DialogContent className="sm:max-w-[425px] p-0 overflow-hidden">
                     <DialogHeader className="px-6 pt-6 pb-4 border-b bg-gray-50/50">
                         <DialogTitle className="text-xl font-bold text-gray-900 leading-none">
-                            Client Version Export 
+                            Client Version Export
                             {bufferTargetZone ? ` (${bufferTargetZone === "All" ? "All Zones" : bufferTargetZone})` : ""}
                         </DialogTitle>
                     </DialogHeader>
@@ -1005,8 +1003,8 @@ export const SevendaysWorkPlan = ({
                         </div>
                         <div className="flex gap-6">
                             <div className="flex items-center space-x-2">
-                                <Checkbox 
-                                    id="addToStart" 
+                                <Checkbox
+                                    id="addToStart"
                                     checked={addToStart}
                                     onCheckedChange={(checked) => setAddToStart(checked as boolean)}
                                 />
@@ -1015,8 +1013,8 @@ export const SevendaysWorkPlan = ({
                                 </Label>
                             </div>
                             <div className="flex items-center space-x-2">
-                                <Checkbox 
-                                    id="addToEnd" 
+                                <Checkbox
+                                    id="addToEnd"
                                     checked={addToEnd}
                                     onCheckedChange={(checked) => setAddToEnd(checked as boolean)}
                                 />
@@ -1027,15 +1025,15 @@ export const SevendaysWorkPlan = ({
                         </div>
                     </div>
                     <DialogFooter className="px-6 py-4 border-t bg-gray-50/50 flex items-center justify-end gap-3">
-                        <Button 
-                            variant="outline" 
+                        <Button
+                            variant="outline"
                             onClick={() => setIsBufferDialogOpen(false)}
                             disabled={isBufferDownloading}
                             className="h-9 px-4 text-sm font-medium border-gray-300 hover:bg-gray-100 transition-colors"
                         >
                             Cancel
                         </Button>
-                        <Button 
+                        <Button
                             onClick={() => handleBufferDownload(startDate, endDate, bufferDays, addToStart, addToEnd)}
                             disabled={(!addToStart && !addToEnd) || isBufferDownloading || bufferDays === ""}
                             className="h-9 px-4 text-sm font-medium transition-all"
@@ -1050,7 +1048,7 @@ export const SevendaysWorkPlan = ({
                 </DialogContent>
             </Dialog>
 
-             <AlertDialog open={deleteDialogState.isOpen} onOpenChange={(open) => setDeleteDialogState(prev => ({ ...prev, isOpen: open }))}>
+            <AlertDialog open={deleteDialogState.isOpen} onOpenChange={(open) => setDeleteDialogState(prev => ({ ...prev, isOpen: open }))}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>

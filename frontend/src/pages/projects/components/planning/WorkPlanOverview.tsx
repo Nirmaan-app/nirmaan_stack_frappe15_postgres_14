@@ -97,7 +97,7 @@ const OverviewMilestoneItem = ({ item, isProjectManager }: { item: WorkPlanItem;
                                         )}
                                     </div>
                                     <div className="flex flex-col items-center w-[25%] shrink-0">
-                                         <span className="text-[8px] text-gray-400 uppercase">Start Date - End Date</span>
+                                         <span className="text-[8px] text-gray-400 uppercase">Planned Start - Planned End</span>
                                         <div className="text-xs text-gray-500 font-medium text-center">
                                             {safeFormatDate(plan.wp_start_date, "do MMM, yyyy")} 
                                             {" - "}
