@@ -122,7 +122,7 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
             if (data.data && data.data.length > 0) {
                 toast({
                     title: "Duplicate Entry",
-                    description: "This TDS Item ID, Make, and Description combination already exists.",
+                    description: "This TDS Item ID and Make combination already exists.",
                     variant: "destructive"
                 });
                 return;
@@ -172,14 +172,14 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                     <PlusCircle className="mr-2 h-4 w-4" /> Add New
                 </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[500px] p-0 overflow-hidden rounded-xl border-none">
+            <DialogContent className="sm:max-w-[500px] p-0 rounded-xl border-none max-h-[85vh] flex flex-col">
                 <DialogHeader className="p-6 pb-0 flex flex-row items-center justify-between">
                     <div>
                         <DialogTitle className="text-xl font-bold">Add New TDS Item</DialogTitle>
                     </div>
                 </DialogHeader>
 
-                <div className="p-6">
+                <div className="p-6 overflow-y-auto">
                     <Form {...form}>
                         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                             {/* Work Package */}
@@ -277,7 +277,7 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                                     </FormItem>
                                 )}
                             />
-                            
+
                             {/* Item Description */}
                             <FormField
                                 control={form.control}
