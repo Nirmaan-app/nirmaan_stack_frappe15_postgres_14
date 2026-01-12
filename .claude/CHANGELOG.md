@@ -4,6 +4,39 @@ Changes made by Claude Code sessions.
 
 ---
 
+### 2026-01-12: Work Plan Tracker Module
+
+**Summary:** Created Work Plan Tracker module for Project Leads and Project Managers to track work plan activities across all projects. Also added PO Tracker cards to PM and PL dashboards.
+
+**Files Created:**
+- `nirmaan_stack/api/seven_days_planning/get_projects_with_stats.py` - Backend API for project work plan statistics with role-based filtering
+- `frontend/src/pages/WorkPlanTracker/types/index.ts` - TypeScript interfaces for work plan stats
+- `frontend/src/pages/WorkPlanTracker/utils.ts` - Status styling helpers and constants
+- `frontend/src/pages/WorkPlanTracker/components/WorkPlanProjectCard.tsx` - Project card with progress circle and status breakdown
+- `frontend/src/pages/WorkPlanTracker/work-plan-tracker-list.tsx` - List view with search and project cards grid
+- `frontend/src/pages/WorkPlanTracker/work-plan-tracker-detail.tsx` - Detail view reusing SevendaysWorkPlan component
+
+**Files Modified:**
+- `frontend/src/components/helpers/routesConfig.tsx` - Added routes for /work-plan-tracker and /work-plan-tracker/:projectId
+- `frontend/src/components/layout/NewSidebar.tsx` - Added Work Plan Tracker sidebar item with Calendar icon
+- `frontend/src/components/layout/dashboards/dashboard-pm.tsx` - Added PO Tracker and Work Plan Tracker cards
+- `frontend/src/components/layout/dashboards/dashboard-pl.tsx` - Added PO Tracker and Work Plan Tracker cards
+
+**Features:**
+- Project list view showing all projects with milestone tracking enabled
+- Progress circle showing overall work plan completion percentage
+- Status breakdown: Pending, In Progress, Completed activity counts
+- Role-based filtering: PM/PL see only assigned projects; Admin/PMO see all
+- Detail view shows SevendaysWorkPlan component without date filters
+- Dashboard cards on both PM and PL dashboards for quick access
+- Search by project name in list view
+
+**Access Control:**
+- Sidebar: Admin, PMO Executive, Project Lead, Project Manager
+- Data filtering: Uses Nirmaan User Permissions for PM/PL roles
+
+---
+
 ### 2026-01-10: Multi-Select Project Assignees with User Permission Creation
 
 **Summary:** Replaced single-select assignees with react-select multi-select, creating User Permissions after project creation instead of storing in Project document.
