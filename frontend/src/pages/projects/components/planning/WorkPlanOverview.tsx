@@ -10,10 +10,12 @@ interface WorkPlanOverviewProps {
     header: string;
     items: WorkPlanItem[];
     getHeaderStats: (items: WorkPlanItem[]) => { avgProgress: number; plannedActivitiesCount: number };
+    isProjectManager?: boolean;
 }
 
-const OverviewMilestoneItem = ({ item }: { item: WorkPlanItem }) => {
-    const [isExpanded, setIsExpanded] = useState(false);
+const OverviewMilestoneItem = ({ item, isProjectManager }: { item: WorkPlanItem; isProjectManager?: boolean }) => {
+    // Default to expanded for Project Managers
+    const [isExpanded, setIsExpanded] = useState(isProjectManager || false);
     const workPlans = item.work_plan_doc || [];
     const hasWorkPlans = workPlans.length > 0;
 
@@ -122,7 +124,7 @@ const OverviewMilestoneItem = ({ item }: { item: WorkPlanItem }) => {
 };
 
 
-export const WorkPlanOverview = ({ header, items, getHeaderStats }: WorkPlanOverviewProps) => {
+export const WorkPlanOverview = ({ header, items, getHeaderStats, isProjectManager }: WorkPlanOverviewProps) => {
     // We assume items are already filtered by SevendaysWorkPlan for overview (only with items)
     const { plannedActivitiesCount } = getHeaderStats(items);
     const [isExpanded, setIsExpanded] = useState(true);
@@ -153,7 +155,7 @@ export const WorkPlanOverview = ({ header, items, getHeaderStats }: WorkPlanOver
             {isExpanded && (
                 <div className="mt-2 mx-8">
                     {items.map((item, idx) => (
-                        <OverviewMilestoneItem key={idx} item={item} />
+                        <OverviewMilestoneItem key={idx} item={item} isProjectManager={isProjectManager} />
                     ))}
                 </div>
             )}
