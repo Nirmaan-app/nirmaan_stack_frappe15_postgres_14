@@ -1,5 +1,7 @@
+
+
 import React, { useMemo, useState, useEffect } from "react";
-import { useFrappeGetCall } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDoc, useFrappeDeleteDoc } from "frappe-react-sdk";
 import { format, addDays, subDays } from "date-fns";
 import { safeFormatDate } from "@/lib/utils";
 import { AlertCircle, Calendar, CheckCircle, Circle, Loader2, ChevronDown, ChevronUp, Pencil, Trash2, Download } from "lucide-react";
@@ -7,9 +9,13 @@ import { ProgressCircle } from "@/components/ui/ProgressCircle";
 import { CreateWorkplantask } from "./CreateWorkplantask";
 import { Badge } from "@/components/ui/badge";
 import { WorkPlanOverview } from "./WorkPlanOverview";
-import { useFrappeDeleteDoc } from "frappe-react-sdk";
+import { ProjectManagerEditWorkPlanDialog } from "./ProjectManagerEditWorkPlanDialog";
+
 import { useToast } from "@/components/ui/use-toast";
+import { useUrlParam } from "@/hooks/useUrlParam";
+import { urlStateManager } from "@/utils/urlStateManager";
 import { Button } from "@/components/ui/button";
+import { useUserData } from "@/hooks/useUserData";
 import { EditMilestoneDialog } from "./EditMilestoneDialog";
 import {
     AlertDialog,
@@ -25,6 +31,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface SevendaysWorkPlanProps {
     projectId: string;
@@ -56,27 +63,31 @@ export interface WorkPlanDoc {
     wp_start_date: string;
     wp_end_date: string;
     wp_description: string;
+    wp_progress?: string;
+    wp_estimate_completion_date?: string;
 }
 
 export const getColorForProgress = (value: number): string => {
     const val = Math.round(value);
     if (isNaN(val)) return "text-gray-500";
-    if (val === 0) return "text-gray-400"; // Using gray-400 for 0 instead of black-500
+    if (val === 0) return "text-gray-400"; 
     if (val < 50) return "text-red-600";
     if (val < 75) return "text-yellow-600";
     if (val < 100) return "text-green-600";
     return "text-green-500";
 };
 
-const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilestone, isOverview }: { 
+const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilestone, isOverview, isProjectManager }: { 
     item: WorkPlanItem, 
     onAddTask: (item: WorkPlanItem) => void,
     onEditTask: (plan: WorkPlanDoc, item: WorkPlanItem) => void,
     onDeleteTask: (planName: string) => void,
     onEditMilestone: (item: WorkPlanItem) => void,
-    isOverview?: boolean
+    isOverview?: boolean,
+    isProjectManager?: boolean
 }) => {
-    const [isExpanded, setIsExpanded] = useState(false);
+    // Default to expanded for Project Managers
+    const [isExpanded, setIsExpanded] = useState(isProjectManager || false);
     const workPlans = item.work_plan_doc || [];
     const hasWorkPlans = workPlans.length > 0;
 
@@ -86,11 +97,11 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                 <td className="px-4 py-3 text-gray-700 border-b-0">
                     <div className="font-medium text-gray-900">{item.work_milestone_name}</div>
                 </td>
-                <td className="px-4 py-3 font-medium text-gray-900 border-b-0 text-center">
+                {/* <td className="px-4 py-3 font-medium text-gray-900 border-b-0 text-center">
                     <span className="inline-flex items-center justify-center h-6 min-w-[100px] w-fit rounded border border-dashed border-gray-300 bg-gray-50 px-3 text-xs text-gray-600 whitespace-nowrap">
                         {item.zone || "Zone 1"}
                     </span>
-                </td>
+                </td> */}
                 <td className="px-4 py-3 border-b-0 text-center">
                         <span
                         className={`inline-flex items-center justify-center h-6 min-w-[100px] w-fit rounded-full px-3 text-xs font-medium whitespace-nowrap ${
@@ -104,7 +115,7 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                         }`}
                     >
                         {item.status}
-                        {!isOverview && (
+                        {!isOverview && !isProjectManager && (
                         <button 
                             className="ml-2 p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50  transition-all inline-flex items-center"
                             onClick={(e) => {
@@ -139,7 +150,7 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                         <span className="text-red-600 font-bold">{safeFormatDate(item.expected_completion_date)}</span>
                     ) : "NA"}
                 </td>
-                {!isOverview && (
+                {!isOverview && !isProjectManager && (
                     <td className="px-4 py-3 border-b-0">
                             <button 
                             className="flex items-center rounded-md border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition-colors"
@@ -152,7 +163,7 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
             </tr>
             {hasWorkPlans && (
                 <tr>
-                    <td colSpan={isOverview ? 6 : 7} className=" pb-2 pt-0 m-0 p-0">
+                    <td colSpan={(isOverview || isProjectManager) ? 5 : 6} className=" pb-2 pt-0 m-0 p-0">
                         <div className="rounded-md border-b bg-blue-50/30">
                             <button 
                                 className="flex w-full items-center justify-between px-4 py-2 text-sm text-blue-800 hover:bg-blue-50"
@@ -168,31 +179,73 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                             </button>
                             
                             {isExpanded && (
-                                <div className="space-y-3 p-4">
+                                <div className="space-y-2 p-4">
+                                    {/* Header Row */}
+                                    {/* <div className="grid grid-cols-[1fr_1fr_2fr_auto] divide-x divide-gray-100 items-center rounded-t-lg bg-gray-50 border border-gray-200 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                                        <div className="p-3"></div>
+                                        <div className="flex items-center justify-center gap-8 p-3">
+                                            <span className="w-[80px] text-center">End Date</span>
+                                            <span className="w-[80px] text-center">Start Date</span>
+                                        </div>
+                                        <div className="flex items-center justify-center gap-8 p-3">
+                                            <span className="w-[70px] text-center">Status</span>
+                                            <span className="w-[60px] text-center">Percentage</span>
+                                            <span className="text-center">Estimated Completion Date</span>
+                                        </div>
+                                        <div className="p-3 text-center">Action</div>
+                                    </div> */}
+                                    {/* Data Rows */}
                                     {workPlans.map((plan) => (
-                                        <div key={plan.name} className="flex items-center justify-between rounded-lg border border-gray-200 bg-white p-4 shadow-[0_2px_4px_rgba(0,0,0,0.02)] hover:shadow-md transition-shadow">
-                                            {/* Left: Title and Note */}
-                                            <div className="space-y-1.5 w-[300px] shrink-0 pr-4">
-                                                <div className="font-semibold text-gray-900 text-sm leading-tight truncate" title={plan.wp_title}>{plan.wp_title}</div>
-                                                {/* {plan.wp_description && (
-                                                    <div className="text-xs italic text-gray-500 line-clamp-2 leading-relaxed">
-                                                        <span className="font-medium text-amber-600 not-italic">Note: </span>
+                                        <div key={plan.name} className="grid grid-cols-[1fr_1fr_2fr_auto] divide-x divide-gray-200 items-center rounded-lg border border-gray-200 bg-white shadow-[0_2px_4px_rgba(0,0,0,0.02)] hover:shadow-md transition-shadow">
+                                            {/* Col 1: Title and Description */}
+                                            {/* <div className="space-y-1.5 p-4">
+                                                <div className="font-semibold text-gray-900 text-sm leading-tight" title={plan.wp_title}>{plan.wp_title}</div>
+                                                {plan.wp_description && (
+                                                    <div className="text-xs text-gray-500 whitespace-normal break-words leading-relaxed line-clamp-2" title={plan.wp_description}>
+                                                        <span className="font-semibold text-yellow-600">Note: </span>
                                                         {plan.wp_description}
                                                     </div>
-                                                )} */}
-                                                 {plan.wp_description && (
-                                            <div className="text-xs text-gray-500 whitespace-normal break-words leading-relaxed" title={plan.wp_description}>
-                                                <span className="font-semibold text-yellow-600">Note: </span>
-                                                {plan.wp_description}
-                                            </div>
-                                        )}
-                                            </div>
+                                                )}
+                                            </div> */}
+                                            <div className="space-y-1.5 p-4">
+    {/* Title */}
+    <div className="font-semibold text-gray-900 text-sm leading-tight" title={plan.wp_title}>
+        {plan.wp_title}
+    </div>
+
+    {/* Description - Removed 'line-clamp-2' */}
+    {plan.wp_description && (
+        <div 
+            className="text-xs text-gray-500 whitespace-normal break-words leading-relaxed" 
+            title={plan.wp_description}
+        >
+            <span className="font-semibold text-yellow-600">Note: </span>
+            {plan.wp_description}
+        </div>
+    )}
+</div>
                                             
-                                            {/* Center: Status and Date Metadata */}
-                                            <div className="flex items-center gap-2 shrink-0 mx-4">
-                                                <div className="flex flex-col items-center gap-1.5 w-[100px]">
+                                            {/* Col 2: End Date and Start Date */}
+                                            <div className="flex items-center justify-center gap-4 p-4">
+                                                <div className="flex flex-col items-center gap-1">
+                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">End Date</span>
+                                                    <div className="text-center rounded border px-3 py-1 text-xs font-semibold bg-white text-gray-700 shadow-sm whitespace-nowrap">
+                                                        {safeFormatDate(plan.wp_end_date)}
+                                                    </div>
+                                                </div>
+                                                <div className="flex flex-col items-center gap-1">
+                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Start Date</span>
+                                                    <div className="text-center rounded border px-3 py-1 text-xs font-semibold bg-white text-gray-700 shadow-sm whitespace-nowrap">
+                                                        {safeFormatDate(plan.wp_start_date)}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Col 3: Status, Percentage, and Estimated Completion Date */}
+                                            <div className="flex items-center justify-center gap-4 p-4">
+                                                <div className="flex flex-col items-center gap-1">
                                                     <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Status</span>
-                                                    <span className={`w-full text-center rounded-md px-2 py-1 text-xs font-semibold border truncate ${
+                                                    <span className={`text-center rounded-md px-3 py-1 text-xs font-semibold border whitespace-nowrap ${
                                                         plan.wp_status === 'Pending' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
                                                         plan.wp_status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' :
                                                         plan.wp_status === 'In Progress' ? 'bg-orange-50 text-orange-700 border-orange-200' :
@@ -201,41 +254,51 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                                                         {plan.wp_status || 'Pending'}
                                                     </span>
                                                 </div>
-
-                                                <div className="flex flex-col items-center gap-1.5 w-[110px]">
-                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Start Date</span>
-                                                    <div className="w-full text-center rounded border px-2 py-1 text-xs font-semibold bg-white text-gray-700 shadow-sm truncate">
-                                                        {safeFormatDate(plan.wp_start_date)}
+                                                <div className="flex flex-col items-center gap-1">
+                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Progress</span>
+                                                    <div className="text-center rounded border px-3 py-1 text-xs font-bold bg-white shadow-sm whitespace-nowrap">
+                                                        {plan.wp_progress || '0'}%
                                                     </div>
                                                 </div>
-
-                                                <div className="flex flex-col items-center gap-1.5 w-[110px]">
-                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">End Date</span>
-                                                    <div className="w-full text-center rounded border px-2 py-1 text-xs font-semibold bg-white text-gray-700 shadow-sm truncate">
-                                                        {safeFormatDate(plan.wp_end_date)}
+                                                <div className="flex flex-col items-center gap-1">
+                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Estimated Completion Date</span>
+                                                    <div className="text-center rounded border px-3 py-1 text-xs font-semibold bg-white text-gray-700 shadow-sm whitespace-nowrap">
+                                                        {plan.wp_estimate_completion_date ? safeFormatDate(plan.wp_estimate_completion_date) : 'N/A'}
                                                     </div>
                                                 </div>
                                             </div>
 
-                                            {/* Right: Actions */}
-                                            {!isOverview && (
-                                                <div className="flex items-center gap-1 pl-4 border-l border-gray-100 h-8">
-                                                    <button 
-                                                        className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-all"
-                                                        onClick={() => onEditTask(plan, item)}
-                                                        title="Edit Task"
-                                                    >
-                                                        <Pencil className="h-4 w-4" />
-                                                    </button>
-                                                    <button 
-                                                        className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all"
-                                                        onClick={() => onDeleteTask(plan.name)}
-                                                        title="Delete Task"
-                                                    >
-                                                        <Trash2 className="h-4 w-4" />
-                                                    </button>
+                                            {/* Col 4: Action */}
+                                            {/* Col 4: Action */}
+                                            <div className="flex flex-col items-center gap-1 p-4">
+                                                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Action</span>
+                                                <div className="flex items-center justify-center gap-2">
+                                                    {!isOverview ? (
+                                                        <>
+                                                            <button 
+                                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-sm"
+                                                                onClick={() => onEditTask(plan, item)}
+                                                                title="Update Task"
+                                                            >
+                                                                <Pencil className="h-3 w-3" />
+                                                                Update
+                                                            </button>
+                                                            {/* Delete button - visible only for Admin */}
+                                                            {!isProjectManager && (
+                                                                <button 
+                                                                    className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all"
+                                                                    onClick={() => onDeleteTask(plan.name)}
+                                                                    title="Delete Task"
+                                                                >
+                                                                    <Trash2 className="h-4 w-4" />
+                                                                </button>
+                                                            )}
+                                                        </>
+                                                    ) : (
+                                                        <span className="text-xs text-gray-400">-</span>
+                                                    )}
                                                 </div>
-                                            )}
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
@@ -256,19 +319,22 @@ export const SevendaysWorkPlan = ({
     projectName
 }: SevendaysWorkPlanProps) => {
     
+    const { role } = useUserData();
+    const isProjectManager = role === "Nirmaan Project Manager Profile";
+    
     const [isBufferDialogOpen, setIsBufferDialogOpen] = useState(false);
+    // Track which zone we are doing the buffer export for (undefined = All, string = specific zone)
+    const [bufferTargetZone, setBufferTargetZone] = useState<string | undefined>(undefined);
+    
     const [bufferDays, setBufferDays] = useState<number | string>("");
     const [addToStart, setAddToStart] = useState<boolean>(true);
     const [addToEnd, setAddToEnd] = useState<boolean>(true);
     const [isMainExpanded, setIsMainExpanded] = useState(true);
 
-    // console.log("Work Plan projectName",projectName)
-
     const { toast } = useToast();
     const { deleteDoc } = useFrappeDeleteDoc();
 
     const shouldFetch = projectId;
-    // Response is Record<WorkHeader, WorkPlanItem[]>
     const { data: result, error, isLoading: loading, mutate } = useFrappeGetCall<{
         message: {
             data: Record<string, WorkPlanItem[]>;
@@ -286,6 +352,41 @@ export const SevendaysWorkPlan = ({
               }
             : undefined
     );
+
+
+    const { data: projectDoc } = useFrappeGetDoc("Projects", projectId);
+    const zones: string[] = useMemo(() => {
+        if (!projectDoc?.project_zones) return [];
+        return projectDoc.project_zones.map((z: any) => z.zone_name).sort();
+    }, [projectDoc]);
+
+    const urlZone = useUrlParam("planningZone");
+    
+    // Derived state from URL or fallback
+    const [activeZone, setActiveZone] = useState<string>("");
+
+    // Effect to sync local state with URL and handle defaults
+    useEffect(() => {
+        if (zones.length > 0) {
+            // If URL has valid zone, use it
+            if (urlZone && zones.includes(urlZone)) {
+                setActiveZone(urlZone);
+            } 
+            // If URL has no zone or invalid zone, default to first zone and update URL
+            else if (!urlZone || !zones.includes(urlZone)) {
+                const defaultZone = zones[0];
+                setActiveZone(defaultZone);
+                if (urlZone !== defaultZone) {
+                   urlStateManager.updateParam("planningZone", defaultZone);
+                }
+            }
+        }
+    }, [zones, urlZone]);
+
+    const handleZoneChange = (zone: string) => {
+        setActiveZone(zone);
+        urlStateManager.updateParam("planningZone", zone);
+    };
 
     const [expandedHeaders, setExpandedHeaders] = useState<Record<string, boolean>>({});
 
@@ -325,6 +426,24 @@ export const SevendaysWorkPlan = ({
         data: null,
     });
 
+    const [pmEditDialogState, setPmEditDialogState] = useState<{
+        isOpen: boolean;
+        docName: string;
+        initialData: {
+            wp_title: string;
+            wp_status: string;
+            wp_start_date: string;
+            wp_end_date: string;
+            wp_description: string;
+            wp_progress?: number;
+            wp_estimate_completion_date?: string;
+        } | null;
+    }>({
+        isOpen: false,
+        docName: "",
+        initialData: null,
+    });
+
     const [deleteDialogState, setDeleteDialogState] = useState<{
         isOpen: boolean;
         planName: string | null;
@@ -348,23 +467,39 @@ export const SevendaysWorkPlan = ({
     };
 
     const handleEditTask = (plan: WorkPlanDoc, item: WorkPlanItem) => {
-        setCreateTaskState({
-            isOpen: true,
-            data: {
-                project: projectId,
-                zone: item.zone,
-                work_header: item.work_header,
-                work_milestone: item.work_milestone_name,
-            },
-            docName: plan.name,
-            initialData: {
-                wp_title: plan.wp_title,
-                wp_status: plan.wp_status,
-                wp_start_date: plan.wp_start_date,
-                wp_end_date: plan.wp_end_date,
-                wp_description: plan.wp_description
-            }
-        });
+        if (isProjectManager) {
+            setPmEditDialogState({
+                isOpen: true,
+                docName: plan.name,
+                initialData: {
+                    wp_title: plan.wp_title,
+                    wp_status: plan.wp_status,
+                    wp_start_date: plan.wp_start_date,
+                    wp_end_date: plan.wp_end_date,
+                    wp_description: plan.wp_description,
+                    wp_progress: plan.wp_progress ? parseFloat(plan.wp_progress) : 0,
+                    wp_estimate_completion_date: plan.wp_estimate_completion_date
+                }
+            });
+        } else {
+            setCreateTaskState({
+                isOpen: true,
+                data: {
+                    project: projectId,
+                    zone: item.zone,
+                    work_header: item.work_header,
+                    work_milestone: item.work_milestone_name,
+                },
+                docName: plan.name,
+                initialData: {
+                    wp_title: plan.wp_title,
+                    wp_status: plan.wp_status,
+                    wp_start_date: plan.wp_start_date,
+                    wp_end_date: plan.wp_end_date,
+                    wp_description: plan.wp_description
+                }
+            });
+        }
     };
 
     const handleDeleteTask = (planName: string) => {
@@ -407,7 +542,7 @@ export const SevendaysWorkPlan = ({
     const [isBufferDownloading, setIsBufferDownloading] = useState(false);
 
     // Refactored download logic to accept dates
-    const performDownload = async (downloadStartDate: Date | undefined, downloadEndDate: Date | undefined) => {
+    const performDownload = async (downloadStartDate: Date | undefined, downloadEndDate: Date | undefined, zone: string | undefined) => {
         setIsDownloading(true);
         try {
             const formatName = "Project Work Plan"; 
@@ -426,6 +561,10 @@ export const SevendaysWorkPlan = ({
             if (downloadEndDate) {
                 params.append("end_date", format(downloadEndDate, "yyyy-MM-dd"));
             }
+            // Passing undefined or "All" to zone will export all zones (controlled by print format logic)
+            if (zone && zone !== "All") {
+                params.append("zone", zone);
+            }
 
             const url = `/api/method/frappe.utils.print_format.download_pdf?${params.toString()}`;
             
@@ -438,7 +577,8 @@ export const SevendaysWorkPlan = ({
             link.href = downloadUrl;
 
             const safeProjectName = (projectName || projectId).replace(/ /g, "_");
-            link.download = `WorkPlan_${safeProjectName}_${format(new Date(), "dd-MMM-yyyy")}.pdf`;
+            const zoneSuffix = (zone && zone !== "All") ? `_${zone.replace(/ /g, "_")}` : "_All_Zones";
+            link.download = `WorkPlan_${safeProjectName}${zoneSuffix}_${format(new Date(), "dd-MMM-yyyy")}.pdf`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -455,9 +595,25 @@ export const SevendaysWorkPlan = ({
         }
     };
 
-    const handleDownload = (e: React.MouseEvent) => {
+    const handleDownloadAll = (e: React.MouseEvent) => {
         e.stopPropagation();
-        performDownload(startDate, endDate);
+        // Export ALL zones
+        performDownload(startDate, endDate, undefined);
+    };
+
+    const handleDownloadZone = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        // Export ACTIVE zone
+        performDownload(startDate, endDate, activeZone);
+    };
+
+    const openBufferDialog = (e: React.MouseEvent, zone: string | undefined) => {
+        e.stopPropagation();
+        setBufferTargetZone(zone); // Store which zone (or All) we are exporting
+        setBufferDays("");
+        setAddToStart(true);
+        setAddToEnd(true);
+        setIsBufferDialogOpen(true);
     };
 
     const handleBufferDownload = async (start: Date | undefined, end: Date | undefined, days: number | string, toStart: boolean, toEnd: boolean) => {
@@ -476,6 +632,10 @@ export const SevendaysWorkPlan = ({
             if (start) params.append("start_date", format(start, "yyyy-MM-dd"));
             if (end) params.append("end_date", format(end, "yyyy-MM-dd"));
             
+            // Use the stored target zone (from when dialog was opened)
+            if (bufferTargetZone && bufferTargetZone !== "All") {
+                params.append("zone", bufferTargetZone);
+            }
             
             // Pass extra parameters for the buffered print format
             params.append("buffer_days", String(days));
@@ -493,7 +653,9 @@ export const SevendaysWorkPlan = ({
             link.href = downloadUrl;
 
             const safeProjectName = (projectName || projectId).replace(/ /g, "_");
-            link.download = `WorkPlan_${safeProjectName}_${format(new Date(), "dd-MMM-yyyy")}.pdf`;
+            const zoneSuffix = (bufferTargetZone && bufferTargetZone !== "All") ? `_${bufferTargetZone.replace(/ /g, "_")}` : "_All_Zones";
+            link.download = `WorkPlan_${safeProjectName}${zoneSuffix}_${format(new Date(), "dd-MMM-yyyy")}.pdf`;
+            
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -514,8 +676,6 @@ export const SevendaysWorkPlan = ({
     const closeCreateTask = () => {
         setCreateTaskState((prev) => ({ ...prev, isOpen: false }));
     };
-
-
 
     if (loading) {
         return (
@@ -540,8 +700,8 @@ export const SevendaysWorkPlan = ({
 
     let workHeaders = result?.message?.data ? Object.keys(result.message.data) : [];
     
-    // Filter headers if isOverview is true
-    if (isOverview && result?.message?.data) {
+    // Filter headers if isOverview is true OR if user is Project Manager
+    if ((isOverview || isProjectManager) && result?.message?.data) {
         workHeaders = workHeaders.filter(header => {
             const items = result.message.data[header];
             // Keep header only if it has at least one item with planned activities
@@ -551,69 +711,135 @@ export const SevendaysWorkPlan = ({
 
     const hasData = workHeaders.length > 0;
 
+    // For Project Managers, check if the selected zone has any plan activities
+    let hasZoneData = hasData;
+    if (isProjectManager && result?.message?.data && activeZone) {
+        hasZoneData = workHeaders.some(header => {
+            const items = result.message.data[header];
+            return items?.some(item => 
+                item.zone === activeZone && 
+                item.work_plan_doc && 
+                item.work_plan_doc.length > 0
+            );
+        });
+    }
+
     let totalPlannedActivities = 0;
     if (result?.message?.data) {
         Object.values(result.message.data).forEach((items) => {
-            items.forEach((item) => {
+            const filteredItems = activeZone 
+                ? items.filter(item => item.zone === activeZone) 
+                : items;
+                
+            filteredItems.forEach((item) => {
                 totalPlannedActivities += item.work_plan_doc?.length || 0;
             });
         });
     }
-
-
 
     return (
         <div className="space-y-6">
              <div className="overflow-hidden bg-white">
                 {
                     <div 
-                        className="flex cursor-pointer items-center justify-between bg-white py-2"
-                        // onClick={() => setIsMainExpanded(!isMainExpanded)}
+                        className="flex items-center justify-between bg-white py-2"
                     >
                         <div className="flex items-center gap-3">
                             <h3 className="text-xl font-bold text-gray-900">Work Plan</h3>
-                            <Badge variant="secondary" className="bg-blue-700 text-white hover:bg-blue-800 h-6 w-6 p-0 flex items-center justify-center rounded-full text-[12px]">
-                                 {totalPlannedActivities}
-                            </Badge>
                         </div>
-                        <div className="flex gap-2">
+                        {/* GLOBAL EXPORT BUTTONS (ALL ZONES) */}
+                        <div className="flex items-center gap-2">
                              <Button 
                                 variant="outline" 
                                 size="sm" 
                                 className="gap-2 h-8 text-xs border-gray-300 text-gray-700"
-                                onClick={(e) => { 
-                                    e.stopPropagation(); 
-                                    setBufferDays("");
-                                    setAddToStart(true);
-                                    setAddToEnd(true);
-                                    setIsBufferDialogOpen(true); 
-                                }}
+                                onClick={(e) => openBufferDialog(e, undefined)} // Undefined = All Zones
                                 disabled={isDownloading}
+                                title="Export Buffered plan for ALL zones"
                             >
                                 <Download className="h-3.5 w-3.5" />
-                                Buffer Export
+                                Buffer Export (All)
                             </Button>
                             <Button 
                                 variant="outline" 
                                 size="sm" 
                                 className="gap-2 h-8 text-xs border-gray-300 text-gray-700"
-                                onClick={handleDownload}
+                                onClick={handleDownloadAll}
                                 disabled={isDownloading}
+                                title="Export plan for ALL zones"
                             >
                                 {isDownloading ? (
                                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                 ) : (
                                     <Download className="h-3.5 w-3.5" />
                                 )}
-                                {isDownloading ? "Exporting..." : "Export"}
+                                Export (All)
                             </Button>
                         </div>
                     </div>
                 }
+            </div>
+
+            {zones.length > 0 && (
+                <div   className="flex items-center justify-between bg-white py-2">
+                      <div className="flex items-center justify-between bg-gray-100/50 p-1 rounded-md">
+                    <Tabs value={activeZone} onValueChange={handleZoneChange} className="w-auto overflow-x-auto">
+                        <TabsList className="bg-transparent p-0 h-auto justify-start">
+                            {zones.map((zone) => (
+                                <TabsTrigger key={zone} value={zone} className="px-3 py-1.5 text-xs gap-2">
+                                    {zone}
+                                </TabsTrigger>
+                            ))}
+                        </TabsList>
+                    </Tabs>
+
+                    {/* PER-ZONE EXPORT BUTTONS */}
+                  
+                </div>
+
+                    <div className="flex items-center gap-2">
+                        <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="h-7 text-[10px] text-gray-600 gap-1.5 px-2 border-gray-300"
+                            onClick={(e) => openBufferDialog(e, activeZone)} // Specific Zone
+                            disabled={isDownloading}
+                            title={`Buffer Export ${activeZone}`}
+                        >
+                            <Download className="h-3 w-3" />
+                            Buffer Export 
+                            {/* {activeZone} */}
+                        </Button>
+                        <Button
+                            variant="outline" 
+                            size="sm" 
+                            className="h-7 text-[10px] text-gray-600 hover:text-blue-600 gap-1.5 px-2 mr-1"
+                            onClick={handleDownloadZone}
+                            disabled={isDownloading}
+                            title={`Export ${activeZone} data`}
+                        >
+                            {isDownloading ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                                <Download className="h-3 w-3" />
+                            )}
+                            Export 
+                            {/* {activeZone} */}
+                        </Button>
+                    </div>
+                </div>
+              
+            )}
                 
                 {isMainExpanded && (
                     <div className="p-2 space-y-4">
-                        {!hasData ? (
+                        {/* Show different empty states based on role and zone */}
+                        {isProjectManager && !hasZoneData ? (
+                            <div className="rounded-lg border bg-blue-50 p-8 text-center text-gray-600">
+                                <div className="text-lg font-medium mb-1">No Plan Activities</div>
+                                <div className="text-sm">There are no planned activities available in <span className="font-semibold">{activeZone}</span> zone.</div>
+                            </div>
+                        ) : !hasData ? (
                             <div className="rounded-lg border bg-gray-50 p-8 text-center text-gray-500">
                                 {result?.message?.reason || "No work plan items found."}
                             </div>
@@ -621,11 +847,20 @@ export const SevendaysWorkPlan = ({
                             workHeaders.map((header) => {
                                 let items = result?.message?.data[header] || [];
                                 
-                                if (isOverview) {
+                                // Filter to only show milestones with plan activities for overview or PM
+                                if (isOverview || isProjectManager) {
                                   items = items.filter(item => item.work_plan_doc && item.work_plan_doc.length > 0);
                                 }
 
-                                // Calculate Weighted Progress
+                                // Strict Filtering: Since we removed the "All" tab, activeZone should usually be set.
+                                // If for some reason activeZone is empty, this logic implies showing everything (fallback),
+                                // but the UI tabs enforce a selection.
+                                if(activeZone) {
+                                    items = items.filter(item => item.zone === activeZone);
+                                }
+
+                                if (items.length === 0) return null;
+
                                 const totalWeightage = items.reduce((sum, item) => sum + (item.weightage || 1.0), 0);
                                 const totalWeightedProgress = items.reduce((sum, item) => sum + ((item.progress || 0) * (item.weightage || 1.0)), 0);
                                 
@@ -643,6 +878,7 @@ export const SevendaysWorkPlan = ({
                                             header={header}
                                             items={items}
                                             getHeaderStats={() => ({ avgProgress, plannedActivitiesCount })}
+                                            isProjectManager={isProjectManager}
                                         />
                                     );
                                 }
@@ -661,7 +897,6 @@ export const SevendaysWorkPlan = ({
                                             </div>
                                             <div className="flex items-center justify-between w-full md:w-auto md:gap-4 md:justify-start">
                                                 <div className="text-sm text-gray-600 flex items-center gap-2">
-                                                    {/* Overall Progress: <span className={`font-bold ${getColorForProgress(avgProgress)}`}>{avgProgress}%</span> */}
                                                 </div>
                                                 <div className={`flex h-8 w-8 items-center justify-center ${isExpanded?"":"bg-blue-100 rounded border border-gray-200 shadow-sm"}`}>
                                                     {isExpanded ? (
@@ -679,12 +914,12 @@ export const SevendaysWorkPlan = ({
                                                 <thead className="bg-gray-100/50">
                                                     <tr>
                                                         <th className="px-4 py-3 font-semibold text-gray-900 w-[300px]">Work</th>
-                                                        <th className="px-4 py-3 font-semibold text-gray-900 w-[140px] text-center">Zone</th>
+                                                        {/* <th className="px-4 py-3 font-semibold text-gray-900 w-[140px] text-center">Zone</th> */}
                                                         <th className="px-4 py-3 font-semibold text-gray-900 w-[140px] text-center">Status</th>
                                                         <th className="px-4 py-3 font-semibold text-gray-900 w-[100px] text-center">Progress</th>
                                                         <th className="px-4 py-3 font-semibold text-gray-900 w-[120px] text-center">Start Date</th>
                                                         <th className="px-4 py-3 font-semibold text-gray-900 w-[120px] text-center">End Date</th>
-                                                        {!isOverview && (
+                                                        {!isOverview && !isProjectManager && (
                                                             <th className="px-4 py-3 font-semibold text-gray-900 w-[140px]">Admin Actions</th>
                                                         )}
                                                     </tr>
@@ -699,6 +934,7 @@ export const SevendaysWorkPlan = ({
                                                             onDeleteTask={handleDeleteTask}
                                                             onEditMilestone={handleEditMilestone}
                                                             isOverview={isOverview}
+                                                            isProjectManager={isProjectManager}
                                                         />
                                                     ))}
                                                 </tbody>
@@ -712,7 +948,8 @@ export const SevendaysWorkPlan = ({
                         )}
                     </div>
                 )}
-            </div>
+
+            {/* Dialogs and Modals */}
             {createTaskState.isOpen && createTaskState.data && (
                 <CreateWorkplantask
                     isOpen={createTaskState.isOpen}
@@ -725,6 +962,17 @@ export const SevendaysWorkPlan = ({
                     initialData={createTaskState.initialData}
                 />
             )}
+
+            {pmEditDialogState.isOpen && pmEditDialogState.initialData && (
+                 <ProjectManagerEditWorkPlanDialog 
+                    isOpen={pmEditDialogState.isOpen}
+                    onClose={() => setPmEditDialogState(prev => ({ ...prev, isOpen: false }))}
+                    onSuccess={() => mutate()}
+                    docName={pmEditDialogState.docName}
+                    initialData={pmEditDialogState.initialData}
+                 />
+            )}
+
             {editMilestoneState.isOpen && (
                 <EditMilestoneDialog
                     isOpen={editMilestoneState.isOpen}
@@ -733,11 +981,15 @@ export const SevendaysWorkPlan = ({
                     onSuccess={() => mutate()}
                 />
             )}
+            
              {/* Buffer Export Dialog */}
              <Dialog open={isBufferDialogOpen} onOpenChange={setIsBufferDialogOpen}>
                 <DialogContent className="sm:max-w-[425px] p-0 overflow-hidden">
                     <DialogHeader className="px-6 pt-6 pb-4 border-b bg-gray-50/50">
-                        <DialogTitle className="text-xl font-bold text-gray-900 leading-none">Client Version Export</DialogTitle>
+                        <DialogTitle className="text-xl font-bold text-gray-900 leading-none">
+                            Client Version Export 
+                            {bufferTargetZone ? ` (${bufferTargetZone === "All" ? "All Zones" : bufferTargetZone})` : ""}
+                        </DialogTitle>
                     </DialogHeader>
                     <div className="grid gap-6 px-6 py-6">
                         <div className="grid grid-cols-[auto_1fr] items-center gap-4 pt-1">
