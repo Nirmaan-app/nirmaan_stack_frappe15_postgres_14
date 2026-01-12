@@ -29,11 +29,9 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { useFacetValues } from "@/hooks/useFacetValues";
+import { useUserData } from "@/hooks/useUserData";
 import { formatDate } from "@/utils/FormatDate";
-import {
-  formatToRoundedIndianRupee,
-  formatToApproxLakhs,
-} from "@/utils/FormatPrice";
+import { formatToApproxLakhs } from "@/utils/FormatPrice";
 import {
   getTotalInflowAmount,
   getPOSTotals,
@@ -92,11 +90,21 @@ interface ProjectStatusCount {
 }
 
 // --- Component ---
+// Roles that can see financial columns
+const FINANCIAL_COLUMNS_ROLES = [
+  "Nirmaan Admin Profile",
+  "Nirmaan PMO Executive Profile",
+  "Nirmaan Accountant Profile",
+];
+
 export const Projects: React.FC<ProjectsProps> = ({
   customersView = false,
   customerId,
   urlContext = "main", // Default context for URL key
 }) => {
+  const { role } = useUserData();
+  const canViewFinancials = FINANCIAL_COLUMNS_ROLES.includes(role);
+
   const urlSyncKey = useMemo(
     () =>
       `projects_list_${urlContext}${customerId ? `_cust_${customerId}` : ""}`,
@@ -393,7 +401,8 @@ export const Projects: React.FC<ProjectsProps> = ({
   // }, [prData, poData]);
 
   // --- Column Definitions for the Combined DataTable ---
-  const columns = useMemo<ColumnDef<ProjectsType>[]>(
+  // Base columns visible to all users
+  const baseColumns = useMemo<ColumnDef<ProjectsType>[]>(
     () => [
       {
         accessorKey: "name",
@@ -470,30 +479,13 @@ export const Projects: React.FC<ProjectsProps> = ({
           facetTitle: "Project Type",
         },
       },
-      // {
-      //   id: "location", header: "Location",
-      //   accessorFn: row => `${row.project_city || ''}, ${row.project_state || ''}`.replace(/^, |, $/g, ''), // Clean leading/trailing commas
-      //   meta: {
-      //     exportHeaderName: "Project Location",
-      //     exportValue: (row) => `${row.project_city || ''}, ${row.project_state || ''}`.replace(/^, |, $/g, ''), // Clean leading/trailing commas
-      //   }
-      // },
-      // {
-      //     id: "pr_status_counts", header: "PR Status",
-      //     cell: ({ row }) => {
-      //         const counts = row.original.prStatusCounts;
-      //         return (
-      //             <div className="font-medium flex flex-col gap-1 text-xs">
-      //                 {counts && Object.entries(counts).map(([status, count]) => (
-      //                     count > 0 && <Badge key={status} variant={status === "New PR" ? "default" : (status === "Open PR" ? "warning" : "success")} className="flex justify-between w-full max-w-[120px]"><span>{status}:</span> <span>{count}</span></Badge>
-      //                 ))}
-      //             </div>
-      //         );
-      //     },
-      // },
+    ],
+    []
+  );
 
-      // Remove the existing "project_financials" column and replace with these six columns:
-
+  // Financial columns only visible to Admin, PMO, and Accountant roles
+  const financialColumns = useMemo<ColumnDef<ProjectsType>[]>(
+    () => [
       {
         accessorKey: "project_value_gst",
         header: "Value (incl.GST)",
@@ -573,7 +565,6 @@ export const Projects: React.FC<ProjectsProps> = ({
           },
         },
       },
-
       {
         id: "total_liabilities",
         header: ({ column }) => (
@@ -657,115 +648,15 @@ export const Projects: React.FC<ProjectsProps> = ({
           },
         },
       },
-      // {
-      //   id: "creditAmtPaid",
-      //   header: ({ column }) => <DataTableColumnHeader column={column} title="Total Credit Amt Paid" />,
-      //   cell: ({ row }) => {
-      //     const financials = getProjectFinancials(row.original.name);
-      //     return (
-      //       <span className="tabular-nums">
-      //         {formatToRoundedIndianRupee(parseNumber(financials.relatedTotalCreditPaid) / 100000)} L
-      //       </span>
-      //     );
-      //   },
-      //   size: 100,
-      //   meta: {
-      //     exportHeaderName: "Total Credit Amt Paid",
-      //     exportValue: (row) => {
-      //       const financials = getProjectFinancials(row.name);
-      //       return formatToRoundedIndianRupee(parseNumber(financials.relatedTotalCreditPaid) / 100000) + " L";
-      //     }
-      //   }
-      // }
-      //    {
-      //    id: "Value", // Unique ID
-      //    header: "Value of Project",
-      //    cell: ({ row }) => {
-      //      const financials = getProjectFinancials(row.original.name);
-      //      return (
-      //        <div className="font-medium flex flex-col gap-1 text-xs min-w-[120px]">
-      //         <div className="flex justify-between"><span>Value (excl. GST):</span> <span className="tabular-nums">{formatToRoundedIndianRupee(parseNumber(row.original.project_value) / 100000)} L</span></div>
-      //            <div className="flex justify-between"><span>PO Amt:</span> <span className="tabular-nums">{formatToRoundedIndianRupee(financials.calculatedTotalInvoiced / 100000)} L</span></div>
-
-      //        </div>
-      //      );
-      //    },
-      //    size: 150, // Adjust size as needed
-      //    meta: {
-      //      excludeFromExport: true
-      //    }
-      //  },
-      //   {
-      //    id: "project_flow_amounts_col", // Unique ID
-      //    header: "Flow Amounts (Lakhs)",
-      //    cell: ({ row }) => {
-      //      const financials = getProjectFinancials(row.original.name);
-      //      return (
-      //        <div className="font-medium flex flex-col gap-1 text-xs min-w-[120px]">
-
-      //          <div className="flex justify-between">
-      //            <span>Inflow:</span> <span className="text-green-600 tabular-nums">{formatToRoundedIndianRupee(financials.calculatedTotalInflow / 100000)} L</span>
-      //          </div>
-      //          <div className="flex justify-between">
-      //            <span>Outflow:</span> <span className="text-red-600 tabular-nums">{formatToRoundedIndianRupee(financials.calculatedTotalOutflow / 100000)} L</span>
-      //          </div>
-      //        </div>
-      //      );
-      //    },
-      //    size: 150, // Adjust size as needed
-      //    meta: {
-      //      excludeFromExport: true
-      //    }
-      //  },
-      //  {
-      //    id: "project_liabilities_due_col", // Unique ID
-      //    header: "Liabilities & Due (Lakhs)",
-      //    cell: ({ row }) => {
-      //      const financials = getProjectFinancials(row.original.name);
-      //      return (
-      //        <div className="font-medium flex flex-col gap-1 text-xs min-w-[120px]">
-      //          <div className="flex justify-between">
-      //            <span>Total Liabilities:</span> <span className="tabular-nums">{formatToRoundedIndianRupee(parseNumber(financials.relatedTotalBalanceCredit) / 100000)} L</span>
-      //          </div>
-      //          <div className="flex justify-between">
-      //            <span>Total Due Not Paid:</span> <span className="tabular-nums">{formatToRoundedIndianRupee(parseNumber(financials.relatedTotalDue) / 100000)} L</span>
-      //          </div>
-      //        </div>
-      //      );
-      //    },
-      //    size: 170, // Adjust size as needed
-      //    meta: {
-      //      excludeFromExport: true
-      //    }
-      //  },
-      // {
-      //   id: "project_financials", header: "Financials (Lakhs)",
-      //   cell: ({ row }) => {
-      //     const financials = getProjectFinancials(row.original.name); // Calculate for current project row
-      //     // console.log("financials", row.original.name);
-      //     return (
-      //       <div className="font-medium flex flex-col gap-1 text-xs min-w-[180px]">
-      //         <div className="flex justify-between"><span>Value (excl. GST):</span> <span className="tabular-nums">{formatToRoundedIndianRupee(parseNumber(row.original.project_value) / 100000)} L</span></div>
-      //         <div className="flex justify-between"><span>PO Amt:</span> <span className="tabular-nums">{formatToRoundedIndianRupee(financials.calculatedTotalInvoiced / 100000)} L</span></div>
-      //         <div className="flex justify-between"><span>Inflow:</span> <span className="text-green-600 tabular-nums">{formatToRoundedIndianRupee(financials.calculatedTotalInflow / 100000)} L</span></div>
-      //         <div className="flex justify-between"><span>Outflow:</span> <span className="text-red-600 tabular-nums">{formatToRoundedIndianRupee(financials.calculatedTotalOutflow / 100000)} L</span></div>
-      //         <div className="flex justify-between"><span>Total Liabilities:</span> <span className="tabular-nums">{formatToRoundedIndianRupee(parseNumber(financials.relatedTotalBalanceCredit) / 100000)} L</span></div>
-      //         <div className="flex justify-between"><span>Total Due Not Paid:</span> <span className="tabular-nums">{formatToRoundedIndianRupee(parseNumber(financials.relatedTotalDue) / 100000)} L</span></div>
-      //       </div>
-      //     );
-      //   },
-      //   size: 200,
-      //   meta: {
-      //     excludeFromExport: true
-      //   }
-      // },
     ],
-    [
-      getProjectFinancials,
-      // processedTableData
-      // prStatusCountsByProject
-    ]
-  ); // Dependencies for columns
+    [getProjectFinancials]
+  );
+
+  // Combine columns based on user role
+  const columns = useMemo<ColumnDef<ProjectsType>[]>(
+    () => (canViewFinancials ? [...baseColumns, ...financialColumns] : baseColumns),
+    [baseColumns, financialColumns, canViewFinancials]
+  );
 
   // --- Static Filters for `useServerDataTable` ---
   const staticFilters = useMemo(
