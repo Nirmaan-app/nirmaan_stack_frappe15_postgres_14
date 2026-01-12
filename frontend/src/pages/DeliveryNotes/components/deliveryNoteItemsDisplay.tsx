@@ -131,7 +131,7 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
   //   [] // No dependencies needed as 'item' is passed directly
   // );
 
-    // --- AFTER (The Corrected Dynamic Logic) ---
+  // --- AFTER (The Corrected Dynamic Logic) ---
   const handleNewlyDeliveredChange = useCallback(
     (item: PurchaseOrderItem, value: string) => {
       // 1. Calculate the remaining quantity for this specific item (no changes here).
@@ -392,7 +392,6 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
                 <TableRow>
                   <TableHead className="w-[40%] min-w-[200px]">Item Name</TableHead>
                   <TableHead>Unit</TableHead>
-                  <TableHead>Quantity Ordered</TableHead>
                   {/* --- (Indicator) MODIFIED HEADERS: Dynamically change based on edit mode --- */}
                   {showEdit ? (
                     <>
@@ -423,7 +422,6 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
                         </div>
                       </TableCell>
                       <TableCell>{item.unit}</TableCell>
-                      <TableCell className="text-center">{item.quantity}</TableCell>
 
                       {/* --- (Indicator) MODIFIED CELL RENDERING --- */}
                       {showEdit ? (
@@ -503,7 +501,6 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
                     <Table className="text-sm">
                       <TableHeader>
                         <TableRow>
-                          <TableHead className="h-8 px-2">Qty Ordered</TableHead>
                           {showEdit ? (
                             <>
                               <TableHead className="h-8 px-2">Qty Already Received</TableHead>
@@ -516,7 +513,6 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
                       </TableHeader>
                       <TableBody>
                         <TableRow>
-                          <TableCell className="px-2 py-2 font-medium">{item.quantity}</TableCell>
 
                           {showEdit ? (
                             <>
