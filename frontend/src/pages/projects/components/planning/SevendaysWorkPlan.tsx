@@ -9,6 +9,7 @@ import { ProgressCircle } from "@/components/ui/ProgressCircle";
 import { CreateWorkplantask } from "./CreateWorkplantask";
 import { Badge } from "@/components/ui/badge";
 import { WorkPlanOverview } from "./WorkPlanOverview";
+import { ProjectManagerEditWorkPlanDialog } from "./ProjectManagerEditWorkPlanDialog";
 
 import { useToast } from "@/components/ui/use-toast";
 import { useUrlParam } from "@/hooks/useUrlParam";
@@ -62,6 +63,8 @@ export interface WorkPlanDoc {
     wp_start_date: string;
     wp_end_date: string;
     wp_description: string;
+    wp_progress?: string;
+    wp_estimate_completion_date?: string;
 }
 
 export const getColorForProgress = (value: number): string => {
@@ -112,7 +115,7 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                         }`}
                     >
                         {item.status}
-                        {!isOverview && (
+                        {!isOverview && !isProjectManager && (
                         <button 
                             className="ml-2 p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50  transition-all inline-flex items-center"
                             onClick={(e) => {
@@ -176,25 +179,73 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                             </button>
                             
                             {isExpanded && (
-                                <div className="space-y-3 p-4">
+                                <div className="space-y-2 p-4">
+                                    {/* Header Row */}
+                                    {/* <div className="grid grid-cols-[1fr_1fr_2fr_auto] divide-x divide-gray-100 items-center rounded-t-lg bg-gray-50 border border-gray-200 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                                        <div className="p-3"></div>
+                                        <div className="flex items-center justify-center gap-8 p-3">
+                                            <span className="w-[80px] text-center">End Date</span>
+                                            <span className="w-[80px] text-center">Start Date</span>
+                                        </div>
+                                        <div className="flex items-center justify-center gap-8 p-3">
+                                            <span className="w-[70px] text-center">Status</span>
+                                            <span className="w-[60px] text-center">Percentage</span>
+                                            <span className="text-center">Estimated Completion Date</span>
+                                        </div>
+                                        <div className="p-3 text-center">Action</div>
+                                    </div> */}
+                                    {/* Data Rows */}
                                     {workPlans.map((plan) => (
-                                        <div key={plan.name} className="flex items-center justify-between rounded-lg border border-gray-200 bg-white p-4 shadow-[0_2px_4px_rgba(0,0,0,0.02)] hover:shadow-md transition-shadow">
-                                            {/* Left: Title and Note */}
-                                            <div className="space-y-1.5 w-[300px] shrink-0 pr-4">
-                                                <div className="font-semibold text-gray-900 text-sm leading-tight truncate" title={plan.wp_title}>{plan.wp_title}</div>
-                                                 {plan.wp_description && (
-                                            <div className="text-xs text-gray-500 whitespace-normal break-words leading-relaxed" title={plan.wp_description}>
-                                                <span className="font-semibold text-yellow-600">Note: </span>
-                                                {plan.wp_description}
-                                            </div>
-                                        )}
-                                            </div>
+                                        <div key={plan.name} className="grid grid-cols-[1fr_1fr_2fr_auto] divide-x divide-gray-200 items-center rounded-lg border border-gray-200 bg-white shadow-[0_2px_4px_rgba(0,0,0,0.02)] hover:shadow-md transition-shadow">
+                                            {/* Col 1: Title and Description */}
+                                            {/* <div className="space-y-1.5 p-4">
+                                                <div className="font-semibold text-gray-900 text-sm leading-tight" title={plan.wp_title}>{plan.wp_title}</div>
+                                                {plan.wp_description && (
+                                                    <div className="text-xs text-gray-500 whitespace-normal break-words leading-relaxed line-clamp-2" title={plan.wp_description}>
+                                                        <span className="font-semibold text-yellow-600">Note: </span>
+                                                        {plan.wp_description}
+                                                    </div>
+                                                )}
+                                            </div> */}
+                                            <div className="space-y-1.5 p-4">
+    {/* Title */}
+    <div className="font-semibold text-gray-900 text-sm leading-tight" title={plan.wp_title}>
+        {plan.wp_title}
+    </div>
+
+    {/* Description - Removed 'line-clamp-2' */}
+    {plan.wp_description && (
+        <div 
+            className="text-xs text-gray-500 whitespace-normal break-words leading-relaxed" 
+            title={plan.wp_description}
+        >
+            <span className="font-semibold text-yellow-600">Note: </span>
+            {plan.wp_description}
+        </div>
+    )}
+</div>
                                             
-                                            {/* Center: Status and Date Metadata */}
-                                            <div className="flex items-center gap-2 shrink-0 mx-4">
-                                                <div className="flex flex-col items-center gap-1.5 w-[100px]">
+                                            {/* Col 2: End Date and Start Date */}
+                                            <div className="flex items-center justify-center gap-4 p-4">
+                                                <div className="flex flex-col items-center gap-1">
+                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">End Date</span>
+                                                    <div className="text-center rounded border px-3 py-1 text-xs font-semibold bg-white text-gray-700 shadow-sm whitespace-nowrap">
+                                                        {safeFormatDate(plan.wp_end_date)}
+                                                    </div>
+                                                </div>
+                                                <div className="flex flex-col items-center gap-1">
+                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Start Date</span>
+                                                    <div className="text-center rounded border px-3 py-1 text-xs font-semibold bg-white text-gray-700 shadow-sm whitespace-nowrap">
+                                                        {safeFormatDate(plan.wp_start_date)}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Col 3: Status, Percentage, and Estimated Completion Date */}
+                                            <div className="flex items-center justify-center gap-4 p-4">
+                                                <div className="flex flex-col items-center gap-1">
                                                     <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Status</span>
-                                                    <span className={`w-full text-center rounded-md px-2 py-1 text-xs font-semibold border truncate ${
+                                                    <span className={`text-center rounded-md px-3 py-1 text-xs font-semibold border whitespace-nowrap ${
                                                         plan.wp_status === 'Pending' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
                                                         plan.wp_status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' :
                                                         plan.wp_status === 'In Progress' ? 'bg-orange-50 text-orange-700 border-orange-200' :
@@ -203,41 +254,47 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                                                         {plan.wp_status || 'Pending'}
                                                     </span>
                                                 </div>
-
-                                                <div className="flex flex-col items-center gap-1.5 w-[110px]">
-                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Start Date</span>
-                                                    <div className="w-full text-center rounded border px-2 py-1 text-xs font-semibold bg-white text-gray-700 shadow-sm truncate">
-                                                        {safeFormatDate(plan.wp_start_date)}
+                                                <div className="flex flex-col items-center gap-1">
+                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Percentage</span>
+                                                    <div className="text-center rounded border px-3 py-1 text-xs font-bold bg-white shadow-sm whitespace-nowrap">
+                                                        {plan.wp_progress || '0'}%
                                                     </div>
                                                 </div>
-
-                                                <div className="flex flex-col items-center gap-1.5 w-[110px]">
-                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">End Date</span>
-                                                    <div className="w-full text-center rounded border px-2 py-1 text-xs font-semibold bg-white text-gray-700 shadow-sm truncate">
-                                                        {safeFormatDate(plan.wp_end_date)}
+                                                <div className="flex flex-col items-center gap-1">
+                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Estimated Completion Date</span>
+                                                    <div className="text-center rounded border px-3 py-1 text-xs font-semibold bg-white text-gray-700 shadow-sm whitespace-nowrap">
+                                                        {plan.wp_estimate_completion_date ? safeFormatDate(plan.wp_estimate_completion_date) : 'N/A'}
                                                     </div>
                                                 </div>
                                             </div>
 
-                                            {/* Right: Actions */}
-                                            {!isOverview && !isProjectManager && (
-                                                <div className="flex items-center gap-1 pl-4 border-l border-gray-100 h-8">
-                                                    <button 
-                                                        className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-all"
-                                                        onClick={() => onEditTask(plan, item)}
-                                                        title="Edit Task"
-                                                    >
-                                                        <Pencil className="h-4 w-4" />
-                                                    </button>
-                                                    <button 
-                                                        className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all"
-                                                        onClick={() => onDeleteTask(plan.name)}
-                                                        title="Delete Task"
-                                                    >
-                                                        <Trash2 className="h-4 w-4" />
-                                                    </button>
-                                                </div>
-                                            )}
+                                            {/* Col 4: Action */}
+                                            <div className="flex items-center justify-center gap-2 p-4">
+                                                {!isOverview ? (
+                                                    <>
+                                                        <button 
+                                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-sm"
+                                                            onClick={() => onEditTask(plan, item)}
+                                                            title="Update Task"
+                                                        >
+                                                            <Pencil className="h-3 w-3" />
+                                                            Update
+                                                        </button>
+                                                        {/* Delete button - visible only for Admin */}
+                                                        {!isProjectManager && (
+                                                            <button 
+                                                                className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all"
+                                                                onClick={() => onDeleteTask(plan.name)}
+                                                                title="Delete Task"
+                                                            >
+                                                                <Trash2 className="h-4 w-4" />
+                                                            </button>
+                                                        )}
+                                                    </>
+                                                ) : (
+                                                    <span className="text-xs text-gray-400">-</span>
+                                                )}
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
@@ -365,6 +422,24 @@ export const SevendaysWorkPlan = ({
         data: null,
     });
 
+    const [pmEditDialogState, setPmEditDialogState] = useState<{
+        isOpen: boolean;
+        docName: string;
+        initialData: {
+            wp_title: string;
+            wp_status: string;
+            wp_start_date: string;
+            wp_end_date: string;
+            wp_description: string;
+            wp_progress?: number;
+            wp_estimate_completion_date?: string;
+        } | null;
+    }>({
+        isOpen: false,
+        docName: "",
+        initialData: null,
+    });
+
     const [deleteDialogState, setDeleteDialogState] = useState<{
         isOpen: boolean;
         planName: string | null;
@@ -388,23 +463,39 @@ export const SevendaysWorkPlan = ({
     };
 
     const handleEditTask = (plan: WorkPlanDoc, item: WorkPlanItem) => {
-        setCreateTaskState({
-            isOpen: true,
-            data: {
-                project: projectId,
-                zone: item.zone,
-                work_header: item.work_header,
-                work_milestone: item.work_milestone_name,
-            },
-            docName: plan.name,
-            initialData: {
-                wp_title: plan.wp_title,
-                wp_status: plan.wp_status,
-                wp_start_date: plan.wp_start_date,
-                wp_end_date: plan.wp_end_date,
-                wp_description: plan.wp_description
-            }
-        });
+        if (isProjectManager) {
+            setPmEditDialogState({
+                isOpen: true,
+                docName: plan.name,
+                initialData: {
+                    wp_title: plan.wp_title,
+                    wp_status: plan.wp_status,
+                    wp_start_date: plan.wp_start_date,
+                    wp_end_date: plan.wp_end_date,
+                    wp_description: plan.wp_description,
+                    wp_progress: plan.wp_progress ? parseFloat(plan.wp_progress) : 0,
+                    wp_estimate_completion_date: plan.wp_estimate_completion_date
+                }
+            });
+        } else {
+            setCreateTaskState({
+                isOpen: true,
+                data: {
+                    project: projectId,
+                    zone: item.zone,
+                    work_header: item.work_header,
+                    work_milestone: item.work_milestone_name,
+                },
+                docName: plan.name,
+                initialData: {
+                    wp_title: plan.wp_title,
+                    wp_status: plan.wp_status,
+                    wp_start_date: plan.wp_start_date,
+                    wp_end_date: plan.wp_end_date,
+                    wp_description: plan.wp_description
+                }
+            });
+        }
     };
 
     const handleDeleteTask = (planName: string) => {
@@ -718,8 +809,6 @@ export const SevendaysWorkPlan = ({
                         <Button
                             variant="outline" 
                             size="sm" 
-                            className="h-7 text-[10px] text-gray-600 gap-1.5 px-2 border-gray-300"
-                            size="sm"
                             className="h-7 text-[10px] text-gray-600 hover:text-blue-600 gap-1.5 px-2 mr-1"
                             onClick={handleDownloadZone}
                             disabled={isDownloading}
@@ -869,6 +958,17 @@ export const SevendaysWorkPlan = ({
                     initialData={createTaskState.initialData}
                 />
             )}
+
+            {pmEditDialogState.isOpen && pmEditDialogState.initialData && (
+                 <ProjectManagerEditWorkPlanDialog 
+                    isOpen={pmEditDialogState.isOpen}
+                    onClose={() => setPmEditDialogState(prev => ({ ...prev, isOpen: false }))}
+                    onSuccess={() => mutate()}
+                    docName={pmEditDialogState.docName}
+                    initialData={pmEditDialogState.initialData}
+                 />
+            )}
+
             {editMilestoneState.isOpen && (
                 <EditMilestoneDialog
                     isOpen={editMilestoneState.isOpen}

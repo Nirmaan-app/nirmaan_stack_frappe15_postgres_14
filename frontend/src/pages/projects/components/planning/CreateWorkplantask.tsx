@@ -168,25 +168,26 @@ export const CreateWorkplantask = ({
                         />
                     </div>
 
-                    <div className="grid gap-2">
-                        <Label htmlFor="wp_status">Status</Label>
-                        <Select
-                            value={formData.wp_status}
-                            onValueChange={(value) => handleChange("wp_status", value)}
-                        >
-                            <SelectTrigger>
-                                <SelectValue placeholder="Select Status" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="Not Started">Not Started</SelectItem>
-
-                                <SelectItem value="Pending">Pending</SelectItem>
-                                <SelectItem value="In Progress">In Progress</SelectItem>
-                                <SelectItem value="Completed">Completed</SelectItem>
-                                <SelectItem value="On Hold">On Hold</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
+                    {isEditMode && (
+                        <div className="grid gap-2">
+                            <Label htmlFor="wp_status">Status</Label>
+                            <Select
+                                value={formData.wp_status}
+                                onValueChange={(value) => handleChange("wp_status", value)}
+                                disabled={true}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select Status" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="Not Started">Not Started</SelectItem>
+                                    <SelectItem value="In Progress">In Progress</SelectItem>
+                                    <SelectItem value="Completed">Completed</SelectItem>
+                                    <SelectItem value="On Hold">On Hold</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
 
                     <div className="grid grid-cols-2 gap-4">
                         <div className="grid gap-2">
