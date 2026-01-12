@@ -347,6 +347,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const isPrivilegedUser = PRIVILEGED_ROLES.includes(role);
   const isAccountant = role === "Nirmaan Accountant Profile";
   const isProcurementExecutive = role === "Nirmaan Procurement Executive Profile";
+  const isEstimatesExecutive = role === "Nirmaan Estimates Executive Profile";
 
   // Allowed tabs for non-privileged users (all roles except Admin, PMO, Accountant)
   const nonPrivilegedAllowedTabs = useMemo(() => new Set([
@@ -367,19 +368,33 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.PROJECT_EXPENSES,
   ]), []);
 
+  // Allowed tabs for Estimates Executive
+  const estimatesExecutiveAllowedTabs = useMemo(() => new Set([
+    PROJECT_PAGE_TABS.WORK_REPORT,
+    PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
+    PROJECT_PAGE_TABS.CRITICAL_POS,
+    PROJECT_PAGE_TABS.DESIGN_TRACKER,
+    PROJECT_PAGE_TABS.SR_SUMMARY,
+    PROJECT_PAGE_TABS.PO_SUMMARY,
+    PROJECT_PAGE_TABS.MATERIAL_USAGE,
+    PROJECT_PAGE_TABS.ESTIMATES,
+  ]), []);
+
   // Redirect users to allowed tab if on restricted tab
   useEffect(() => {
     if (isProcurementExecutive && !procurementExecutiveAllowedTabs.has(activePage)) {
       setActivePage(PROJECT_PAGE_TABS.CRITICAL_POS);
-    } else if (!isPrivilegedUser && !isProcurementExecutive && !nonPrivilegedAllowedTabs.has(activePage)) {
-      // Redirect non-privileged users (except Procurement Executive who has their own rules)
+    } else if (isEstimatesExecutive && !estimatesExecutiveAllowedTabs.has(activePage)) {
+      setActivePage(PROJECT_PAGE_TABS.WORK_REPORT);
+    } else if (!isPrivilegedUser && !isProcurementExecutive && !isEstimatesExecutive && !nonPrivilegedAllowedTabs.has(activePage)) {
+      // Redirect non-privileged users (except Procurement Executive and Estimates Executive who have their own rules)
       setActivePage(PROJECT_PAGE_TABS.WORK_REPORT);
     }
-  }, [isProcurementExecutive, isPrivilegedUser, activePage, procurementExecutiveAllowedTabs, nonPrivilegedAllowedTabs]);
+  }, [isProcurementExecutive, isEstimatesExecutive, isPrivilegedUser, activePage, procurementExecutiveAllowedTabs, estimatesExecutiveAllowedTabs, nonPrivilegedAllowedTabs]);
 
   const items: MenuItem[] = useMemo(() => {
-    // For non-privileged users (not Admin, PMO, Accountant), show only limited tabs
-    if (!isPrivilegedUser && !isProcurementExecutive) {
+    // For non-privileged users (not Admin, PMO, Accountant, Procurement Executive, Estimates Executive), show only limited tabs
+    if (!isPrivilegedUser && !isProcurementExecutive && !isEstimatesExecutive) {
       return [
         {
           label: "Work Report",
@@ -430,6 +445,44 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         {
           label: "Misc. Project Expenses",
           key: PROJECT_PAGE_TABS.PROJECT_EXPENSES,
+        },
+      ];
+    }
+
+    // For Estimates Executive, show their specific tabs (includes Material Usage and Project Estimates)
+    if (isEstimatesExecutive) {
+      return [
+        {
+          label: "Work Report",
+          key: PROJECT_PAGE_TABS.WORK_REPORT,
+        },
+        {
+          label: "Planning",
+          key: PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
+        },
+        {
+          label: "Critical POs",
+          key: PROJECT_PAGE_TABS.CRITICAL_POS,
+        },
+        {
+          label: "Design Tracker",
+          key: PROJECT_PAGE_TABS.DESIGN_TRACKER,
+        },
+        {
+          label: "WO Summary",
+          key: PROJECT_PAGE_TABS.SR_SUMMARY,
+        },
+        {
+          label: "PO Summary",
+          key: PROJECT_PAGE_TABS.PO_SUMMARY,
+        },
+        {
+          label: "Material Usage",
+          key: PROJECT_PAGE_TABS.MATERIAL_USAGE,
+        },
+        {
+          label: "Project Estimates",
+          key: PROJECT_PAGE_TABS.ESTIMATES,
         },
       ];
     }
@@ -500,7 +553,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         key: PROJECT_PAGE_TABS.ESTIMATES,
       }] : []),
     ];
-  }, [role, isAccountant, isProcurementExecutive, isPrivilegedUser]);
+  }, [role, isAccountant, isProcurementExecutive, isEstimatesExecutive, isPrivilegedUser]);
 
   // Define tabs available based on role or other logic
   // const availableTabs = useMemo(() => {
@@ -612,10 +665,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const { data: po_data, isLoading: po_loading } = useFrappeGetDocList<ProcurementOrdersType>(
     "Procurement Orders",
     {
-      fields: ["name", "procurement_request", "status", "amount", "tax_amount", "total_amount", "invoice_data","po_amount_delivered","amount_paid"] as const,
+      fields: ["name", "procurement_request", "status", "amount", "tax_amount", "total_amount", "invoice_data", "po_amount_delivered", "amount_paid"] as const,
       filters: [
         ["project", "=", projectId],
-        ["status", "not in", ["Merged","Inactive", "PO Amendment"]],
+        ["status", "not in", ["Merged", "Inactive", "PO Amendment"]],
       ], // removed ["status", "!=", "PO Approved"] for now
       limit: 0,
       orderBy: { field: "creation", order: "desc" },
@@ -688,37 +741,37 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   }, [po_data]);
 
-// 1. Calculate Project-wide PO Payment Against Delivery (PO-by-PO sum)
-const poPaymentAgainstDelivery = useMemo(() => {
+  // 1. Calculate Project-wide PO Payment Against Delivery (PO-by-PO sum)
+  const poPaymentAgainstDelivery = useMemo(() => {
     if (!po_data || po_data.length === 0) return 0;
 
     return po_data.reduce((projectTotal, currentOrder) => {
-        // Total Paid for this specific PO
-        const paidForPO = parseNumber(currentOrder.amount_paid); // *** Use the field directly from PO ***
-        // Total Delivered Amount for this specific PO
-        const deliveredForPO = parseNumber(currentOrder.po_amount_delivered); 
+      // Total Paid for this specific PO
+      const paidForPO = parseNumber(currentOrder.amount_paid); // *** Use the field directly from PO ***
+      // Total Delivered Amount for this specific PO
+      const deliveredForPO = parseNumber(currentOrder.po_amount_delivered);
 
-        // Add the PO's "Payment Against Delivery" to the project total
-        // This is the lesser of what was paid vs. what was delivered/payabl
-        return projectTotal + Math.min(paidForPO, deliveredForPO);
+      // Add the PO's "Payment Against Delivery" to the project total
+      // This is the lesser of what was paid vs. what was delivered/payabl
+      return projectTotal + Math.min(paidForPO, deliveredForPO);
     }, 0);
-}, [po_data]); // Dependency on po_data
+  }, [po_data]); // Dependency on po_data
 
-// 2. Calculate Project-wide Advance Against PO (PO-by-PO sum)
-const advanceAgainstPO = useMemo(() => {
+  // 2. Calculate Project-wide Advance Against PO (PO-by-PO sum)
+  const advanceAgainstPO = useMemo(() => {
     if (!po_data || po_data.length === 0) return 0;
 
     return po_data.reduce((projectTotal, currentOrder) => {
-        // Total Paid for this specific PO
-        const paidForPO = parseNumber(currentOrder.amount_paid); // *** Use the field directly from PO ***
-        // Total Delivered Amount for this specific PO
-        const deliveredForPO = parseNumber(currentOrder.po_amount_delivered); 
+      // Total Paid for this specific PO
+      const paidForPO = parseNumber(currentOrder.amount_paid); // *** Use the field directly from PO ***
+      // Total Delivered Amount for this specific PO
+      const deliveredForPO = parseNumber(currentOrder.po_amount_delivered);
 
-        // Add the PO's "Advance Against PO" to the project total
-        // This is the amount paid that exceeds the delivered/payable amount
-        return projectTotal + Math.max(0, paidForPO - deliveredForPO);
+      // Add the PO's "Advance Against PO" to the project total
+      // This is the amount paid that exceeds the delivered/payable amount
+      return projectTotal + Math.max(0, paidForPO - deliveredForPO);
     }, 0);
-}, [po_data]); // Dependency on po_data
+  }, [po_data]); // Dependency on po_data
 
 
 
@@ -1076,24 +1129,24 @@ const advanceAgainstPO = useMemo(() => {
         // Pass necessary data to ProjectOverviewTab
         return <ProjectOverviewTab projectData={data} estimatesTotal={estimatesTotal} projectCustomer={projectCustomer} totalPOAmountWithGST={totalPOAmountWithGST} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getTotalAmountPaid={getTotalAmountPaid} />;
       case PROJECT_PAGE_TABS.WORK_REPORT: // ADD THIS NEW CASE
-            return <ProjectWorkReportTab projectData={data} project_mutate={project_mutate} current_role={role}/>;
+        return <ProjectWorkReportTab projectData={data} project_mutate={project_mutate} current_role={role} />;
       case PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING:
-            return <SevenDayPlanningTab projectName={data?.project_name} />;
+        return <SevenDayPlanningTab projectName={data?.project_name} />;
       case PROJECT_PAGE_TABS.CRITICAL_POS:
-            return <CriticalPOTasksTab projectId={projectId} projectData={data} />;
+        return <CriticalPOTasksTab projectId={projectId} projectData={data} />;
       case PROJECT_PAGE_TABS.DESIGN_TRACKER:
-            return designTrackerId ? (
-              <ProjectDesignTrackerDetail trackerId={designTrackerId} />
-            ) : (
-              <NoDesignTrackerView
-                projectId={projectId}
-                projectName={data.project_name}
-                onTrackerCreated={() => {
-                  // Refetch the design tracker list to get the newly created tracker
-                  mutateDesignTrackerList();
-                }}
-              />
-            );
+        return designTrackerId ? (
+          <ProjectDesignTrackerDetail trackerId={designTrackerId} />
+        ) : (
+          <NoDesignTrackerView
+            projectId={projectId}
+            projectName={data.project_name}
+            onTrackerCreated={() => {
+              // Refetch the design tracker list to get the newly created tracker
+              mutateDesignTrackerList();
+            }}
+          />
+        );
       case PROJECT_PAGE_TABS.PR_SUMMARY:
         return <ProjectPRSummaryTable projectId={projectId} />;
       case PROJECT_PAGE_TABS.SR_SUMMARY:
@@ -1102,10 +1155,10 @@ const advanceAgainstPO = useMemo(() => {
         return <ProjectPOSummaryTable projectId={projectId} />;
       case PROJECT_PAGE_TABS.FINANCIALS:
         return <ProjectFinancialsTab projectData={data} projectCustomer={projectCustomer}
-          totalPOAmountWithGST={totalPOAmountWithGST} getTotalAmountPaid={getTotalAmountPaid} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getAllPODeliveredAmount={totalPoDeliveredAmount} 
+          totalPOAmountWithGST={totalPOAmountWithGST} getTotalAmountPaid={getTotalAmountPaid} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getAllPODeliveredAmount={totalPoDeliveredAmount}
           // --- NEW PROPS PASSED HERE ---
-        poPaymentAgainstDelivery={poPaymentAgainstDelivery} 
-        advanceAgainstPO={advanceAgainstPO}/>;
+          poPaymentAgainstDelivery={poPaymentAgainstDelivery}
+          advanceAgainstPO={advanceAgainstPO} />;
       case PROJECT_PAGE_TABS.SPENDS:
         return <ProjectSpendsTab projectId={data?.name} po_data={po_data} options={options}
           categorizedData={categorizedData} getTotalAmountPaid={getTotalAmountPaid} workPackageTotalAmounts={workPackageTotalAmounts} totalServiceOrdersAmt={totalServiceOrdersAmt} />; // Example
