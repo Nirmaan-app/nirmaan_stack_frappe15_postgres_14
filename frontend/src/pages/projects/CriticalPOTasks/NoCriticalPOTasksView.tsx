@@ -1,10 +1,9 @@
 import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/components/ui/use-toast";
 import { TailSpin } from "react-loader-spinner";
-import { ClipboardList, AlertCircle } from "lucide-react";
+import { ClipboardList, AlertCircle, Info } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -169,7 +168,7 @@ export const NoCriticalPOTasksView: React.FC<NoCriticalPOTasksViewProps> = ({
 
       {/* Category Selection Dialog */}
       <Dialog open={setupDialogOpen} onOpenChange={setSetupDialogOpen}>
-        <DialogContent className="sm:max-w-[500px] max-h-[80vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Select Critical PO Categories</DialogTitle>
             <DialogDescription>
@@ -177,7 +176,17 @@ export const NoCriticalPOTasksView: React.FC<NoCriticalPOTasksViewProps> = ({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="py-4">
+          <div className="py-4 space-y-4">
+            {/* Info Message */}
+            <div className="p-3 bg-blue-50/50 border border-blue-100 rounded-md">
+              <div className="flex items-start gap-2">
+                <Info className="h-4 w-4 text-blue-500 mt-0.5 flex-shrink-0" />
+                <p className="text-xs text-blue-700">
+                  PO release deadlines will be automatically calculated based on the project start date and each item's timeline offset.
+                </p>
+              </div>
+            </div>
+
             {categoriesLoading ? (
               <div className="flex justify-center items-center h-32">
                 <TailSpin width={40} height={40} color="#dc2626" />
@@ -191,24 +200,35 @@ export const NoCriticalPOTasksView: React.FC<NoCriticalPOTasksViewProps> = ({
               </Alert>
             ) : categories && categories.length > 0 ? (
               <div className="space-y-3">
-                {categories.map((category) => (
-                  <div
-                    key={category.name}
-                    className="flex items-center space-x-3 p-3 border rounded-md hover:bg-gray-50 transition-colors"
-                  >
-                    <Checkbox
-                      id={category.name}
-                      checked={selectedCategories.has(category.name)}
-                      onCheckedChange={() => handleCategoryToggle(category.name)}
-                    />
-                    <label
-                      htmlFor={category.name}
-                      className="flex-1 text-sm font-medium leading-none cursor-pointer peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                    >
-                      {category.category_name}
-                    </label>
-                  </div>
-                ))}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {categories.map((category) => {
+                    const isSelected = selectedCategories.has(category.name);
+                    return (
+                      <Button
+                        key={category.name}
+                        type="button"
+                        variant={isSelected ? "default" : "outline"}
+                        onClick={() => handleCategoryToggle(category.name)}
+                        size="sm"
+                        className="text-xs h-auto py-2 whitespace-normal min-h-[40px] justify-start"
+                      >
+                        <span className="truncate">{category.category_name}</span>
+                      </Button>
+                    );
+                  })}
+                </div>
+
+                {selectedCategories.size > 0 && (
+                  <p className="text-xs text-gray-500">
+                    {selectedCategories.size} categor{selectedCategories.size !== 1 ? 'ies' : 'y'} selected
+                  </p>
+                )}
+
+                {selectedCategories.size === 0 && (
+                  <p className="text-xs text-amber-600">
+                    Select at least one category
+                  </p>
+                )}
               </div>
             ) : (
               <Alert>
@@ -221,10 +241,7 @@ export const NoCriticalPOTasksView: React.FC<NoCriticalPOTasksViewProps> = ({
           </div>
 
           <DialogFooter>
-            <div className="flex justify-between items-center w-full">
-              <span className="text-sm text-gray-500">
-                {selectedCategories.size} category(s) selected
-              </span>
+            <div className="flex justify-end items-center w-full">
               <div className="space-x-2">
                 <Button
                   type="button"
