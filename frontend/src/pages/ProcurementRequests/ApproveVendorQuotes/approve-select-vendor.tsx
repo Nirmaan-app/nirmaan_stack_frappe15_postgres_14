@@ -22,6 +22,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
+import { useFacetValues } from "@/hooks/useFacetValues";
 import { formatDate } from "@/utils/FormatDate";
 import {
   formatForReport,
@@ -200,7 +201,7 @@ export const ApproveSelectVendor: React.FC = () => {
                 {" "}
                 {/* Show hover card on group hover */}
                 <ItemsHoverCard
-                  parentDocId={data}
+                  parentDoc={data}
                   parentDoctype={DOCTYPE} // 'Procurement Requests'
                   childTableName={"order_list"} // Or "procurement_list" - check your DocType
                   isPR={true} // Pass relevant flags
@@ -212,7 +213,7 @@ export const ApproveSelectVendor: React.FC = () => {
         size: 150, // Adjusted size
         meta: {
           exportHeaderName: "PR ID",
-          exportValue: (row) => {
+          exportValue: (row: ProcurementRequest) => {
             return row.name;
           },
         },
@@ -230,7 +231,7 @@ export const ApproveSelectVendor: React.FC = () => {
         size: 150,
         meta: {
           exportHeaderName: "Created On",
-          exportValue: (row) => {
+          exportValue: (row: ProcurementRequest) => {
             return row.creation;
           },
         },
@@ -254,7 +255,7 @@ export const ApproveSelectVendor: React.FC = () => {
         size: 200, // Enable faceted filter
         meta: {
           exportHeaderName: "Project",
-          exportValue: (row) => {
+          exportValue: (row: ProcurementRequest) => {
             const project = projectOptions.find((i) => i.value === row.project);
             return project?.label || row.project;
           },
@@ -273,7 +274,7 @@ export const ApproveSelectVendor: React.FC = () => {
         size: 150,
         meta: {
           exportHeaderName: "Package",
-          exportValue: (row) => {
+          exportValue: (row: ProcurementRequest) => {
             return row.work_package;
           },
         },
@@ -326,7 +327,7 @@ export const ApproveSelectVendor: React.FC = () => {
         size: 180,
         meta: {
           exportHeaderName: "Created By",
-          exportValue: (row) => {
+          exportValue: (row: ProcurementRequest) => {
             const ownerUser = userList?.find(
               (entry) => row.owner === entry.name
             );
@@ -351,8 +352,8 @@ export const ApproveSelectVendor: React.FC = () => {
         enableSorting: false,
         meta: {
           exportHeaderName: "Est. Value",
-          exportValue: (row) => {
-            const total = row.original.estimated_value;
+          exportValue: (row: ProcurementRequest) => {
+            const total = row.estimated_value;
             return total === 0 ? "N/A" : formatForReport(total);
           },
         },
@@ -360,15 +361,6 @@ export const ApproveSelectVendor: React.FC = () => {
     ],
     [notifications, projectOptions, userList, handleNewPRSeen, getTotal]
   ); // Added dependencies
-
-  // --- Faceted Filter Options ---
-  const facetFilterOptions = useMemo(
-    () => ({
-      project: { title: "Project", options: projectOptions },
-      // Add other facets if needed, e.g., work_package if you fetch distinct values
-    }),
-    [projectOptions]
-  );
 
   // --- Use the Server Data Table Hook ---
   const {
@@ -383,6 +375,7 @@ export const ApproveSelectVendor: React.FC = () => {
     searchTerm,
     setSearchTerm,
     isRowSelectionActive,
+    columnFilters, // Extract columnFilters
   } = useServerDataTable<ProcurementRequest>({
     doctype: DOCTYPE,
     columns: columns,
@@ -400,6 +393,32 @@ export const ApproveSelectVendor: React.FC = () => {
     // ------------------------------------------------------
   });
 
+  const {
+    facetOptions: projectFacetOptions,
+    isLoading: isProjectFacetLoading,
+  } = useFacetValues({
+    doctype: DOCTYPE,
+    field: "project",
+    currentFilters: columnFilters,
+    searchTerm,
+    selectedSearchField,
+    additionalFilters: staticFilters,
+    enabled: true,
+  });
+
+  // --- Faceted Filter Options ---
+  const facetFilterOptions = useMemo(
+    () => ({
+      project: {
+        title: "Project",
+        options: projectFacetOptions,
+        isLoading: isProjectFacetLoading,
+      },
+      // Add other facets if needed, e.g., work_package if you fetch distinct values
+    }),
+    [projectFacetOptions, isProjectFacetLoading]
+  );
+
   // --- Combined Loading State ---
   const isLoading = projectsLoading || userListLoading;
   const error = projectsError || userError || listError;
@@ -410,14 +429,9 @@ export const ApproveSelectVendor: React.FC = () => {
 
   return (
     <div
-      className={cn(
-        "flex flex-col gap-2 overflow-hidden",
-        totalCount > 10
-          ? "h-[calc(100vh-80px)]"
-          : totalCount > 0
-          ? "h-auto"
-          : ""
-      )}
+      className={`flex flex-col gap-2 ${
+        totalCount > 0 ? "h-[calc(100vh-80px)] overflow-hidden" : ""
+      }`}
     >
       {isLoading ? (
         <TableSkeleton />
