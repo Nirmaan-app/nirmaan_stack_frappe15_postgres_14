@@ -654,7 +654,7 @@ export const SevendaysWorkPlan = ({
 
             const safeProjectName = (projectName || projectId).replace(/ /g, "_");
             const zoneSuffix = (bufferTargetZone && bufferTargetZone !== "All") ? `_${bufferTargetZone.replace(/ /g, "_")}` : "_All_Zones";
-            link.download = `WorkPlan_${safeProjectName}${zoneSuffix}_Buffered_${format(new Date(), "dd-MMM-yyyy")}.pdf`;
+            link.download = `WorkPlan_${safeProjectName}${zoneSuffix}_${format(new Date(), "dd-MMM-yyyy")}.pdf`;
             
             document.body.appendChild(link);
             link.click();

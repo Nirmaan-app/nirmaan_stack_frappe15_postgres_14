@@ -145,8 +145,8 @@ export const ProjectManagerEditWorkPlanDialog = ({
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="sm:max-w-[500px] p-0 gap-0 overflow-hidden">
-                <div className="flex items-center gap-4 border-b p-6">
+            <DialogContent className="sm:max-w-[500px] p-0 gap-0">
+                <div className="flex items-center gap-4 border-b p-6 rounded-t-lg">
                     <div 
                         className="flex h-12 w-12 items-center justify-center rounded-lg text-white"
                         style={{ backgroundColor: "#2b66ec" }}
@@ -174,15 +174,8 @@ export const ProjectManagerEditWorkPlanDialog = ({
                                 { label: "Completed", value: "Completed" },
                             ]}
                             onChange={(newValue) => handleChange("wp_status", newValue?.value)}
-                            menuPortalTarget={document.body}
-                            styles={{
-                                menuPortal: (base) => ({ ...base, zIndex: 9999 }),
-                                control: (base) => ({ ...base, borderColor: "rgb(229, 231, 235)" }), // match shadcn border
-                            }}
-                            classNames={{
-                                control: () => "text-sm",
-                                option: () => "text-sm",
-                            }}
+                            menuPosition="auto"
+                           
                         />
                     </div>
 
@@ -221,7 +214,7 @@ export const ProjectManagerEditWorkPlanDialog = ({
                 </div>
                 </div>
 
-                <div className="flex justify-end gap-2 border-t bg-gray-50/50 p-6">
+                <div className="flex justify-end gap-2 border-t bg-gray-50/50 p-6 rounded-b-lg">
                     <Button variant="outline" onClick={onClose} className="bg-white hover:bg-gray-100">
                         Cancel
                     </Button>
