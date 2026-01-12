@@ -36,9 +36,9 @@ const OverviewMilestoneItem = ({ item }: { item: WorkPlanItem }) => {
                  {/* Center: Zone and Status */}
                  <div className="flex items-center justify-center gap-4 shrink-0 px-4">
                         {/* Zone Badge */}
-                        <span className="inline-flex items-center justify-center h-6 min-w-[70px] w-fit rounded border border-dashed border-gray-300 bg-gray-50 px-3 text-[10px] text-gray-600 whitespace-nowrap">
+                        {/* <span className="inline-flex items-center justify-center h-6 min-w-[70px] w-fit rounded border border-dashed border-gray-300 bg-gray-50 px-3 text-[10px] text-gray-600 whitespace-nowrap">
                             {item.zone || "Zone 1"}
-                        </span>
+                        </span> */}
 
                         {/* Status Badge */}
                          <span className={`inline-flex items-center justify-center h-6 min-w-[70px] w-fit rounded-full px-3 text-[10px] font-medium whitespace-nowrap ${

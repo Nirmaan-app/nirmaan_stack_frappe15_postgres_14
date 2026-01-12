@@ -222,7 +222,7 @@ export const TDSRepositoryMaster: React.FC = () => {
                 onSearchTermChange={setSearchTerm}
                 searchFieldOptions={searchableFields}
                 selectedSearchField={selectedSearchField}
-                selectedSearchField={selectedSearchField}
+                // selectedSearchField={selectedSearchField}
                 onSelectedSearchFieldChange={setSelectedSearchField}
                 showExportButton={true}
                 onExport="default"
