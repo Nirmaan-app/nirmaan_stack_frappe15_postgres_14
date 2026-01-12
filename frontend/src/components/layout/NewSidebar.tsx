@@ -18,6 +18,7 @@ import {
   BlendIcon,
   ChevronRight,
   CircleDollarSign,
+  ClipboardCheck,
   ClipboardMinus,
   HandCoins,
   ReceiptText, FileUp,
@@ -512,6 +513,15 @@ export function NewSidebar() {
           label: 'Design Tracker',
         },
       ]
+      : []),
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile"].includes(role)
+      ? [
+        {
+          key: '/critical-po-tracker',
+          icon: ClipboardCheck,
+          label: 'PO Tracker',
+        },
+      ]
       : [])
 
 
@@ -555,7 +565,8 @@ export function NewSidebar() {
     'project-expenses',
     'non-project',
     'reports',
-    'design-tracker'
+    'design-tracker',
+    'critical-po-tracker'
 
   ]), [])
 
@@ -584,7 +595,8 @@ export function NewSidebar() {
     "/project-expenses": ["project-expenses"],
     "/non-project": ["non-project"],
     "/reports": ["reports"],
-    '/design-tracker': ['design-tracker']
+    '/design-tracker': ['design-tracker'],
+    '/critical-po-tracker': ['critical-po-tracker']
   }), []);
 
   const openKey = useMemo(() => {
@@ -661,7 +673,7 @@ export function NewSidebar() {
                 <SidebarMenuItem>
 
                   {new Set(["Dashboard", "Item Price Search", "Procurement Requests", "Purchase Orders", "Project Payments", "Credit Payments", "Sent Back Requests", "Projects", "Work Orders", "In-Flow Payments", "Invoice Recon", "Reports",
-                    "Design Tracker", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses", "Users", "Assets", "Vendors", "Customers", "Products"]).has(item?.label) ? (
+                    "Design Tracker", "PO Tracker", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses", "Users", "Assets", "Vendors", "Customers", "Products"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
                         ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"

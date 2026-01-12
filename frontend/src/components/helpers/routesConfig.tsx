@@ -79,6 +79,10 @@ import ProjectDesignTrackerDetail from "@/pages/ProjectDesignTracker/project-des
 import { DesignPackages } from "../design-packages";
 import { CriticalPOCategories } from "../layout/critical-po-categories";
 
+//Critical PO Tracker
+import CriticalPOTrackerList from "@/pages/CriticalPOTracker/critical-po-tracker-list";
+import CriticalPOTrackerDetail from "@/pages/CriticalPOTracker/critical-po-tracker-detail";
+
 export const appRoutes: RouteObject[] = [
   // --- Public Routes ---
   { path: "/login", element: <Login /> },
@@ -282,6 +286,22 @@ export const appRoutes: RouteObject[] = [
           },
           // ======================================================
           // --- END: NEW DESIGN TRACKER SECTION ---
+          // ======================================================
+
+          // ======================================================
+          // --- START: CRITICAL PO TRACKER SECTION ---
+          // ======================================================
+          {
+            path: "critical-po-tracker",
+            children: [
+              // List View (e.g., /critical-po-tracker)
+              { index: true, element: <CriticalPOTrackerList /> },
+              // Detail View (e.g., /critical-po-tracker/PROJ-0001)
+              { path: ":projectId", element: <CriticalPOTrackerDetail /> },
+            ],
+          },
+          // ======================================================
+          // --- END: CRITICAL PO TRACKER SECTION ---
           // ======================================================
 
           // --- Projects Section ---
