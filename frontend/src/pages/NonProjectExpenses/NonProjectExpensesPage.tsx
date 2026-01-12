@@ -7,12 +7,10 @@ import {
   Download,
   Edit2,
   FileText,
-  PlusCircle,
   MoreHorizontal,
   Trash2,
   DollarSign,
 } from "lucide-react";
-import { TailSpin } from "react-loader-spinner"; // Assuming this is your spinner
 import { DateRange } from "react-day-picker";
 import {
   DropdownMenu,
@@ -21,14 +19,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 
 import { useFrappeDeleteDoc } from "frappe-react-sdk"; // For delete
 import { useToast } from "@/components/ui/use-toast"; // For delete feedback
@@ -102,34 +92,6 @@ const NPE_GROUP_BY_CONFIG: GroupByConfig = {
   aggregateField: "amount",
   aggregateFunction: "sum",
   limit: 5,
-};
-
-// NEW: Helper component to display active filters in the summary card
-const AppliedFiltersDisplay = ({ filters, search }) => {
-  const hasFilters = filters.length > 0 || !!search;
-  if (!hasFilters) {
-    return (
-      <p className="text-sm text-gray-500">
-        Overview of all non-project expenses.
-      </p>
-    );
-  }
-  return (
-    <div className="text-sm text-gray-500 flex flex-wrap gap-2 items-center mt-2">
-      <span className="font-medium">Filtered by:</span>
-      {search && (
-        <span className="px-2 py-1 bg-gray-200 rounded-md text-xs">{`Search: "${search}"`}</span>
-      )}
-      {filters.map((filter) => (
-        <span
-          key={filter.id}
-          className="px-2 py-1 bg-blue-100 text-blue-800 rounded-md text-xs capitalize whitespace-nowrap"
-        >
-          {filter.id.replace(/_/g, " ")}
-        </span>
-      ))}
-    </div>
-  );
 };
 
 interface NonProjectExpensesPageProps {
@@ -643,85 +605,15 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
         showExportButton={true}
         onExport={"default"}
         exportFileName={`Non_Project_Expenses_${urlContext}`}
-        // NEW: Pass the fully constructed summary card as a prop
         summaryCard={
-          <Card>
-            <CardHeader className="p-4">
-              <CardTitle className="text-lg">
-                Non Project Expenses Summary
-              </CardTitle>
-              <CardDescription>
-                <AppliedFiltersDisplay
-                  filters={columnFilters}
-                  search={searchTerm}
-                />
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-4 pt-0">
-              {isAggregatesLoading ? (
-                <div className="flex justify-center items-center h-24">
-                  <TailSpin height={24} width={24} color="#4f46e5" />
-                </div>
-              ) : aggregates ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
-                  {/* Section 1: Overall Totals */}
-                  <div className="space-y-2">
-                    <h4 className="font-semibold text-gray-700">
-                      Overall Totals
-                    </h4>
-                    <dl className="space-y-1">
-                      <div className="flex justify-between text-sm">
-                        <dt className="text-muted-foreground">Total Amount</dt>
-                        <dd className="font-medium text-blue-600">
-                          {formatToRoundedIndianRupee(
-                            aggregates.sum_of_amount || 0
-                          )}
-                        </dd>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <dt className="text-muted-foreground">Total Entries</dt>
-                        <dd className="font-medium">{totalCount}</dd>
-                      </div>
-                    </dl>
-                  </div>
-                  {/* Section 2: Top Expense Types */}
-                  <div className="space-y-2">
-                    <h4 className="font-semibold text-gray-700">
-                      Top Expense Types
-                    </h4>
-                    {groupByResult && groupByResult.length > 0 ? (
-                      <ul className="space-y-1">
-                        {groupByResult.map((item) => (
-                          <li
-                            key={item.group_key}
-                            className="flex justify-between text-sm"
-                          >
-                            <span
-                              className="text-muted-foreground truncate pr-2"
-                              title={item.group_key}
-                            >
-                              {item.group_key}
-                            </span>
-                            <span className="font-medium whitespace-nowrap">
-                              {formatToRoundedIndianRupee(item.aggregate_value)}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-sm text-muted-foreground text-center pt-4">
-                        No expense type breakdown available.
-                      </p>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <p className="text-sm text-center text-muted-foreground h-24 flex items-center justify-center">
-                  No summary data available.
-                </p>
-              )}
-            </CardContent>
-          </Card>
+          <NonProjectExpenseSummaryCard
+            aggregates={aggregates}
+            isAggregatesLoading={isAggregatesLoading}
+            totalCount={totalCount}
+            columnFilters={columnFilters}
+            searchTerm={searchTerm}
+            groupByResult={groupByResult}
+          />
         }
       // errorMessage="Could not load expenses. Please try again." // Already handled by main error display
       />

@@ -1,5 +1,4 @@
 import { useMemo, useEffect, useCallback, useState } from "react";
-import { cn } from "@/lib/utils";
 import {
   useReactTable,
   getCoreRowModel,
@@ -29,8 +28,8 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-  CardDescription,
 } from "@/components/ui/card";
+import { Briefcase, ArrowDownLeft, ArrowUpRight, AlertTriangle } from "lucide-react";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { toast } from "@/components/ui/use-toast";
 import { exportToCsv } from "@/utils/exportToCsv";
@@ -417,213 +416,224 @@ function CashSheetReport() {
         showRowSelection={false}
         tableHeight="40vh"
         summaryCard={
-          <Card className="mb-4">
-            <CardHeader className="p-4">
-              <CardTitle className="text-lg">Financial Summary</CardTitle>
-              <CardDescription>{getCurrentFilterStatus()}</CardDescription>
-            </CardHeader>
-            <CardContent className="p-4 pt-0">
-              {/* --- Grid Layout with correct responsive columns --- */}
-              <dl className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-10 gap-4">
-                {/* 1. Total Projects - Count (Purple/Info) */}
-                <div
-                  className="flex justify-between sm:flex-col
-                                    border-r border-gray-200
-                                    pr-4
-                                    sm:pb-0
-                                    sm:border-b-0
-                                "
-                >
-                  <dt className="font-semibold text-gray-600 text-xs">
-                    Total Projects
-                  </dt>
-                  <dd className="sm:text-left font-bold text-base sm:text-sm tabular-nums text-purple-700">
-                    {financialSummary.projectCount}
-                  </dd>
-                </div>
-
-                {/* 9. Project Value (excl. GST) - Neutral */}
-                <div
-                  className="flex justify-between sm:flex-col
-                                    border-r border-gray-200
-                                    sm:pb-0
-                                    pr-4
-                                "
-                >
-                  <dt className="font-semibold text-gray-600 text-xs">
-                    Project Value (incl. GST)
-                  </dt>
-                  <dd className="sm:text-left font-bold text-base sm:text-sm tabular-nums text-gray-700">
-                    {formatValueToLakhsString(financialSummary.projectValue)}
-                  </dd>
-                </div>
-
-                {/* 2. Total Client Invoiced - Income/Revenue (Blue) */}
-                <div
-                  className="flex justify-between sm:flex-col
-                                    border-r border-gray-200
-                                    pr-4
-                                    sm:pb-0
-                                    sm:border-b-0
-                                "
-                >
-                  <dt className="font-semibold text-gray-600 text-xs">
-                    Client Invoiced (incl. GST)
-                  </dt>
-                  <dd className="sm:text-left font-bold text-base sm:text-sm tabular-nums text-blue-700">
-                    {formatValueToLakhsString(
-                      financialSummary.totalProjectInvoiced
+          <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-50 to-white dark:from-slate-900 dark:to-slate-800">
+            {/* ===== COMPACT MOBILE VIEW ===== */}
+            <div className="sm:hidden">
+              <CardContent className="p-3">
+                {/* Row 1: Cashflow Gap (hero) + Projects count */}
+                <div className="flex items-center gap-3 mb-2">
+                  <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center ${
+                    financialSummary.totalCashflowGap > 0
+                      ? 'bg-gradient-to-br from-red-500 to-rose-500'
+                      : 'bg-gradient-to-br from-emerald-500 to-teal-500'
+                  }`}>
+                    <AlertTriangle className="h-4 w-4 text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline gap-2">
+                      <span className={`text-lg font-bold tabular-nums ${
+                        financialSummary.totalCashflowGap > 0
+                          ? 'text-red-700 dark:text-red-400'
+                          : 'text-emerald-700 dark:text-emerald-400'
+                      }`}>
+                        {formatValueToLakhsString(financialSummary.totalCashflowGap)}
+                      </span>
+                      <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase">
+                        Gap
+                      </span>
+                    </div>
+                    {searchTerm && (
+                      <span className="px-1.5 py-0.5 text-[9px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded">
+                        "{searchTerm.slice(0, 10)}"
+                      </span>
                     )}
-                  </dd>
+                  </div>
+                  <div className="flex-shrink-0 text-right">
+                    <span className="inline-flex items-center justify-center px-2 py-1 text-xs font-semibold text-violet-600 dark:text-violet-300 bg-violet-100 dark:bg-violet-900/40 rounded-md tabular-nums">
+                      {financialSummary.projectCount}
+                    </span>
+                    <span className="block text-[9px] text-slate-400 dark:text-slate-500 mt-0.5">
+                      projects
+                    </span>
+                  </div>
+                </div>
+                {/* Row 2: Key metrics in compact grid */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="bg-emerald-50 dark:bg-emerald-950/40 rounded px-2 py-1.5">
+                    <div className="flex items-center gap-1 text-[9px] text-emerald-600 dark:text-emerald-400 uppercase font-medium">
+                      <ArrowDownLeft className="h-2.5 w-2.5" />
+                      Inflow
+                    </div>
+                    <div className="text-sm font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                      {formatValueToLakhsString(financialSummary.totalInflow)}
+                    </div>
+                  </div>
+                  <div className="bg-red-50 dark:bg-red-950/40 rounded px-2 py-1.5">
+                    <div className="flex items-center gap-1 text-[9px] text-red-600 dark:text-red-400 uppercase font-medium">
+                      <ArrowUpRight className="h-2.5 w-2.5" />
+                      Outflow
+                    </div>
+                    <div className="text-sm font-bold text-red-700 dark:text-red-400 tabular-nums">
+                      {formatValueToLakhsString(financialSummary.totalOutflow)}
+                    </div>
+                  </div>
+                  <div className="bg-amber-50 dark:bg-amber-950/40 rounded px-2 py-1.5">
+                    <div className="text-[9px] text-amber-600 dark:text-amber-400 uppercase font-medium">
+                      Liabilities
+                    </div>
+                    <div className="text-sm font-bold text-amber-700 dark:text-amber-400 tabular-nums">
+                      {formatValueToLakhsString(financialSummary.totalLiabilities)}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </div>
+
+            {/* ===== EXPANDED DESKTOP VIEW ===== */}
+            <div className="hidden sm:block">
+              <CardHeader className="pb-2 pt-4 px-5">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base font-semibold tracking-tight text-slate-800 dark:text-slate-200">
+                    Financial Summary
+                  </CardTitle>
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-slate-400 dark:text-slate-500">
+                    <Briefcase className="h-3.5 w-3.5" />
+                    <span className="uppercase tracking-wider">
+                      {financialSummary.projectCount} Project{financialSummary.projectCount !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                </div>
+                {searchTerm && (
+                  <div className="flex flex-wrap gap-1.5 items-center mt-2">
+                    <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider">Filtered:</span>
+                    <span className="px-2 py-0.5 text-[10px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full">
+                      "{searchTerm}"
+                    </span>
+                  </div>
+                )}
+              </CardHeader>
+              <CardContent className="px-5 pb-4 pt-0">
+                {/* Primary Row */}
+                <div className="grid grid-cols-4 lg:grid-cols-7 gap-3 mb-3">
+                  {/* 1. Total Projects */}
+                  <div className="bg-gradient-to-br from-violet-50 to-purple-50/50 dark:from-violet-950/40 dark:to-purple-950/30 rounded-lg p-3 border border-violet-100 dark:border-violet-900/50">
+                    <dt className="text-[10px] font-medium text-violet-600/80 dark:text-violet-400/80 uppercase tracking-wide mb-1">
+                      Total Projects
+                    </dt>
+                    <dd className="text-lg font-bold text-violet-700 dark:text-violet-400 tabular-nums">
+                      {financialSummary.projectCount}
+                    </dd>
+                  </div>
+
+                  {/* 2. Project Value (incl. GST) */}
+                  <div className="bg-gradient-to-br from-slate-50 to-gray-50/50 dark:from-slate-800/60 dark:to-gray-800/40 rounded-lg p-3 border border-slate-200 dark:border-slate-700">
+                    <dt className="text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">
+                      Project Value (incl. GST)
+                    </dt>
+                    <dd className="text-lg font-bold text-slate-700 dark:text-slate-300 tabular-nums">
+                      {formatValueToLakhsString(financialSummary.projectValue)}
+                    </dd>
+                  </div>
+
+                  {/* 3. Client Invoiced (incl. GST) */}
+                  <div className="bg-gradient-to-br from-blue-50 to-sky-50/50 dark:from-blue-950/40 dark:to-sky-950/30 rounded-lg p-3 border border-blue-100 dark:border-blue-900/50">
+                    <dt className="text-[10px] font-medium text-blue-600/80 dark:text-blue-400/80 uppercase tracking-wide mb-1">
+                      Client Invoiced (incl. GST)
+                    </dt>
+                    <dd className="text-lg font-bold text-blue-700 dark:text-blue-400 tabular-nums">
+                      {formatValueToLakhsString(financialSummary.totalProjectInvoiced)}
+                    </dd>
+                  </div>
+
+                  {/* 4. Total Inflow */}
+                  <div className="bg-gradient-to-br from-emerald-50 to-teal-50/50 dark:from-emerald-950/40 dark:to-teal-950/30 rounded-lg p-3 border border-emerald-100 dark:border-emerald-900/50">
+                    <dt className="text-[10px] font-medium text-emerald-600/80 dark:text-emerald-400/80 uppercase tracking-wide mb-1">
+                      Total Inflow
+                    </dt>
+                    <dd className="text-lg font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                      {formatValueToLakhsString(financialSummary.totalInflow)}
+                    </dd>
+                  </div>
+
+                  {/* 5. Total Outflow */}
+                  <div className="bg-gradient-to-br from-red-50 to-rose-50/50 dark:from-red-950/40 dark:to-rose-950/30 rounded-lg p-3 border border-red-100 dark:border-red-900/50">
+                    <dt className="text-[10px] font-medium text-red-600/80 dark:text-red-400/80 uppercase tracking-wide mb-1">
+                      Total Outflow
+                    </dt>
+                    <dd className="text-lg font-bold text-red-700 dark:text-red-400 tabular-nums">
+                      {formatValueToLakhsString(financialSummary.totalOutflow)}
+                    </dd>
+                  </div>
+
+                  {/* 6. Total Current Liabilities */}
+                  <div className="bg-gradient-to-br from-red-50 to-orange-50/50 dark:from-red-950/40 dark:to-orange-950/30 rounded-lg p-3 border border-red-100 dark:border-red-900/50">
+                    <dt className="text-[10px] font-medium text-red-600/80 dark:text-red-400/80 uppercase tracking-wide mb-1">
+                      Total Current Liabilities
+                    </dt>
+                    <dd className="text-lg font-bold text-red-600 dark:text-red-400 tabular-nums">
+                      {formatValueToLakhsString(financialSummary.totalLiabilities)}
+                    </dd>
+                  </div>
+
+                  {/* 7. Total Cashflow Gap */}
+                  <div className={`bg-gradient-to-br ${
+                    financialSummary.totalCashflowGap > 0
+                      ? 'from-red-50 to-rose-50/50 dark:from-red-950/40 dark:to-rose-950/30 border-red-100 dark:border-red-900/50'
+                      : 'from-emerald-50 to-teal-50/50 dark:from-emerald-950/40 dark:to-teal-950/30 border-emerald-100 dark:border-emerald-900/50'
+                  } rounded-lg p-3 border`}>
+                    <dt className={`text-[10px] font-medium uppercase tracking-wide mb-1 ${
+                      financialSummary.totalCashflowGap > 0
+                        ? 'text-red-600/80 dark:text-red-400/80'
+                        : 'text-emerald-600/80 dark:text-emerald-400/80'
+                    }`}>
+                      Total Cashflow Gap
+                    </dt>
+                    <dd className={`text-lg font-bold tabular-nums ${
+                      financialSummary.totalCashflowGap > 0
+                        ? 'text-red-700 dark:text-red-400'
+                        : 'text-emerald-700 dark:text-emerald-400'
+                    }`}>
+                      {formatValueToLakhsString(financialSummary.totalCashflowGap)}
+                    </dd>
+                  </div>
                 </div>
 
-                {/* 3. Total Inflow - Actual Cash In (Green) */}
-                <div
-                  className="flex justify-between sm:flex-col
-                                    border-r border-gray-200
-                                    pr-4
-                                    sm:pb-0
-                                    sm:border-b-0
-                                "
-                >
-                  <dt className="font-semibold text-gray-600 text-xs">
-                    Total Inflow
-                  </dt>
-                  <dd className="sm:text-left font-bold text-base sm:text-sm tabular-nums text-green-700">
-                    {formatValueToLakhsString(financialSummary.totalInflow)}
-                  </dd>
-                </div>
+                {/* Secondary Row: PO/SR Details */}
+                <div className="bg-slate-50/80 dark:bg-slate-800/50 rounded-lg p-3 border border-slate-200 dark:border-slate-700">
+                  <div className="grid grid-cols-3 gap-3">
+                    {/* 8. Total PO+SR Value (incl. GST) */}
+                    <div>
+                      <dt className="text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-0.5">
+                        Total PO+SR Value (incl. GST)
+                      </dt>
+                      <dd className="text-sm font-semibold text-slate-700 dark:text-slate-300 tabular-nums">
+                        {formatValueToLakhsString(financialSummary.totalInvoiced)}
+                      </dd>
+                    </div>
 
-                {/* 4. Total Outflow - Actual Cash Out (Red) */}
-                <div
-                  className="flex justify-between sm:flex-col
-                                    border-r border-gray-200
-                                    pr-4
-                                    sm:pb-0
-                                    sm:border-b-0
-                                "
-                >
-                  <dt className="font-semibold text-gray-600 text-xs">
-                    Total Outflow
-                  </dt>
-                  <dd className="sm:text-left font-bold text-base sm:text-sm tabular-nums text-red-700">
-                    {formatValueToLakhsString(financialSummary.totalOutflow)}
-                  </dd>
-                </div>
+                    {/* 9. Total PO+SR Invoiced (incl. GST) */}
+                    <div>
+                      <dt className="text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-0.5">
+                        Total PO+SR Invoiced (incl. GST)
+                      </dt>
+                      <dd className="text-sm font-semibold text-slate-700 dark:text-slate-300 tabular-nums">
+                        {formatValueToLakhsString(financialSummary.totalPoSrInvoiced)}
+                      </dd>
+                    </div>
 
-                {/* 5. Total Current Liabilities - Payable Amount (Red/Warning) */}
-                <div
-                  className="flex justify-between sm:flex-col
-                                    border-r border-gray-200
-                                    pr-4
-                                    sm:pb-0
-                                    sm:border-b-0
-                                "
-                >
-                  <dt className="font-semibold text-gray-600 text-xs">
-                    Total Current Liabilities
-                  </dt>
-                  <dd className="sm:text-left font-bold text-base sm:text-sm tabular-nums text-red-600">
-                    {formatValueToLakhsString(
-                      financialSummary.totalLiabilities
-                    )}
-                  </dd>
+                    {/* 10. Total Purchase Over Credit */}
+                    <div>
+                      <dt className="text-[10px] font-medium text-orange-500 dark:text-orange-400 uppercase tracking-wide mb-0.5">
+                        Total Purchase Over Credit
+                      </dt>
+                      <dd className="text-sm font-semibold text-orange-700 dark:text-orange-400 tabular-nums">
+                        {formatValueToLakhsString(financialSummary.totalPurchaseOverCredit)}
+                      </dd>
+                    </div>
+                  </div>
                 </div>
-
-                {/* 6. Total Cashflow Gap - Net Cash Position (Red/Green) */}
-                <div
-                  className="flex justify-between sm:flex-col
-                                    border-r border-gray-200
-                                    pr-4
-                                    sm:pb-0
-                                    sm:border-b-0
-                                "
-                >
-                  <dt className="font-semibold text-gray-600 text-xs">
-                    Total Cashflow Gap
-                  </dt>
-                  <dd
-                    className={`sm:text-left font-bold text-base sm:text-sm tabular-nums ${financialSummary.totalCashflowGap > 0
-                        ? "text-red-600"
-                        : "text-green-600"
-                      }`}
-                  >
-                    {formatValueToLakhsString(
-                      financialSummary.totalCashflowGap
-                    )}
-                  </dd>
-                </div>
-
-                {/* 7. Total PO+SR Value (Vendor Invoiced) - Vendor Liability (Gray/Neutral) */}
-                <div
-                  className="flex justify-between sm:flex-col
-                                    border-r border-gray-200
-                                    pr-4
-                                    sm:pb-0
-                                    sm:border-b-0
-                                "
-                >
-                  <dt className="font-semibold text-gray-600 text-xs">
-                    Total PO+SR Value (incl. GST)
-                  </dt>
-                  <dd className="sm:text-left font-bold text-base sm:text-sm tabular-nums text-gray-700">
-                    {formatValueToLakhsString(financialSummary.totalInvoiced)}
-                  </dd>
-                </div>
-
-                {/* 8. Total PO+SR Invoiced - Vendor Liability (Gray/Neutral) */}
-                <div
-                  className="flex justify-between sm:flex-col
-                                    border-r border-gray-200
-                                    pr-4
-                                    sm:pb-0
-                                    sm:border-b-0
-                                "
-                >
-                  <dt className="font-semibold text-gray-600 text-xs">
-                    Total PO+SR Invoiced (incl. GST)
-                  </dt>
-                  <dd className="sm:text-left font-bold text-base sm:text-sm tabular-nums text-gray-700">
-                    {formatValueToLakhsString(
-                      financialSummary.totalPoSrInvoiced
-                    )}
-                  </dd>
-                </div>
-
-                {/* 10. Total Purchase Over Credit - Detail (Orange/Warning) */}
-                <div
-                  className="flex justify-between sm:flex-col
-                                    pr-4
-                                    sm:pb-0
-                                    sm:border-b-0
-                                "
-                >
-                  <dt className="font-semibold text-gray-600 text-xs">
-                    Total Purchase Over Credit
-                  </dt>
-                  <dd className="sm:text-left font-bold text-base sm:text-sm tabular-nums text-orange-700">
-                    {formatValueToLakhsString(
-                      financialSummary.totalPurchaseOverCredit
-                    )}
-                  </dd>
-                </div>
-
-                {/* 11. Total Credit Paid Amount (Commented Out) */}
-                {/* <div className="flex justify-between sm:flex-col
-                                    border-r border-gray-200
-                                    pr-4
-                                    sm:pb-0
-                                    sm:border-b-0
-                                ">
-                                    <dt className="font-semibold text-gray-600 text-xs">
-                                        Total Credit Amount Paid
-                                    </dt>
-                                    <dd className="sm:text-left font-bold text-base sm:text-sm tabular-nums text-teal-700">
-                                        {formatValueToLakhsString(financialSummary.creditPaidAmount)}
-                                    </dd>
-                                </div> */}
-              </dl>
-            </CardContent>
+              </CardContent>
+            </div>
           </Card>
         }
       />

@@ -25,6 +25,7 @@ import {
   PROJECT_INVOICE_FIELDS_TO_FETCH,
   PROJECT_INVOICE_SEARCHABLE_FIELDS,
   PROJECT_INVOICE_DATE_COLUMNS,
+  PROJECT_INVOICE_AGGREGATES_CONFIG,
 } from "./config/projectInvoices.config";
 import { useUserData } from "@/hooks/useUserData";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
@@ -198,7 +199,9 @@ export const AllProjectInvoices: React.FC<{
     setSearchTerm,
     selectedSearchField,
     setSelectedSearchField,
-    columnFilters, // Added columnFilters
+    columnFilters,
+    aggregates,
+    isAggregatesLoading,
     refetch,
   } = useServerDataTable<ProjectInvoice>({
     doctype: DOCTYPE,
@@ -208,6 +211,7 @@ export const AllProjectInvoices: React.FC<{
     searchableFields: PROJECT_INVOICE_SEARCHABLE_FIELDS,
     urlSyncKey: `project_invoices_${projectId || "all"}`,
     defaultSort: "invoice_date desc",
+    aggregatesConfig: PROJECT_INVOICE_AGGREGATES_CONFIG,
   });
 
   // --- Dynamic Facet Values ---
@@ -310,6 +314,16 @@ export const AllProjectInvoices: React.FC<{
           onExport={"default"}
           exportFileName={DOCTYPE}
           showRowSelection={false}
+          summaryCard={
+            <ProjectInvoiceSummaryCard
+              aggregates={aggregates}
+              isAggregatesLoading={isAggregatesLoading}
+              totalCount={totalCount}
+              columnFilters={columnFilters}
+              searchTerm={searchTerm}
+              projectName={projectId ? getProjectName(projectId) : undefined}
+            />
+          }
         />
       )}
 
