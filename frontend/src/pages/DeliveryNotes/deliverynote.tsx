@@ -184,12 +184,12 @@ export default function DeliveryNote() {
     }
     const sortedKeys = Object.keys(historyData).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
     const latestKey = sortedKeys[0];
-    return historyData[latestKey];
+    return { date: latestKey, entry: historyData[latestKey] };
   }, [deliveryHistory.data]);
 
   const handlePrintLatest = useCallback(() => {
     if (latestHistoryEntry) {
-      triggerHistoryPrint(latestHistoryEntry);
+      triggerHistoryPrint(latestHistoryEntry.date, latestHistoryEntry.entry);
     } else {
       toast({
         title: "No History Available",

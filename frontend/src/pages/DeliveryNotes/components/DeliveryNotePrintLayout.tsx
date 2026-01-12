@@ -26,6 +26,7 @@ interface NormalizedPrintItem {
 
 interface PrintData extends ProcurementOrder {
   delivery_data?: { data: HistoricalDeliveryItem[] };
+  delivery_date?: string; // The date key from delivery_data JSON (e.g., "2026-01-10")
 }
 
 interface DeliveryNotePrintLayoutProps {
@@ -54,10 +55,10 @@ export const DeliveryNotePrintLayout = forwardRef<HTMLDivElement, DeliveryNotePr
           quantity: parseFloat(item.to) - parseFloat(item.from) || 0,
           comment: null,
         }));
-        
+
       }
 
-     
+
       // Case 2: Printing the current state.
       const currentOrderList = data.items || [];
       return currentOrderList.map(item => ({
@@ -71,10 +72,10 @@ export const DeliveryNotePrintLayout = forwardRef<HTMLDivElement, DeliveryNotePr
     const totalQuantity = itemsToRender.reduce((acc, item) => acc + item.quantity, 0);
 
     const PO_ID = deriveDnIdFromPoId(data.name).toUpperCase();
-    const Note_no=data?.Note_no
+    const Note_no = data?.Note_no
 
     // console.log("Note_no",Note_no)
-    const deliveryNoteNumber =Note_no?`${PO_ID}/${Note_no}` : `${PO_ID}/M`;
+    const deliveryNoteNumber = Note_no ? `${PO_ID}/${Note_no}` : `${PO_ID}/M`;
 
 
     const companyAddress = getCompanyAddress(data.project_gst);
@@ -112,7 +113,10 @@ export const DeliveryNotePrintLayout = forwardRef<HTMLDivElement, DeliveryNotePr
                     <div className="w-[48%] text-left">
                       <div className="text-gray-600 font-medium pb-1">Delivery Location</div>
                       <AddressView id={data.project_address} className="text-xs break-words mb-2" />
-                      <div><span className="text-gray-600">Date:</span> <i>{creationDate}</i></div>
+                      <div>
+                        <span className="text-gray-600">{Note_no ? 'Delivery Date:' : 'Date:'}</span>{' '}
+                        <i>{Note_no && data.delivery_date ? format(new Date(data.delivery_date), 'dd-MMM-yyyy') : creationDate}</i>
+                      </div>
                       <div><span className="text-gray-600">Project:</span> <i>{data.project_name || 'N/A'}</i></div>
                       <div><span className="text-gray-600">Against PO:</span> <i>{data.name}</i></div>
                     </div>
