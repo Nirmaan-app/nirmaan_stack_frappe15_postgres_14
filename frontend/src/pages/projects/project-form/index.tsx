@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFrappePostCall, useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useNavigate } from "react-router-dom";
+import { format } from "date-fns";
 import { X } from "lucide-react";
 
 import { FormSkeleton } from "@/components/ui/skeleton";
@@ -60,6 +61,7 @@ export const ProjectForm = () => {
     const [creationDialogOpen, setCreationDialogOpen] = useState(false);
     const [assigneeCount, setAssigneeCount] = useState(0);
     const [progressSetupEnabled, setProgressSetupEnabled] = useState(false);
+    const [designSetupEnabled, setDesignSetupEnabled] = useState(false);
     const [creationError, setCreationError] = useState<string>();
 
     // API calls
@@ -182,10 +184,11 @@ export const ProjectForm = () => {
                 throw new Error("Please select at least one work package associated with this project!");
             }
 
-            // Extract assignees, daily_progress_setup, and deprecated single-assignee fields (not sent to backend)
+            // Extract assignees, daily_progress_setup, design_packages_setup, and deprecated single-assignee fields (not sent to backend)
             const {
                 assignees,
                 daily_progress_setup,
+                design_packages_setup,
                 // Deprecated single-assignee fields - don't send to backend
                 project_lead,
                 project_manager,
@@ -206,6 +209,10 @@ export const ProjectForm = () => {
             // Check if progress setup is enabled
             const isProgressSetupEnabled = daily_progress_setup?.enabled === true;
             setProgressSetupEnabled(isProgressSetupEnabled);
+
+            // Check if design packages setup is enabled
+            const isDesignSetupEnabled = design_packages_setup?.enabled === true;
+            setDesignSetupEnabled(isDesignSetupEnabled);
 
             // Open dialog and start creation
             setCreationDialogOpen(true);
@@ -284,6 +291,87 @@ export const ProjectForm = () => {
                     toast({
                         title: "Warning",
                         description: "Project created but progress tracking setup failed. You can set it up later from the project page.",
+                        variant: "destructive",
+                    });
+                }
+            }
+
+            // Step 4: Set up Design Tracker (if enabled)
+            if (isDesignSetupEnabled && design_packages_setup) {
+                setCreationStage("setting_up_design_tracker");
+
+                try {
+                    // Determine zones to use
+                    const designZones = design_packages_setup.zone_type === 'single'
+                        ? ["Default"]
+                        : design_packages_setup.zones.map(z => z.zone_name);
+
+                    // Get design categories from formData
+                    const { designCategories } = formData;
+
+                    // Generate tasks: zones × categories × task templates
+                    const tasksToGenerate: Array<{
+                        task_name: string;
+                        design_category: string;
+                        task_status: string;
+                        deadline?: string;
+                        task_zone: string;
+                    }> = [];
+
+                    designZones.forEach(zoneName => {
+                        design_packages_setup.selected_categories.forEach(catName => {
+                            const categoryDef = designCategories?.find(c => c.category_name === catName);
+                            if (categoryDef && categoryDef.tasks) {
+                                categoryDef.tasks.forEach(taskDef => {
+                                    let calculatedDeadline: string | undefined;
+                                    if (taskDef.deadline_offset !== undefined && taskDef.deadline_offset !== null) {
+                                        const offset = Number(taskDef.deadline_offset);
+                                        if (!isNaN(offset) && values.project_start_date) {
+                                            const deadlineDate = new Date(values.project_start_date);
+                                            deadlineDate.setDate(deadlineDate.getDate() + offset);
+                                            calculatedDeadline = format(deadlineDate, 'yyyy-MM-dd');
+                                        }
+                                    }
+
+                                    tasksToGenerate.push({
+                                        task_name: taskDef.task_name,
+                                        design_category: catName,
+                                        task_status: 'Not Started',
+                                        deadline: calculatedDeadline,
+                                        task_zone: zoneName,
+                                    });
+                                });
+                            }
+                        });
+                    });
+
+                    // Prepare zone child table data
+                    const zoneChildTableData = designZones.map(z => ({ tracker_zone: z }));
+
+                    // Debug logging
+                    console.log("[Design Tracker] Creating for project:", projectName);
+                    console.log("[Design Tracker] Zones:", designZones);
+                    console.log("[Design Tracker] Categories:", design_packages_setup.selected_categories);
+                    console.log("[Design Tracker] Tasks to generate:", tasksToGenerate.length);
+
+                    // Create the Project Design Tracker document
+                    await createDoc("Project Design Tracker", {
+                        project: projectName,
+                        project_name: values.project_name,
+                        start_date: values.project_start_date ? format(values.project_start_date, 'yyyy-MM-dd') : undefined,
+                        status: 'Assign Pending',
+                        design_tracker_task: tasksToGenerate,
+                        zone: zoneChildTableData,
+                    });
+
+                    console.log("[Design Tracker] Creation successful");
+                } catch (designError) {
+                    // Log error details
+                    console.error("Failed to set up design tracker:", designError);
+                    // Don't fail the entire operation, but toast the error
+                    toast({
+                        title: "Warning",
+                        description: "Project created but design tracker setup failed. You can set it up later from the Design Tracker page.",
                         variant: "destructive",
                     });
                 }
@@ -465,6 +553,7 @@ export const ProjectForm = () => {
                 projectName={newProjectId}
                 assigneeCount={assigneeCount}
                 progressSetupEnabled={progressSetupEnabled}
+                designSetupEnabled={designSetupEnabled}
                 errorMessage={creationError}
                 onGoBack={handleGoToProjects}
                 onCreateNew={handleCreateNew}

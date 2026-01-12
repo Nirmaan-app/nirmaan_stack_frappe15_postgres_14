@@ -163,6 +163,15 @@ export const projectFormSchema = z.object({
             work_package_link: z.string(),
         })).default([]),
     }).optional(),
+
+    // Design Packages Setup (Optional - Phase 5, Section 3)
+    design_packages_setup: z.object({
+        enabled: z.boolean().default(false),
+        zone_source: z.enum(['custom', 'copy_from_progress']).optional(),
+        zone_type: z.enum(['single', 'multiple']).optional(),
+        zones: z.array(z.object({ zone_name: z.string() })).default([]),
+        selected_categories: z.array(z.string()).default([]),
+    }).optional(),
 });
 
 export type ProjectFormValues = z.infer<typeof projectFormSchema>;
@@ -219,6 +228,14 @@ export const defaultFormValues: ProjectFormValues = {
         zones: [],
         work_headers: [],
     },
+    // Design Packages Setup
+    design_packages_setup: {
+        enabled: false,
+        zone_source: undefined,
+        zone_type: undefined,
+        zones: [],
+        selected_categories: [],
+    },
 };
 
 /**
@@ -258,4 +275,15 @@ export interface DailyProgressSetup {
     zone_type?: 'single' | 'multiple';
     zones: Array<{ zone_name: string }>;
     work_headers: DailyProgressWorkHeader[];
+}
+
+/**
+ * Type for design packages setup configuration
+ */
+export interface DesignPackagesSetup {
+    enabled: boolean;
+    zone_source?: 'custom' | 'copy_from_progress';
+    zone_type?: 'single' | 'multiple';
+    zones: Array<{ zone_name: string }>;
+    selected_categories: string[];
 }

@@ -1,5 +1,5 @@
 import { UseFormReturn } from "react-hook-form";
-import { Building2, MapPin, Calendar, Users, Package, ListChecks, ClipboardList } from "lucide-react";
+import { Building2, MapPin, Calendar, Users, Package, ListChecks, ClipboardList, PenTool } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ButtonLoading } from "@/components/ui/button-loading";
 import {
@@ -264,6 +264,72 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({
                                         {(form.getValues("daily_progress_setup")?.work_headers?.length ?? 0) !== 1 ? 's' : ''} across{' '}
                                         {new Set(form.getValues("daily_progress_setup")?.work_headers?.map(h => h.work_package_link) ?? []).size} package
                                         {new Set(form.getValues("daily_progress_setup")?.work_headers?.map(h => h.work_package_link) ?? []).size !== 1 ? 's' : ''}
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+                    </ReviewSection>
+                )}
+
+                {/* Design Packages Section (only show if enabled) */}
+                {form.getValues("design_packages_setup")?.enabled && (
+                    <ReviewSection
+                        title="Design Packages"
+                        icon={PenTool}
+                        onEdit={() => onNavigateToSection("packageSelection")}
+                        iconColorClass="bg-pink-500/10 text-pink-600 dark:text-pink-400"
+                        columns={1}
+                    >
+                        <div className="col-span-full space-y-4">
+                            {/* Zone Configuration */}
+                            <div>
+                                <p className="text-xs font-medium text-gray-500 mb-2">
+                                    Zone Configuration
+                                    {form.getValues("design_packages_setup")?.zone_source === 'copy_from_progress' && (
+                                        <span className="ml-2 text-xs text-blue-500 font-normal">(Copied from Daily Progress)</span>
+                                    )}
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                    {form.getValues("design_packages_setup")?.zone_type === 'single' ? (
+                                        <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-700 border border-gray-200">
+                                            Single Zone (Default)
+                                        </span>
+                                    ) : (
+                                        <>
+                                            {form.getValues("design_packages_setup")?.zones?.map((zone) => (
+                                                <span
+                                                    key={zone.zone_name}
+                                                    className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-pink-50 text-pink-700 border border-pink-200"
+                                                >
+                                                    {zone.zone_name}
+                                                </span>
+                                            ))}
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Selected Categories */}
+                            <div>
+                                <p className="text-xs font-medium text-gray-500 mb-2">Design Categories</p>
+                                <div className="flex flex-wrap gap-2">
+                                    {form.getValues("design_packages_setup")?.selected_categories?.length ? (
+                                        form.getValues("design_packages_setup")?.selected_categories?.map((category) => (
+                                            <span
+                                                key={category}
+                                                className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-violet-50 text-violet-700 border border-violet-200"
+                                            >
+                                                {category}
+                                            </span>
+                                        ))
+                                    ) : (
+                                        <span className="text-xs text-gray-400 italic">No categories selected</span>
+                                    )}
+                                </div>
+                                {(form.getValues("design_packages_setup")?.selected_categories?.length ?? 0) > 0 && (
+                                    <p className="text-xs text-gray-400 mt-2">
+                                        {form.getValues("design_packages_setup")?.selected_categories?.length ?? 0} categor
+                                        {(form.getValues("design_packages_setup")?.selected_categories?.length ?? 0) !== 1 ? 'ies' : 'y'} selected for design tracking
                                     </p>
                                 )}
                             </div>

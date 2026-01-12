@@ -1,5 +1,5 @@
-import { useFrappeDocTypeEventListener, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
-import { useCallback, useState } from "react";
+import { useFrappeDocTypeEventListener, useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import { useCallback, useMemo, useState } from "react";
 import { Customers } from "@/types/NirmaanStack/Customers";
 import { ProjectTypes } from "@/types/NirmaanStack/ProjectTypes";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
@@ -19,6 +19,28 @@ export interface WorkHeaderType {
     name: string;
     work_header_name: string;
     work_package_link: string;
+}
+
+export interface DesignTaskTemplate {
+    task_name: string;
+    deadline_offset?: number;
+}
+
+export interface DesignCategory {
+    category_name: string;
+    tasks: DesignTaskTemplate[];
+}
+
+interface DesignMasterDataResponse {
+    message: {
+        categories: Array<{
+            category_name: string;
+            tasks: Array<{
+                task_name: string;
+                deadline_offset?: number;
+            }>;
+        }>;
+    };
 }
 
 /**
@@ -103,6 +125,31 @@ export const useProjectFormData = () => {
         limit: 0,
     });
 
+    // Design Categories (for Design Packages Setup)
+    const {
+        data: designMasterData,
+        isLoading: designCategoriesLoading,
+        error: designCategoriesError
+    } = useFrappeGetCall<DesignMasterDataResponse>(
+        "nirmaan_stack.api.design_tracker.tracker_options.get_all_master_data",
+        {},
+        "design-master-data-for-project-form"
+    );
+
+    // Process design categories - only include those with tasks
+    const designCategories: DesignCategory[] = useMemo(() => {
+        const categories = designMasterData?.message?.categories || [];
+        return categories
+            .filter(cat => Array.isArray(cat.tasks) && cat.tasks.length > 0)
+            .map(cat => ({
+                category_name: cat.category_name,
+                tasks: cat.tasks.map(t => ({
+                    task_name: t.task_name,
+                    deadline_offset: t.deadline_offset
+                }))
+            }));
+    }, [designMasterData]);
+
     // Listen for project type changes
     useFrappeDocTypeEventListener("Project Types", async () => {
         await projectTypesMutate();
@@ -175,6 +222,7 @@ export const useProjectFormData = () => {
     const isLoading = workPackagesLoading || customersLoading || projectTypesLoading || usersLoading;
     const isPackageDataLoading = categoriesLoading || categoryMakeListLoading;
     const isWorkHeadersLoading = workHeadersLoading;
+    const isDesignCategoriesLoading = designCategoriesLoading;
 
     return {
         // Raw data
@@ -183,6 +231,7 @@ export const useProjectFormData = () => {
         categories,
         categoryMakeList,
         workHeaders,
+        designCategories,
 
         // Options for selects
         customerOptions,
@@ -206,6 +255,7 @@ export const useProjectFormData = () => {
         isLoading,
         isPackageDataLoading,
         isWorkHeadersLoading,
+        isDesignCategoriesLoading,
         customersLoading,
         projectTypesLoading,
         usersLoading,
@@ -216,6 +266,7 @@ export const useProjectFormData = () => {
         projectTypesError,
         usersError,
         workHeadersError,
+        designCategoriesError,
     };
 };
 

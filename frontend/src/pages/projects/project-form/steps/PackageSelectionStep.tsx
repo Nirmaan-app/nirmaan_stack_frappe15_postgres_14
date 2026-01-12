@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useEffect } from "react";
+import { useMemo, useCallback } from "react";
 import { UseFormReturn } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import { ProjectFormValues, DailyProgressWorkHeader } from "../schema";
 import { ProjectFormData, WorkPackageType, WorkHeaderType } from "../hooks/useProjectFormData";
-import { Plus, X, ClipboardList, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, X, ClipboardList, ChevronDown, ChevronRight, PenTool, Copy } from "lucide-react";
 import { useState } from "react";
 
 // Local type for form's internal work package structure
@@ -34,7 +34,7 @@ export const PackageSelectionStep: React.FC<PackageSelectionStepProps> = ({
     onNext,
     onPrevious,
 }) => {
-    const { workPackages, categories, workHeaders, isPackageDataLoading, isWorkHeadersLoading } = formData;
+    const { workPackages, categories, workHeaders, designCategories, isPackageDataLoading, isWorkHeadersLoading, isDesignCategoriesLoading } = formData;
     const watchedWorkPackages = form.watch("project_work_packages.work_packages");
     const selectedWorkPackages: FormWorkPackage[] = Array.isArray(watchedWorkPackages) ? watchedWorkPackages : [];
 
@@ -45,8 +45,17 @@ export const PackageSelectionStep: React.FC<PackageSelectionStepProps> = ({
     const zones = dailyProgressSetup?.zones ?? [];
     const selectedWorkHeaders = dailyProgressSetup?.work_headers ?? [];
 
+    // Design Packages Setup state
+    const designPackagesSetup = form.watch("design_packages_setup");
+    const isDesignEnabled = designPackagesSetup?.enabled ?? false;
+    const designZoneSource = designPackagesSetup?.zone_source;
+    const designZoneType = designPackagesSetup?.zone_type;
+    const designZones = designPackagesSetup?.zones ?? [];
+    const selectedDesignCategories = designPackagesSetup?.selected_categories ?? [];
+
     // Local state for new zone input
     const [newZoneName, setNewZoneName] = useState("");
+    const [newDesignZoneName, setNewDesignZoneName] = useState("");
     const [expandedPackages, setExpandedPackages] = useState<Set<string>>(new Set());
 
     // Get categories for a work package
@@ -190,6 +199,76 @@ export const PackageSelectionStep: React.FC<PackageSelectionStepProps> = ({
             return next;
         });
     }, []);
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // DESIGN PACKAGES SETUP HANDLERS
+    // ═══════════════════════════════════════════════════════════════════════
+
+    const handleDesignEnabledChange = useCallback((checked: boolean) => {
+        form.setValue("design_packages_setup.enabled", checked);
+        if (!checked) {
+            // Reset all settings when disabled
+            form.setValue("design_packages_setup.zone_source", undefined);
+            form.setValue("design_packages_setup.zone_type", undefined);
+            form.setValue("design_packages_setup.zones", []);
+            form.setValue("design_packages_setup.selected_categories", []);
+        }
+    }, [form]);
+
+    const handleDesignZoneSourceChange = useCallback((source: 'custom' | 'copy_from_progress') => {
+        form.setValue("design_packages_setup.zone_source", source);
+
+        if (source === 'copy_from_progress') {
+            // Copy zones from daily progress setup
+            form.setValue("design_packages_setup.zone_type", zoneType);
+            form.setValue("design_packages_setup.zones", [...zones]);
+        } else {
+            // Reset for custom setup
+            form.setValue("design_packages_setup.zone_type", undefined);
+            form.setValue("design_packages_setup.zones", []);
+        }
+    }, [form, zoneType, zones]);
+
+    const handleDesignZoneTypeChange = useCallback((value: 'single' | 'multiple') => {
+        form.setValue("design_packages_setup.zone_type", value);
+        if (value === 'single') {
+            form.setValue("design_packages_setup.zones", []);
+        }
+    }, [form]);
+
+    const handleAddDesignZone = useCallback(() => {
+        const trimmedName = newDesignZoneName.trim();
+        if (!trimmedName) return;
+
+        // Check for duplicates
+        if (designZones.some(z => z.zone_name.toLowerCase() === trimmedName.toLowerCase())) {
+            return;
+        }
+
+        form.setValue("design_packages_setup.zones", [...designZones, { zone_name: trimmedName }]);
+        setNewDesignZoneName("");
+    }, [newDesignZoneName, designZones, form]);
+
+    const handleRemoveDesignZone = useCallback((zoneName: string) => {
+        form.setValue("design_packages_setup.zones", designZones.filter(z => z.zone_name !== zoneName));
+    }, [designZones, form]);
+
+    const handleDesignCategoryToggle = useCallback((categoryName: string) => {
+        if (selectedDesignCategories.includes(categoryName)) {
+            form.setValue(
+                "design_packages_setup.selected_categories",
+                selectedDesignCategories.filter(c => c !== categoryName)
+            );
+        } else {
+            form.setValue(
+                "design_packages_setup.selected_categories",
+                [...selectedDesignCategories, categoryName]
+            );
+        }
+    }, [selectedDesignCategories, form]);
+
+    // Check if daily progress has zones configured (for copy option)
+    const hasProgressZones = isProgressEnabled && zoneType && (zoneType === 'single' || zones.length > 0);
 
     // Get ALL work headers grouped by their work_package_link
     const groupedWorkHeaders = useMemo(() => {
@@ -549,9 +628,254 @@ export const PackageSelectionStep: React.FC<PackageSelectionStepProps> = ({
             </div>
 
             {/* ════════════════════════════════════════════════════════════
-                SECTION 3: Placeholder for future content
+                SECTION 3: Design Packages Setup (Optional)
                 ════════════════════════════════════════════════════════════ */}
-            {/* Section 3 will be added here */}
+            <div className="space-y-4">
+                <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                    <div className="flex items-center gap-2">
+                        <PenTool className="h-4 w-4 text-gray-500" />
+                        <Label className="text-sm font-medium text-gray-700">
+                            Design Packages
+                        </Label>
+                        <span className="text-xs text-gray-400 font-normal">(Optional)</span>
+                    </div>
+                </div>
+
+                {/* Enable Toggle */}
+                <label className="flex items-center gap-3 px-3 py-2.5 border border-gray-200 rounded cursor-pointer hover:bg-gray-50">
+                    <Checkbox
+                        id="enable-design-packages"
+                        checked={isDesignEnabled}
+                        onCheckedChange={(checked) => handleDesignEnabledChange(checked === true)}
+                    />
+                    <div className="flex-1">
+                        <span className="text-sm text-gray-700">
+                            Enable Design Tracking for this project
+                        </span>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                            Track design tasks with zones and categories
+                        </p>
+                    </div>
+                </label>
+
+                {/* Expanded Settings (when enabled) */}
+                {isDesignEnabled && (
+                    <div className="border border-gray-200 rounded overflow-hidden">
+                        {/* Zone Source Selection (if daily progress has zones) */}
+                        {hasProgressZones && (
+                            <div className="p-4 bg-blue-50/50 border-b border-gray-200">
+                                <Label className="text-xs font-medium text-gray-600 uppercase tracking-wide">
+                                    Zone Source
+                                </Label>
+                                <p className="text-xs text-gray-400 mt-1 mb-3">
+                                    You can copy zones from Daily Progress setup or configure custom zones
+                                </p>
+
+                                <RadioGroup
+                                    value={designZoneSource || ''}
+                                    onValueChange={(value: string) => handleDesignZoneSourceChange(value as 'custom' | 'copy_from_progress')}
+                                    className="space-y-2"
+                                >
+                                    <label className="flex items-center gap-3 px-3 py-2 bg-white border border-gray-200 rounded cursor-pointer hover:border-blue-300">
+                                        <RadioGroupItem value="copy_from_progress" id="zone-copy" />
+                                        <div className="flex-1">
+                                            <div className="flex items-center gap-2">
+                                                <Copy className="h-3.5 w-3.5 text-blue-500" />
+                                                <span className="text-sm text-gray-700">Copy from Daily Progress</span>
+                                            </div>
+                                            <p className="text-xs text-gray-400 mt-0.5">
+                                                Use the same {zoneType === 'single' ? 'single zone' : `${zones.length} zones`} configured above
+                                            </p>
+                                        </div>
+                                    </label>
+                                    <label className="flex items-center gap-3 px-3 py-2 bg-white border border-gray-200 rounded cursor-pointer hover:border-gray-300">
+                                        <RadioGroupItem value="custom" id="zone-custom" />
+                                        <div>
+                                            <span className="text-sm text-gray-700">Configure Custom Zones</span>
+                                            <p className="text-xs text-gray-400">Set up different zones for design tracking</p>
+                                        </div>
+                                    </label>
+                                </RadioGroup>
+                            </div>
+                        )}
+
+                        {/* Zone Configuration (shown if no progress zones OR if custom selected) */}
+                        {(!hasProgressZones || designZoneSource === 'custom') && (
+                            <div className="p-4 bg-gray-50/50 border-b border-gray-200">
+                                <Label className="text-xs font-medium text-gray-600 uppercase tracking-wide">
+                                    Zone Configuration
+                                </Label>
+                                <p className="text-xs text-gray-400 mt-1 mb-3">
+                                    Zones help organize design tasks by area
+                                </p>
+
+                                <RadioGroup
+                                    value={designZoneType || ''}
+                                    onValueChange={(value: string) => handleDesignZoneTypeChange(value as 'single' | 'multiple')}
+                                    className="space-y-2"
+                                >
+                                    <label className="flex items-center gap-3 px-3 py-2 bg-white border border-gray-200 rounded cursor-pointer hover:border-gray-300">
+                                        <RadioGroupItem value="single" id="design-zone-single" />
+                                        <div>
+                                            <span className="text-sm text-gray-700">Single Zone (Default)</span>
+                                            <p className="text-xs text-gray-400">All designs tracked under one zone</p>
+                                        </div>
+                                    </label>
+                                    <label className="flex items-center gap-3 px-3 py-2 bg-white border border-gray-200 rounded cursor-pointer hover:border-gray-300">
+                                        <RadioGroupItem value="multiple" id="design-zone-multiple" />
+                                        <div>
+                                            <span className="text-sm text-gray-700">Multiple Zones</span>
+                                            <p className="text-xs text-gray-400">Track designs by tower, wing, or area</p>
+                                        </div>
+                                    </label>
+                                </RadioGroup>
+
+                                {/* Multiple Zones Input */}
+                                {designZoneType === 'multiple' && (
+                                    <div className="mt-4 space-y-3">
+                                        {/* Zone List */}
+                                        {designZones.length > 0 && (
+                                            <div className="flex flex-wrap gap-2">
+                                                {designZones.map((zone) => (
+                                                    <div
+                                                        key={zone.zone_name}
+                                                        className="flex items-center gap-1.5 px-2.5 py-1 bg-white border border-gray-200 rounded text-sm"
+                                                    >
+                                                        <span className="text-gray-700">{zone.zone_name}</span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleRemoveDesignZone(zone.zone_name)}
+                                                            className="text-gray-400 hover:text-red-500"
+                                                        >
+                                                            <X className="h-3.5 w-3.5" />
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        {/* Add Zone Input */}
+                                        <div className="flex gap-2">
+                                            <Input
+                                                type="text"
+                                                placeholder="Enter zone name (e.g., Tower A, Block B)"
+                                                value={newDesignZoneName}
+                                                onChange={(e) => setNewDesignZoneName(e.target.value)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                        e.preventDefault();
+                                                        handleAddDesignZone();
+                                                    }
+                                                }}
+                                                className="flex-1 h-9 text-sm"
+                                            />
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={handleAddDesignZone}
+                                                disabled={!newDesignZoneName.trim()}
+                                                className="h-9 px-3"
+                                            >
+                                                <Plus className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+
+                                        {designZones.length === 0 && (
+                                            <p className="text-xs text-amber-600">
+                                                Add at least one zone to continue
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Copied Zones Display (when copied from progress) */}
+                        {designZoneSource === 'copy_from_progress' && (
+                            <div className="p-4 bg-blue-50/30 border-b border-gray-200">
+                                <Label className="text-xs font-medium text-gray-600 uppercase tracking-wide">
+                                    Zones (Copied from Daily Progress)
+                                </Label>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                    {designZoneType === 'single' ? (
+                                        <span className="px-2.5 py-1 bg-white border border-blue-200 rounded text-sm text-gray-700">
+                                            Default (Single Zone)
+                                        </span>
+                                    ) : (
+                                        designZones.map((zone) => (
+                                            <span
+                                                key={zone.zone_name}
+                                                className="px-2.5 py-1 bg-white border border-blue-200 rounded text-sm text-gray-700"
+                                            >
+                                                {zone.zone_name}
+                                            </span>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Category Selection */}
+                        {((designZoneSource === 'copy_from_progress') ||
+                          (designZoneType && (designZoneType === 'single' || designZones.length > 0))) && (
+                            <div className="p-4">
+                                <Label className="text-xs font-medium text-gray-600 uppercase tracking-wide">
+                                    Design Categories
+                                </Label>
+                                <p className="text-xs text-gray-400 mt-1 mb-3">
+                                    Select categories to create design tasks
+                                </p>
+
+                                {isDesignCategoriesLoading ? (
+                                    <div className="space-y-2">
+                                        {[1, 2, 3].map((i) => (
+                                            <div key={i} className="h-10 bg-gray-100 rounded animate-pulse" />
+                                        ))}
+                                    </div>
+                                ) : !designCategories || designCategories.length === 0 ? (
+                                    <p className="text-sm text-gray-400 py-4 text-center border border-dashed border-gray-200 rounded">
+                                        No design categories with tasks found in the system
+                                    </p>
+                                ) : (
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                        {designCategories.map((cat) => {
+                                            const isSelected = selectedDesignCategories.includes(cat.category_name);
+                                            return (
+                                                <Button
+                                                    key={cat.category_name}
+                                                    type="button"
+                                                    variant={isSelected ? "default" : "outline"}
+                                                    onClick={() => handleDesignCategoryToggle(cat.category_name)}
+                                                    size="sm"
+                                                    className="text-xs h-auto py-2 whitespace-normal min-h-[40px] justify-start"
+                                                >
+                                                    <span className="truncate">{cat.category_name}</span>
+                                                    <span className="ml-1 text-[10px] opacity-70">
+                                                        ({cat.tasks.length})
+                                                    </span>
+                                                </Button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+
+                                {selectedDesignCategories.length > 0 && (
+                                    <p className="text-xs text-gray-500 mt-3">
+                                        {selectedDesignCategories.length} categor{selectedDesignCategories.length !== 1 ? 'ies' : 'y'} selected
+                                    </p>
+                                )}
+
+                                {selectedDesignCategories.length === 0 && designCategories && designCategories.length > 0 && (
+                                    <p className="text-xs text-amber-600 mt-2">
+                                        Select at least one category
+                                    </p>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
 
             {/* ════════════════════════════════════════════════════════════
                 SECTION 4: Placeholder for future content
