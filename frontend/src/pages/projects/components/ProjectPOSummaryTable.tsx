@@ -379,6 +379,13 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     return filters;
   }, [projectId]);
 
+  // --- Helper function to calculate total liabilities ---
+  const calculateTotalLiabilities = useCallback((row: ProcurementOrder): number => {
+    const poAmountDelivered = parseNumber(row.po_amount_delivered);
+    const amountPaid = parseNumber(row.amount_paid);
+    return Math.max(0, poAmountDelivered - Math.min(amountPaid, poAmountDelivered));
+  }, []);
+
   // --- Column Definitions ---
   const columns = useMemo<ColumnDef<ProcurementOrder>[]>(
     () => [
@@ -601,6 +608,27 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
           exportHeaderName: "PO Amount Payable",
           exportValue: (row: ProcurementOrder) => {
             return formatForReport(row.po_amount_delivered); // Use the direct field for export
+          },
+        },
+      },
+      {
+        id: "total_liabilities",
+        accessorFn: (row) => calculateTotalLiabilities(row),
+        header: "Total Liabilities",
+        cell: ({ row }) => {
+          const liability = calculateTotalLiabilities(row.original);
+          return (
+            <div className="font-medium pr-2 text-center tabular-nums">
+              {formatToRoundedIndianRupee(liability)}
+            </div>
+          );
+        },
+        size: 160,
+        enableSorting: false,
+        meta: {
+          exportHeaderName: "Total Liabilities",
+          exportValue: (row: ProcurementOrder) => {
+            return formatForReport(calculateTotalLiabilities(row));
           },
         },
       },
