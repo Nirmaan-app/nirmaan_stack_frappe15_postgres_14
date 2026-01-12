@@ -300,7 +300,7 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                             {/* Attach Document */}
                             <div className="space-y-2">
                                 <label className="text-sm font-semibold">
-                                    Attach Document <span className="text-gray-400 font-normal ml-1">(XLSX, PDF, max 50MB)</span>
+                                    Attach Document <span className="text-gray-400 font-normal ml-1">(Images, XLSX, PDF, max 50MB)</span>
                                 </label>
                                 <div 
                                     className="border-2 border-dashed border-blue-100 bg-blue-50/50 rounded-lg p-8 flex flex-col items-center justify-center cursor-pointer hover:bg-blue-50 transition-colors relative"
@@ -337,7 +337,7 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                                         type="file" 
                                         id="tds-file-upload" 
                                         className="hidden" 
-                                        accept=".xlsx,.pdf"
+                                        accept="image/*,.xlsx,.pdf"
                                         onChange={(e) => e.target.files && setSelectedFile(e.target.files[0])}
                                     />
                                 </div>

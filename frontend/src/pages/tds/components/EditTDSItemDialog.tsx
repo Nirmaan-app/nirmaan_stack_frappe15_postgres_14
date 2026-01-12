@@ -18,7 +18,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { FileText, UploadCloud, X, Download, AlertTriangle } from "lucide-react";
-import { useFrappeGetDocList, useFrappeFileUpload, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappeFileUpload, useFrappeUpdateDoc, useFrappeDeleteDoc } from "frappe-react-sdk";
 import RSelect from "react-select";
 import { toast } from "@/components/ui/use-toast";
 import { TDSItem, TDSItemValues, tdsItemSchema } from "./types";
@@ -37,6 +37,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
     
     const { updateDoc, loading: updating } = useFrappeUpdateDoc();
     const { upload: uploadFile, loading: uploading } = useFrappeFileUpload();
+    const { deleteDoc } = useFrappeDeleteDoc();
 
     // Fetch Options for Form
     const { data: wpList } = useFrappeGetDocList("Procurement Packages", { fields: ["name", "work_package_name"], limit: 1000 });
@@ -167,8 +168,27 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                 make: values.make,
             };
 
-            if (attachmentAction === "remove") {
-                updatePayload.tds_attachment = null;
+            if (attachmentAction === "remove" || (attachmentAction === "replace" && existingAttachmentUrl)) {
+                // If removing or replacing, unlink first AND delete the actual File document to prevent orphans
+                if (existingAttachmentUrl) {
+                    try {
+                        // 1. Find the File document name by URL
+                        const fileRes = await fetch(`/api/resource/File?filters=[["file_url","=", "${encodeURIComponent(existingAttachmentUrl)}"]]&fields=["name"]`);
+                        const fileData = await fileRes.json();
+                        
+                        if (fileData.data && fileData.data.length > 0) {
+                            // 2. Delete the File document
+                            await deleteDoc("File", fileData.data[0].name);
+                        }
+                    } catch (err) {
+                        console.warn("Failed to cleanup old file:", err);
+                        // Continue even if cleanup fails, as main task is to update TDS item
+                    }
+                }
+                
+                if (attachmentAction === "remove") {
+                    updatePayload.tds_attachment = null;
+                }
             }
 
             await updateDoc("TDS Repository", item.name, updatePayload);
@@ -459,7 +479,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                                 <UploadCloud className="h-6 w-6 text-blue-500" />
                                             </div>
                                             <p className="text-sm font-medium text-gray-900 mb-1">Click to upload replacement</p>
-                                            <p className="text-xs text-gray-500">XLSX, PDF up to 10MB</p>
+                                            <p className="text-xs text-gray-500">Images, XLSX, PDF up to 10MB</p>
                                         </div>
                                     </div>
                                 ) : (
@@ -472,7 +492,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                             <UploadCloud className="h-5 w-5 text-blue-500" />
                                         </div>
                                         <p className="text-sm font-medium text-gray-900 mb-0.5">Click to upload or drag and drop</p>
-                                        <p className="text-xs text-gray-500">XLSX, PDF up to 10MB</p>
+                                        <p className="text-xs text-gray-500">Images, XLSX, PDF up to 10MB</p>
                                         
                                     </div>
                                 )}
@@ -481,7 +501,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                     type="file" 
                                     id="edit-tds-file-upload" 
                                     className="hidden" 
-                                    accept=".xlsx,.pdf"
+                                    accept="image/*,.xlsx,.pdf"
                                     onChange={handleNewFileSelected}
                                 />
                             </div>
