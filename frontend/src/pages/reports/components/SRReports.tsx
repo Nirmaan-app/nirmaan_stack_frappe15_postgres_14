@@ -25,6 +25,7 @@ import { toast } from "@/components/ui/use-toast";
 import { exportToCsv } from "@/utils/exportToCsv";
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport } from "@/utils/FormatPrice";
+import SR2BReconcileReport from "./SR2BReconcileReport";
 
 interface SelectOption {
   label: string;
@@ -248,6 +249,11 @@ export default function SRReports() {
     isTableHookLoading;
   const overallError =
     initialDataError || projectsUiError || vendorsUiError || tableHookError;
+
+  // If 2B Reconcile Report is selected, render the dedicated component
+  if (selectedReportType === '2B Reconcile Report') {
+    return <SR2BReconcileReport />;
+  }
 
   if (overallError) {
     return <AlertDestructive error={overallError as Error} />;
