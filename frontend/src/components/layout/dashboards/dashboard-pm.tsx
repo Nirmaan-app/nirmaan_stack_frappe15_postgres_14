@@ -139,12 +139,12 @@ export const ProjectManager = () => {
             onClick={() => navigate("/service-requests-list")}
             variant="secondary"
           />
-          <DashboardCard
+          {/* <DashboardCard
             title="Item Price Search"
             icon={<Dices className="h-7 w-7" strokeWidth={1.5} />}
             onClick={() => navigate("/item-price")}
             variant="secondary"
-          />
+          /> */}
           <DashboardCard
             title="Reports"
             icon={<ClipboardMinus className="h-7 w-7" strokeWidth={1.5} />}

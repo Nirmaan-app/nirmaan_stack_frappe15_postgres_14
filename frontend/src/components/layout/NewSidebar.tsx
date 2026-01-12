@@ -347,7 +347,7 @@ export function NewSidebar() {
     //   ]
     // : []),
 
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
       ? [
         {
           key: '/item-price',
