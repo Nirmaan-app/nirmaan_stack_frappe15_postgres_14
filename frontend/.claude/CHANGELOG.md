@@ -4,6 +4,28 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-12: Project Creation Dialog Layout Fix and Customer PO Button
+
+### Summary
+Fixed button overflow in project creation success dialog and added "Add Customer PO" navigation option.
+
+### Files Modified
+
+- `src/components/ui/project-creation-dialog.tsx`:
+  - Increased dialog width from `sm:max-w-md` to `sm:max-w-lg`
+  - Changed footer layout from horizontal flex to 2x2 grid (`grid grid-cols-1 sm:grid-cols-2`)
+  - Added `onAddCustomerPO` prop and corresponding button
+  - Center-aligned all action buttons with `justify-center`
+
+- `src/pages/projects/project-form/index.tsx`:
+  - Added `handleAddCustomerPO` handler navigating to project overview page
+  - Passed new prop to `ProjectCreationDialog`
+
+### UI Pattern
+Dialog with multiple actions (4+ buttons) should use grid layout instead of horizontal flex to prevent overflow.
+
+---
+
 ## 2026-01-12: Critical PO Task Linking in PO Dispatch Workflow
 
 ### Summary
