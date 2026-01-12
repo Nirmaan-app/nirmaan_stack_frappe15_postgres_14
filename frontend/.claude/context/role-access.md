@@ -53,7 +53,10 @@ user_id === "Administrator" || role === "Nirmaan Admin Profile" || role === "Nir
 |---------|:-----:|:---:|:---------:|:--------:|:-----------:|:----------:|:---------:|:-----------:|:-----------:|:-------:|
 | Admin Options | Y | Y | - | - | - | - | - | - | - | - |
 | Critical PO Categories | Y | Y | Y | - | - | - | - | - | - | - |
-| Projects (standalone) | - | - | Y | - | - | - | - | - | - | - |
+| PO Tracker | Y | Y | Y | Y | Y | - | - | - | - | - |
+| Projects (standalone) | - | - | Y | - | Y | - | - | - | - | - |
+| Products (standalone) | - | - | - | - | Y | - | - | - | - | - |
+| Vendors (standalone) | - | - | - | - | Y | - | - | - | - | - |
 | Users (standalone) | - | - | - | - | - | - | - | - | - | Y |
 | Item Price Search | Y | Y | Y | Y | Y | Y | Y | - | - | - |
 | Procurement Requests | Y | Y | Y | - | Y | - | - | - | - | - |

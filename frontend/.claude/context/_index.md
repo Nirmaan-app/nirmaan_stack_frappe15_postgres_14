@@ -18,6 +18,8 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | Module | Location | Key Files |
 |--------|----------|-----------|
 | Assets | `src/pages/Assets/` | `assets.constants.ts` for doctypes/fields |
+| Critical PO Tracker | `src/pages/CriticalPOTracker/` | `types/index.ts` for interfaces, `utils.ts` for styling |
+| Critical PO Linking | `src/pages/ProcurementOrders/purchase-order/` | `hooks/useCriticalPOTaskLinking.ts`, `components/CriticalPOTaskLinkingSection.tsx` |
 | Invoices | `src/pages/tasks/invoices/` | `config/*.config.ts` for table config |
 | Milestones | `src/pages/Manpower-and-WorkMilestones/` | `hooks/useMilestoneReportData.ts`, `utils/milestoneHelpers.ts` |
 | PO Remarks | `src/pages/purchase-order/` | `hooks/usePORemarks.ts`, `components/PORemarks.tsx` |

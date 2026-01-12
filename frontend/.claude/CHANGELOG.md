@@ -4,6 +4,104 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-12: Critical PO Task Linking in PO Dispatch Workflow
+
+### Summary
+Added ability to link Purchase Orders to Critical PO Tasks during dispatch, with enterprise minimalist redesign of the dispatch sheet.
+
+### Files Created
+
+**Hook:**
+- `src/pages/ProcurementOrders/purchase-order/hooks/useCriticalPOTaskLinking.ts` - Manages linking state, fetches tasks for project, provides category/task options, handles linking logic
+
+**Components:**
+- `src/pages/ProcurementOrders/purchase-order/components/CriticalPOTaskLinkingSection.tsx` - React-select dropdowns for category/task selection, shows selected task details, linked POs with hover cards, status selection
+- `src/pages/ProcurementOrders/purchase-order/components/LinkedCriticalPOTag.tsx` - Tag displayed below PO status showing linked Critical PO Task with edit/unlink options
+- `src/pages/ProcurementOrders/purchase-order/components/POItemsHoverCard.tsx` - Hover card component for displaying PO items
+
+### Files Modified
+
+- `src/pages/ProcurementOrders/purchase-order/components/PODetails.tsx`:
+  - Added Critical PO Task linking hook and state
+  - Updated `handleDispatchPO` to include linking logic
+  - Added `LinkedCriticalPOTag` below status badge
+  - Revamped Sheet content with enterprise minimalist design
+  - Added confirmation dialogs for linking and skip scenarios
+  - Added Delivery Contact collapsible section
+
+### Key Features
+- Check if Critical PO setup exists for project before showing linking options
+- Searchable category and task dropdowns using react-select
+- Auto-set category when task is selected directly
+- Status selection: "Partially Released" or "Released"
+- Show which other POs are already linked to selected task
+- ItemsHoverCard integration for viewing linked PO contents
+- Confirmation flows for linking and skipping without linking
+
+### Technical Notes
+
+**React-Select in Radix Sheet:**
+Use `menuPosition="fixed"` instead of `menuPortalTarget={document.body}` to avoid focus trap blocking clicks.
+
+**filterOption data path:**
+In react-select's filterOption, `option.data` is TaskOption, `option.data.data` is CriticalPOTask.
+
+---
+
+## 2026-01-12: Critical PO Tracker Cross-Project Dashboard
+
+### Summary
+Created a new cross-project PO Tracker dashboard page that displays aggregated Critical PO Task statistics across all projects.
+
+### Files Created
+
+**Frontend Module (`src/pages/CriticalPOTracker/`):**
+- `critical-po-tracker-list.tsx` - Main list page with project cards grid, search, and refresh
+- `index.tsx` - Barrel export
+- `components/CriticalPOProjectCard.tsx` - Card component showing progress circle, release stats, and status breakdown
+- `types/index.ts` - TypeScript interfaces (ProjectWithCriticalPOStats, StatusCounts, CriticalPOTaskStatus)
+- `utils.ts` - Status styling utilities (getStatusStyle, getProgressColor, STATUS_DISPLAY_ORDER)
+
+**Backend API (`nirmaan_stack/api/critical_po_tasks/`):**
+- `get_projects_with_stats.py` - Aggregates Critical PO Task stats by project (excludes "Not Applicable" status from metrics)
+
+### Files Modified
+
+- `src/components/helpers/routesConfig.tsx` - Added `/critical-po-tracker` route
+- `src/components/layout/NewSidebar.tsx` - Added "PO Tracker" menu item, route mappings
+- `src/pages/projects/project.tsx` - Fixed URL query param race condition for Critical PO tab navigation
+
+### Access Control
+Roles with access: Admin, PMO Executive, Project Lead, Project Manager, Procurement Executive
+
+### API Endpoint
+```python
+# GET /api/method/nirmaan_stack.api.critical_po_tasks.get_projects_with_stats.get_projects_with_critical_po_stats
+# Returns: [{ project, project_name, total_tasks, released_tasks, status_counts }]
+```
+
+---
+
+## 2026-01-12: Procurement Executive Role Access Expansion
+
+### Summary
+Extended Procurement Executive role permissions to access Projects, Products, and Vendors standalone routes.
+
+### Files Modified
+- `src/components/layout/NewSidebar.tsx` - Added standalone menu items and route mappings for Procurement Executive
+
+---
+
+## 2026-01-12: Procurement Dashboard Redesign
+
+### Summary
+Complete visual overhaul of the procurement dashboard with improved categorization and cleaner visual hierarchy using modern card layout.
+
+### Files Modified
+- `src/components/layout/dashboards/procurement-dashboard.tsx` - Redesigned with categorized status cards and brand colors
+
+---
+
 ## 2026-01-10: Work Headers Configuration Redesign
 
 ### Summary
