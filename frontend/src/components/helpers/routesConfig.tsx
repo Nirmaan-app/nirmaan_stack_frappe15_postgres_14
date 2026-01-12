@@ -84,6 +84,10 @@ import { CriticalPOCategories } from "../layout/critical-po-categories";
 import CriticalPOTrackerList from "@/pages/CriticalPOTracker/critical-po-tracker-list";
 import CriticalPOTrackerDetail from "@/pages/CriticalPOTracker/critical-po-tracker-detail";
 
+//Work Plan Tracker
+import WorkPlanTrackerList from "@/pages/WorkPlanTracker/work-plan-tracker-list";
+import WorkPlanTrackerDetail from "@/pages/WorkPlanTracker/work-plan-tracker-detail";
+
 export const appRoutes: RouteObject[] = [
   // --- Public Routes ---
   { path: "/login", element: <Login /> },
@@ -303,6 +307,22 @@ export const appRoutes: RouteObject[] = [
           },
           // ======================================================
           // --- END: CRITICAL PO TRACKER SECTION ---
+          // ======================================================
+
+          // ======================================================
+          // --- START: WORK PLAN TRACKER SECTION ---
+          // ======================================================
+          {
+            path: "work-plan-tracker",
+            children: [
+              // List View (e.g., /work-plan-tracker)
+              { index: true, element: <WorkPlanTrackerList /> },
+              // Detail View (e.g., /work-plan-tracker/PROJ-0001)
+              { path: ":projectId", element: <WorkPlanTrackerDetail /> },
+            ],
+          },
+          // ======================================================
+          // --- END: WORK PLAN TRACKER SECTION ---
           // ======================================================
 
           // --- Projects Section ---

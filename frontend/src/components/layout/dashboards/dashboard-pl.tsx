@@ -97,6 +97,18 @@ export const ProjectLead = () => {
                                 {approved_quotes_error && <p>Error</p>}</p>
                         </Link>
                     </Card>
+                    <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
+                        <Link to="/critical-po-tracker">
+                            <p className="text-center py-6 font-bold text-gray-500">PO Tracker</p>
+                            <p className="text-center text-red-400 text-sm font-light py-6 font-bold text-gray-500">Track critical PO releases</p>
+                        </Link>
+                    </Card>
+                    <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
+                        <Link to="/work-plan-tracker">
+                            <p className="text-center py-6 font-bold text-gray-500">Work Plan Tracker</p>
+                            <p className="text-center text-red-400 text-sm font-light py-6 font-bold text-gray-500">Track work plans across projects</p>
+                        </Link>
+                    </Card>
                 </div>
             </div>
         </div>
