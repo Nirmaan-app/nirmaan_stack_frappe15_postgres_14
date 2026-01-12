@@ -242,12 +242,26 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(role == "Nirmaan Project Lead Profile" || role == "Nirmaan Accountant Profile"
+    ...(role == "Nirmaan Project Lead Profile" || role == "Nirmaan Accountant Profile" || role == "Nirmaan Procurement Executive Profile"
       ? [
         {
           key: "/projects",
           icon: BlendIcon,
           label: "Projects",
+        },
+      ]
+      : []),
+    ...(role == "Nirmaan Procurement Executive Profile"
+      ? [
+        {
+          key: "/products",
+          icon: ShoppingCart,
+          label: "Products",
+        },
+        {
+          key: "/vendors",
+          icon: Store,
+          label: "Vendors",
         },
       ]
       : []),
@@ -555,6 +569,7 @@ export function NewSidebar() {
     "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "product-packages", "milestone-packages", "design-packages", "critical-po-categories", "all-AQs"],
     "/asset-management": ["asset-management"],
     "/projects": ["projects"],
+    "/products": ["products"],
     "/vendors": ["vendors"],
     "/customers": ["customers"],
     "/item-price": ["item-price"],
@@ -574,12 +589,13 @@ export function NewSidebar() {
 
   const openKey = useMemo(() => {
     // For roles with standalone menu items, prioritize standalone routes
-    const standaloneRoles = ["Nirmaan Project Lead Profile", "Nirmaan Accountant Profile"];
+    const standaloneRoles = ["Nirmaan Project Lead Profile", "Nirmaan Accountant Profile", "Nirmaan Procurement Executive Profile"];
     const isStandaloneRole = standaloneRoles.includes(role);
 
     // Check standalone routes first for standalone roles
     if (isStandaloneRole) {
       if (selectedKeys === "projects") return "/projects";
+      if (selectedKeys === "products") return "/products";
       if (selectedKeys === "vendors") return "/vendors";
       if (selectedKeys === "customers") return "/customers";
     }
@@ -645,7 +661,7 @@ export function NewSidebar() {
                 <SidebarMenuItem>
 
                   {new Set(["Dashboard", "Item Price Search", "Procurement Requests", "Purchase Orders", "Project Payments", "Credit Payments", "Sent Back Requests", "Projects", "Work Orders", "In-Flow Payments", "Invoice Recon", "Reports",
-                    "Design Tracker", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses", "Users", "Assets", "Vendors", "Customers"]).has(item?.label) ? (
+                    "Design Tracker", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses", "Users", "Assets", "Vendors", "Customers", "Products"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
                         ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"
