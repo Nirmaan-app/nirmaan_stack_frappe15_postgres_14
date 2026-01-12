@@ -11,6 +11,7 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | [role-access.md](./role-access.md) | Access Control | Role checks, sidebar visibility, page permissions |
 | [testing.md](./testing.md) | Feature Testing | After implementing forms, dialogs, persistence, multi-step workflows |
 | [domain/invoices.md](./domain/invoices.md) | Invoices | PO/SR invoices, 2B reconciliation, date filters |
+| [domain/milestones.md](./domain/milestones.md) | Milestones | Daily progress reports, zone tracking, work headers |
 
 ### Module References (in-code)
 
@@ -18,8 +19,10 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 |--------|----------|-----------|
 | Assets | `src/pages/Assets/` | `assets.constants.ts` for doctypes/fields |
 | Invoices | `src/pages/tasks/invoices/` | `config/*.config.ts` for table config |
+| Milestones | `src/pages/Manpower-and-WorkMilestones/` | `hooks/useMilestoneReportData.ts`, `utils/milestoneHelpers.ts` |
 | PO Remarks | `src/pages/purchase-order/` | `hooks/usePORemarks.ts`, `components/PORemarks.tsx` |
 | SR Remarks | `src/pages/ServiceRequests/approved-sr/` | `hooks/useSRRemarks.ts`, `components/SRRemarks.tsx` |
+| Work Headers | `src/components/` | `workHeaderMilestones.tsx` (config component) |
 
 ---
 
@@ -57,7 +60,8 @@ const { role, user_id } = useUserData();
     ├── role-access.md    # Role-based access control reference
     ├── testing.md        # Playwright browser testing guide
     └── domain/
-        └── invoices.md   # Invoice management & 2B reconciliation
+        ├── invoices.md   # Invoice management & 2B reconciliation
+        └── milestones.md # Daily progress reports & zone tracking
 ```
 
 ---
