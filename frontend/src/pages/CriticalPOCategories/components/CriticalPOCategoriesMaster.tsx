@@ -3,8 +3,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/use-toast";
 import { TailSpin } from "react-loader-spinner";
-import { Pencil, PlusCircle, Trash2, FileEdit, AlertTriangle } from "lucide-react";
+import { Pencil, PlusCircle, Trash2, FileEdit, AlertTriangle, Package } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -44,8 +51,14 @@ import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDocList, useFrappeP
 export interface CriticalPOCategory {
   name: string; // Frappe ID
   category_name: string;
+  work_package?: string; // Link to Work Packages
   creation?: string;
   modified?: string;
+}
+
+export interface WorkPackage {
+  name: string;
+  work_package_name: string;
 }
 
 export interface CriticalPOItem {
@@ -61,6 +74,7 @@ export interface CriticalPOItem {
 // --- Zod Schemas ---
 const categoryFormSchema = z.object({
   category_name: z.string().min(1, "Category Name is required."),
+  work_package: z.string().optional(),
 });
 type CategoryFormValues = z.infer<typeof categoryFormSchema>;
 
@@ -77,7 +91,7 @@ type ItemFormValues = z.infer<typeof itemFormSchema>;
 // =========================================================================
 
 export const CriticalPOCategoriesMaster: React.FC = () => {
-  // 1. Fetch Categories
+  // 1. Fetch Categories (including work_package)
   const {
     data: categories,
     isLoading: catLoading,
@@ -85,7 +99,7 @@ export const CriticalPOCategoriesMaster: React.FC = () => {
     mutate: mutateCategories
   } = useFrappeGetDocList<CriticalPOCategory>(
     "Critical PO Category",
-    { fields: ["name", "category_name"], limit: 0, orderBy: { field: "creation", order: "asc" } }
+    { fields: ["name", "category_name", "work_package"], limit: 0, orderBy: { field: "creation", order: "asc" } }
   );
 
   // 2. Fetch Items
@@ -99,7 +113,16 @@ export const CriticalPOCategoriesMaster: React.FC = () => {
     { fields: ["name", "item_name", "sub_category", "critical_po_category", "release_timeline_offset"], limit: 0, orderBy: { field: "creation", order: "asc" } }
   );
 
-  if (catLoading || itemLoading) {
+  // 3. Fetch Work Packages for dropdown
+  const {
+    data: workPackages,
+    isLoading: wpLoading,
+  } = useFrappeGetDocList<WorkPackage>(
+    "Work Packages",
+    { fields: ["name", "work_package_name"], limit: 0, orderBy: { field: "work_package_name", order: "asc" } }
+  );
+
+  if (catLoading || itemLoading || wpLoading) {
     return (
       <div className="flex justify-center items-center h-64">
         <TailSpin width={40} height={40} color="#dc2626" />
@@ -119,10 +142,10 @@ export const CriticalPOCategoriesMaster: React.FC = () => {
     <div className="flex-1 space-y-6 p-4 md:p-6">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight text-gray-800">Critical PO Categories</h2>
-          <p className="text-sm text-gray-500">Manage critical PO categories and their initial template items.</p>
+          <h2 className="text-2xl font-bold tracking-tight text-slate-800">Critical PO Categories</h2>
+          <p className="text-sm text-slate-500">Manage critical PO categories and their initial template items.</p>
         </div>
-        <CreateCategoryDialog mutate={mutateCategories} />
+        <CreateCategoryDialog mutate={mutateCategories} workPackages={workPackages || []} />
       </div>
 
       <Separator />
@@ -130,8 +153,8 @@ export const CriticalPOCategoriesMaster: React.FC = () => {
       <div className="space-y-6">
         {categories?.length === 0 ? (
           <div className="text-center py-10">
-            <p className="text-gray-500 mb-4">No Critical PO Categories found.</p>
-            <CreateCategoryDialog mutate={mutateCategories} />
+            <p className="text-slate-500 mb-4">No Critical PO Categories found.</p>
+            <CreateCategoryDialog mutate={mutateCategories} workPackages={workPackages || []} />
           </div>
         ) : (
           categories?.map((cat) => (
@@ -141,6 +164,7 @@ export const CriticalPOCategoriesMaster: React.FC = () => {
               items={items?.filter(t => t.critical_po_category === cat.name) || []}
               mutateCategories={mutateCategories}
               mutateItems={mutateItems}
+              workPackages={workPackages || []}
             />
           ))
         )}
@@ -157,20 +181,24 @@ export const CriticalPOCategoriesMaster: React.FC = () => {
 // --- 1. Dialog: Create Category ---
 interface CreateCategoryDialogProps {
   mutate: () => Promise<any>;
+  workPackages: WorkPackage[];
 }
 
-const CreateCategoryDialog: React.FC<CreateCategoryDialogProps> = ({ mutate }) => {
+const CreateCategoryDialog: React.FC<CreateCategoryDialogProps> = ({ mutate, workPackages }) => {
   const [open, setOpen] = useState(false);
   const { createDoc, loading } = useFrappeCreateDoc();
 
   const form = useForm<CategoryFormValues>({
     resolver: zodResolver(categoryFormSchema),
-    defaultValues: { category_name: "" },
+    defaultValues: { category_name: "", work_package: "" },
   });
 
   const onSubmit = async (values: CategoryFormValues) => {
     try {
-      await createDoc("Critical PO Category", { category_name: values.category_name });
+      await createDoc("Critical PO Category", {
+        category_name: values.category_name,
+        work_package: values.work_package || null,
+      });
       toast({ title: "Success", description: "Category created successfully.", variant: "success" });
       form.reset();
       await mutate();
@@ -183,14 +211,14 @@ const CreateCategoryDialog: React.FC<CreateCategoryDialogProps> = ({ mutate }) =
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button className="bg-primary hover:bg-primary/90">
-          <PlusCircle className="mr-2 h-4 w-4" /> Add New Critical PO Category
+        <Button className="bg-slate-900 hover:bg-slate-800 text-white">
+          <PlusCircle className="mr-2 h-4 w-4" /> Add Category
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Create Critical PO Category</DialogTitle>
-          <DialogDescription>
+          <DialogTitle className="text-slate-800">Create Critical PO Category</DialogTitle>
+          <DialogDescription className="text-slate-500">
             e.g., Structural, Electrical, HVAC, Plumbing
           </DialogDescription>
         </DialogHeader>
@@ -201,17 +229,47 @@ const CreateCategoryDialog: React.FC<CreateCategoryDialogProps> = ({ mutate }) =
               name="category_name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Category Name</FormLabel>
+                  <FormLabel className="text-sm font-medium text-slate-700">Category Name</FormLabel>
                   <FormControl>
-                    <Input placeholder="Category Name" {...field} />
+                    <Input
+                      placeholder="Category Name"
+                      className="border-slate-300 focus:border-slate-500 focus:ring-slate-500"
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
-            <div className="flex justify-end space-x-2">
+            <FormField
+              control={form.control}
+              name="work_package"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-sm font-medium text-slate-700">
+                    Work Package <span className="text-slate-400 font-normal">(Optional)</span>
+                  </FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value || ""}>
+                    <FormControl>
+                      <SelectTrigger className="border-slate-300 focus:border-slate-500 focus:ring-slate-500">
+                        <SelectValue placeholder="Select a work package" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {workPackages.map((wp) => (
+                        <SelectItem key={wp.name} value={wp.name}>
+                          {wp.work_package_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <div className="flex justify-end space-x-2 pt-2">
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={loading}>
+              <Button type="submit" disabled={loading} className="bg-slate-900 hover:bg-slate-800">
                 {loading ? <TailSpin height={20} width={20} color="white" /> : "Create"}
               </Button>
             </div>
@@ -222,64 +280,84 @@ const CreateCategoryDialog: React.FC<CreateCategoryDialogProps> = ({ mutate }) =
   );
 };
 
-// --- 2. Dialog: Edit Category (Rename) ---
+// --- 2. Dialog: Edit Category (Rename + Work Package) ---
 interface EditCategoryDialogProps {
   category: CriticalPOCategory;
   mutate: () => Promise<any>;
   mutateItems: () => Promise<any>;
+  workPackages: WorkPackage[];
 }
 
-const EditCategoryDialog: React.FC<EditCategoryDialogProps> = ({ category, mutate, mutateItems }) => {
+const EditCategoryDialog: React.FC<EditCategoryDialogProps> = ({ category, mutate, mutateItems, workPackages }) => {
   const [open, setOpen] = useState(false);
   const { call: renameDoc, loading: renameLoading } = useFrappePostCall(
     'frappe.model.rename_doc.update_document_title'
   );
+  const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
 
   const form = useForm<CategoryFormValues>({
     resolver: zodResolver(categoryFormSchema),
-    defaultValues: { category_name: category.category_name },
+    defaultValues: {
+      category_name: category.category_name,
+      work_package: category.work_package || "",
+    },
   });
 
   const onSubmit = async (values: CategoryFormValues) => {
-    // Check if the name actually changed
-    if (values.category_name === category.category_name) {
+    const nameChanged = values.category_name !== category.category_name;
+    const packageChanged = (values.work_package || null) !== (category.work_package || null);
+
+    // Check if any changes were made
+    if (!nameChanged && !packageChanged) {
       toast({ title: "Info", description: "No changes detected.", variant: "default" });
       setOpen(false);
       return;
     }
 
     try {
-      const payload = {
-        doctype: "Critical PO Category",
-        docname: category.name,
-        name: values.category_name,
-        merge: 0,
-        freeze: true,
-        freeze_message: `Renaming Category "${category.category_name}" and updating related records...`,
-      };
+      // Handle rename separately if name changed
+      if (nameChanged) {
+        const payload = {
+          doctype: "Critical PO Category",
+          docname: category.name,
+          name: values.category_name,
+          merge: 0,
+          freeze: true,
+          freeze_message: `Renaming Category "${category.category_name}" and updating related records...`,
+        };
+        await renameDoc(payload);
+      }
 
-      await renameDoc(payload);
+      // Handle work package update (can update even without rename)
+      if (packageChanged) {
+        const docName = nameChanged ? values.category_name : category.name;
+        await updateDoc("Critical PO Category", docName, {
+          work_package: values.work_package || null,
+        });
+      }
 
       toast({ title: "Success", description: "Category updated.", variant: "success" });
       await mutate();
       await mutateItems();
       setOpen(false);
     } catch (error: any) {
-      console.error("Failed to rename Critical PO Category:", error);
-      toast({ title: "Error", description: `Failed to rename category: ${error.message || 'Unknown error'}`, variant: "destructive" });
+      console.error("Failed to update Critical PO Category:", error);
+      toast({ title: "Error", description: `Failed to update category: ${error.message || 'Unknown error'}`, variant: "destructive" });
     }
   };
+
+  const isLoading = renameLoading || updateLoading;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button variant="ghost" size="icon" className="h-6 w-6">
-          <FileEdit className="h-4 w-4 text-gray-500 hover:text-blue-600" />
+          <FileEdit className="h-4 w-4 text-slate-500 hover:text-blue-600" />
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Edit Category</DialogTitle>
+          <DialogTitle className="text-slate-800">Edit Category</DialogTitle>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -288,16 +366,47 @@ const EditCategoryDialog: React.FC<EditCategoryDialogProps> = ({ category, mutat
               name="category_name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Category Name</FormLabel>
-                  <FormControl><Input {...field} /></FormControl>
+                  <FormLabel className="text-sm font-medium text-slate-700">Category Name</FormLabel>
+                  <FormControl>
+                    <Input
+                      className="border-slate-300 focus:border-slate-500 focus:ring-slate-500"
+                      {...field}
+                    />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
-            <div className="flex justify-end space-x-2">
+            <FormField
+              control={form.control}
+              name="work_package"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-sm font-medium text-slate-700">
+                    Work Package <span className="text-slate-400 font-normal">(Optional)</span>
+                  </FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value || ""}>
+                    <FormControl>
+                      <SelectTrigger className="border-slate-300 focus:border-slate-500 focus:ring-slate-500">
+                        <SelectValue placeholder="Select a work package" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {workPackages.map((wp) => (
+                        <SelectItem key={wp.name} value={wp.name}>
+                          {wp.work_package_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <div className="flex justify-end space-x-2 pt-2">
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={renameLoading}>
-                {renameLoading ? <TailSpin height={20} width={20} color="white" /> : "Save"}
+              <Button type="submit" disabled={isLoading} className="bg-slate-900 hover:bg-slate-800">
+                {isLoading ? <TailSpin height={20} width={20} color="white" /> : "Save"}
               </Button>
             </div>
           </form>
@@ -569,16 +678,30 @@ interface CategoryCardProps {
   items: CriticalPOItem[];
   mutateCategories: () => Promise<any>;
   mutateItems: () => Promise<any>;
+  workPackages: WorkPackage[];
 }
 
-const CategoryCard: React.FC<CategoryCardProps> = ({ category, items, mutateCategories, mutateItems }) => {
+const CategoryCard: React.FC<CategoryCardProps> = ({ category, items, mutateCategories, mutateItems, workPackages }) => {
+  // Look up work package name from ID
+  const workPackageName = category.work_package
+    ? workPackages.find((wp) => wp.name === category.work_package)?.work_package_name
+    : null;
+
   return (
     <Card className="hover:animate-shadow-drop-center transition-all duration-300">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-lg font-semibold flex items-center gap-2 text-gray-800">
-          {category.category_name}
-          <EditCategoryDialog category={category} mutate={mutateCategories} mutateItems={mutateItems} />
-        </CardTitle>
+        <div className="flex items-center gap-2">
+          <CardTitle className="text-lg font-semibold flex items-center gap-2 text-gray-800">
+            {category.category_name}
+            <EditCategoryDialog category={category} mutate={mutateCategories} mutateItems={mutateItems} workPackages={workPackages} />
+          </CardTitle>
+          {workPackageName && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-xs font-medium">
+              <Package className="w-3 h-3" />
+              {workPackageName}
+            </span>
+          )}
+        </div>
         <CreateItemDialog categoryId={category.name} mutate={mutateItems} />
       </CardHeader>
       <CardContent className="pt-0">

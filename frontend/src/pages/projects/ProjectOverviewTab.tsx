@@ -1,3 +1,4 @@
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -30,7 +31,7 @@ import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getTotalInflowAmount } from "@/utils/getAmounts";
 import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
-import { CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, CirclePlus, ListChecks, LinkIcon } from "lucide-react";
+import { AlertCircle, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, CirclePlus, ListChecks, LinkIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link, useNavigate } from "react-router-dom";
@@ -255,6 +256,15 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Warning alert when customer is not selected */}
+      {!projectData?.customer && (
+        <Alert variant="warning" className="bg-amber-50 border-amber-200">
+          <AlertCircle className="h-4 w-4 text-amber-600" />
+          <AlertDescription className="text-amber-700">
+            No customer is assigned to this project. Project Invoice and Inflow Upload will not work until a customer is selected.
+          </AlertDescription>
+        </Alert>
+      )}
       <Card>
         <CardHeader>
           <CardTitle>

@@ -5,11 +5,11 @@ export type ProjectReportType = 'Cash Sheet' | 'Inflow Report' | 'Outflow Report
 
 export type VendorReportType = 'Vendor Ledger';
 // Define the specific report options for POs
-export type POReportOption = 'Pending Invoices' | 'PO with Excess Payments' | 'Dispatched for 1 days';
+export type POReportOption = 'Pending Invoices' | 'PO with Excess Payments' | 'Dispatched for 1 days' | '2B Reconcile Report';
 
 // Define the specific report options for SRs (as per your request)
 // The 'value' for "Excess Payments" will be 'PO with Excess Payments'
-export type SROption = 'Pending Invoices' | 'PO with Excess Payments';
+export type SROption = 'Pending Invoices' | 'PO with Excess Payments' | '2B Reconcile Report';
 
 // Combined type for any selectable report
 export type ReportType = ProjectReportType | VendorReportType | POReportOption | SROption | null;

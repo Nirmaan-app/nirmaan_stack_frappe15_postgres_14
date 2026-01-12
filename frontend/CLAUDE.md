@@ -250,6 +250,52 @@ import { useUserData } from "@/hooks/useUserData"
 - Use Tailwind utility classes for styling
 - Use CVA (class-variance-authority) for variant-based component APIs
 
+### Step-Based Wizard Architecture
+
+For complex multi-step forms (like project creation), use the modular wizard pattern:
+
+```
+pages/[feature]/[form-name]/
+├── index.tsx              # Main orchestrator (form state, navigation, submission)
+├── schema.ts              # Zod schema, types, field mappings per step
+├── constants.ts           # Wizard config (steps, options)
+├── hooks/
+│   └── use[Form]Data.ts   # Data fetching for dropdowns/lookups
+└── steps/
+    ├── index.ts           # Barrel export
+    ├── Step1.tsx          # Each step ~150-250 lines
+    ├── Step2.tsx
+    └── ReviewStep.tsx     # Final review before submission
+```
+
+**Key components** (in `src/components/ui/`):
+- `wizard-steps.tsx` - Visual step progress indicator
+- `draft-indicator.tsx` - Auto-save status display
+- `draft-resume-dialog.tsx` / `draft-cancel-dialog.tsx` - Draft management dialogs
+
+**Draft persistence** (optional):
+- Use Zustand store with `persist` middleware for localStorage
+- `useProjectDraftManager` hook pattern for auto-save with debounce
+
+**Multi-select user assignment pattern:**
+When assigning multiple users to roles (e.g., project leads, managers):
+```typescript
+// Schema: Store as array of {label, value} for react-select compatibility
+assignees: z.object({
+  project_leads: z.array(z.object({ label: z.string(), value: z.string() })).optional(),
+  // ...
+}).optional()
+
+// Submission: Create User Permissions after document creation
+const uniqueUsers = new Set<string>();
+assignees?.project_leads?.forEach(u => uniqueUsers.add(u.value));
+for (const userId of uniqueUsers) {
+  await createDoc("User Permission", { user: userId, allow: "Projects", for_value: projectName });
+}
+```
+- Don't store assignees in the document itself - use User Permissions for access control
+- Use `ProjectCreationDialog` pattern for multi-stage progress (creating → assigning)
+
 ### Working with Procurement Flow
 
 The procurement flow is the core workflow:
@@ -301,3 +347,4 @@ The system uses 10 role profiles for access control. Role checks use `useUserDat
 - **Deprecated Components**: `src/pages/Retired Components/` contains old implementations for reference
 - **Role-Based Access**: User roles from Frappe control UI visibility and permissions (see Role-Based Access Control section above)
 - **Project Context**: Many operations are scoped to a selected project (stored in UserContext)
+- **Customer Required for Financials**: Projects without a customer cannot have invoices or inflow payments created - UI shows validation warnings and disables forms

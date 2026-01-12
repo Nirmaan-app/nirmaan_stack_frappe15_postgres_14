@@ -6,6 +6,9 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
+  "links_section",
+  "work_package",
+  "details_section",
   "category_name"
  ],
  "fields": [
@@ -14,12 +17,28 @@
    "fieldtype": "Data",
    "label": "Category Name",
    "unique": 1
+  },
+  {
+   "fieldname": "links_section",
+   "fieldtype": "Section Break",
+   "label": "Links"
+  },
+  {
+   "fieldname": "work_package",
+   "fieldtype": "Link",
+   "label": "Work Package",
+   "options": "Work Packages"
+  },
+  {
+   "fieldname": "details_section",
+   "fieldtype": "Section Break",
+   "label": "Details"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-12-15 21:00:16.876900",
+ "modified": "2026-01-10 23:05:07.225779",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Design Tracker Category",

@@ -28,10 +28,14 @@ import {
 import {
   AlertTriangle,
   CheckCheck,
+  ChevronDown,
+  ChevronRight,
   CircleX,
   Download,
   Eye,
+  FileText,
   Mail,
+  MessageSquare,
   Phone,
   Printer,
   Send,
@@ -39,6 +43,14 @@ import {
   TriangleAlert,
   Undo2,
 } from "lucide-react";
+import { useCriticalPOTaskLinking } from "../hooks/useCriticalPOTaskLinking";
+import { CriticalPOTaskLinkingSection } from "./CriticalPOTaskLinkingSection";
+import { LinkedCriticalPOTag } from "./LinkedCriticalPOTag";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import React, { useCallback, useRef, useState, useMemo } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate } from "react-router-dom";
@@ -174,6 +186,18 @@ export const PODetails: React.FC<PODetailsProps> = ({
     setDeleteDialog((prevState) => !prevState);
   }, []);
 
+  // Critical PO Task Linking states
+  const [contactSectionExpanded, setContactSectionExpanded] = useState(false);
+  const [dispatchConfirmDialog, setDispatchConfirmDialog] = useState(false);
+  const [skipLinkingDialog, setSkipLinkingDialog] = useState(false);
+
+  // Critical PO Task Linking hook
+  const criticalPOLinking = useCriticalPOTaskLinking({
+    projectId: po?.project || "",
+    poName: po?.name || "",
+    enabled: dispatchPODialog && !!po?.project,
+  });
+
   const handlePhoneChange = useCallback((e: any) => {
     const value = e.target.value.replace(/\D/g, "").slice(0, 10);
     setPhoneNumber(value);
@@ -183,8 +207,17 @@ export const PODetails: React.FC<PODetailsProps> = ({
     setEmail(e.target.value);
   }, []);
 
-  const handleDispatchPO = async () => {
+  const handleDispatchPO = async (linkCriticalTask: boolean = false) => {
     try {
+      // If linking to critical task, do that first
+      if (linkCriticalTask && criticalPOLinking.selectedTask && criticalPOLinking.selectedStatus) {
+        const linkSuccess = await criticalPOLinking.linkPOToTask();
+        if (!linkSuccess) {
+          // Linking failed, don't proceed with dispatch
+          return;
+        }
+      }
+
       // Create the update payload with status "Dispatched"
       const updateData: {
         status: string;
@@ -211,10 +244,16 @@ export const PODetails: React.FC<PODetailsProps> = ({
         variant: "success",
       });
 
+      // Reset critical PO linking state
+      criticalPOLinking.resetSelection();
+      setDispatchConfirmDialog(false);
+      setSkipLinkingDialog(false);
+      toggleDispatchPODialog();
+
       navigate(
         `/purchase-orders/${po.name.replaceAll("/", "&=")}?tab=Dispatched+PO`
       );
-    } catch (error) {
+    } catch (error: any) {
       console.log(
         "error while updating the status of the PO to dispatch",
         error?.message
@@ -226,6 +265,22 @@ export const PODetails: React.FC<PODetailsProps> = ({
       });
     }
   };
+
+  // Handle the "Mark as Dispatched" button click
+  const handleMarkAsDispatchedClick = useCallback(() => {
+    const { hasCriticalPOSetup, selectedTask, selectedStatus } = criticalPOLinking;
+
+    if (selectedTask && selectedStatus) {
+      // Task selected with status - show linking confirmation
+      setDispatchConfirmDialog(true);
+    } else if (hasCriticalPOSetup && !selectedTask) {
+      // Setup exists but no task selected - show skip warning
+      setSkipLinkingDialog(true);
+    } else {
+      // No setup exists - proceed directly with dispatch confirmation
+      setDispatchConfirmDialog(true);
+    }
+  }, [criticalPOLinking]);
 
   const handleRevertPO = async () => {
     try {
@@ -440,6 +495,12 @@ export const PODetails: React.FC<PODetailsProps> = ({
                     {po?.status}
                   </Badge>
                 </div>
+                {/* Linked Critical PO Task Tag */}
+                <LinkedCriticalPOTag
+                  poName={po?.name || ""}
+                  projectId={po?.project || ""}
+                  onUpdate={poMutate}
+                />
               </div>
 
               {/* Approved By - Desktop Only */}
@@ -704,349 +765,390 @@ export const PODetails: React.FC<PODetailsProps> = ({
                       )}
                     </Tooltip>
                   )}
+                {/* Dispatch PO Sheet - Revamped Design */}
                 <Sheet
                   open={dispatchPODialog}
-                  onOpenChange={toggleDispatchPODialog}
+                  onOpenChange={(open) => {
+                    toggleDispatchPODialog();
+                    if (!open) {
+                      criticalPOLinking.resetSelection();
+                      setContactSectionExpanded(false);
+                    }
+                  }}
                 >
-                  <SheetContent className="overflow-y-auto">
-                    <Card className="border-yellow-500 shadow-lg overflow-auto my-4">
-                      <CardHeader className="bg-yellow-50">
-                        <CardTitle className="text-2xl text-yellow-800">
-                          Send this PO to{" "}
-                          <span className="font-bold text-yellow-600">
-                            {po?.vendor_name}
-                          </span>
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent className="p-6">
-                        <div className="space-y-6">
-                          <div className="bg-yellow-100 p-4 rounded-lg">
-                            <h3 className="font-semibold text-yellow-800 mb-2 flex items-center">
-                              <AlertTriangle className="w-5 h-5 mr-2" />
-                              Important Notes
-                            </h3>
-                            <ul className="list-disc list-inside space-y-1 text-sm text-yellow-700">
-                              <li>
-                                You can add{" "}
-                                <span className="font-bold">
-                                  charges, notes & payment terms
-                                </span>{" "}
-                                above.
-                              </li>
-                              <li>
-                                You can also{" "}
-                                <span className="font-bold">merge POs</span>{" "}
-                                with same vendor and project. Look out for{" "}
-                                <span className="font-bold">Heads Up</span> box
-                                above.
-                              </li>
-                              <li>
-                                You can download the prepared PO to notify
-                                vendor:{" "}
-                                <span className="font-medium">
-                                  {po?.vendor_name}
-                                </span>{" "}
-                                through <span> Contact Options</span> section
-                                below
-                              </li>
-                            </ul>
-                          </div>
-                          <Separator />
+                  <SheetContent
+                    className="w-full sm:max-w-[480px] p-0 overflow-hidden flex flex-col"
+                    style={{ maxHeight: '100vh' }}
+                  >
+                    {/* Header */}
+                    <div className="px-5 py-4 border-b border-slate-200 bg-white">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-1">
+                            Dispatch Purchase Order
+                          </p>
+                          <h2 className="text-lg font-semibold text-slate-800">
+                            Send to{" "}
+                            <span className="text-amber-600">{po?.vendor_name}</span>
+                          </h2>
+                        </div>
+                        <Badge
+                          variant="outline"
+                          className="font-mono text-xs bg-slate-50 border-slate-300"
+                        >
+                          {po?.name?.split("/")[1] || po?.name}
+                        </Badge>
+                      </div>
+                    </div>
 
-                          <div className="space-y-4">
-                            <h3 className="font-semibold text-lg">
-                              Vendor Contact Options
-                            </h3>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <div>
-                                <Label
-                                  htmlFor="phone"
-                                  className="text-sm font-medium"
-                                >
-                                  Phone Number
-                                </Label>
-                                <div className="flex flex-col mt-1">
-                                  <div className="flex">
-                                    <Input
-                                      id="phone"
-                                      type="tel"
-                                      placeholder="Enter 10-digit number"
-                                      value={phoneNumber}
-                                      onChange={handlePhoneChange}
-                                      className="rounded-r-none"
-                                    />
-                                    <Dialog>
-                                      <DialogTrigger asChild>
-                                        <Button
-                                          className="rounded-l-none bg-green-600 hover:bg-green-700"
-                                          disabled={phoneNumber.length !== 10}
-                                        >
-                                          <Phone className="w-4 h-4 mr-2" />
-                                          WhatsApp
-                                        </Button>
-                                      </DialogTrigger>
-                                      <DialogContent>
-                                        <DialogHeader>
-                                          <DialogTitle className="text-center">
-                                            Send PO via WhatsApp
-                                          </DialogTitle>
-                                          <DialogDescription className="text-center">
-                                            Download the PO and send it via
-                                            WhatsApp to {phoneNumber}
-                                          </DialogDescription>
-                                        </DialogHeader>
-                                        <div className="flex justify-center space-x-4">
-                                          <Button
-                                            onClick={togglePoPdfSheet}
-                                            variant="outline"
-                                          >
-                                            <Download className="h-4 w-4 mr-2" />
-                                            PO PDF
-                                          </Button>
-                                          <Button
-                                            onClick={() =>
-                                              window.open(
-                                                `https://wa.me/${phoneNumber}`
-                                              )
-                                            }
-                                            className="bg-green-600 hover:bg-green-700"
-                                          >
-                                            <CheckCheck className="h-4 w-4 mr-2" />
-                                            Open WhatsApp
-                                          </Button>
-                                        </div>
-                                      </DialogContent>
-                                    </Dialog>
-                                  </div>
-                                </div>
+                    {/* Scrollable Content */}
+                    <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 bg-slate-50">
+
+                      {/* Critical PO Task Linking Section */}
+                      <CriticalPOTaskLinkingSection linkingState={criticalPOLinking} />
+
+                      {/* Vendor Contact Options (Collapsible) */}
+                      <Collapsible open={contactSectionExpanded} onOpenChange={setContactSectionExpanded}>
+                        <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
+                          <CollapsibleTrigger className="w-full px-4 py-3 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                            <div className="flex items-center gap-2">
+                              <div className="w-6 h-6 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center">
+                                <MessageSquare className="w-3.5 h-3.5" />
                               </div>
-                              <div>
-                                <Label
-                                  htmlFor="email"
-                                  className="text-sm font-medium"
-                                >
-                                  Email
-                                </Label>
-                                <div className="flex flex-col mt-1">
-                                  <div className="flex">
-                                    <Input
-                                      id="email"
-                                      type="email"
-                                      placeholder="Enter email address"
-                                      value={email}
-                                      onChange={handleEmailChange}
-                                      className="rounded-r-none"
-                                    />
-                                    <Dialog>
-                                      <DialogTrigger asChild>
-                                        <Button
-                                          className="rounded-l-none bg-blue-600 hover:bg-blue-700"
-                                          disabled={
-                                            !email.trim() ||
-                                            !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
-                                              email
-                                            )
-                                          }
-                                        >
-                                          <Mail className="w-4 h-4 mr-2" />
-                                          Email
-                                        </Button>
-                                      </DialogTrigger>
-                                      <DialogContent className="max-w-3xl">
-                                        <DialogHeader>
-                                          <DialogTitle>
-                                            Send PO via Email
-                                          </DialogTitle>
-                                          <DialogDescription>
-                                            Customize your email and send the PO
-                                            to {email}
-                                          </DialogDescription>
-                                        </DialogHeader>
-                                        <div className="space-y-4">
-                                          <div>
-                                            <Label htmlFor="emailSubject">
-                                              Subject
-                                            </Label>
-                                            <Input
-                                              id="emailSubject"
-                                              value={emailSubject}
-                                              onChange={(e) =>
-                                                setEmailSubject(e.target.value)
-                                              }
-                                              placeholder="Enter email subject"
-                                            />
-                                          </div>
-                                          <div>
-                                            <Label htmlFor="emailBody">
-                                              Body
-                                            </Label>
-                                            <Textarea
-                                              id="emailBody"
-                                              value={emailBody}
-                                              onChange={(e) =>
-                                                setEmailBody(e.target.value)
-                                              }
-                                              placeholder="Enter email body"
-                                              rows={5}
-                                            />
-                                          </div>
-                                          <div className="bg-gray-100 p-4 rounded-md">
-                                            <h4 className="font-medium mb-2">
-                                              Email Preview
-                                            </h4>
-                                            <p>
-                                              <strong>To:</strong> {email}
-                                            </p>
-                                            <p>
-                                              <strong>Subject:</strong>{" "}
-                                              {emailSubject}
-                                            </p>
-                                            <p>
-                                              <strong>Body:</strong> {emailBody}
-                                            </p>
-                                          </div>
-                                        </div>
-                                        <DialogFooter>
-                                          <Button
-                                            onClick={togglePoPdfSheet}
-                                            variant="outline"
-                                          >
-                                            <Download className="h-4 w-4 mr-2" />
-                                            PO PDF
-                                          </Button>
-                                          <Button
-                                            onClick={() =>
-                                              window.open(
-                                                `https://mail.google.com/mail/?view=cm&fs=1&to=${email}&su=${encodeURIComponent(
-                                                  emailSubject
-                                                )}&body=${encodeURIComponent(
-                                                  emailBody
-                                                )}`
-                                              )
-                                            }
-                                            className="bg-blue-600 hover:bg-blue-700"
-                                          >
-                                            <CheckCheck className="h-4 w-4 mr-2" />
-                                            Send Email
-                                          </Button>
-                                        </DialogFooter>
-                                      </DialogContent>
-                                    </Dialog>
-                                  </div>
+                              <span className="text-sm font-semibold text-slate-700">
+                                Vendor Contact Options
+                              </span>
+                            </div>
+                            {contactSectionExpanded ? (
+                              <ChevronDown className="w-4 h-4 text-slate-400" />
+                            ) : (
+                              <ChevronRight className="w-4 h-4 text-slate-400" />
+                            )}
+                          </CollapsibleTrigger>
+
+                          <CollapsibleContent>
+                            <div className="px-4 pb-4 pt-2 space-y-3 border-t border-slate-100">
+                              {/* WhatsApp Row */}
+                              <div className="flex gap-2">
+                                <div className="flex-1">
+                                  <Label className="text-xs text-slate-500 mb-1 block">
+                                    Phone Number
+                                  </Label>
+                                  <Input
+                                    placeholder="10-digit number"
+                                    className="h-9 text-sm"
+                                    value={phoneNumber}
+                                    onChange={handlePhoneChange}
+                                  />
                                 </div>
+                                <Dialog>
+                                  <DialogTrigger asChild>
+                                    <Button
+                                      size="sm"
+                                      className="self-end h-9 bg-green-600 hover:bg-green-700"
+                                      disabled={phoneNumber.length !== 10}
+                                    >
+                                      <Phone className="w-3.5 h-3.5 mr-1.5" />
+                                      WhatsApp
+                                    </Button>
+                                  </DialogTrigger>
+                                  <DialogContent>
+                                    <DialogHeader>
+                                      <DialogTitle className="text-center">
+                                        Send PO via WhatsApp
+                                      </DialogTitle>
+                                      <DialogDescription className="text-center">
+                                        Download the PO and send it via WhatsApp to {phoneNumber}
+                                      </DialogDescription>
+                                    </DialogHeader>
+                                    <div className="flex justify-center space-x-4">
+                                      <Button onClick={togglePoPdfSheet} variant="outline">
+                                        <Download className="h-4 w-4 mr-2" />
+                                        PO PDF
+                                      </Button>
+                                      <Button
+                                        onClick={() => window.open(`https://wa.me/${phoneNumber}`)}
+                                        className="bg-green-600 hover:bg-green-700"
+                                      >
+                                        <CheckCheck className="h-4 w-4 mr-2" />
+                                        Open WhatsApp
+                                      </Button>
+                                    </div>
+                                  </DialogContent>
+                                </Dialog>
+                              </div>
+
+                              {/* Email Row */}
+                              <div className="flex gap-2">
+                                <div className="flex-1">
+                                  <Label className="text-xs text-slate-500 mb-1 block">
+                                    Email Address
+                                  </Label>
+                                  <Input
+                                    placeholder="vendor@email.com"
+                                    type="email"
+                                    className="h-9 text-sm"
+                                    value={email}
+                                    onChange={handleEmailChange}
+                                  />
+                                </div>
+                                <Dialog>
+                                  <DialogTrigger asChild>
+                                    <Button
+                                      size="sm"
+                                      className="self-end h-9 bg-blue-600 hover:bg-blue-700"
+                                      disabled={!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)}
+                                    >
+                                      <Mail className="w-3.5 h-3.5 mr-1.5" />
+                                      Email
+                                    </Button>
+                                  </DialogTrigger>
+                                  <DialogContent className="max-w-lg">
+                                    <DialogHeader>
+                                      <DialogTitle>Send PO via Email</DialogTitle>
+                                      <DialogDescription>
+                                        Customize your email and send the PO to {email}
+                                      </DialogDescription>
+                                    </DialogHeader>
+                                    <div className="space-y-4">
+                                      <div>
+                                        <Label htmlFor="emailSubject">Subject</Label>
+                                        <Input
+                                          id="emailSubject"
+                                          value={emailSubject}
+                                          onChange={(e) => setEmailSubject(e.target.value)}
+                                          placeholder="Enter email subject"
+                                        />
+                                      </div>
+                                      <div>
+                                        <Label htmlFor="emailBody">Body</Label>
+                                        <Textarea
+                                          id="emailBody"
+                                          value={emailBody}
+                                          onChange={(e) => setEmailBody(e.target.value)}
+                                          placeholder="Enter email body"
+                                          rows={4}
+                                        />
+                                      </div>
+                                    </div>
+                                    <DialogFooter>
+                                      <Button onClick={togglePoPdfSheet} variant="outline">
+                                        <Download className="h-4 w-4 mr-2" />
+                                        PO PDF
+                                      </Button>
+                                      <Button
+                                        onClick={() =>
+                                          window.open(
+                                            `https://mail.google.com/mail/?view=cm&fs=1&to=${email}&su=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`
+                                          )
+                                        }
+                                        className="bg-blue-600 hover:bg-blue-700"
+                                      >
+                                        <CheckCheck className="h-4 w-4 mr-2" />
+                                        Send Email
+                                      </Button>
+                                    </DialogFooter>
+                                  </DialogContent>
+                                </Dialog>
                               </div>
                             </div>
+                          </CollapsibleContent>
+                        </div>
+                      </Collapsible>
+
+                      {/* Delivery Contact Section */}
+                      <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-4">
+                        <div className="flex items-center gap-2 mb-3">
+                          <div className="w-6 h-6 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center">
+                            <Phone className="w-3.5 h-3.5" />
+                          </div>
+                          <span className="text-sm font-semibold text-slate-700">
+                            Delivery Contact
+                          </span>
+                          <span className="text-xs text-slate-400 ml-auto">Optional</span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <Label className="text-xs text-slate-500 mb-1 block">
+                              Person Name
+                            </Label>
+                            <Input
+                              placeholder="Enter person name"
+                              className="h-9 text-sm"
+                              value={contactPerson.name}
+                              onChange={(e) =>
+                                setContactPerson((prev) => ({ ...prev, name: e.target.value }))
+                              }
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs text-slate-500 mb-1 block">
+                              Contact Number
+                            </Label>
+                            <Input
+                              placeholder="10-digit number"
+                              type="tel"
+                              className="h-9 text-sm"
+                              value={contactPerson.number}
+                              onChange={(e) =>
+                                setContactPerson((prev) => ({
+                                  ...prev,
+                                  number: e.target.value.replace(/\D/g, "").slice(0, 10),
+                                }))
+                              }
+                            />
                           </div>
                         </div>
-                      </CardContent>
-                      <CardFooter className="bg-gray-50 flex justify-between p-4 max-md:flex-col max-md:items-start max-md:gap-4">
-                        <p className="text-sm text-gray-600 italic">
-                          Check all details before sending this PO.
-                        </p>
-                        <div className="space-x-2 space-y-2 max-md:text-end max-md:w-full">
-                          <Button variant="outline" onClick={togglePoPdfSheet}>
-                            <Printer className="h-4 w-4 mr-2" />
-                            PO PDF
-                          </Button>
-                          <Dialog>
-                            <DialogTrigger asChild>
-                              <Button
-                                variant="default"
-                                className="bg-yellow-500 hover:bg-yellow-600"
-                              >
-                                <Send className="h-4 w-4 mr-2" />
-                                Mark as Dispatched
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                              <DialogHeader>
-                                <DialogTitle>Confirm PO Dispatch?</DialogTitle>
-                                <DialogDescription className="pt-2 flex flex-col gap-2">
-                                  <p>
-                                    You can add the delivery person's details
-                                    here.
-                                  </p>
-                                  <div>
-                                    <Label
-                                      htmlFor="personName"
-                                      className="text-sm font-medium"
-                                    >
-                                      Person Name{" "}
-                                      <span className="text-gray-400">
-                                        (optional)
-                                      </span>
-                                    </Label>
-                                    <Input
-                                      id="personName"
-                                      type="text"
-                                      value={contactPerson.name}
-                                      placeholder="Enter person name"
-                                      onChange={(e) =>
-                                        setContactPerson((prev) => ({
-                                          ...prev,
-                                          name: e.target.value,
-                                        }))
-                                      }
-                                      className="mt-1"
-                                    />
-                                  </div>
-                                  <div>
-                                    <Label
-                                      htmlFor="contactNumber"
-                                      className="text-sm font-medium"
-                                    >
-                                      Contact Number{" "}
-                                      <span className="text-gray-400">
-                                        (optional)
-                                      </span>
-                                    </Label>
-                                    <Input
-                                      id="contactNumber"
-                                      type="tel"
-                                      value={contactPerson.number}
-                                      placeholder="Enter 10-digit number"
-                                      onChange={(e) =>
-                                        setContactPerson((prev) => ({
-                                          ...prev,
-                                          number: e.target.value.slice(0, 10),
-                                        }))
-                                      }
-                                      className="mt-1"
-                                    />
-                                  </div>
-                                </DialogDescription>
-                              </DialogHeader>
-                              {update_loading ? (
-                                <div className="flex items-center justify-center">
-                                  <TailSpin width={80} color="red" />{" "}
-                                </div>
-                              ) : (
-                                <DialogFooter>
-                                  <DialogClose asChild>
-                                    <Button
-                                      variant="outline"
-                                      className="flex items-center gap-1"
-                                    >
-                                      <CircleX className="h-4 w-4" />
-                                      Cancel
-                                    </Button>
-                                  </DialogClose>
-                                  <Button
-                                    onClick={handleDispatchPO}
-                                    className="bg-yellow-500 hover:bg-yellow-600 flex items-center gap-1"
-                                  >
-                                    <CheckCheck className="h-4 w-4" />
-                                    Confirm
-                                  </Button>
-                                </DialogFooter>
-                              )}
-                            </DialogContent>
-                          </Dialog>
-                        </div>
-                      </CardFooter>
-                    </Card>
+                      </div>
+                    </div>
+
+                    {/* Footer - Sticky Actions */}
+                    <div className="px-5 py-4 border-t border-slate-200 bg-white">
+                      <div className="flex items-center justify-between gap-3">
+                        <Button variant="outline" size="sm" className="h-9" onClick={togglePoPdfSheet}>
+                          <FileText className="w-4 h-4 mr-1.5" />
+                          PO PDF
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="h-9 bg-amber-500 hover:bg-amber-600 text-white shadow-sm"
+                          onClick={handleMarkAsDispatchedClick}
+                          disabled={criticalPOLinking.selectedTask && !criticalPOLinking.selectedStatus}
+                        >
+                          <Send className="w-4 h-4 mr-1.5" />
+                          Mark as Dispatched
+                        </Button>
+                      </div>
+                      <p className="text-xs text-slate-400 text-center mt-3">
+                        Review all details before dispatching this PO
+                      </p>
+                    </div>
                   </SheetContent>
                 </Sheet>
+
+                {/* Dispatch Confirmation Dialog (with or without Critical PO linking) */}
+                <Dialog open={dispatchConfirmDialog} onOpenChange={setDispatchConfirmDialog}>
+                  <DialogContent className="sm:max-w-[450px]">
+                    <DialogHeader>
+                      <DialogTitle>
+                        {criticalPOLinking.selectedTask
+                          ? "Confirm Critical PO Task Linking"
+                          : "Confirm PO Dispatch"}
+                      </DialogTitle>
+                      <DialogDescription>
+                        {criticalPOLinking.selectedTask ? (
+                          <span>
+                            Are you sure you want to link this PO to the following Critical PO Task and dispatch?
+                          </span>
+                        ) : (
+                          <span>
+                            Are you sure you want to dispatch this PO?
+                          </span>
+                        )}
+                      </DialogDescription>
+                    </DialogHeader>
+
+                    {/* Selected Task Details (if linking) */}
+                    {criticalPOLinking.selectedTaskDetails && (
+                      <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-md">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">
+                            Linking To Task
+                          </span>
+                          <Badge className="bg-emerald-500 text-xs">
+                            {criticalPOLinking.selectedStatus}
+                          </Badge>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div>
+                            <span className="text-slate-500">Item</span>
+                            <p className="font-medium text-slate-800">
+                              {criticalPOLinking.selectedTaskDetails.item_name}
+                            </p>
+                          </div>
+                          <div>
+                            <span className="text-slate-500">Category</span>
+                            <p className="font-medium text-slate-800">
+                              {criticalPOLinking.selectedTaskDetails.critical_po_category}
+                            </p>
+                          </div>
+                          <div>
+                            <span className="text-slate-500">Sub-Category</span>
+                            <p className="font-medium text-slate-800">
+                              {criticalPOLinking.selectedTaskDetails.sub_category || "-"}
+                            </p>
+                          </div>
+                          <div>
+                            <span className="text-slate-500">Deadline</span>
+                            <p className="font-medium text-slate-800">
+                              {formatDate(criticalPOLinking.selectedTaskDetails.po_release_date)}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {update_loading || criticalPOLinking.isLinking ? (
+                      <div className="flex items-center justify-center py-4">
+                        <TailSpin width={40} height={40} color="#f59e0b" />
+                      </div>
+                    ) : (
+                      <DialogFooter>
+                        <Button
+                          variant="outline"
+                          onClick={() => setDispatchConfirmDialog(false)}
+                        >
+                          <CircleX className="h-4 w-4 mr-1" />
+                          Cancel
+                        </Button>
+                        <Button
+                          onClick={() => handleDispatchPO(!!criticalPOLinking.selectedTask)}
+                          className="bg-amber-500 hover:bg-amber-600"
+                        >
+                          <CheckCheck className="h-4 w-4 mr-1" />
+                          {criticalPOLinking.selectedTask ? "Link & Dispatch" : "Dispatch"}
+                        </Button>
+                      </DialogFooter>
+                    )}
+                  </DialogContent>
+                </Dialog>
+
+                {/* Skip Linking Warning Dialog */}
+                <Dialog open={skipLinkingDialog} onOpenChange={setSkipLinkingDialog}>
+                  <DialogContent className="sm:max-w-[400px]">
+                    <DialogHeader>
+                      <DialogTitle className="flex items-center gap-2 text-amber-600">
+                        <AlertTriangle className="w-5 h-5" />
+                        No Critical PO Task Selected
+                      </DialogTitle>
+                      <DialogDescription>
+                        You haven't linked this PO to any Critical PO Task. Are you sure you want to dispatch without linking?
+                      </DialogDescription>
+                    </DialogHeader>
+
+                    {update_loading ? (
+                      <div className="flex items-center justify-center py-4">
+                        <TailSpin width={40} height={40} color="#f59e0b" />
+                      </div>
+                    ) : (
+                      <DialogFooter>
+                        <Button
+                          variant="outline"
+                          onClick={() => setSkipLinkingDialog(false)}
+                        >
+                          Go Back
+                        </Button>
+                        <Button
+                          onClick={() => handleDispatchPO(false)}
+                          className="bg-amber-500 hover:bg-amber-600"
+                        >
+                          <Send className="h-4 w-4 mr-1" />
+                          Dispatch Without Linking
+                        </Button>
+                      </DialogFooter>
+                    )}
+                  </DialogContent>
+                </Dialog>
               </div>
             </div>
 

@@ -9,7 +9,8 @@
       "Bash(wc:*)",
       "Skill(frontend-design)",
       "Bash(find:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Skill(webapp-testing)"
     ],
     "deny": [],
     "ask": []

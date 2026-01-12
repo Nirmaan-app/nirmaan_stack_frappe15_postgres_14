@@ -4,6 +4,405 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-12: Critical PO Task Linking in PO Dispatch Workflow
+
+### Summary
+Added ability to link Purchase Orders to Critical PO Tasks during dispatch, with enterprise minimalist redesign of the dispatch sheet.
+
+### Files Created
+
+**Hook:**
+- `src/pages/ProcurementOrders/purchase-order/hooks/useCriticalPOTaskLinking.ts` - Manages linking state, fetches tasks for project, provides category/task options, handles linking logic
+
+**Components:**
+- `src/pages/ProcurementOrders/purchase-order/components/CriticalPOTaskLinkingSection.tsx` - React-select dropdowns for category/task selection, shows selected task details, linked POs with hover cards, status selection
+- `src/pages/ProcurementOrders/purchase-order/components/LinkedCriticalPOTag.tsx` - Tag displayed below PO status showing linked Critical PO Task with edit/unlink options
+- `src/pages/ProcurementOrders/purchase-order/components/POItemsHoverCard.tsx` - Hover card component for displaying PO items
+
+### Files Modified
+
+- `src/pages/ProcurementOrders/purchase-order/components/PODetails.tsx`:
+  - Added Critical PO Task linking hook and state
+  - Updated `handleDispatchPO` to include linking logic
+  - Added `LinkedCriticalPOTag` below status badge
+  - Revamped Sheet content with enterprise minimalist design
+  - Added confirmation dialogs for linking and skip scenarios
+  - Added Delivery Contact collapsible section
+
+### Key Features
+- Check if Critical PO setup exists for project before showing linking options
+- Searchable category and task dropdowns using react-select
+- Auto-set category when task is selected directly
+- Status selection: "Partially Released" or "Released"
+- Show which other POs are already linked to selected task
+- ItemsHoverCard integration for viewing linked PO contents
+- Confirmation flows for linking and skipping without linking
+
+### Technical Notes
+
+**React-Select in Radix Sheet:**
+Use `menuPosition="fixed"` instead of `menuPortalTarget={document.body}` to avoid focus trap blocking clicks.
+
+**filterOption data path:**
+In react-select's filterOption, `option.data` is TaskOption, `option.data.data` is CriticalPOTask.
+
+---
+
+## 2026-01-12: Critical PO Tracker Cross-Project Dashboard
+
+### Summary
+Created a new cross-project PO Tracker dashboard page that displays aggregated Critical PO Task statistics across all projects.
+
+### Files Created
+
+**Frontend Module (`src/pages/CriticalPOTracker/`):**
+- `critical-po-tracker-list.tsx` - Main list page with project cards grid, search, and refresh
+- `index.tsx` - Barrel export
+- `components/CriticalPOProjectCard.tsx` - Card component showing progress circle, release stats, and status breakdown
+- `types/index.ts` - TypeScript interfaces (ProjectWithCriticalPOStats, StatusCounts, CriticalPOTaskStatus)
+- `utils.ts` - Status styling utilities (getStatusStyle, getProgressColor, STATUS_DISPLAY_ORDER)
+
+**Backend API (`nirmaan_stack/api/critical_po_tasks/`):**
+- `get_projects_with_stats.py` - Aggregates Critical PO Task stats by project (excludes "Not Applicable" status from metrics)
+
+### Files Modified
+
+- `src/components/helpers/routesConfig.tsx` - Added `/critical-po-tracker` route
+- `src/components/layout/NewSidebar.tsx` - Added "PO Tracker" menu item, route mappings
+- `src/pages/projects/project.tsx` - Fixed URL query param race condition for Critical PO tab navigation
+
+### Access Control
+Roles with access: Admin, PMO Executive, Project Lead, Project Manager, Procurement Executive
+
+### API Endpoint
+```python
+# GET /api/method/nirmaan_stack.api.critical_po_tasks.get_projects_with_stats.get_projects_with_critical_po_stats
+# Returns: [{ project, project_name, total_tasks, released_tasks, status_counts }]
+```
+
+---
+
+## 2026-01-12: Procurement Executive Role Access Expansion
+
+### Summary
+Extended Procurement Executive role permissions to access Projects, Products, and Vendors standalone routes.
+
+### Files Modified
+- `src/components/layout/NewSidebar.tsx` - Added standalone menu items and route mappings for Procurement Executive
+
+---
+
+## 2026-01-12: Procurement Dashboard Redesign
+
+### Summary
+Complete visual overhaul of the procurement dashboard with improved categorization and cleaner visual hierarchy using modern card layout.
+
+### Files Modified
+- `src/components/layout/dashboards/procurement-dashboard.tsx` - Redesigned with categorized status cards and brand colors
+
+---
+
+## 2026-01-10: Work Headers Configuration Redesign
+
+### Summary
+Revamped the Work Headers & Milestones configuration component (`workHeaderMilestones.tsx`) with enterprise minimalist design and added Work Package link functionality.
+
+### Changes Made
+- Added Work Package link selection to create/edit Work Header dialogs
+- Display Work Package badges on header cards when associated
+- Implemented enterprise minimalist slate color theme
+- Added collapsible card sections with expand/collapse functionality
+- Sticky header with clean typography
+- Maintained drag-and-drop reordering for headers and milestones
+
+---
+
+## 2026-01-10: Milestone Report Code Refactoring
+
+### Summary
+Extracted reusable components and hooks from milestone report pages to reduce code duplication and improve maintainability.
+
+### New Files Created
+- `hooks/useMilestoneReportData.ts` - Centralized data fetching hook for milestone reports
+- `components/DailyReportView.tsx` - Daily report display component
+- `components/MilestoneProgress.tsx` - Progress visualization component
+- `components/ReportControlBar.tsx` - Zone/date/type control bar
+- `utils/milestoneHelpers.ts` - Utility functions (date formatting, work plan parsing, status badges)
+
+### Key Patterns
+- Work plan delimiter constant: `"$#,,,"`
+- Zone progress status: `'completed' | 'partial' | 'pending' | null`
+- Shared hook returns: `projectData`, `dailyReportDetails`, `workPlanGroups`, `milestoneGroups`, `validationZoneProgress`
+
+---
+
+## 2026-01-10: Delete Report Button for MilestonesSummary
+
+### Summary
+Added delete report functionality to MilestonesSummary component matching MilestoneDailySummary.
+
+### Changes Made
+- Added trash icon button in control bar for authorized users
+- Confirmation dialog before deletion
+- Permission check for Admin, PMO Executive, and Project Lead roles
+- Only shown for today's reports when report exists
+
+---
+
+## 2026-01-10: Daily Progress Report Setup in Project Creation
+
+### Summary
+Added Section 2 (Daily Progress Report Setup) to the Package Selection step in project creation wizard. Users can optionally configure progress tracking with zones and work headers during project creation, with settings saved to the Projects doctype after creation.
+
+### Changes Made
+
+**Schema & Types (`schema.ts`):**
+- Added `daily_progress_setup` object to form schema with:
+  - `enabled: boolean` - Toggle for feature
+  - `zone_type: 'single' | 'multiple'` - Zone configuration mode
+  - `zones: Array<{ zone_name: string }>` - Custom zone names
+  - `work_headers: Array<{ work_header_doc_name, work_header_display_name, work_package_link }>` - Selected headers
+- Added `DailyProgressWorkHeader` and `DailyProgressSetup` type exports
+
+**Data Fetching (`useProjectFormData.ts`):**
+- Added `WorkHeaderType` interface
+- Added Work Headers fetch with `useFrappeGetDocList("Work Headers")`
+- Exposed `workHeaders`, `isWorkHeadersLoading`, `workHeadersError`
+
+**UI (`PackageSelectionStep.tsx`):**
+- Simplified work package selection to two-column list layout (enterprise utilitarian design)
+- Added Section 2: Daily Progress Reports (Optional)
+  - Enable toggle checkbox
+  - Zone configuration: Single (Default) or Multiple custom zones
+  - Work headers selection grouped by work_package_link with expandable accordions
+- Removed card-based flashy design in favor of clean borders and minimal styling
+
+**Submission Logic (`index.tsx`):**
+- Extract `daily_progress_setup` from form values (not sent to backend API)
+- After project creation, call `updateDoc` to set:
+  - `enable_project_milestone_tracking: true`
+  - `project_zones` child table (field: `zone_name`)
+  - `project_work_header_entries` child table (fields: `project_work_header_name`, `enabled: "True"`)
+- Added debug logging for troubleshooting
+
+**Creation Dialog (`project-creation-dialog.tsx`):**
+- Added third stage: "Setting up progress tracking"
+- Conditionally shown when `progressSetupEnabled` is true
+
+**Review Step (`ReviewStep.tsx`):**
+- Added Daily Progress Reports section showing zone configuration and selected work headers
+
+**Draft Store (`useProjectDraftStore.ts`):**
+- Added `daily_progress_setup` to `ProjectDraftFormValues` interface
+
+**Backend Fixes:**
+- `new_project.py`: Removed assignee field assignments (handled by frontend via User Permissions)
+- `projects.py`: Changed `generateUserPermissions` hook to use truthy checks instead of `!= ""`
+
+### Technical Notes
+
+**Child Table Field Names:**
+- `Project Zone Child Table`: `zone_name` (Data)
+- `Project Work Headers`: `project_work_header_name` (Link to Work Headers), `enabled` (Data)
+
+**Enabled Field Format:**
+The reading code at `MilestoneTab.tsx:422` filters with `entry.enabled === "True"` (string comparison), so we save `enabled: "True"` not boolean `true`.
+
+**Work Headers Doctype:**
+Uses `autoname: "field:work_header_name"`, so document names ARE the display names (e.g., "Fire Sprinkler System").
+
+---
+
+## 2026-01-10: Project Draft System
+
+### Summary
+Implemented a draft/resume system for the project creation wizard that auto-saves form progress to localStorage, allows users to cancel setup with save/discard options, and prompts users to resume or start fresh when returning. Drafts expire after 30 days.
+
+### Files Created
+
+**Zustand Store:**
+- `src/zustand/useProjectDraftStore.ts` - Draft persistence store:
+  - localStorage persistence via `createJSONStorage`
+  - Stores form values, areaNames, current step, section, and timestamp
+  - Auto-expires drafts after 30 days
+  - Date serialization (Date ↔ ISO string conversion)
+
+**Custom Hook:**
+- `src/hooks/useProjectDraftManager.ts` - Draft management hook:
+  - Auto-save with 1.5s debounce on form changes
+  - Relative time display ("Saved 5 minutes ago")
+  - Resume/discard dialog controls
+  - Form ↔ draft value conversion (handles Date objects)
+
+**UI Components:**
+- `src/components/ui/draft-indicator.tsx`:
+  - `DraftIndicator` - Pill-shaped status badge showing save state
+  - States: Saving (spinner), Saved (green cloud), Error (amber)
+  - `DraftHeader` - Container for cancel button + indicator
+
+- `src/components/ui/draft-cancel-dialog.tsx`:
+  - AlertDialog for cancel confirmation
+  - Shows progress (Step X of Y with progress bar)
+  - Three actions: Save Draft & Exit, Discard & Exit, Continue Editing
+
+- `src/components/ui/draft-resume-dialog.tsx`:
+  - AlertDialog shown when draft exists on page load
+  - Shows project name preview and last saved time
+  - Two actions: Resume Draft, Start Fresh
+
+### Files Modified
+
+- `src/pages/projects/project-form.tsx`:
+  - Added imports for draft system components
+  - Integrated `useProjectDraftManager` hook
+  - Added `DraftHeader` with Cancel button and `DraftIndicator`
+  - Added `DraftResumeDialog` and `DraftCancelDialog`
+  - Clear draft on successful project submission
+
+### Key Patterns
+
+**Draft Store with Persistence:**
+```typescript
+export const useProjectDraftStore = create<ProjectDraftStore>()(
+  persist(
+    (set, get) => ({
+      draft: null,
+      saveDraft: (draft) => set({ draft: { ...draft, lastSavedAt: new Date().toISOString() } }),
+      clearDraft: () => set({ draft: null }),
+      hasDraft: () => { /* check expiration */ },
+    }),
+    {
+      name: 'nirmaan-project-draft',
+      storage: createJSONStorage(() => localStorage),
+    }
+  )
+);
+```
+
+**Draft Manager Hook Usage:**
+```typescript
+const {
+  hasDraft, lastSavedText, isSaving,
+  showResumeDialog, showCancelDialog,
+  setShowResumeDialog, setShowCancelDialog,
+  resumeDraft, discardDraft, saveDraftNow, clearDraftAfterSubmit,
+} = useProjectDraftManager({
+  form, areaNames, setAreaNames,
+  currentStep, section, setCurrentStep, setSection,
+});
+```
+
+**Draft Header Integration:**
+```typescript
+<DraftHeader>
+  <Button variant="ghost" onClick={() => setShowCancelDialog(true)}>
+    <X className="h-4 w-4" />
+    <span className="hidden sm:inline">Cancel</span>
+  </Button>
+  <DraftIndicator lastSavedText={lastSavedText} isSaving={isSaving} />
+</DraftHeader>
+```
+
+---
+
+## 2026-01-10: New Design for Project Forms
+
+### Summary
+Redesigned project creation and edit forms with a modern wizard-based layout, responsive step indicator, and new reusable UI components. Replaced Ant Design Steps with custom WizardSteps component. Added consistent form field layouts and enhanced review section with collapsible cards.
+
+### Files Created
+
+**New UI Components:**
+- `src/components/ui/wizard-steps.tsx` - Custom multi-step wizard indicator with responsive layouts:
+  - Mobile: Progress bar with percentage and current step name
+  - Tablet: Compact horizontal with step numbers + current title
+  - Desktop: Full horizontal with short titles and connectors
+  - Animated current step indicator with pulse effect
+  - Color-coded step states (completed=green, current=primary, upcoming=muted)
+
+- `src/components/ui/form-field-row.tsx` - Unified form field layout component:
+  - Three variants: `default`, `sheet`, `compact`
+  - Responsive breakpoints (`md:` for horizontal layout)
+  - Consistent label/input proportions
+  - `FormSectionHeader` for section titles with icons
+  - `FormGrid` for multi-column layouts
+  - `FormActions` for button placement
+
+- `src/components/ui/review-section.tsx` - Review section components:
+  - `ReviewContainer` - Gradient wrapper with title/description
+  - `ReviewSection` - Collapsible section with icon, title, edit button
+  - `ReviewDetail` - Stacked label-value display (label=uppercase muted, value=prominent)
+
+- `src/components/ui/package-review-card.tsx` - Work package review:
+  - `PackageReviewCard` - Collapsible card for individual packages
+  - `PackagesReviewGrid` - Responsive grid of package cards
+  - Category badges with make counts
+
+**New Hooks:**
+- `src/hooks/useMediaQuery.ts` - Responsive breakpoint detection:
+  - `useMediaQuery(query)` - Check if media query matches
+  - `useBreakpoint()` - Get `isMobile`, `isTablet`, `isDesktop`, `current`
+
+### Files Modified
+
+**Project Forms:**
+- `src/pages/projects/project-form.tsx`:
+  - Replaced Ant Design `Steps` with custom `WizardSteps`
+  - Added `wizardStepsConfig` with short titles and icons
+  - Refactored `ReviewDetails` to use new `ReviewSection`, `ReviewDetail`, `PackagesReviewGrid`
+  - Removed legacy `Section` and `Detail` components
+  - Fixed `Calendar` naming conflict with `CalendarLucide` alias
+
+- `src/pages/projects/edit-project-form.tsx`:
+  - Updated form field layouts to use consistent classes:
+    - `md:flex md:items-start gap-4` (was `lg:flex lg:items-center`)
+    - `md:w-1/4 md:pt-2.5 shrink-0` for labels (was `md:basis-3/12`)
+    - `flex-1` for input containers (was `md:basis-2/4`)
+  - Added `FormSectionHeader` with icons for each section
+  - Fixed `Calendar` naming conflict with `CalendarIconAlt` alias
+
+### Key Patterns
+
+**Responsive Wizard Steps:**
+```typescript
+const wizardStepsConfig: WizardStep[] = [
+    { key: "projectDetails", title: "Project Details", shortTitle: "Details", icon: Building2 },
+    { key: "projectAddressDetails", title: "Project Address", shortTitle: "Address", icon: MapPin },
+    // ...
+];
+
+<WizardSteps
+    steps={wizardStepsConfig}
+    currentStep={currentStep}
+    onStepClick={(stepIndex) => { /* navigation */ }}
+/>
+```
+
+**Review Section with Edit:**
+```typescript
+<ReviewSection
+    title="Project Details"
+    icon={Building2}
+    onEdit={() => navigateToSection("projectDetails")}
+    iconColorClass="bg-blue-500/10 text-blue-600"
+>
+    <ReviewDetail label="Project Name" value={form.getValues("project_name")} />
+</ReviewSection>
+```
+
+**Consistent Form Field Layout:**
+```typescript
+<FormItem className="md:flex md:items-start gap-4">
+    <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">Label</FormLabel>
+    <div className="flex-1 space-y-1.5">
+        <FormControl><Input {...field} /></FormControl>
+        <FormMessage />
+    </div>
+</FormItem>
+```
+
+---
+
 ## 2026-01-10: Invoice Reconciliation with 2B Activation Tracking
 
 ### Summary

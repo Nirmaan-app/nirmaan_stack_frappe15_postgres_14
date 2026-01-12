@@ -1,182 +1,512 @@
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { useFrappeGetDocCount, useFrappeGetDocList } from "frappe-react-sdk";
-import { TailSpin } from "react-loader-spinner";
+import {
+  LucideIcon,
+  FileText,
+  Clock,
+  RotateCcw,
+  SkipForward,
+  XCircle,
+  ListChecks,
+  PlayCircle,
+  CheckCircle2,
+  FileCheck,
+  Truck,
+  PackageCheck,
+  Package,
+  HardHat,
+  Store,
+  ShoppingCart,
+  Search,
+  ArrowUpRight,
+} from "lucide-react";
 import { Link } from "react-router-dom";
-import { Card } from "../../ui/card";
+import { TailSpin } from "react-loader-spinner";
+
+const BRAND_PRIMARY = "#D03B45";
+
+// ============================================================================
+// Types & Configuration
+// ============================================================================
+
+interface DashboardMetric {
+  id: string;
+  title: string;
+  description: string;
+  linkTo: string;
+  Icon: LucideIcon;
+  countKey?: string;
+  doctype?: string;
+}
+
+interface DashboardSection {
+  id: string;
+  title: string;
+  metrics: DashboardMetric[];
+}
+
+const PROCUREMENT_SECTIONS: DashboardSection[] = [
+  {
+    id: "pr-actions",
+    title: "PR and Sent Back Actions",
+    metrics: [
+      {
+        id: "new-pr",
+        title: "New PR Request",
+        description: "Pending approval",
+        linkTo: "/procurement-requests?tab=New+PR+Request",
+        Icon: FileText,
+        countKey: "pr.approved",
+      },
+      {
+        id: "in-progress",
+        title: "In Progress",
+        description: "Currently processing",
+        linkTo: "/procurement-requests?tab=In+Progress",
+        Icon: Clock,
+        countKey: "pr.in_progress",
+      },
+    ],
+  },
+  {
+    id: "sent-back",
+    title: "Sent Back Actions",
+    metrics: [
+      {
+        id: "sent-back",
+        title: "Sent Back",
+        description: "Rejected requests",
+        linkTo: "/procurement-requests?tab=Rejected",
+        Icon: RotateCcw,
+        countKey: "sb.rejected.pending",
+      },
+      {
+        id: "skipped-pr",
+        title: "Skipped PR",
+        description: "Delayed requests",
+        linkTo: "/procurement-requests?tab=Delayed",
+        Icon: SkipForward,
+        countKey: "sb.delayed.pending",
+      },
+      {
+        id: "rejected-po",
+        title: "Rejected PO",
+        description: "Cancelled orders",
+        linkTo: "/procurement-requests?tab=Cancelled",
+        Icon: XCircle,
+        countKey: "sb.cancelled.pending",
+      },
+    ],
+  },
+  {
+    id: "work-orders",
+    title: "Work Orders",
+    metrics: [
+      {
+        id: "all-wos",
+        title: "All WOs",
+        description: "Total work orders",
+        linkTo: "/service-requests-list",
+        Icon: ListChecks,
+        countKey: "sr.all",
+      },
+      {
+        id: "in-progress-wo",
+        title: "In Progress WO",
+        description: "Awaiting vendor",
+        linkTo: "/service-requests?tab=choose-vendor",
+        Icon: PlayCircle,
+        countKey: "sr.pending",
+      },
+      {
+        id: "approved-wo",
+        title: "Approved WO",
+        description: "Ready for execution",
+        linkTo: "/service-requests?tab=approved-sr",
+        Icon: CheckCircle2,
+        countKey: "sr.approved",
+      },
+    ],
+  },
+  {
+    id: "po-actions",
+    title: "PO Actions",
+    metrics: [
+      {
+        id: "approved-po",
+        title: "Approved PO",
+        description: "Ready to dispatch",
+        linkTo: "/purchase-orders?tab=Approved+PO",
+        Icon: FileCheck,
+        countKey: "po.PO Approved",
+      },
+      {
+        id: "dispatched-po",
+        title: "Dispatched PO",
+        description: "In transit",
+        linkTo: "/purchase-orders?tab=Dispatched+PO",
+        Icon: Truck,
+        countKey: "po.Dispatched",
+      },
+      {
+        id: "partially-delivered",
+        title: "Partially Delivered",
+        description: "Partial delivery",
+        linkTo: "/purchase-orders?tab=Partially+Delivered+PO",
+        Icon: PackageCheck,
+        countKey: "po.Partially Delivered",
+      },
+      {
+        id: "delivered-po",
+        title: "Delivered PO",
+        description: "Fully received",
+        linkTo: "/purchase-orders?tab=Delivered+PO",
+        Icon: Package,
+        countKey: "po.Delivered",
+      },
+    ],
+  },
+  {
+    id: "general",
+    title: "General Actions",
+    metrics: [
+      {
+        id: "projects",
+        title: "Projects Assigned",
+        description: "Active projects",
+        linkTo: "/projects",
+        Icon: HardHat,
+        doctype: "projects",
+      },
+      {
+        id: "vendors",
+        title: "Total Vendors",
+        description: "Supplier management",
+        linkTo: "/vendors",
+        Icon: Store,
+        doctype: "Vendors",
+      },
+      {
+        id: "products",
+        title: "Total Products",
+        description: "Item catalog",
+        linkTo: "/products",
+        Icon: ShoppingCart,
+        doctype: "Items",
+      },
+      {
+        id: "item-price",
+        title: "Item Price Search",
+        description: "Approved quotations",
+        linkTo: "/item-price",
+        Icon: Search,
+        doctype: "Approved Quotations",
+      },
+    ],
+  },
+];
+
+// ============================================================================
+// Components
+// ============================================================================
+
+interface MetricCardProps {
+  title: string;
+  description: string;
+  linkTo: string;
+  Icon: LucideIcon;
+  count?: number | string;
+  isLoading?: boolean;
+  error?: unknown;
+}
+
+const MetricCard: React.FC<MetricCardProps> = ({
+  title,
+  description,
+  linkTo,
+  Icon,
+  count,
+  isLoading,
+  error,
+}) => {
+  const renderContent = () => {
+    if (isLoading) {
+      return (
+        <TailSpin
+          visible={true}
+          height="32"
+          width="32"
+          color={BRAND_PRIMARY}
+          ariaLabel="metric-loading"
+          radius="1"
+        />
+      );
+    }
+    if (error) {
+      return <span className="text-sm text-gray-300">--</span>;
+    }
+    return count !== undefined ? count : "--";
+  };
+
+  return (
+    <Link to={linkTo} className="group relative block">
+      <div
+        className="
+          relative
+          h-[140px]
+          overflow-hidden
+          rounded-xl
+          border
+          border-rose-100
+          bg-white
+          p-5
+          transition-all
+          duration-300
+          ease-out
+          hover:border-rose-200
+          hover:shadow-[0_8px_30px_rgb(208,59,69,0.08)]
+          dark:border-rose-900/30
+          dark:bg-gray-900
+          dark:hover:border-rose-800/50
+        "
+      >
+        {/* Watermark Icon */}
+        <div
+          className="
+            pointer-events-none
+            absolute
+            -bottom-6
+            -right-6
+            opacity-[0.06]
+            transition-all
+            duration-500
+            ease-out
+            group-hover:-bottom-4
+            group-hover:-right-4
+            group-hover:opacity-[0.12]
+          "
+        >
+          <Icon
+            className="h-32 w-32 text-rose-700 dark:text-rose-300"
+            strokeWidth={1}
+          />
+        </div>
+
+        {/* Content */}
+        <div className="relative z-10 flex h-full flex-col justify-between">
+          {/* Top Section */}
+          <div className="flex items-start justify-between">
+            <div className="space-y-0.5">
+              <span
+                className="
+                  text-sm
+                  font-medium
+                  tracking-wide
+                  text-gray-600
+                  transition-colors
+                  duration-200
+                  group-hover:text-rose-700
+                  dark:text-gray-400
+                  dark:group-hover:text-rose-400
+                "
+              >
+                {title}
+              </span>
+              <p className="text-xs text-gray-400 dark:text-gray-500">
+                {description}
+              </p>
+            </div>
+            <ArrowUpRight
+              className="
+                h-4
+                w-4
+                -translate-x-1
+                translate-y-1
+                text-gray-300
+                opacity-0
+                transition-all
+                duration-300
+                group-hover:translate-x-0
+                group-hover:translate-y-0
+                group-hover:text-rose-600
+                group-hover:opacity-100
+              "
+            />
+          </div>
+
+          {/* Bottom Section - Count */}
+          <div className="flex items-end justify-between">
+            <span
+              className="
+                text-4xl
+                font-semibold
+                tabular-nums
+                tracking-tight
+                transition-colors
+                duration-200
+              "
+              style={{ color: BRAND_PRIMARY }}
+            >
+              {renderContent()}
+            </span>
+
+            {/* Subtle indicator line */}
+            <div
+              className="
+                mb-2
+                h-[2px]
+                w-0
+                rounded-full
+                bg-rose-500
+                transition-all
+                duration-300
+                group-hover:w-8
+              "
+            />
+          </div>
+        </div>
+      </div>
+    </Link>
+  );
+};
+
+interface SectionProps {
+  title: string;
+  children: React.ReactNode;
+}
+
+const Section: React.FC<SectionProps> = ({ title, children }) => (
+  <div className="space-y-4">
+    <h3 className="text-base font-semibold tracking-tight text-gray-700 dark:text-gray-300">
+      {title}
+    </h3>
+    <div className="grid gap-4 grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      {children}
+    </div>
+  </div>
+);
+
+// ============================================================================
+// Helper to get nested count from store
+// ============================================================================
+
+const getNestedCount = (
+  counts: Record<string, any>,
+  path: string
+): number | undefined => {
+  const keys = path.split(".");
+  let value: any = counts;
+  for (const key of keys) {
+    if (value && typeof value === "object" && key in value) {
+      value = value[key];
+    } else {
+      return undefined;
+    }
+  }
+  return typeof value === "number" ? value : undefined;
+};
+
+// ============================================================================
+// Main Component
+// ============================================================================
 
 export default function ProcurementDashboard() {
+  const { counts } = useDocCountStore();
 
-    const { counts } = useDocCountStore()
+  // Fetch doc counts for general actions
+  const {
+    data: vendor_list,
+    isLoading: vendor_list_loading,
+    error: vendor_list_error,
+  } = useFrappeGetDocCount("Vendors");
+  const {
+    data: item_list,
+    isLoading: item_list_loading,
+    error: item_list_error,
+  } = useFrappeGetDocCount("Items");
+  const {
+    data: projects_data,
+    isLoading: projects_loading,
+    error: projects_error,
+  } = useFrappeGetDocList("Projects");
+  const {
+    data: approved_quotes,
+    isLoading: approved_quotes_loading,
+    error: approved_quotes_error,
+  } = useFrappeGetDocCount("Approved Quotations");
 
-    const { data: vendor_list, isLoading: vendor_list_loading, error: vendor_list_error } = useFrappeGetDocCount("Vendors");
-    const { data: item_list, isLoading: item_list_loading, error: item_list_error } = useFrappeGetDocCount("Items");
-    const { data: projects_data, isLoading: projects_loading, error: projects_error } = useFrappeGetDocList("Projects")
+  // Map doctype to fetched data
+  const doctypeData: Record<
+    string,
+    { count?: number; isLoading: boolean; error?: unknown }
+  > = {
+    projects: {
+      count: projects_data?.length,
+      isLoading: projects_loading,
+      error: projects_error,
+    },
+    Vendors: {
+      count: vendor_list,
+      isLoading: vendor_list_loading,
+      error: vendor_list_error,
+    },
+    Items: {
+      count: item_list,
+      isLoading: item_list_loading,
+      error: item_list_error,
+    },
+    "Approved Quotations": {
+      count: approved_quotes,
+      isLoading: approved_quotes_loading,
+      error: approved_quotes_error,
+    },
+  };
 
-    const { data: approved_quotes, isLoading: approved_quotes_loading, error: approved_quotes_error } = useFrappeGetDocCount("Approved Quotations");
+  return (
+    <div className="flex-1 space-y-8">
+      {/* Header */}
+      <div className="space-y-1">
+        <h2 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100">
+          Procurement Dashboard
+        </h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          Overview of procurement requests, orders, and actions
+        </p>
+      </div>
 
-    return (
-        <div className="flex-1 space-y-4">
-            {/* <div className="flex justify-between items-center space-y-2">
-                <h2 className="text-2xl max-md:text-xl font-bold tracking-tight">Procurement Dashboard</h2>
-                <div className="flex gap-2 max-sm:flex-col">
-                    <Button onClick={() => navigate("/prs&milestones/procurement-requests")} className="flex"><CirclePlus className="w-5 h-5 mt- pr-1" />Urgent PR</Button>
-                    <Button onClick={() => navigate("/service-requests")} className="flex"><CirclePlus className="w-5 h-5 mt- pr-1" />Service Request</Button>
-                </div>
+      {/* Sections */}
+      {PROCUREMENT_SECTIONS.map((section) => (
+        <Section key={section.id} title={section.title}>
+          {section.metrics.map((metric) => {
+            // Determine count source
+            let count: number | undefined;
+            let isLoading = false;
+            let error: unknown;
 
-            </div> */}
-            <div className="flex items-center space-y-2">
-                <h2 className=" font-bold tracking-tight">PR and Sent Back Actions</h2>
-            </div>
-            <div className="grid xl:grid-cols-5 max-sm:grid-cols-3 grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
-                <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/procurement-requests?tab=New+PR+Request">
-                        <p className="text-center py-6 font-bold text-gray-500">New PR Request</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {counts.pr.approved || 0}
-                        </p>
-                    </Link>
-                </Card>
+            if (metric.doctype && doctypeData[metric.doctype]) {
+              const data = doctypeData[metric.doctype];
+              count = data.count;
+              isLoading = data.isLoading;
+              error = data.error;
+            } else if (metric.countKey) {
+              count = getNestedCount(counts, metric.countKey) || 0;
+            }
 
-                <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/procurement-requests?tab=In+Progress">
-                        <p className="text-center py-6 font-bold text-gray-500">In Progress</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {counts.pr.in_progress || 0}
-                        </p>
-                    </Link>
-                </Card>
-            </div>
-            <div className="grid xl:grid-cols-5 max-sm:grid-cols-3 grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
-                <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/procurement-requests?tab=Rejected">
-                        <p className="text-center py-6 font-bold text-gray-500">Sent Back</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {counts.sb.rejected.pending || 0}
-                        </p>
-                    </Link>
-                </Card>
-                <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/procurement-requests?tab=Delayed">
-                        <p className="text-center py-6 font-bold text-gray-500">Skipped PR</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {counts.sb.delayed.pending || 0}
-                        </p>
-                    </Link>
-                </Card>
-                <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/procurement-requests?tab=Cancelled">
-                        <p className="text-center py-6 font-bold text-gray-500">Rejected PO</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {counts.sb.cancelled.pending || 0}
-                        </p>
-                    </Link>
-                </Card>
-            </div>
-            <div className="flex items-center space-y-2">
-                <h2 className=" font-bold tracking-tight">Service Requests</h2>
-            </div>
-            <div className="grid xl:grid-cols-5 max-sm:grid-cols-3 grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
-                <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/service-requests-list">
-                        <p className="text-center py-6 font-bold text-gray-500">All SRs</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {counts.sr.all || 0}
-                        </p>
-                    </Link>
-                </Card>
-
-                <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/service-requests?tab=choose-vendor">
-                        <p className="text-center py-6 font-bold text-gray-500">In Progress SR</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {counts.sr.pending || 0}
-                        </p>
-                    </Link>
-                </Card>
-
-                <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/service-requests?tab=approved-sr">
-                        <p className="text-center py-6 font-bold text-gray-500">Approved SR</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {counts.sr.approved || 0}
-                        </p>
-                    </Link>
-                </Card>
-            </div>
-            <div className="flex items-center space-y-2">
-                <h2 className="text-base pt-1 font-bold tracking-tight">PO Actions</h2>
-            </div>
-            <div className="grid xl:grid-cols-5 max-sm:grid-cols-3 grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
-                <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/purchase-orders?tab=Approved+PO">
-                        <p className="text-center py-6 font-bold text-gray-500">Approved PO</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {counts.po['PO Approved'] || 0}
-                        </p>
-                    </Link>
-                </Card>
-                <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/purchase-orders?tab=Dispatched+PO">
-                        <p className="text-center py-6 font-bold text-gray-500">Dispatched PO</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {counts.po['Dispatched'] || 0}
-                        </p>
-                    </Link>
-                </Card>
-                <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/purchase-orders?tab=Partially+Delivered+PO">
-                        <p className="text-center py-6 font-bold text-gray-500">Partially Delivered PO</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {counts.po['Partially Delivered'] || 0}
-                        </p>
-                    </Link>
-                </Card>
-                <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/purchase-orders?tab=Delivered+PO">
-                        <p className="text-center py-6 font-bold text-gray-500">Delivered PO</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6">
-                            {counts.po['Delivered'] || 0}
-                        </p>
-                    </Link>
-                </Card>
-            </div>
-            <div className="flex items-center space-y-2">
-                <h2 className="text-base pt-1 font-bold tracking-tight">General Actions</h2>
-            </div>
-            <div className="grid xl:grid-cols-5 max-sm:grid-cols-3 grid-cols-4 gap-4 border border-gray-100 rounded-lg p-4">
-                <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/projects">
-                        <p className="text-center py-6 font-bold text-gray-500">Projects Assigned</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6">{(projects_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
-                            : (projects_data?.length)}
-                            {projects_error && <p>Error</p>}</p>
-                    </Link>
-                </Card>
-                <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/vendors">
-                        <p className="text-center py-6 font-bold text-gray-500">Total Vendors</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6">{(vendor_list_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
-                            : (vendor_list)}
-                            {vendor_list_error && <p>Error</p>}</p>
-                    </Link>
-                </Card>
-                <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/products">
-                        <p className="text-center py-6 font-bold text-gray-500">Total Products</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6">{(item_list_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
-                            : (item_list)}
-                            {item_list_error && <p>Error</p>}</p>
-                    </Link>
-                </Card>
-                <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
-                    <Link to="/item-price">
-                        <p className="text-center py-6 font-bold text-gray-500">Item Price Search</p>
-                        <p className="text-center text-red-400 text-xl font-bold py-6">{(approved_quotes_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
-                            : (approved_quotes)}
-                            {approved_quotes_error && <p>Error</p>}</p>
-                    </Link>
-                </Card>
-            </div>
-        </div>
-    );
+            return (
+              <MetricCard
+                key={metric.id}
+                title={metric.title}
+                description={metric.description}
+                linkTo={metric.linkTo}
+                Icon={metric.Icon}
+                count={count}
+                isLoading={isLoading}
+                error={error}
+              />
+            );
+          })}
+        </Section>
+      ))}
+    </div>
+  );
 }

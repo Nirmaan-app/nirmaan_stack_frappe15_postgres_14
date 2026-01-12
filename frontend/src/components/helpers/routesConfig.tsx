@@ -40,7 +40,7 @@ import Customers from "@/pages/customers/customers";
 import Dashboard from "@/pages/dashboard";
 import { PDF } from "@/pages/pdf";
 import { InFlowPayments } from "@/pages/inflow-payments/InFlowPayments";
-import { ProjectForm } from "@/pages/projects/project-form";
+import { ProjectForm } from "@/pages/projects/project-form/index";
 import Projects from "@/pages/projects/projects";
 import Roles from "@/pages/roles";
 import EditUserForm from "@/pages/users/EditUserForm";
@@ -79,6 +79,10 @@ import DesignTrackerList from "@/pages/ProjectDesignTracker/design-tracker-list"
 import ProjectDesignTrackerDetail from "@/pages/ProjectDesignTracker/project-design-tracker-details";
 import { DesignPackages } from "../design-packages";
 import { CriticalPOCategories } from "../layout/critical-po-categories";
+
+//Critical PO Tracker
+import CriticalPOTrackerList from "@/pages/CriticalPOTracker/critical-po-tracker-list";
+import CriticalPOTrackerDetail from "@/pages/CriticalPOTracker/critical-po-tracker-detail";
 
 export const appRoutes: RouteObject[] = [
   // --- Public Routes ---
@@ -283,6 +287,22 @@ export const appRoutes: RouteObject[] = [
           },
           // ======================================================
           // --- END: NEW DESIGN TRACKER SECTION ---
+          // ======================================================
+
+          // ======================================================
+          // --- START: CRITICAL PO TRACKER SECTION ---
+          // ======================================================
+          {
+            path: "critical-po-tracker",
+            children: [
+              // List View (e.g., /critical-po-tracker)
+              { index: true, element: <CriticalPOTrackerList /> },
+              // Detail View (e.g., /critical-po-tracker/PROJ-0001)
+              { path: ":projectId", element: <CriticalPOTrackerDetail /> },
+            ],
+          },
+          // ======================================================
+          // --- END: CRITICAL PO TRACKER SECTION ---
           // ======================================================
 
           // --- Projects Section ---
