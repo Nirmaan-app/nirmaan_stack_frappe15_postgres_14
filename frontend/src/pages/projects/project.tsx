@@ -54,7 +54,7 @@ import {
   HardHat,
   OctagonMinus
 } from "lucide-react";
-import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import {
   useParams
@@ -289,8 +289,15 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   const [activePage, setActivePage] = useState<ProjectPageTabValue>(initialActivePage);
 
-  // Effect to sync activePage state TO URL
+  // Track if this is the initial mount to prevent URL overwrite race condition
+  const isInitialMount = useRef(true);
+
+  // Effect to sync activePage state TO URL (skip on initial mount to preserve incoming query params)
   useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
     if (urlStateManager.getParam("page") !== activePage) {
       urlStateManager.updateParam("page", activePage);
     }
@@ -330,38 +337,57 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   type MenuItem = Required<MenuProps>["items"][number];
 
-  // Tabs to hide from Accountant role
+  // Tabs to hide based on role
   const isAccountant = role === "Nirmaan Accountant Profile";
+  const isProcurementExecutive = role === "Nirmaan Procurement Executive Profile";
+
+  // Allowed tabs for Procurement Executive
+  const procurementExecutiveAllowedTabs = useMemo(() => new Set([
+    PROJECT_PAGE_TABS.CRITICAL_POS,
+    PROJECT_PAGE_TABS.PO_SUMMARY,
+    PROJECT_PAGE_TABS.SR_SUMMARY,
+    PROJECT_PAGE_TABS.MATERIAL_USAGE,
+    PROJECT_PAGE_TABS.PROJECT_EXPENSES,
+  ]), []);
+
+  // Redirect Procurement Executive to allowed tab if on restricted tab
+  useEffect(() => {
+    if (isProcurementExecutive && !procurementExecutiveAllowedTabs.has(activePage)) {
+      setActivePage(PROJECT_PAGE_TABS.CRITICAL_POS);
+    }
+  }, [isProcurementExecutive, activePage, procurementExecutiveAllowedTabs]);
 
   const items: MenuItem[] = useMemo(() => [
-    {
+    // Hide Overview from Procurement Executive
+    ...(!isProcurementExecutive ? [{
       label: "Overview",
       key: PROJECT_PAGE_TABS.OVERVIEW,
-    },
-    // Hide Work Report from Accountant
-    ...(!isAccountant ? [{
+    }] : []),
+    // Hide Work Report from Accountant and Procurement Executive
+    ...(!isAccountant && !isProcurementExecutive ? [{
       label: "Work Report",
       key: PROJECT_PAGE_TABS.WORK_REPORT,
     }] : []),
-    // Hide Planning from Accountant
-    ...(!isAccountant ? [{
+    // Hide Planning from Accountant and Procurement Executive
+    ...(!isAccountant && !isProcurementExecutive ? [{
       label: "Planning",
       key: PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
     }] : []),
-    // Hide Critical POs from Accountant
+    // Hide Critical POs from Accountant only (Procurement Executive can see)
     ...(!isAccountant ? [{
       label: "Critical POs",
       key: PROJECT_PAGE_TABS.CRITICAL_POS,
     }] : []),
-    // Hide Design Tracker from Accountant
-    ...(!isAccountant ? [{
+    // Hide Design Tracker from Accountant and Procurement Executive
+    ...(!isAccountant && !isProcurementExecutive ? [{
       label: "Design Tracker",
       key: PROJECT_PAGE_TABS.DESIGN_TRACKER,
     }] : []),
-    {
+    // Hide Financials from Procurement Executive
+    ...(!isProcurementExecutive ? [{
       label: "Financials",
       key: PROJECT_PAGE_TABS.FINANCIALS,
-    },
+    }] : []),
     {
       label: "WO Summary",
       key: PROJECT_PAGE_TABS.SR_SUMMARY,
@@ -370,12 +396,12 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       label: "PO Summary",
       key: PROJECT_PAGE_TABS.PO_SUMMARY,
     },
-     {
+    {
       label: "Material Usage",
       key: PROJECT_PAGE_TABS.MATERIAL_USAGE
     },
-    // Hide Project Makes from Accountant
-    ...(!isAccountant ? [{
+    // Hide Project Makes from Accountant and Procurement Executive
+    ...(!isAccountant && !isProcurementExecutive ? [{
       label: "Project Makes",
       key: PROJECT_PAGE_TABS.MAKES
     }] : []),
@@ -383,21 +409,22 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       label: "Misc. Project Expenses",
       key: PROJECT_PAGE_TABS.PROJECT_EXPENSES
     },
-    // Hide PR Summary from Accountant
-    ...(!isAccountant ? [{
+    // Hide PR Summary from Accountant and Procurement Executive
+    ...(!isAccountant && !isProcurementExecutive ? [{
       label: "PR Summary",
       key: PROJECT_PAGE_TABS.PR_SUMMARY,
     }] : []),
-    {
+    // Hide Project Spends from Procurement Executive
+    ...(!isProcurementExecutive ? [{
       label: "Project Spends",
       key: PROJECT_PAGE_TABS.SPENDS,
-    },
-    // Hide Project Estimates from Accountant
-    ...(!isAccountant ? [{
+    }] : []),
+    // Hide Project Estimates from Accountant and Procurement Executive
+    ...(!isAccountant && !isProcurementExecutive ? [{
       label: "Project Estimates",
       key: PROJECT_PAGE_TABS.ESTIMATES
     }] : []),
-  ], [role, isAccountant]);
+  ], [role, isAccountant, isProcurementExecutive]);
 
   // Define tabs available based on role or other logic
   // const availableTabs = useMemo(() => {
