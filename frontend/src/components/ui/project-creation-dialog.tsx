@@ -1,4 +1,4 @@
-import { CheckCircle2, Loader2, FolderPlus, Users, CirclePlus, Undo2, BadgeIndianRupee, ClipboardList, PenTool } from "lucide-react";
+import { CheckCircle2, Loader2, FolderPlus, Users, CirclePlus, Undo2, BadgeIndianRupee, ClipboardList, PenTool, ListChecks } from "lucide-react";
 import {
     AlertDialog,
     AlertDialogContent,
@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 
-export type CreationStage = "idle" | "creating_project" | "assigning_users" | "setting_up_progress" | "setting_up_design_tracker" | "complete" | "error";
+export type CreationStage = "idle" | "creating_project" | "assigning_users" | "setting_up_progress" | "setting_up_design_tracker" | "setting_up_critical_po" | "complete" | "error";
 
 interface ProjectCreationDialogProps {
     open: boolean;
@@ -19,6 +19,7 @@ interface ProjectCreationDialogProps {
     assigneeCount?: number;
     progressSetupEnabled?: boolean;
     designSetupEnabled?: boolean;
+    criticalPOSetupEnabled?: boolean;
     errorMessage?: string;
     onGoBack: () => void;
     onCreateNew: () => void;
@@ -82,6 +83,7 @@ export const ProjectCreationDialog: React.FC<ProjectCreationDialogProps> = ({
     assigneeCount = 0,
     progressSetupEnabled = false,
     designSetupEnabled = false,
+    criticalPOSetupEnabled = false,
     errorMessage,
     onGoBack,
     onCreateNew,
@@ -91,6 +93,7 @@ export const ProjectCreationDialog: React.FC<ProjectCreationDialogProps> = ({
     const isAssigningUsers = stage === "assigning_users";
     const isSettingUpProgress = stage === "setting_up_progress";
     const isSettingUpDesignTracker = stage === "setting_up_design_tracker";
+    const isSettingUpCriticalPO = stage === "setting_up_critical_po";
     const isComplete = stage === "complete";
     const isError = stage === "error";
 
@@ -158,20 +161,20 @@ export const ProjectCreationDialog: React.FC<ProjectCreationDialogProps> = ({
                         <StageItem
                             label="Creating project"
                             isActive={isCreatingProject}
-                            isComplete={isAssigningUsers || isSettingUpProgress || isSettingUpDesignTracker || isComplete}
+                            isComplete={isAssigningUsers || isSettingUpProgress || isSettingUpDesignTracker || isSettingUpCriticalPO || isComplete}
                             icon={<FolderPlus className="h-4 w-4" />}
                         />
                         <StageItem
                             label={`Assigning team members${assigneeCount > 0 ? ` (${assigneeCount})` : ""}`}
                             isActive={isAssigningUsers}
-                            isComplete={isSettingUpProgress || isSettingUpDesignTracker || isComplete}
+                            isComplete={isSettingUpProgress || isSettingUpDesignTracker || isSettingUpCriticalPO || isComplete}
                             icon={<Users className="h-4 w-4" />}
                         />
                         {progressSetupEnabled && (
                             <StageItem
                                 label="Setting up progress tracking"
                                 isActive={isSettingUpProgress}
-                                isComplete={isSettingUpDesignTracker || isComplete}
+                                isComplete={isSettingUpDesignTracker || isSettingUpCriticalPO || isComplete}
                                 icon={<ClipboardList className="h-4 w-4" />}
                             />
                         )}
@@ -179,8 +182,16 @@ export const ProjectCreationDialog: React.FC<ProjectCreationDialogProps> = ({
                             <StageItem
                                 label="Setting up design tracker"
                                 isActive={isSettingUpDesignTracker}
-                                isComplete={isComplete}
+                                isComplete={isSettingUpCriticalPO || isComplete}
                                 icon={<PenTool className="h-4 w-4" />}
+                            />
+                        )}
+                        {criticalPOSetupEnabled && (
+                            <StageItem
+                                label="Setting up Critical PO tasks"
+                                isActive={isSettingUpCriticalPO}
+                                isComplete={isComplete}
+                                icon={<ListChecks className="h-4 w-4" />}
                             />
                         )}
                     </div>

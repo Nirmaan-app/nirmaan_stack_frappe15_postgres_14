@@ -172,6 +172,12 @@ export const projectFormSchema = z.object({
         zones: z.array(z.object({ zone_name: z.string() })).default([]),
         selected_categories: z.array(z.string()).default([]),
     }).optional(),
+
+    // Critical PO Categories Setup (Optional - Phase 5, Section 4)
+    critical_po_setup: z.object({
+        enabled: z.boolean().default(false),
+        selected_categories: z.array(z.string()).default([]),
+    }).optional(),
 });
 
 export type ProjectFormValues = z.infer<typeof projectFormSchema>;
@@ -236,6 +242,11 @@ export const defaultFormValues: ProjectFormValues = {
         zones: [],
         selected_categories: [],
     },
+    // Critical PO Categories Setup
+    critical_po_setup: {
+        enabled: false,
+        selected_categories: [],
+    },
 };
 
 /**
@@ -285,5 +296,13 @@ export interface DesignPackagesSetup {
     zone_source?: 'custom' | 'copy_from_progress';
     zone_type?: 'single' | 'multiple';
     zones: Array<{ zone_name: string }>;
+    selected_categories: string[];
+}
+
+/**
+ * Type for critical PO categories setup configuration
+ */
+export interface CriticalPOSetup {
+    enabled: boolean;
     selected_categories: string[];
 }

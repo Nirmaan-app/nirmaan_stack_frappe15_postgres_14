@@ -62,6 +62,7 @@ export const ProjectForm = () => {
     const [assigneeCount, setAssigneeCount] = useState(0);
     const [progressSetupEnabled, setProgressSetupEnabled] = useState(false);
     const [designSetupEnabled, setDesignSetupEnabled] = useState(false);
+    const [criticalPOSetupEnabled, setCriticalPOSetupEnabled] = useState(false);
     const [creationError, setCreationError] = useState<string>();
 
     // API calls
@@ -184,11 +185,12 @@ export const ProjectForm = () => {
                 throw new Error("Please select at least one work package associated with this project!");
             }
 
-            // Extract assignees, daily_progress_setup, design_packages_setup, and deprecated single-assignee fields (not sent to backend)
+            // Extract assignees, optional setups, and deprecated single-assignee fields (not sent to backend)
             const {
                 assignees,
                 daily_progress_setup,
                 design_packages_setup,
+                critical_po_setup,
                 // Deprecated single-assignee fields - don't send to backend
                 project_lead,
                 project_manager,
@@ -213,6 +215,11 @@ export const ProjectForm = () => {
             // Check if design packages setup is enabled
             const isDesignSetupEnabled = design_packages_setup?.enabled === true;
             setDesignSetupEnabled(isDesignSetupEnabled);
+
+            // Check if critical PO setup is enabled
+            const isCriticalPOSetupEnabled = critical_po_setup?.enabled === true &&
+                (critical_po_setup?.selected_categories?.length ?? 0) > 0;
+            setCriticalPOSetupEnabled(isCriticalPOSetupEnabled);
 
             // Open dialog and start creation
             setCreationDialogOpen(true);
@@ -377,6 +384,78 @@ export const ProjectForm = () => {
                 }
             }
 
+            // Step 5: Set up Critical PO Tasks (if enabled)
+            if (isCriticalPOSetupEnabled && critical_po_setup) {
+                setCreationStage("setting_up_critical_po");
+
+                try {
+                    // Fetch items for selected categories using Frappe API
+                    const filterParam = JSON.stringify([["critical_po_category", "in", critical_po_setup.selected_categories]]);
+                    const fieldsParam = JSON.stringify(["name", "item_name", "sub_category", "critical_po_category", "release_timeline_offset"]);
+
+                    const itemsResponse = await fetch(
+                        `/api/resource/Critical PO Items?filters=${encodeURIComponent(filterParam)}&fields=${encodeURIComponent(fieldsParam)}&limit_page_length=0`
+                    );
+
+                    if (!itemsResponse.ok) {
+                        throw new Error("Failed to fetch Critical PO Items");
+                    }
+
+                    const itemsData = await itemsResponse.json();
+                    const items: Array<{
+                        name: string;
+                        item_name: string;
+                        sub_category?: string;
+                        critical_po_category: string;
+                        release_timeline_offset?: number;
+                    }> = itemsData?.data || [];
+
+                    console.log("[Critical PO] Fetched items:", items.length);
+                    console.log("[Critical PO] Categories:", critical_po_setup.selected_categories);
+
+                    // Create Critical PO Task for each item
+                    let createdCount = 0;
+                    for (const item of items) {
+                        const offsetDays = item.release_timeline_offset || 0;
+                        const startDate = new Date(values.project_start_date);
+                        startDate.setDate(startDate.getDate() + offsetDays);
+                        const poReleaseDate = format(startDate, 'yyyy-MM-dd');
+
+                        await createDoc("Critical PO Tasks", {
+                            project: projectName,
+                            project_name: values.project_name,
+                            critical_po_category: item.critical_po_category,
+                            item_name: item.item_name,
+                            sub_category: item.sub_category || "",
+                            po_release_date: poReleaseDate,
+                            status: "Not Released",
+                            associated_pos: JSON.stringify({ pos: [] }),
+                            revised_date: null,
+                            remarks: "",
+                        });
+                        createdCount++;
+                    }
+
+                    console.log("[Critical PO] Created tasks:", createdCount);
+
+                    if (createdCount > 0) {
+                        toast({
+                            title: "Critical PO Tasks Created",
+                            description: `Created ${createdCount} Critical PO task${createdCount !== 1 ? 's' : ''} for the project.`,
+                        });
+                    }
+                } catch (criticalPOError) {
+                    // Log error details
+                    console.error("Failed to set up Critical PO tasks:", criticalPOError);
+                    // Don't fail the entire operation, but toast the error
+                    toast({
+                        title: "Warning",
+                        description: "Project created but Critical PO setup failed. You can set it up later from the Critical PO Tasks page.",
+                        variant: "destructive",
+                    });
+                }
+            }
+
             // Complete
             clearDraftAfterSubmit();
             setCreationStage("complete");
@@ -399,6 +478,10 @@ export const ProjectForm = () => {
         setCreationDialogOpen(false);
         setCreationStage("idle");
         setNewProjectId(undefined);
+        setProgressSetupEnabled(false);
+        setDesignSetupEnabled(false);
+        setCriticalPOSetupEnabled(false);
+        setAssigneeCount(0);
         form.reset(defaultFormValues);
         form.clearErrors();
         setSection("projectDetails");
@@ -554,6 +637,7 @@ export const ProjectForm = () => {
                 assigneeCount={assigneeCount}
                 progressSetupEnabled={progressSetupEnabled}
                 designSetupEnabled={designSetupEnabled}
+                criticalPOSetupEnabled={criticalPOSetupEnabled}
                 errorMessage={creationError}
                 onGoBack={handleGoToProjects}
                 onCreateNew={handleCreateNew}

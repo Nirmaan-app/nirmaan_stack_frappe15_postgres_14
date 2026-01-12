@@ -1,5 +1,5 @@
 import { UseFormReturn } from "react-hook-form";
-import { Building2, MapPin, Calendar, Users, Package, ListChecks, ClipboardList, PenTool } from "lucide-react";
+import { Building2, MapPin, Calendar, Users, Package, ListChecks, ClipboardList, PenTool, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ButtonLoading } from "@/components/ui/button-loading";
 import {
@@ -330,6 +330,44 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({
                                     <p className="text-xs text-gray-400 mt-2">
                                         {form.getValues("design_packages_setup")?.selected_categories?.length ?? 0} categor
                                         {(form.getValues("design_packages_setup")?.selected_categories?.length ?? 0) !== 1 ? 'ies' : 'y'} selected for design tracking
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+                    </ReviewSection>
+                )}
+
+                {/* Critical PO Categories Section (only show if enabled) */}
+                {form.getValues("critical_po_setup")?.enabled && (
+                    <ReviewSection
+                        title="Critical PO Categories"
+                        icon={AlertCircle}
+                        onEdit={() => onNavigateToSection("packageSelection")}
+                        iconColorClass="bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                        columns={1}
+                    >
+                        <div className="col-span-full space-y-4">
+                            {/* Selected Categories */}
+                            <div>
+                                <p className="text-xs font-medium text-gray-500 mb-2">Categories to Track</p>
+                                <div className="flex flex-wrap gap-2">
+                                    {form.getValues("critical_po_setup")?.selected_categories?.length ? (
+                                        form.getValues("critical_po_setup")?.selected_categories?.map((category) => (
+                                            <span
+                                                key={category}
+                                                className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200"
+                                            >
+                                                {category}
+                                            </span>
+                                        ))
+                                    ) : (
+                                        <span className="text-xs text-gray-400 italic">No categories selected</span>
+                                    )}
+                                </div>
+                                {(form.getValues("critical_po_setup")?.selected_categories?.length ?? 0) > 0 && (
+                                    <p className="text-xs text-gray-400 mt-2">
+                                        {form.getValues("critical_po_setup")?.selected_categories?.length ?? 0} categor
+                                        {(form.getValues("critical_po_setup")?.selected_categories?.length ?? 0) !== 1 ? 'ies' : 'y'} selected - tasks will be created with deadlines based on project start date
                                     </p>
                                 )}
                             </div>

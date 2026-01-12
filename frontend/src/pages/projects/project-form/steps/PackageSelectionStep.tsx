@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import { ProjectFormValues, DailyProgressWorkHeader } from "../schema";
 import { ProjectFormData, WorkPackageType, WorkHeaderType } from "../hooks/useProjectFormData";
-import { Plus, X, ClipboardList, ChevronDown, ChevronRight, PenTool, Copy } from "lucide-react";
+import { Plus, X, ClipboardList, ChevronDown, ChevronRight, PenTool, Copy, ListChecks, Info } from "lucide-react";
 import { useState } from "react";
 
 // Local type for form's internal work package structure
@@ -34,7 +34,7 @@ export const PackageSelectionStep: React.FC<PackageSelectionStepProps> = ({
     onNext,
     onPrevious,
 }) => {
-    const { workPackages, categories, workHeaders, designCategories, isPackageDataLoading, isWorkHeadersLoading, isDesignCategoriesLoading } = formData;
+    const { workPackages, categories, workHeaders, designCategories, criticalPOCategories, isPackageDataLoading, isWorkHeadersLoading, isDesignCategoriesLoading, isCriticalPOCategoriesLoading } = formData;
     const watchedWorkPackages = form.watch("project_work_packages.work_packages");
     const selectedWorkPackages: FormWorkPackage[] = Array.isArray(watchedWorkPackages) ? watchedWorkPackages : [];
 
@@ -52,6 +52,11 @@ export const PackageSelectionStep: React.FC<PackageSelectionStepProps> = ({
     const designZoneType = designPackagesSetup?.zone_type;
     const designZones = designPackagesSetup?.zones ?? [];
     const selectedDesignCategories = designPackagesSetup?.selected_categories ?? [];
+
+    // Critical PO Setup state
+    const criticalPOSetup = form.watch("critical_po_setup");
+    const isCriticalPOEnabled = criticalPOSetup?.enabled ?? false;
+    const selectedCriticalPOCategories = criticalPOSetup?.selected_categories ?? [];
 
     // Local state for new zone input
     const [newZoneName, setNewZoneName] = useState("");
@@ -266,6 +271,32 @@ export const PackageSelectionStep: React.FC<PackageSelectionStepProps> = ({
             );
         }
     }, [selectedDesignCategories, form]);
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // CRITICAL PO SETUP HANDLERS
+    // ═══════════════════════════════════════════════════════════════════════
+
+    const handleCriticalPOEnabledChange = useCallback((checked: boolean) => {
+        form.setValue("critical_po_setup.enabled", checked);
+        if (!checked) {
+            // Reset all settings when disabled
+            form.setValue("critical_po_setup.selected_categories", []);
+        }
+    }, [form]);
+
+    const handleCriticalPOCategoryToggle = useCallback((categoryName: string) => {
+        if (selectedCriticalPOCategories.includes(categoryName)) {
+            form.setValue(
+                "critical_po_setup.selected_categories",
+                selectedCriticalPOCategories.filter(c => c !== categoryName)
+            );
+        } else {
+            form.setValue(
+                "critical_po_setup.selected_categories",
+                [...selectedCriticalPOCategories, categoryName]
+            );
+        }
+    }, [selectedCriticalPOCategories, form]);
 
     // Check if daily progress has zones configured (for copy option)
     const hasProgressZones = isProgressEnabled && zoneType && (zoneType === 'single' || zones.length > 0);
@@ -878,14 +909,103 @@ export const PackageSelectionStep: React.FC<PackageSelectionStepProps> = ({
             </div>
 
             {/* ════════════════════════════════════════════════════════════
-                SECTION 4: Placeholder for future content
+                SECTION 4: Critical PO Categories Setup (Optional)
                 ════════════════════════════════════════════════════════════ */}
-            {/* Section 4 will be added here */}
+            <div className="space-y-4">
+                <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                    <div className="flex items-center gap-2">
+                        <ListChecks className="h-4 w-4 text-gray-500" />
+                        <Label className="text-sm font-medium text-gray-700">
+                            Critical PO Categories
+                        </Label>
+                        <span className="text-xs text-gray-400 font-normal">(Optional)</span>
+                    </div>
+                </div>
 
-            {/* ════════════════════════════════════════════════════════════
-                SECTION 5: Placeholder for future content
-                ════════════════════════════════════════════════════════════ */}
-            {/* Section 5 will be added here */}
+                {/* Enable Toggle */}
+                <label className="flex items-center gap-3 px-3 py-2.5 border border-gray-200 rounded cursor-pointer hover:bg-gray-50">
+                    <Checkbox
+                        id="enable-critical-po"
+                        checked={isCriticalPOEnabled}
+                        onCheckedChange={(checked) => handleCriticalPOEnabledChange(checked === true)}
+                    />
+                    <div className="flex-1">
+                        <span className="text-sm text-gray-700">
+                            Setup Critical PO Tracking for this project
+                        </span>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                            Track critical purchase order deadlines and ensure timely procurement
+                        </p>
+                    </div>
+                </label>
+
+                {/* Expanded Settings (when enabled) */}
+                {isCriticalPOEnabled && (
+                    <div className="border border-gray-200 rounded overflow-hidden">
+                        {/* Info Message about deadline calculation */}
+                        <div className="p-3 bg-blue-50/50 border-b border-gray-200">
+                            <div className="flex items-start gap-2">
+                                <Info className="h-4 w-4 text-blue-500 mt-0.5 flex-shrink-0" />
+                                <p className="text-xs text-blue-700">
+                                    PO release deadlines will be automatically calculated based on the project start date and each item's timeline offset.
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Category Selection */}
+                        <div className="p-4">
+                            <Label className="text-xs font-medium text-gray-600 uppercase tracking-wide">
+                                Select Categories
+                            </Label>
+                            <p className="text-xs text-gray-400 mt-1 mb-3">
+                                Choose which critical PO categories apply to this project
+                            </p>
+
+                            {isCriticalPOCategoriesLoading ? (
+                                <div className="space-y-2">
+                                    {[1, 2, 3].map((i) => (
+                                        <div key={i} className="h-10 bg-gray-100 rounded animate-pulse" />
+                                    ))}
+                                </div>
+                            ) : !criticalPOCategories || criticalPOCategories.length === 0 ? (
+                                <p className="text-sm text-gray-400 py-4 text-center border border-dashed border-gray-200 rounded">
+                                    No critical PO categories found in the system
+                                </p>
+                            ) : (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                    {criticalPOCategories.map((cat) => {
+                                        const isSelected = selectedCriticalPOCategories.includes(cat.name);
+                                        return (
+                                            <Button
+                                                key={cat.name}
+                                                type="button"
+                                                variant={isSelected ? "default" : "outline"}
+                                                onClick={() => handleCriticalPOCategoryToggle(cat.name)}
+                                                size="sm"
+                                                className="text-xs h-auto py-2 whitespace-normal min-h-[40px] justify-start"
+                                            >
+                                                <span className="truncate">{cat.category_name}</span>
+                                            </Button>
+                                        );
+                                    })}
+                                </div>
+                            )}
+
+                            {selectedCriticalPOCategories.length > 0 && (
+                                <p className="text-xs text-gray-500 mt-3">
+                                    {selectedCriticalPOCategories.length} categor{selectedCriticalPOCategories.length !== 1 ? 'ies' : 'y'} selected
+                                </p>
+                            )}
+
+                            {selectedCriticalPOCategories.length === 0 && criticalPOCategories && criticalPOCategories.length > 0 && (
+                                <p className="text-xs text-amber-600 mt-2">
+                                    Select at least one category
+                                </p>
+                            )}
+                        </div>
+                    </div>
+                )}
+            </div>
 
             {/* ════════════════════════════════════════════════════════════
                 Navigation

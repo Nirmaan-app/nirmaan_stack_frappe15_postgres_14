@@ -31,6 +31,11 @@ export interface DesignCategory {
     tasks: DesignTaskTemplate[];
 }
 
+export interface CriticalPOCategoryType {
+    name: string;
+    category_name: string;
+}
+
 interface DesignMasterDataResponse {
     message: {
         categories: Array<{
@@ -150,6 +155,16 @@ export const useProjectFormData = () => {
             }));
     }, [designMasterData]);
 
+    // Critical PO Categories (for Critical PO Setup)
+    const {
+        data: criticalPOCategories,
+        isLoading: criticalPOCategoriesLoading,
+        error: criticalPOCategoriesError
+    } = useFrappeGetDocList<CriticalPOCategoryType>("Critical PO Category", {
+        fields: ["name", "category_name"],
+        limit: 0,
+    });
+
     // Listen for project type changes
     useFrappeDocTypeEventListener("Project Types", async () => {
         await projectTypesMutate();
@@ -223,6 +238,7 @@ export const useProjectFormData = () => {
     const isPackageDataLoading = categoriesLoading || categoryMakeListLoading;
     const isWorkHeadersLoading = workHeadersLoading;
     const isDesignCategoriesLoading = designCategoriesLoading;
+    const isCriticalPOCategoriesLoading = criticalPOCategoriesLoading;
 
     return {
         // Raw data
@@ -232,6 +248,7 @@ export const useProjectFormData = () => {
         categoryMakeList,
         workHeaders,
         designCategories,
+        criticalPOCategories,
 
         // Options for selects
         customerOptions,
@@ -256,6 +273,7 @@ export const useProjectFormData = () => {
         isPackageDataLoading,
         isWorkHeadersLoading,
         isDesignCategoriesLoading,
+        isCriticalPOCategoriesLoading,
         customersLoading,
         projectTypesLoading,
         usersLoading,
@@ -267,6 +285,7 @@ export const useProjectFormData = () => {
         usersError,
         workHeadersError,
         designCategoriesError,
+        criticalPOCategoriesError,
     };
 };
 

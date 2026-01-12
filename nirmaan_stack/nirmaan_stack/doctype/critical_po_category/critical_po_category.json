@@ -8,7 +8,8 @@
  "engine": "InnoDB",
  "field_order": [
   "details_section",
-  "category_name"
+  "category_name",
+  "work_package"
  ],
  "fields": [
   {
@@ -21,12 +22,18 @@
    "fieldtype": "Data",
    "label": "Category Name",
    "unique": 1
+  },
+  {
+   "fieldname": "work_package",
+   "fieldtype": "Link",
+   "label": "Work Package",
+   "options": "Work Packages"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-12-31 17:42:12.262975",
+ "modified": "2026-01-12 17:52:37.946654",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Critical PO Category",
