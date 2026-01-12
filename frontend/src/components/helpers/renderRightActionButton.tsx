@@ -107,7 +107,7 @@ export const RenderRightActionButton = ({
         Add <span className="hidden md:flex pl-1">New WO</span>
       </Button>
     );
-  } else if (locationPath === "/products") {
+  } else if (locationPath === "/products" && role === "Nirmaan Admin Profile") {
     return (
       <Button onClick={toggleNewItemDialog} className="sm:mr-4 mr-2">
         <CirclePlus className="w-5 h-5 pr-1" />
