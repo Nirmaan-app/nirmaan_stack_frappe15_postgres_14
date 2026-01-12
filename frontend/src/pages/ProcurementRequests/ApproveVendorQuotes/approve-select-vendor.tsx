@@ -1,5 +1,6 @@
 import React, { useCallback, useContext, useMemo } from "react";
 import { ColumnDef } from "@tanstack/react-table";
+import { cn } from "@/lib/utils";
 import { Link } from "react-router-dom";
 import {
   useFrappeGetDocList,
