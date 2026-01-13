@@ -373,6 +373,16 @@ export function NewSidebar() {
       ]
       : []),
 
+    ...(role == "Nirmaan Estimates Executive Profile"
+      ? [
+        {
+          key: '/tds-repository',
+          icon: List,
+          label: 'TDS Repository',
+        },
+      ]
+      : []),
+
     ...([
       "Nirmaan Procurement Executive Profile",
       "Nirmaan Admin Profile",
@@ -687,7 +697,7 @@ export function NewSidebar() {
               >
                 <SidebarMenuItem>
 
-                  {new Set(["Dashboard", "Item Price Search", "Procurement Requests", "Purchase Orders", "Project Payments", "Credit Payments", "Sent Back Requests", "Projects", "Work Orders", "In-Flow Payments", "Invoice Recon", "Reports",
+                  {new Set(["Dashboard", "Item Price Search", "TDS Repository", "Procurement Requests", "Purchase Orders", "Project Payments", "Credit Payments", "Sent Back Requests", "Projects", "Work Orders", "In-Flow Payments", "Invoice Recon", "Reports",
                     "Design Tracker", "PO Tracker", "Work Plan Tracker", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses", "Users", "Assets", "Vendors", "Customers", "Products"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
