@@ -4,6 +4,91 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-13: PO Attachment Reconciliation Report
+
+### Summary
+Added new report for Delivered/Partially Delivered POs showing attachment counts (Invoices, DCs, MIRs) with mismatch highlighting and filtering capabilities.
+
+### Features
+- **Dynamic summary cards** - Recalculate based on applied table filters
+- **Attachment count popovers** - Click to view Invoice/DC/MIR details in table format
+- **Mismatch highlighting** - Rows where Invoice count ≠ DC count are highlighted in amber
+- **Mismatch filter toggle** - "Show only" switch to filter mismatched rows
+- **Mobile-responsive design** - Compact summary for mobile, expanded for desktop
+
+### Files Added
+- `src/pages/reports/components/POAttachmentReconcileReport.tsx` - Main report component
+- `src/pages/reports/components/columns/poAttachmentReconcileColumns.tsx` - Column definitions with popovers
+- `src/pages/reports/config/poAttachmentReconcileTable.config.ts` - Table configuration
+- `src/pages/reports/hooks/usePOAttachmentReconcileData.ts` - Data fetching hook
+
+### Files Modified
+- `src/pages/reports/ReportsContainer.tsx` - Added route
+- `src/pages/reports/components/POReports.tsx` - Added tab
+- `src/pages/reports/store/useReportStore.ts` - Added report type
+- `src/config/queryKeys.ts` - Added `po_amount_delivered` field
+
+### Pattern: Hidden Column for Computed Filters
+```typescript
+// Add hidden column for computed filter values
+{
+    id: "isMismatched",
+    accessorFn: (row) => row.invoiceCount !== row.dcCount ? "yes" : "no",
+    header: () => null,
+    cell: () => null,
+    filterFn: facetedFilterFn,
+    meta: { hidden: true },
+}
+
+// Toggle filter programmatically
+const mismatchColumn = table.getColumn("isMismatched");
+mismatchColumn?.setFilterValue(showOnly ? ["yes"] : undefined);
+```
+
+---
+
+## 2026-01-13: DataTable getRowClassName Prop
+
+### Summary
+Added `getRowClassName` callback prop to DataTable component for conditional row styling.
+
+### Files Modified
+- `src/components/data-table/new-data-table.tsx`
+
+### Usage Pattern
+```typescript
+<DataTable
+    getRowClassName={(row) => {
+        if (row.original.hasError) {
+            return "bg-red-50 hover:bg-red-100";
+        }
+        return undefined;
+    }}
+/>
+```
+
+---
+
+## 2026-01-13: PO2B Reconcile Report Dynamic Summary
+
+### Summary
+Enhanced PO2B Reconcile Report with dynamic summary that recalculates based on applied filters.
+
+### Files Modified
+- `src/pages/reports/components/PO2BReconcileReport.tsx`
+
+### Pattern: Dynamic Summary from Filtered Data
+```typescript
+const fullyFilteredData = table.getFilteredRowModel().rows.map(r => r.original);
+
+const dynamicSummary = useMemo(() => ({
+    totalCount: fullyFilteredData.length,
+    totalAmount: fullyFilteredData.reduce((sum, row) => sum + row.amount, 0),
+}), [fullyFilteredData]);
+```
+
+---
+
 ## 2026-01-13: Fix CSRF Token Error on HR Executive Login
 
 ### Summary
