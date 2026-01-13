@@ -23,12 +23,12 @@ export interface ProjectInvoice {
   modified: string;
   modified_by: string;
   idx: number;
-  
+
   /**
    * The status of the document.
    * 0 = Draft
    * 1 = Submitted
    * 2 = Cancelled
    */
-  docstatus: 0 | 1 | 2; 
+  docstatus: 0 | 1 | 2;
 }

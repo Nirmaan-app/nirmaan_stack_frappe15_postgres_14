@@ -140,11 +140,11 @@ export const getClientProjectColumns = (): ColumnDef<ProjectWithCalculations>[] 
     meta: { exportHeaderName: "Project Name", exportValue: (row: Projects) => row.project_name || row.name }
   },
    {
-    accessorKey: "project_value",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Value (excl. GST)" className="[&_button]:whitespace-normal text-left" />,
-    cell: ({ row }) => <div className="tabular-nums text-center">{formatDisplayValueToLakhs(row.original.project_value)}</div>,
+    accessorKey: "project_value_gst",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Value (incl. GST)" className="[&_button]:whitespace-normal text-left" />,
+    cell: ({ row }) => <div className="tabular-nums text-center">{formatDisplayValueToLakhs(row.original.project_value_gst)}</div>,
     size:120,
-    meta: { exportHeaderName: "Value (excl. GST)", exportValue: (row: Projects) => formatValueToLakhsString(row.project_value), isNumeric: true }
+    meta: { exportHeaderName: "Value (incl. GST)", exportValue: (row: Projects) => formatValueToLakhsString(row.original.project_value_gst), isNumeric: true }
   },
   {
     accessorKey: "totalProjectInvoiced",

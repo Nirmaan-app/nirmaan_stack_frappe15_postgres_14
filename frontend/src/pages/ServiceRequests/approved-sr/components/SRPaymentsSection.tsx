@@ -146,7 +146,7 @@ export const SRPaymentsSection: React.FC<SRPaymentsSectionProps> = ({
                                 Request Payment
                             </Button>
                         )}
-                        {canRecordPaidEntry && ["Nirmaan Accountant Profile", "Nirmaan Admin Profile"].includes(role) && (
+                        {canRecordPaidEntry && ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role) && (
                             <Button size="sm" variant="default" className="text-xs" onClick={() => setIsNewPaymentDialogOpen(true)}>
                                 <SquarePlus className="mr-2 h-4 w-4" /> Record Paid Entry
                             </Button>

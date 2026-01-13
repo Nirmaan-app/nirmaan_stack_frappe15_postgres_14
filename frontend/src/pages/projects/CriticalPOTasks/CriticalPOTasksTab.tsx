@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useFrappeGetDocList, useFrappeDeleteDoc, useFrappeDocumentEventListener } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
 import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
@@ -8,6 +8,22 @@ import { CriticalPOTasksList } from "./CriticalPOTasksList";
 import { ManageSetupDialog } from "./components/ManageSetupDialog";
 import { formatDate } from "@/utils/FormatDate";
 import { Calendar } from "lucide-react";
+import { useUserData } from "@/hooks/useUserData";
+
+// Roles that can manage setup (Add/Delete tasks configuration)
+const MANAGE_SETUP_ROLES = [
+  "Nirmaan Admin Profile",
+  "Nirmaan PMO Executive Profile",
+  "Nirmaan Project Lead Profile",
+];
+
+// Roles that can edit tasks and delete associated POs
+const EDIT_ROLES = [
+  "Nirmaan Admin Profile",
+  "Nirmaan PMO Executive Profile",
+  "Nirmaan Project Lead Profile",
+  "Nirmaan Procurement Executive Profile",
+];
 
 interface CriticalPOTasksTabProps {
   projectId: string;
@@ -20,7 +36,12 @@ export const CriticalPOTasksTab: React.FC<CriticalPOTasksTabProps> = ({
   projectData,
   onTasksCreated,
 }) => {
+  const { role } = useUserData();
   const [manageSetupOpen, setManageSetupOpen] = useState(false);
+
+  // Role-based access controls
+  const canManageSetup = useMemo(() => MANAGE_SETUP_ROLES.includes(role), [role]);
+  const canEdit = useMemo(() => EDIT_ROLES.includes(role), [role]);
 
   // Fetch all Critical PO Tasks for this project
   const {
@@ -97,7 +118,8 @@ export const CriticalPOTasksTab: React.FC<CriticalPOTasksTabProps> = ({
             tasks={tasks}
             projectId={projectId}
             mutate={mutate}
-            onManageSetup={() => setManageSetupOpen(true)}
+            onManageSetup={canManageSetup ? () => setManageSetupOpen(true) : undefined}
+            canEdit={canEdit}
           />
         </div>
       ) : (
@@ -109,8 +131,8 @@ export const CriticalPOTasksTab: React.FC<CriticalPOTasksTabProps> = ({
         />
       )}
 
-      {/* Manage Setup Dialog */}
-      {hasTasks && (
+      {/* Manage Setup Dialog - Only for roles with manage setup permission */}
+      {hasTasks && canManageSetup && (
         <ManageSetupDialog
           open={manageSetupOpen}
           onOpenChange={setManageSetupOpen}

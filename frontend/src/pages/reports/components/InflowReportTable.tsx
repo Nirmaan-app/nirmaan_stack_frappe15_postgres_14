@@ -2,7 +2,7 @@ import React, { useCallback, useMemo, useState, useEffect, useRef } from "react"
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { useFrappeGetDocList, FrappeDoc, GetDocListArgs, Filter } from "frappe-react-sdk";
-import { Download, Info } from "lucide-react";
+import { Download, Info, ArrowDownLeft, Banknote } from "lucide-react";
 import { DateRange } from "react-day-picker";
 
 // --- UI Components ---
@@ -12,8 +12,7 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/h
 import { TableSkeleton } from "@/components/ui/skeleton";
 import SITEURL from "@/constants/siteURL";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
-// MODIFIED: Import Card components and a spinner
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TailSpin } from 'react-loader-spinner';
 import { StandaloneDateFilter } from "@/components/ui/StandaloneDateFilter";
 
@@ -42,18 +41,25 @@ const INFLOW_AGGREGATES_CONFIG: AggregationConfig[] = [
 // URL state management for date range
 const URL_SYNC_KEY = "inflow_report";
 
-// NEW: Helper component to display active filters in the summary card
-const AppliedFiltersDisplay = ({ filters, search }) => {
+// Helper component to display active filters in the summary card
+const AppliedFiltersDisplay = ({ filters, search }: { filters: any[]; search: string }) => {
     const hasFilters = filters.length > 0 || !!search;
     if (!hasFilters) {
-        return <p className="text-sm text-gray-500">Overview of all inflow payments.</p>;
+        return null;
     }
     return (
-        <div className="text-sm text-gray-500 flex flex-wrap gap-2 items-center mt-2">
-            <span className="font-medium">Filtered by:</span>
-            {search && <span className="px-2 py-1 bg-gray-200 rounded-md text-xs">{`Search: "${search}"`}</span>}
+        <div className="flex flex-wrap gap-1.5 items-center mt-2">
+            <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider">Filtered:</span>
+            {search && (
+                <span className="px-2 py-0.5 text-[10px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full">
+                    "{search}"
+                </span>
+            )}
             {filters.map(filter => (
-                <span key={filter.id} className="px-2 py-1 bg-blue-100 text-blue-800 rounded-md text-xs capitalize whitespace-nowrap">
+                <span
+                    key={filter.id}
+                    className="px-2 py-0.5 text-[10px] font-medium bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 rounded-full capitalize"
+                >
                     {filter.id.replace(/_/g, ' ')}
                 </span>
             ))}
@@ -262,42 +268,127 @@ export function InflowReportTable() {
                 showExportButton={true}
                 onExport={'default'}
                 exportFileName={'Inflow_Payments_Report'}
-                // NEW: Pass the fully constructed summary card as a prop
                 summaryCard={
-                    <Card>
-                        <CardHeader className="p-4">
-                            <CardTitle className="text-lg">Inflow Report Summary</CardTitle>
-                            <CardDescription>
-                                <AppliedFiltersDisplay filters={columnFilters} search={searchTerm} />
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent className="p-4 pt-0">
-                            {isAggregatesLoading ? (
-                                <div className="flex justify-center items-center h-16">
-                                    <TailSpin height={24} width={24} color="#4f46e5" />
+                    isAggregatesLoading ? (
+                        <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-50 to-white dark:from-slate-900 dark:to-slate-800">
+                            <CardContent className="p-4 sm:p-6">
+                                <div className="flex justify-center items-center h-10 sm:h-16">
+                                    <TailSpin height={24} width={24} color="#10b981" />
                                 </div>
-                            ) : aggregates ? (
-                                <dl className="flex flex-col sm:flex-row sm:justify-between space-y-2 sm:space-y-0 sm:space-x-4">
-                                    <div className="flex justify-between sm:block">
-                                        <dt className="font-semibold text-gray-600">Total Amount Received</dt>
-                                        <dd className="sm:text-right font-bold text-lg text-green-600">
-                                            {formatToRoundedIndianRupee(aggregates.sum_of_amount || 0)}
-                                        </dd>
+                            </CardContent>
+                        </Card>
+                    ) : (
+                        <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-50 to-white dark:from-slate-900 dark:to-slate-800">
+                            {/* ===== COMPACT MOBILE VIEW ===== */}
+                            <div className="sm:hidden">
+                                <CardContent className="p-3">
+                                    {aggregates ? (
+                                        <div className="flex items-center gap-3">
+                                            {/* Color accent + Icon */}
+                                            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center">
+                                                <ArrowDownLeft className="h-5 w-5 text-white" />
+                                            </div>
+                                            {/* Primary metric */}
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-baseline gap-2">
+                                                    <span className="text-lg font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                                                        {formatToRoundedIndianRupee(aggregates.sum_of_amount || 0)}
+                                                    </span>
+                                                    <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase">
+                                                        Total Inflow
+                                                    </span>
+                                                </div>
+                                                {/* Filters inline */}
+                                                {(columnFilters.length > 0 || searchTerm) && (
+                                                    <div className="flex flex-wrap gap-1 mt-1">
+                                                        {searchTerm && (
+                                                            <span className="px-1.5 py-0.5 text-[9px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded">
+                                                                "{searchTerm.slice(0, 10)}"
+                                                            </span>
+                                                        )}
+                                                        {columnFilters.slice(0, 2).map(filter => (
+                                                            <span
+                                                                key={filter.id}
+                                                                className="px-1.5 py-0.5 text-[9px] font-medium bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 rounded capitalize"
+                                                            >
+                                                                {filter.id.replace(/_/g, ' ').slice(0, 12)}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            {/* Count badge */}
+                                            <div className="flex-shrink-0 text-right">
+                                                <span className="inline-flex items-center justify-center px-2 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 rounded-md tabular-nums">
+                                                    {totalCount}
+                                                </span>
+                                                <span className="block text-[9px] text-slate-400 dark:text-slate-500 mt-0.5">
+                                                    payments
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="text-xs text-center text-muted-foreground py-2">
+                                            No data
+                                        </div>
+                                    )}
+                                </CardContent>
+                            </div>
+
+                            {/* ===== EXPANDED DESKTOP VIEW ===== */}
+                            <div className="hidden sm:block">
+                                <CardHeader className="pb-2 pt-4 px-5">
+                                    <div className="flex items-center justify-between">
+                                        <CardTitle className="text-base font-semibold tracking-tight text-slate-800 dark:text-slate-200">
+                                            Inflow Report Summary
+                                        </CardTitle>
+                                        <div className="flex items-center gap-1.5 text-xs font-medium text-slate-400 dark:text-slate-500">
+                                            <Banknote className="h-3.5 w-3.5" />
+                                            <span className="uppercase tracking-wider">
+                                                {totalCount} Payment{totalCount !== 1 ? 's' : ''}
+                                            </span>
+                                        </div>
                                     </div>
-                                    <div className="flex justify-between sm:block">
-                                        <dt className="font-semibold text-gray-600">Total Payments</dt>
-                                        <dd className="sm:text-right font-bold text-lg text-green-600">
-                                            {totalCount}
-                                        </dd>
-                                    </div>
-                                </dl>
-                            ) : (
-                                <p className="text-sm text-center text-muted-foreground h-16 flex items-center justify-center">
-                                    No summary data available.
-                                </p>
-                            )}
-                        </CardContent>
-                    </Card>
+                                    <AppliedFiltersDisplay filters={columnFilters} search={searchTerm} />
+                                </CardHeader>
+                                <CardContent className="px-5 pb-4 pt-0">
+                                    {aggregates ? (
+                                        <div className="grid grid-cols-2 gap-4">
+                                            {/* Primary Metric - Total Inflow Amount */}
+                                            <div className="bg-gradient-to-br from-emerald-50 to-teal-50/50 dark:from-emerald-950/40 dark:to-teal-950/30 rounded-lg p-4 border border-emerald-100 dark:border-emerald-900/50">
+                                                <dt className="text-xs font-medium text-emerald-600/80 dark:text-emerald-400/80 uppercase tracking-wide mb-1 flex items-center gap-1.5">
+                                                    <ArrowDownLeft className="h-3 w-3" />
+                                                    Total Amount Received
+                                                </dt>
+                                                <dd className="text-2xl font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                                                    {formatToRoundedIndianRupee(aggregates.sum_of_amount || 0)}
+                                                </dd>
+                                            </div>
+                                            {/* Secondary Metric - Payment Count */}
+                                            <div className="bg-slate-50/80 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
+                                                <dt className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">
+                                                    Payment Count
+                                                </dt>
+                                                <dd className="text-2xl font-bold text-slate-700 dark:text-slate-300 tabular-nums">
+                                                    {totalCount}
+                                                </dd>
+                                                <span className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 block">
+                                                    {totalCount > 0
+                                                        ? `Avg: ${formatToRoundedIndianRupee((aggregates.sum_of_amount || 0) / totalCount)}`
+                                                        : 'No payments'
+                                                    }
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="text-sm text-center text-muted-foreground py-6">
+                                            No summary data available.
+                                        </div>
+                                    )}
+                                </CardContent>
+                            </div>
+                        </Card>
+                    )
                 }
             />
         </div>

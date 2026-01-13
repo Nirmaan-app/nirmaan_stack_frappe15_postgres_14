@@ -1,0 +1,96 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-01-08 13:28:02.837893",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "links_section",
+  "work_package",
+  "category",
+  "tds_item_id",
+  "tds_item_name",
+  "make",
+  "section_break_veve",
+  "description",
+  "tds_attachment"
+ ],
+ "fields": [
+  {
+   "fieldname": "links_section",
+   "fieldtype": "Section Break",
+   "label": "Links"
+  },
+  {
+   "fieldname": "work_package",
+   "fieldtype": "Link",
+   "label": "Work Package",
+   "options": "Procurement Packages"
+  },
+  {
+   "fieldname": "category",
+   "fieldtype": "Link",
+   "label": "Category",
+   "options": "Category"
+  },
+  {
+   "fieldname": "make",
+   "fieldtype": "Link",
+   "label": "Make",
+   "options": "Makelist"
+  },
+  {
+   "fieldname": "section_break_veve",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text",
+   "label": "Description"
+  },
+  {
+   "fieldname": "tds_attachment",
+   "fieldtype": "Attach",
+   "label": "TDS Attachment"
+  },
+  {
+   "fetch_from": "tds_item_id.item_name",
+   "fieldname": "tds_item_name",
+   "fieldtype": "Data",
+   "label": "TDS Item Name"
+  },
+  {
+   "fieldname": "tds_item_id",
+   "fieldtype": "Link",
+   "label": "TDS Item ID",
+   "options": "Items"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-01-08 17:44:06.326156",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "TDS Repository",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

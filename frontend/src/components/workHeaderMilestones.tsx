@@ -1,11 +1,23 @@
-// src/pages/projects/WorkHeaderMilestones.tsx
-import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+// src/components/workHeaderMilestones.tsx
+// Enterprise Minimalist Work Headers & Milestones Configuration
+
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/use-toast";
 import { TailSpin } from "react-loader-spinner";
-import { Pencil, PlusCircle, Trash2, CheckCheck, X, FileEdit, GripVertical, Save, ArrowLeft } from "lucide-react";
+import {
+  Pencil,
+  PlusCircle,
+  Trash2,
+  GripVertical,
+  Save,
+  ArrowLeft,
+  Package,
+  Layers,
+  ChevronRight,
+  X,
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -25,8 +37,13 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -35,36 +52,58 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDocList, useFrappeUpdateDoc, useFrappePostCall } from "frappe-react-sdk";
+import {
+  useFrappeCreateDoc,
+  useFrappeDeleteDoc,
+  useFrappeGetDocList,
+  useFrappeUpdateDoc,
+  useFrappePostCall,
+} from "frappe-react-sdk";
 
+// --- Types ---
 export interface WorkHeaders {
-    name: string;
-    work_header_name: string;
-    order?: number; // Added order field
-    creation?: string;
-    modified?: string;
-    owner?: string;
-    modified_by?: string;
+  name: string;
+  work_header_name: string;
+  work_package_link?: string;
+  order?: number;
+  creation?: string;
+  modified?: string;
+  owner?: string;
+  modified_by?: string;
 }
 
 export interface WorkMilestone {
-    name: string;
-    work_milestone_name: string;
-    work_header: string;
-    work_milestone_order?: number; // Renamed to work_milestone_order
-    weightage?: number;
-    creation?: string;
-    modified?: string;
-    owner?: string;
-    modified_by?: string;
+  name: string;
+  work_milestone_name: string;
+  work_header: string;
+  work_milestone_order?: number;
+  weightage?: number;
+  creation?: string;
+  modified?: string;
+  owner?: string;
+  modified_by?: string;
 }
 
+export interface WorkPackage {
+  name: string;
+  work_package_name: string;
+}
+
+// --- Schemas ---
 const workHeaderFormSchema = z.object({
   work_header_name: z.string().min(1, "Work Header Name is required."),
+  work_package_link: z.string().optional(),
 });
 type WorkHeaderFormValues = z.infer<typeof workHeaderFormSchema>;
 
@@ -74,237 +113,378 @@ const workMilestoneFormSchema = z.object({
 });
 type WorkMilestoneFormValues = z.infer<typeof workMilestoneFormSchema>;
 
+// --- Main Component ---
 export const WorkHeaderMilestones: React.FC = () => {
-    // 1. Fetch Work Headers with 'order' field, sorted by 'order'
-    const { 
-        data: workHeaders, 
-        isLoading: workHeadersLoading, 
-        error: workHeadersError, 
-        mutate: workHeadersMutate 
-    } = useFrappeGetDocList<WorkHeaders>(
-        "Work Headers",
-        { 
-            fields: ["name", "work_header_name", "order"], 
-            limit: 0, 
-            orderBy: { field: "`order`", order: "asc" } // Backticks for safety
+  // Fetch Work Headers
+  const {
+    data: workHeaders,
+    isLoading: workHeadersLoading,
+    error: workHeadersError,
+    mutate: workHeadersMutate,
+  } = useFrappeGetDocList<WorkHeaders>("Work Headers", {
+    fields: ["name", "work_header_name", "order", "work_package_link"],
+    limit: 0,
+    orderBy: { field: "`order`", order: "asc" },
+  });
+
+  // Fetch Work Milestones
+  const {
+    data: workMilestones,
+    isLoading: workMilestonesLoading,
+    error: workMilestonesError,
+    mutate: workMilestonesMutate,
+  } = useFrappeGetDocList<WorkMilestone>("Work Milestones", {
+    fields: [
+      "name",
+      "work_milestone_name",
+      "work_header",
+      "work_milestone_order",
+      "weightage",
+    ],
+    limit: 0,
+    orderBy: { field: "work_milestone_order", order: "asc" },
+  });
+
+  // Fetch Work Packages for dropdown
+  const { data: workPackagesList } = useFrappeGetDocList<WorkPackage>(
+    "Work Packages",
+    {
+      fields: ["name", "work_package_name"],
+      limit: 0,
+      orderBy: { field: "work_package_name", order: "asc" },
+    }
+  );
+
+  // Reordering state
+  const [isReordering, setIsReordering] = useState(false);
+  const [reorderedList, setReorderedList] = useState<WorkHeaders[]>([]);
+  const [isSavingOrder, setIsSavingOrder] = useState(false);
+
+  // Drag refs
+  const dragItem = useRef<number | null>(null);
+  const dragOverItem = useRef<number | null>(null);
+
+  const { updateDoc } = useFrappeUpdateDoc();
+
+  // Initialize reordered list
+  useEffect(() => {
+    if (workHeaders) {
+      const sorted = [...workHeaders].sort(
+        (a, b) => (a.order || 9999) - (b.order || 9999)
+      );
+      setReorderedList(sorted);
+    }
+  }, [workHeaders]);
+
+  // Max order calculation
+  const maxOrder = useMemo(() => {
+    if (!workHeaders || workHeaders.length === 0) return 0;
+    return Math.max(...workHeaders.map((h) => h.order || 0));
+  }, [workHeaders]);
+
+  // Drag handlers
+  const handleDragStart = (
+    e: React.DragEvent<HTMLTableRowElement>,
+    position: number
+  ) => {
+    dragItem.current = position;
+  };
+
+  const handleDragEnter = (
+    e: React.DragEvent<HTMLTableRowElement>,
+    position: number
+  ) => {
+    dragOverItem.current = position;
+  };
+
+  const handleDragEnd = () => {
+    if (dragItem.current !== null && dragOverItem.current !== null) {
+      const copyListItems = [...reorderedList];
+      const dragItemContent = copyListItems[dragItem.current];
+      copyListItems.splice(dragItem.current, 1);
+      copyListItems.splice(dragOverItem.current, 0, dragItemContent);
+      dragItem.current = null;
+      dragOverItem.current = null;
+      setReorderedList(copyListItems);
+    }
+  };
+
+  const handleSaveOrder = async () => {
+    setIsSavingOrder(true);
+    try {
+      const updatePromises = reorderedList.map((header, index) => {
+        const newOrder = index + 1;
+        if (header.order !== newOrder) {
+          return updateDoc("Work Headers", header.name, { order: newOrder });
         }
-    );
+        return Promise.resolve();
+      });
 
-    const {
-        data: workMilestones,
-        isLoading: workMilestonesLoading,
-        error: workMilestonesError,
-        mutate: workMilestonesMutate
-    } = useFrappeGetDocList<WorkMilestone>(
-        "Work Milestones",
-        {
-            fields: ["name", "work_milestone_name", "work_header", "work_milestone_order", "weightage"],
-            limit: 0,
-            orderBy: { field: "work_milestone_order", order: "asc" }
-        }
-    );
+      await Promise.all(updatePromises);
+      toast({
+        title: "Order Updated",
+        description: "Work Headers have been reordered successfully.",
+        variant: "success",
+      });
+      await workHeadersMutate();
+      setIsReordering(false);
+    } catch (error: any) {
+      console.error("Order Save Error", error);
+      toast({
+        title: "Error",
+        description: "Failed to save order.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingOrder(false);
+    }
+  };
 
-    // --- REORDERING STATE ---
-    const [isReordering, setIsReordering] = useState(false);
-    const [reorderedList, setReorderedList] = useState<WorkHeaders[]>([]);
-    const [isSavingOrder, setIsSavingOrder] = useState(false);
-    
-    // Drag and Drop Refs
-    const dragItem = useRef<number | null>(null);
-    const dragOverItem = useRef<number | null>(null);
-
-    // Initialize reordered list when entering reorder mode or when data changes
-    useEffect(() => {
-        if (workHeaders) {
-            // Sort client-side again just to be safe if backend sort fails or falls back
-            const sorted = [...workHeaders].sort((a, b) => (a.order || 9999) - (b.order || 9999));
-            setReorderedList(sorted);
-        }
-    }, [workHeaders]);
-
-
-    const { updateDoc } = useFrappeUpdateDoc();
-
-    // --- DRAG HANDLERS ---
-    const handleDragStart = (e: React.DragEvent<HTMLTableRowElement>, position: number) => {
-        dragItem.current = position;
-        // e.dataTransfer.effectAllowed = "move"; // Visual feedback
-    };
-
-    const handleDragEnter = (e: React.DragEvent<HTMLTableRowElement>, position: number) => {
-        dragOverItem.current = position;
-    };
-
-    const handleDragEnd = (e: React.DragEvent<HTMLTableRowElement>) => {
-        // e.preventDefault(); // Remove if causing issues
-        if (dragItem.current !== null && dragOverItem.current !== null) {
-            const copyListItems = [...reorderedList];
-            const dragItemContent = copyListItems[dragItem.current];
-            copyListItems.splice(dragItem.current, 1);
-            copyListItems.splice(dragOverItem.current, 0, dragItemContent);
-            dragItem.current = null;
-            dragOverItem.current = null;
-            setReorderedList(copyListItems);
-        }
-    };
-
-
-    const handleSaveOrder = async () => {
-        setIsSavingOrder(true);
-        try {
-            // Create a list of promises to update each header's order
-            const updatePromises = reorderedList.map((header, index) => {
-                // Only update if order has changed (optimization)
-                const newOrder = index + 1;
-                if (header.order !== newOrder) {
-                     return updateDoc("Work Headers", header.name, { order: newOrder });
-                }
-                return Promise.resolve();
-            });
-
-            await Promise.all(updatePromises);
-            
-            toast({ title: "Success", description: "Work Headers order updated!", variant: "success" });
-            await workHeadersMutate(); // Refresh data
-            setIsReordering(false);
-        } catch (error: any) {
-             console.error("Order Save Error", error);
-             toast({ title: "Error", description: "Failed to save order.", variant: "destructive" });
-        } finally {
-            setIsSavingOrder(false);
-        }
-    };
-
-    // Calculate Max Order for new items
-    const maxOrder = useMemo(() => {
-        if (!workHeaders || workHeaders.length === 0) return 0;
-        return Math.max(...workHeaders.map(h => h.order || 0));
-    }, [workHeaders]);
-
-
+  // Loading state
   if (workHeadersLoading || workMilestonesLoading) {
     return (
-      <div className="flex justify-center items-center h-screen">
-        <TailSpin width={40} height={40} color="#007bff" />
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="flex flex-col items-center gap-4">
+          <TailSpin width={32} height={32} color="#475569" />
+          <span className="text-sm text-slate-500 font-medium tracking-wide">
+            Loading configuration...
+          </span>
+        </div>
       </div>
     );
   }
 
+  // Error state
   if (workHeadersError || workMilestonesError) {
     return (
-      <div className="p-4 text-center text-red-600">
-        Error loading data: {workHeadersError?.message || workMilestonesError?.message}
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-center space-y-2">
+          <p className="text-slate-800 font-medium">Failed to load data</p>
+          <p className="text-sm text-slate-500">
+            {workHeadersError?.message || workMilestonesError?.message}
+          </p>
+        </div>
       </div>
     );
   }
 
-  // --- RENDER: REORDERING VIEW ---
+  // Reordering view
   if (isReordering) {
-      return (
-          <div className="flex-1 space-y-6 p-4 md:p-6 bg-white min-h-screen">
-               <div className="flex justify-between items-center mb-6">
-                    <div className="flex items-center gap-4">
-                        <Button variant="ghost" onClick={() => setIsReordering(false)}>
-                            <ArrowLeft className="w-5 h-5 mr-1"/> Back
-                        </Button>
-                        <h2 className="text-2xl font-bold tracking-tight">Reorder Work Headers</h2>
-                    </div>
-                    <div className="flex gap-2">
-                        <Button variant="outline" onClick={() => {
-                            if (workHeaders) {
-                                setReorderedList([...workHeaders].sort((a, b) => (a.order || 9999) - (b.order || 9999)));
-                            }
-                            setIsReordering(false);
-                        }} disabled={isSavingOrder}>
-                            Cancel
-                        </Button>
-                        <Button onClick={handleSaveOrder} disabled={isSavingOrder} className="bg-blue-600 hover:bg-blue-700">
-                             {isSavingOrder ? <TailSpin height={16} width={16} color="white" /> : <><Save className="w-4 h-4 mr-2"/> Save Order</>}
-                        </Button>
-                    </div>
-               </div>
-               
-               <div className="border rounded-md shadow-sm overflow-hidden">
-                   <Table>
-                       <TableHeader className="bg-gray-100">
-                           <TableRow>
-                               <TableHead className="w-[50px] text-center">#</TableHead>
-                               <TableHead>Work Header Name</TableHead>
-                               <TableHead className="w-[100px] text-center">Drag</TableHead>
-                           </TableRow>
-                       </TableHeader>
-                       <TableBody>
-                            {reorderedList.map((header, index) => (
-                                <TableRow 
-                                    key={header.name}
-                                    draggable
-                                    onDragStart={(e) => handleDragStart(e, index)}
-                                    onDragEnter={(e) => handleDragEnter(e, index)}
-                                    onDragEnd={handleDragEnd}
-                                    onDragOver={(e) => e.preventDefault()}
-                                    className="cursor-move hover:bg-gray-50 bg-white"
-                                >
-                                    <TableCell className="text-center font-mono text-gray-500">{index + 1}</TableCell>
-                                    <TableCell className="font-medium">{header.work_header_name}</TableCell>
-                                    <TableCell className="text-center">
-                                        <GripVertical className="w-5 h-5 text-gray-400 mx-auto" />
-                                    </TableCell>
-                                </TableRow>
-                            ))}
-                       </TableBody>
-                   </Table>
-               </div>
-               <p className="text-sm text-gray-500 text-center italic mt-4">
-                   Drag rows to reorder. Click 'Save Order' to apply changes.
-               </p>
+    return (
+      <div className="min-h-screen bg-slate-50">
+        {/* Header */}
+        <div className="bg-white border-b border-slate-200">
+          <div className="max-w-5xl mx-auto px-6 py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsReordering(false)}
+                  className="text-slate-600 hover:text-slate-900 -ml-2"
+                >
+                  <ArrowLeft className="w-4 h-4 mr-1" />
+                  Back
+                </Button>
+                <div className="h-6 w-px bg-slate-200" />
+                <h1 className="text-lg font-semibold text-slate-900 tracking-tight">
+                  Reorder Work Headers
+                </h1>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (workHeaders) {
+                      setReorderedList(
+                        [...workHeaders].sort(
+                          (a, b) => (a.order || 9999) - (b.order || 9999)
+                        )
+                      );
+                    }
+                    setIsReordering(false);
+                  }}
+                  disabled={isSavingOrder}
+                  className="text-slate-600"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleSaveOrder}
+                  disabled={isSavingOrder}
+                  className="bg-slate-900 hover:bg-slate-800 text-white"
+                >
+                  {isSavingOrder ? (
+                    <TailSpin height={14} width={14} color="white" />
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4 mr-1.5" />
+                      Save Order
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
           </div>
-      )
+        </div>
+
+        {/* Content */}
+        <div className="max-w-5xl mx-auto px-6 py-8">
+          <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-slate-50 border-b border-slate-200">
+                  <TableHead className="w-16 text-center text-slate-500 font-medium text-xs uppercase tracking-wider">
+                    #
+                  </TableHead>
+                  <TableHead className="text-slate-500 font-medium text-xs uppercase tracking-wider">
+                    Work Header
+                  </TableHead>
+                  <TableHead className="text-slate-500 font-medium text-xs uppercase tracking-wider">
+                    Work Package
+                  </TableHead>
+                  <TableHead className="w-20 text-center text-slate-500 font-medium text-xs uppercase tracking-wider">
+                    Drag
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {reorderedList.map((header, index) => (
+                  <TableRow
+                    key={header.name}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, index)}
+                    onDragEnter={(e) => handleDragEnter(e, index)}
+                    onDragEnd={handleDragEnd}
+                    onDragOver={(e) => e.preventDefault()}
+                    className="cursor-move hover:bg-slate-50 transition-colors border-b border-slate-100 last:border-0"
+                  >
+                    <TableCell className="text-center">
+                      <span className="inline-flex items-center justify-center w-6 h-6 rounded bg-slate-100 text-slate-600 text-xs font-medium">
+                        {index + 1}
+                      </span>
+                    </TableCell>
+                    <TableCell className="font-medium text-slate-900">
+                      {header.work_header_name}
+                    </TableCell>
+                    <TableCell>
+                      {header.work_package_link ? (
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-xs font-medium">
+                          <Package className="w-3 h-3" />
+                          {header.work_package_link}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 text-sm">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <GripVertical className="w-4 h-4 text-slate-400 mx-auto" />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          <p className="text-sm text-slate-500 text-center mt-6">
+            Drag rows to reorder. Changes are saved when you click "Save Order".
+          </p>
+        </div>
+      </div>
+    );
   }
 
-  // --- RENDER: MAIN VIEW ---
+  // Main view
   return (
-    <div className="flex-1 space-y-6 p-4 md:p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold tracking-tight">Work Headers & Milestones</h2>
-        <div className="flex gap-2">
-             {/* Reorder Button */}
-            <Button variant="outline" onClick={() => setIsReordering(true)}>
-                <GripVertical className="mr-2 h-4 w-4" /> Order Work Headers
-            </Button>
-            {/* Create Button with Max Order logic */}
-            <CreateWorkHeaderDialog mutate={workHeadersMutate} maxOrder={maxOrder} />
+    <div className="min-h-screen bg-slate-50">
+      {/* Header */}
+      <div className="bg-white border-b border-slate-200 sticky top-0 z-10">
+        <div className="max-w-5xl mx-auto px-6 py-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-xl font-semibold text-slate-900 tracking-tight">
+                Work Headers & Milestones
+              </h1>
+              <p className="text-sm text-slate-500 mt-0.5">
+                Configure work categories and their milestones
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsReordering(true)}
+                className="text-slate-600 border-slate-300"
+              >
+                <GripVertical className="w-4 h-4 mr-1.5" />
+                Reorder
+              </Button>
+              <CreateWorkHeaderDialog
+                mutate={workHeadersMutate}
+                maxOrder={maxOrder}
+                workPackages={workPackagesList || []}
+              />
+            </div>
+          </div>
         </div>
       </div>
 
-      <Separator />
-
-      <div className="space-y-6">
+      {/* Content */}
+      <div className="max-w-5xl mx-auto px-6 py-8">
         {workHeaders?.length === 0 ? (
-          <p className="text-center text-gray-500">No Work Headers found. Start by creating a new one!</p>
-        ) : (
-          workHeaders?.map((header) => (
-            <WorkHeaderCard
-              key={header.name}
-              header={header}
-              milestones={workMilestones?.filter(m => m.work_header === header.name) || []}
-              workHeadersMutate={workHeadersMutate}
-              workMilestonesMutate={workMilestonesMutate}
+          <div className="bg-white rounded-lg border border-slate-200 p-12 text-center">
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-slate-100 mb-4">
+              <Layers className="w-6 h-6 text-slate-400" />
+            </div>
+            <h3 className="text-lg font-medium text-slate-900 mb-1">
+              No Work Headers
+            </h3>
+            <p className="text-sm text-slate-500 mb-4">
+              Create your first work header to get started
+            </p>
+            <CreateWorkHeaderDialog
+              mutate={workHeadersMutate}
+              maxOrder={0}
+              workPackages={workPackagesList || []}
             />
-          ))
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {workHeaders?.map((header) => (
+              <WorkHeaderCard
+                key={header.name}
+                header={header}
+                milestones={
+                  workMilestones?.filter(
+                    (m) => m.work_header === header.name
+                  ) || []
+                }
+                workHeadersMutate={workHeadersMutate}
+                workMilestonesMutate={workMilestonesMutate}
+                workPackages={workPackagesList || []}
+              />
+            ))}
+          </div>
         )}
       </div>
     </div>
   );
 };
 
-// ... (Sub-components)
-
+// --- Create Work Header Dialog ---
 interface CreateWorkHeaderDialogProps {
   mutate: () => Promise<any>;
-  maxOrder: number; // Added prop
+  maxOrder: number;
+  workPackages: WorkPackage[];
 }
 
-const CreateWorkHeaderDialog: React.FC<CreateWorkHeaderDialogProps> = ({ mutate, maxOrder }) => {
+const CreateWorkHeaderDialog: React.FC<CreateWorkHeaderDialogProps> = ({
+  mutate,
+  maxOrder,
+  workPackages,
+}) => {
   const [open, setOpen] = useState(false);
   const { createDoc, loading } = useFrappeCreateDoc();
 
@@ -312,41 +492,53 @@ const CreateWorkHeaderDialog: React.FC<CreateWorkHeaderDialogProps> = ({ mutate,
     resolver: zodResolver(workHeaderFormSchema),
     defaultValues: {
       work_header_name: "",
+      work_package_link: "",
     },
   });
 
   const onSubmit = async (values: WorkHeaderFormValues) => {
     try {
-      // Auto-assign order: maxOrder + 1
-      const newOrder = maxOrder + 1;
-      
-      await createDoc("Work Headers", { 
-          work_header_name: values.work_header_name,
-          order: newOrder
+      await createDoc("Work Headers", {
+        work_header_name: values.work_header_name,
+        work_package_link: values.work_package_link || null,
+        order: maxOrder + 1,
       });
-      
-      toast({ title: "Success", description: "Work Header created successfully.", variant: "success" });
+
+      toast({
+        title: "Work Header Created",
+        description: `"${values.work_header_name}" has been created.`,
+        variant: "success",
+      });
       form.reset();
       await mutate();
       setOpen(false);
     } catch (error: any) {
-      toast({ title: "Error", description: `Failed to create Work Header: ${error.message}`, variant: "destructive" });
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create work header.",
+        variant: "destructive",
+      });
     }
   };
-
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button>
-          <PlusCircle className="mr-2 h-4 w-4" /> Add New Work Header
+        <Button
+          size="sm"
+          className="bg-slate-900 hover:bg-slate-800 text-white"
+        >
+          <PlusCircle className="w-4 h-4 mr-1.5" />
+          Add Work Header
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Create New Work Header</DialogTitle>
-          <DialogDescription>
-            Define a new category of work for project milestones (e.g., Civil Work, Electrical).
+          <DialogTitle className="text-lg font-semibold text-slate-900">
+            Create Work Header
+          </DialogTitle>
+          <DialogDescription className="text-sm text-slate-500">
+            Define a new category of work for project milestones.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -356,20 +548,73 @@ const CreateWorkHeaderDialog: React.FC<CreateWorkHeaderDialogProps> = ({ mutate,
               name="work_header_name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Work Header Name</FormLabel>
+                  <FormLabel className="text-sm font-medium text-slate-700">
+                    Work Header Name
+                  </FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g., Civil Work, Electrical, Plumbing" {...field} />
+                    <Input
+                      placeholder="e.g., Civil Work, Electrical, Plumbing"
+                      className="border-slate-300 focus:border-slate-500 focus:ring-slate-500"
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
-            <div className="flex justify-end space-x-2">
-              <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+
+            <FormField
+              control={form.control}
+              name="work_package_link"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-sm font-medium text-slate-700">
+                    Work Package{" "}
+                    <span className="text-slate-400 font-normal">
+                      (Optional)
+                    </span>
+                  </FormLabel>
+                  <Select
+                    onValueChange={field.onChange}
+                    value={field.value || ""}
+                  >
+                    <FormControl>
+                      <SelectTrigger className="border-slate-300 focus:border-slate-500 focus:ring-slate-500">
+                        <SelectValue placeholder="Select a work package" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {workPackages.map((wp) => (
+                        <SelectItem key={wp.name} value={wp.name}>
+                          {wp.work_package_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setOpen(false)}
+                className="text-slate-600"
+              >
                 Cancel
               </Button>
-              <Button type="submit" disabled={loading}>
-                {loading ? <TailSpin height={20} width={20} color="currentColor" /> : "Create"}
+              <Button
+                type="submit"
+                disabled={loading}
+                className="bg-slate-900 hover:bg-slate-800 text-white"
+              >
+                {loading ? (
+                  <TailSpin height={16} width={16} color="white" />
+                ) : (
+                  "Create"
+                )}
               </Button>
             </div>
           </form>
@@ -379,72 +624,115 @@ const CreateWorkHeaderDialog: React.FC<CreateWorkHeaderDialogProps> = ({ mutate,
   );
 };
 
-// --- Dialog for Editing Work Header (UPDATED TO USE RENAME API) ---
+// --- Edit Work Header Dialog ---
 interface EditWorkHeaderDialogProps {
   header: WorkHeaders;
   mutate: () => Promise<any>;
   milestoneMutate: () => Promise<any>;
-
-
+  workPackages: WorkPackage[];
 }
 
-const EditWorkHeaderDialog: React.FC<EditWorkHeaderDialogProps> = ({ header, mutate,milestoneMutate }) => {
+const EditWorkHeaderDialog: React.FC<EditWorkHeaderDialogProps> = ({
+  header,
+  mutate,
+  milestoneMutate,
+  workPackages,
+}) => {
   const [open, setOpen] = useState(false);
-  const { call: renameDoc, loading: renameLoading } = useFrappePostCall( // <-- Using useFrappePostCall
-    'frappe.model.rename_doc.update_document_title'
+  const { call: renameDoc, loading: renameLoading } = useFrappePostCall(
+    "frappe.model.rename_doc.update_document_title"
   );
+  const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
 
   const form = useForm<WorkHeaderFormValues>({
     resolver: zodResolver(workHeaderFormSchema),
     defaultValues: {
       work_header_name: header.work_header_name,
+      work_package_link: header.work_package_link || "",
     },
   });
 
+  // Reset form when header changes
+  useEffect(() => {
+    form.reset({
+      work_header_name: header.work_header_name,
+      work_package_link: header.work_package_link || "",
+    });
+  }, [header, form]);
+
   const onSubmit = async (values: WorkHeaderFormValues) => {
-    // Check if the name actually changed
-    if (values.work_header_name === header.work_header_name) {
-      toast({ title: "Info", description: "No changes detected.", variant: "default" });
+    const nameChanged = values.work_header_name !== header.work_header_name;
+    const packageChanged =
+      (values.work_package_link || null) !== (header.work_package_link || null);
+
+    if (!nameChanged && !packageChanged) {
+      toast({
+        title: "No Changes",
+        description: "No changes were detected.",
+      });
       setOpen(false);
       return;
     }
 
     try {
-      const payload = {
-        doctype: "Work Headers", // The DocType to rename
-        docname: header.name,      // The old Frappe 'name' (ID)
-        name: values.work_header_name, // The new Frappe 'name' (ID) and title
-        merge: 0,                  // Do not merge with an existing document
-        // enqueue: true,            // Removing enqueue makes it synchronous
-        freeze: true,              // Freeze UI during rename on Frappe's side
-        freeze_message: `Renaming Work Header "${header.work_header_name}" and updating related records...`,
-      };
+      // Handle rename if name changed
+      if (nameChanged) {
+        await renameDoc({
+          doctype: "Work Headers",
+          docname: header.name,
+          name: values.work_header_name,
+          merge: 0,
+          freeze: true,
+          freeze_message: `Renaming "${header.work_header_name}"...`,
+        });
+      }
 
-      await renameDoc(payload); // <-- Calling the rename API
-   
+      // Handle work package update separately
+      if (packageChanged) {
+        const docName = nameChanged ? values.work_header_name : header.name;
+        await updateDoc("Work Headers", docName, {
+          work_package_link: values.work_package_link || null,
+        });
+      }
 
-      toast({ title: "Success", description: `Work Header renamed to "${values.work_header_name}" and related records updated.`, variant: "success" });
-      mutate()
-      milestoneMutate()
+      toast({
+        title: "Work Header Updated",
+        description: `Changes have been saved.`,
+        variant: "success",
+      });
+      await mutate();
+      await milestoneMutate();
       setOpen(false);
     } catch (error: any) {
-      console.error("Failed to rename Work Header:", error);
-      toast({ title: "Error", description: `Failed to rename Work Header: ${error.message || 'Unknown error'}`, variant: "destructive" });
+      console.error("Failed to update Work Header:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update work header.",
+        variant: "destructive",
+      });
     }
   };
+
+  const isLoading = renameLoading || updateLoading;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-6 w-6">
-          <FileEdit className="h-4 w-4 text-gray-500 hover:text-blue-600" />
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+        >
+          <Pencil className="h-3.5 w-3.5" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Edit Work Header</DialogTitle>
-          <DialogDescription>
-            Rename this work header. This will update its ID and name in all linked records.
+          <DialogTitle className="text-lg font-semibold text-slate-900">
+            Edit Work Header
+          </DialogTitle>
+          <DialogDescription className="text-sm text-slate-500">
+            Update the work header name or associated work package.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -454,20 +742,82 @@ const EditWorkHeaderDialog: React.FC<EditWorkHeaderDialogProps> = ({ header, mut
               name="work_header_name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>New Work Header Name</FormLabel>
+                  <FormLabel className="text-sm font-medium text-slate-700">
+                    Work Header Name
+                  </FormLabel>
                   <FormControl>
-                    <Input {...field} />
+                    <Input
+                      className="border-slate-300 focus:border-slate-500 focus:ring-slate-500"
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
-            <div className="flex justify-end space-x-2">
-              <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+
+            <FormField
+              control={form.control}
+              name="work_package_link"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-sm font-medium text-slate-700">
+                    Work Package
+                  </FormLabel>
+                  <div className="flex gap-2">
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value || ""}
+                    >
+                      <FormControl>
+                        <SelectTrigger className="border-slate-300 focus:border-slate-500 focus:ring-slate-500 flex-1">
+                          <SelectValue placeholder="Select a work package" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {workPackages.map((wp) => (
+                          <SelectItem key={wp.name} value={wp.name}>
+                            {wp.work_package_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {field.value && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => field.onChange("")}
+                        className="h-10 w-10 text-slate-400 hover:text-slate-600"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setOpen(false)}
+                className="text-slate-600"
+              >
                 Cancel
               </Button>
-              <Button type="submit" disabled={renameLoading}> {/* <-- Use renameLoading here */}
-                {renameLoading ? <TailSpin height={20} width={20} color="currentColor" /> : "Save Changes"}
+              <Button
+                type="submit"
+                disabled={isLoading}
+                className="bg-slate-900 hover:bg-slate-800 text-white"
+              >
+                {isLoading ? (
+                  <TailSpin height={16} width={16} color="white" />
+                ) : (
+                  "Save Changes"
+                )}
               </Button>
             </div>
           </form>
@@ -477,14 +827,18 @@ const EditWorkHeaderDialog: React.FC<EditWorkHeaderDialogProps> = ({ header, mut
   );
 };
 
-// --- Dialog for Creating New Work Milestone ---
+// --- Create Work Milestone Dialog ---
 interface CreateWorkMilestoneDialogProps {
   workHeaderId: string;
   mutate: () => Promise<any>;
-  nextOrder: number; // Added nextOrder prop
+  nextOrder: number;
 }
 
-const CreateWorkMilestoneDialog: React.FC<CreateWorkMilestoneDialogProps> = ({ workHeaderId, mutate, nextOrder }) => {
+const CreateWorkMilestoneDialog: React.FC<CreateWorkMilestoneDialogProps> = ({
+  workHeaderId,
+  mutate,
+  nextOrder,
+}) => {
   const [open, setOpen] = useState(false);
   const { createDoc, loading } = useFrappeCreateDoc();
 
@@ -498,33 +852,48 @@ const CreateWorkMilestoneDialog: React.FC<CreateWorkMilestoneDialogProps> = ({ w
 
   const onSubmit = async (values: WorkMilestoneFormValues) => {
     try {
-      await createDoc("Work Milestones", { // Ensure DocType name is correct
+      await createDoc("Work Milestones", {
         work_milestone_name: values.work_milestone_name,
         work_header: workHeaderId,
-        work_milestone_order: nextOrder, // Automatically set order
-        weightage: values.weightage
+        work_milestone_order: nextOrder,
+        weightage: values.weightage,
       });
-      toast({ title: "Success", description: "Work Milestone created successfully.", variant: "success" });
+      toast({
+        title: "Milestone Created",
+        description: `"${values.work_milestone_name}" has been added.`,
+        variant: "success",
+      });
       form.reset();
       await mutate();
       setOpen(false);
     } catch (error: any) {
-      toast({ title: "Error", description: `Failed to create Work Milestone: ${error.message}`, variant: "destructive" });
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create milestone.",
+        variant: "destructive",
+      });
     }
   };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
-          <PlusCircle className="mr-2 h-3 w-3" /> Add Milestone
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-slate-600 border-slate-300"
+        >
+          <PlusCircle className="w-3.5 h-3.5 mr-1.5" />
+          Add Milestone
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Add New Work Milestone</DialogTitle>
-          <DialogDescription>
-            Define a new milestone for this work header.
+          <DialogTitle className="text-lg font-semibold text-slate-900">
+            Add Milestone
+          </DialogTitle>
+          <DialogDescription className="text-sm text-slate-500">
+            Create a new milestone for this work header.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -534,9 +903,15 @@ const CreateWorkMilestoneDialog: React.FC<CreateWorkMilestoneDialogProps> = ({ w
               name="work_milestone_name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Milestone Name</FormLabel>
+                  <FormLabel className="text-sm font-medium text-slate-700">
+                    Milestone Name
+                  </FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g., Foundation, Rough-in Wiring" {...field} />
+                    <Input
+                      placeholder="e.g., Foundation, Rough-in Wiring"
+                      className="border-slate-300 focus:border-slate-500 focus:ring-slate-500"
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -547,20 +922,41 @@ const CreateWorkMilestoneDialog: React.FC<CreateWorkMilestoneDialogProps> = ({ w
               name="weightage"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Weightage</FormLabel>
+                  <FormLabel className="text-sm font-medium text-slate-700">
+                    Weightage
+                  </FormLabel>
                   <FormControl>
-                    <Input type="number" step="0.01" min="0.01" placeholder="1.0" {...field} />
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      className="border-slate-300 focus:border-slate-500 focus:ring-slate-500"
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
-            <div className="flex justify-end space-x-2">
-              <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setOpen(false)}
+                className="text-slate-600"
+              >
                 Cancel
               </Button>
-              <Button type="submit" disabled={loading}>
-                {loading ? <TailSpin height={20} width={20} color="currentColor" /> : "Create Milestone"}
+              <Button
+                type="submit"
+                disabled={loading}
+                className="bg-slate-900 hover:bg-slate-800 text-white"
+              >
+                {loading ? (
+                  <TailSpin height={16} width={16} color="white" />
+                ) : (
+                  "Create"
+                )}
               </Button>
             </div>
           </form>
@@ -570,15 +966,19 @@ const CreateWorkMilestoneDialog: React.FC<CreateWorkMilestoneDialogProps> = ({ w
   );
 };
 
-// --- Dialog for Editing Work Milestone ---
+// --- Edit Work Milestone Dialog ---
 interface EditWorkMilestoneDialogProps {
   milestone: WorkMilestone;
   mutate: () => Promise<any>;
 }
 
-const EditWorkMilestoneDialog: React.FC<EditWorkMilestoneDialogProps> = ({ milestone, mutate }) => {
+const EditWorkMilestoneDialog: React.FC<EditWorkMilestoneDialogProps> = ({
+  milestone,
+  mutate,
+}) => {
   const [open, setOpen] = useState(false);
   const { updateDoc, loading } = useFrappeUpdateDoc();
+
   const form = useForm<WorkMilestoneFormValues>({
     resolver: zodResolver(workMilestoneFormSchema),
     defaultValues: {
@@ -593,26 +993,40 @@ const EditWorkMilestoneDialog: React.FC<EditWorkMilestoneDialogProps> = ({ miles
         work_milestone_name: values.work_milestone_name,
         weightage: values.weightage,
       });
-      toast({ title: "Success", description: "Work Milestone updated successfully.", variant: "success" });
+      toast({
+        title: "Milestone Updated",
+        description: "Changes have been saved.",
+        variant: "success",
+      });
       await mutate();
       setOpen(false);
     } catch (error: any) {
-      toast({ title: "Error", description: `Failed to update Work Milestone: ${error.message}`, variant: "destructive" });
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update milestone.",
+        variant: "destructive",
+      });
     }
   };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="sm" className="text-blue-600 hover:text-blue-800">
-          <Pencil className="h-4 w-4" />
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+        >
+          <Pencil className="h-3.5 w-3.5" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Edit Work Milestone</DialogTitle>
-          <DialogDescription>
-            Modify the details of this milestone.
+          <DialogTitle className="text-lg font-semibold text-slate-900">
+            Edit Milestone
+          </DialogTitle>
+          <DialogDescription className="text-sm text-slate-500">
+            Update the milestone details.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -622,9 +1036,14 @@ const EditWorkMilestoneDialog: React.FC<EditWorkMilestoneDialogProps> = ({ miles
               name="work_milestone_name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Milestone Name</FormLabel>
+                  <FormLabel className="text-sm font-medium text-slate-700">
+                    Milestone Name
+                  </FormLabel>
                   <FormControl>
-                    <Input {...field} />
+                    <Input
+                      className="border-slate-300 focus:border-slate-500 focus:ring-slate-500"
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -635,20 +1054,41 @@ const EditWorkMilestoneDialog: React.FC<EditWorkMilestoneDialogProps> = ({ miles
               name="weightage"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Weightage</FormLabel>
+                  <FormLabel className="text-sm font-medium text-slate-700">
+                    Weightage
+                  </FormLabel>
                   <FormControl>
-                    <Input type="number" step="0.01" min="0.01" placeholder="1.0" {...field} />
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      className="border-slate-300 focus:border-slate-500 focus:ring-slate-500"
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
-            <div className="flex justify-end space-x-2">
-              <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setOpen(false)}
+                className="text-slate-600"
+              >
                 Cancel
               </Button>
-              <Button type="submit" disabled={loading}>
-                {loading ? <TailSpin height={20} width={20} color="currentColor" /> : "Save Changes"}
+              <Button
+                type="submit"
+                disabled={loading}
+                className="bg-slate-900 hover:bg-slate-800 text-white"
+              >
+                {loading ? (
+                  <TailSpin height={16} width={16} color="white" />
+                ) : (
+                  "Save Changes"
+                )}
               </Button>
             </div>
           </form>
@@ -658,45 +1098,79 @@ const EditWorkMilestoneDialog: React.FC<EditWorkMilestoneDialogProps> = ({ miles
   );
 };
 
-// --- Alert Dialog for Deleting Work Milestone ---
+// --- Delete Milestone Alert Dialog ---
 interface DeleteMilestoneAlertDialogProps {
   milestone: WorkMilestone;
   mutate: () => Promise<any>;
 }
 
-const DeleteMilestoneAlertDialog: React.FC<DeleteMilestoneAlertDialogProps> = ({ milestone, mutate }) => {
+const DeleteMilestoneAlertDialog: React.FC<DeleteMilestoneAlertDialogProps> = ({
+  milestone,
+  mutate,
+}) => {
   const [open, setOpen] = useState(false);
   const { deleteDoc, loading } = useFrappeDeleteDoc();
 
   const handleDelete = async () => {
     try {
       await deleteDoc("Work Milestones", milestone.name);
-      toast({ title: "Success", description: "Work Milestone deleted successfully.", variant: "success" });
+      toast({
+        title: "Milestone Deleted",
+        description: `"${milestone.work_milestone_name}" has been removed.`,
+        variant: "success",
+      });
       await mutate();
       setOpen(false);
     } catch (error: any) {
-      toast({ title: "Error", description: `Failed to delete Work Milestone: ${error.message}`, variant: "destructive" });
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete milestone.",
+        variant: "destructive",
+      });
     }
   };
 
   return (
     <AlertDialog open={open} onOpenChange={setOpen}>
       <AlertDialogTrigger asChild>
-        <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-800">
-          <Trash2 className="h-4 w-4" />
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 text-slate-400 hover:text-red-600 hover:bg-red-50"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-          <AlertDialogDescription>
-            This action cannot be undone. This will permanently delete the milestone "<span className="font-bold">{milestone.work_milestone_name}</span>".
+          <AlertDialogTitle className="text-lg font-semibold text-slate-900">
+            Delete Milestone
+          </AlertDialogTitle>
+          <AlertDialogDescription className="text-sm text-slate-500">
+            Are you sure you want to delete "
+            <span className="font-medium text-slate-700">
+              {milestone.work_milestone_name}
+            </span>
+            "? This action cannot be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
-          <AlertDialogAction onClick={handleDelete} disabled={loading} className="bg-red-600 hover:bg-red-700">
-            {loading ? <TailSpin height={20} width={20} color="white" /> : "Delete"}
+          <AlertDialogCancel
+            disabled={loading}
+            className="text-slate-600"
+          >
+            Cancel
+          </AlertDialogCancel>
+          <AlertDialogAction
+            onClick={handleDelete}
+            disabled={loading}
+            className="bg-red-600 hover:bg-red-700 text-white"
+          >
+            {loading ? (
+              <TailSpin height={16} width={16} color="white" />
+            ) : (
+              "Delete"
+            )}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -704,735 +1178,297 @@ const DeleteMilestoneAlertDialog: React.FC<DeleteMilestoneAlertDialogProps> = ({
   );
 };
 
-
-// --- Card Component for each Work Header and its Milestones ---
+// --- Work Header Card ---
 interface WorkHeaderCardProps {
   header: WorkHeaders;
   milestones: WorkMilestone[];
   workHeadersMutate: () => Promise<any>;
   workMilestonesMutate: () => Promise<any>;
+  workPackages: WorkPackage[];
 }
 
-const WorkHeaderCard: React.FC<WorkHeaderCardProps> = ({ header, milestones, workHeadersMutate, workMilestonesMutate }) => {
-    // Local state for reordering milestones within this card
-    const [isReordering, setIsReordering] = useState(false);
-    const [milestoneList, setMilestoneList] = useState<WorkMilestone[]>([]);
-    const [isSaving, setIsSaving] = useState(false);
+const WorkHeaderCard: React.FC<WorkHeaderCardProps> = ({
+  header,
+  milestones,
+  workHeadersMutate,
+  workMilestonesMutate,
+  workPackages,
+}) => {
+  const [isReordering, setIsReordering] = useState(false);
+  const [milestoneList, setMilestoneList] = useState<WorkMilestone[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(true);
 
-    // Initial Sort & Sync
-    useEffect(() => {
-        // Sort by work_milestone_order field, fallback to huge number if null to put at end
-        const sorted = [...milestones].sort((a, b) => (a.work_milestone_order || 9999) - (b.work_milestone_order || 9999));
-        setMilestoneList(sorted);
-    }, [milestones]);
-    
-    // Calculate Max Order for new milestones in this specific header
-    const maxOrder = useMemo(() => {
-        if (!milestones || milestones.length === 0) return 0;
-        return Math.max(...milestones.map(m => m.work_milestone_order || 0));
-    }, [milestones]);
+  const dragItem = useRef<number | null>(null);
+  const dragOverItem = useRef<number | null>(null);
 
-    // Drag Refs
-    const dragItem = useRef<number | null>(null);
-    const dragOverItem = useRef<number | null>(null);
-    
-    const { updateDoc } = useFrappeUpdateDoc();
+  const { updateDoc } = useFrappeUpdateDoc();
 
-    // Drag Handlers
-    const handleDragStart = (e: React.DragEvent<HTMLTableRowElement>, position: number) => {
-        dragItem.current = position;
-    };
+  // Sort milestones
+  useEffect(() => {
+    const sorted = [...milestones].sort(
+      (a, b) => (a.work_milestone_order || 9999) - (b.work_milestone_order || 9999)
+    );
+    setMilestoneList(sorted);
+  }, [milestones]);
 
-    const handleDragEnter = (e: React.DragEvent<HTMLTableRowElement>, position: number) => {
-        dragOverItem.current = position;
-    };
+  const maxOrder = useMemo(() => {
+    if (!milestones || milestones.length === 0) return 0;
+    return Math.max(...milestones.map((m) => m.work_milestone_order || 0));
+  }, [milestones]);
 
-    const handleDragEnd = (e: React.DragEvent<HTMLTableRowElement>) => {
-        if (dragItem.current !== null && dragOverItem.current !== null) {
-            const copyList = [...milestoneList];
-            const dragItemContent = copyList[dragItem.current];
-            copyList.splice(dragItem.current, 1);
-            copyList.splice(dragOverItem.current, 0, dragItemContent);
-            dragItem.current = null;
-            dragOverItem.current = null;
-            setMilestoneList(copyList);
+  // Drag handlers
+  const handleDragStart = (
+    e: React.DragEvent<HTMLTableRowElement>,
+    position: number
+  ) => {
+    dragItem.current = position;
+  };
+
+  const handleDragEnter = (
+    e: React.DragEvent<HTMLTableRowElement>,
+    position: number
+  ) => {
+    dragOverItem.current = position;
+  };
+
+  const handleDragEnd = () => {
+    if (dragItem.current !== null && dragOverItem.current !== null) {
+      const copyList = [...milestoneList];
+      const dragItemContent = copyList[dragItem.current];
+      copyList.splice(dragItem.current, 1);
+      copyList.splice(dragOverItem.current, 0, dragItemContent);
+      dragItem.current = null;
+      dragOverItem.current = null;
+      setMilestoneList(copyList);
+    }
+  };
+
+  const handleSaveOrder = async () => {
+    setIsSaving(true);
+    try {
+      const updatePromises = milestoneList.map((m, index) => {
+        const newOrder = index + 1;
+        if (m.work_milestone_order !== newOrder) {
+          return updateDoc("Work Milestones", m.name, {
+            work_milestone_order: newOrder,
+          });
         }
-    };
+        return Promise.resolve();
+      });
 
-    const handleSaveOrder = async () => {
-        setIsSaving(true);
-        try {
-            // Update orders starting from 1 for THIS specific header
-            const updatePromises = milestoneList.map((m, index) => {
-                const newOrder = index + 1;
-                if (m.work_milestone_order !== newOrder) {
-                    return updateDoc("Work Milestones", m.name, { work_milestone_order: newOrder });
-                }
-                return Promise.resolve();
-            });
+      await Promise.all(updatePromises);
+      toast({
+        title: "Order Updated",
+        description: "Milestone order has been saved.",
+        variant: "success",
+      });
+      await workMilestonesMutate();
+      setIsReordering(false);
+    } catch (error: any) {
+      console.error("Failed to save milestone order", error);
+      toast({
+        title: "Error",
+        description: "Failed to save order.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
-            await Promise.all(updatePromises);
-            toast({ title: "Success", description: "Milestone order updated!", variant: "success" });
-            await workMilestonesMutate();
-            setIsReordering(false);
-        } catch (error: any) {
-            console.error("Failed to save milestone order", error);
-            toast({ title: "Error", description: "Failed to save order.", variant: "destructive" });
-        } finally {
-            setIsSaving(false);
-        }
-    };
-
-    const handleCancelReorder = () => {
-        // Revert to original props order
-        const sorted = [...milestones].sort((a, b) => (a.work_milestone_order || 9999) - (b.work_milestone_order || 9999));
-        setMilestoneList(sorted);
-        setIsReordering(false);
-    };
+  const handleCancelReorder = () => {
+    const sorted = [...milestones].sort(
+      (a, b) => (a.work_milestone_order || 9999) - (b.work_milestone_order || 9999)
+    );
+    setMilestoneList(sorted);
+    setIsReordering(false);
+  };
 
   return (
-    <Card className="hover:animate-shadow-drop-center transition-all duration-300">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <div className="flex items-center gap-2">
-            <CardTitle className="text-xl font-semibold flex items-center gap-2">
-            {header.work_header_name}
-            </CardTitle>
-            <EditWorkHeaderDialog header={header} mutate={workHeadersMutate} milestoneMutate={workMilestonesMutate} />
+    <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+      {/* Card Header */}
+      <div
+        className="px-5 py-4 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors"
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <ChevronRight
+            className={`w-4 h-4 text-slate-400 transition-transform flex-shrink-0 ${
+              isExpanded ? "rotate-90" : ""
+            }`}
+          />
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-base font-semibold text-slate-900 truncate">
+                {header.work_header_name}
+              </h3>
+              {header.work_package_link && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-xs font-medium">
+                  <Package className="w-3 h-3" />
+                  {header.work_package_link}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {milestones.length} milestone{milestones.length !== 1 ? "s" : ""}
+            </p>
+          </div>
         </div>
-        
-        <div className="flex items-center gap-2">
-            {isReordering ? (
-                <>
-                    <Button size="sm" variant="ghost" onClick={handleCancelReorder} disabled={isSaving}>
-                        Cancel
-                    </Button>
-                    <Button size="sm" onClick={handleSaveOrder} disabled={isSaving} className="bg-green-600 hover:bg-green-700 text-white">
-                        {isSaving ? <TailSpin height={14} width={14} color="white" /> : <Save className="w-4 h-4 mr-1" />}
-                        Save
-                    </Button>
-                </>
-            ) : (
-                <>
-                    <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={() => setIsReordering(true)}
-                        disabled={milestoneList.length <= 1} // No need to reorder 0 or 1 item
-                        title="Reorder Milestones"
-                    >
-                         <GripVertical className="h-4 w-4 mr-2" /> Order Milestones
-                    </Button>
-                    <CreateWorkMilestoneDialog workHeaderId={header.name} mutate={workMilestonesMutate} nextOrder={maxOrder + 1} />
-                </>
-            )}
+
+        <div
+          className="flex items-center gap-1"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <EditWorkHeaderDialog
+            header={header}
+            mutate={workHeadersMutate}
+            milestoneMutate={workMilestonesMutate}
+            workPackages={workPackages}
+          />
+          {isReordering ? (
+            <>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleCancelReorder}
+                disabled={isSaving}
+                className="h-7 text-xs text-slate-600"
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleSaveOrder}
+                disabled={isSaving}
+                className="h-7 text-xs bg-slate-900 hover:bg-slate-800 text-white"
+              >
+                {isSaving ? (
+                  <TailSpin height={12} width={12} color="white" />
+                ) : (
+                  <>
+                    <Save className="w-3 h-3 mr-1" />
+                    Save
+                  </>
+                )}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsReordering(true)}
+                disabled={milestoneList.length <= 1}
+                className="h-7 text-xs text-slate-600 hover:bg-slate-100"
+              >
+                <GripVertical className="w-3.5 h-3.5 mr-1" />
+                Reorder
+              </Button>
+              <CreateWorkMilestoneDialog
+                workHeaderId={header.name}
+                mutate={workMilestonesMutate}
+                nextOrder={maxOrder + 1}
+              />
+            </>
+          )}
         </div>
-      </CardHeader>
-      
-      <CardContent className="overflow-auto pt-4">
-        {milestoneList.length === 0 ? (
-          <p className="text-gray-500 text-sm">No milestones defined for this work header. Click "Add Milestone" to create one.</p>
-        ) : (
-          <Table>
-            <TableHeader className="bg-gray-100">
-              <TableRow>
-                {isReordering && <TableHead className="w-[50px] text-center">#</TableHead>}
-                <TableHead className="w-[50%]">Milestone</TableHead>
-                {!isReordering && <TableHead className="w-[15%]">Weightage</TableHead>}
-                {isReordering && <TableHead className="w-[50px] text-center">Drag</TableHead>}
-                {!isReordering && <TableHead className="w-[20%] text-right">Actions</TableHead>}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {milestoneList.map((milestone, index) => (
-                <TableRow
+      </div>
+
+      {/* Card Content */}
+      {isExpanded && (
+        <div className="border-t border-slate-100">
+          {milestoneList.length === 0 ? (
+            <div className="px-5 py-8 text-center">
+              <p className="text-sm text-slate-500">
+                No milestones defined. Add your first milestone above.
+              </p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-slate-50/50 border-b border-slate-100">
+                  {isReordering && (
+                    <TableHead className="w-12 text-center text-slate-500 font-medium text-xs uppercase tracking-wider">
+                      #
+                    </TableHead>
+                  )}
+                  <TableHead className="text-slate-500 font-medium text-xs uppercase tracking-wider">
+                    Milestone
+                  </TableHead>
+                  {!isReordering && (
+                    <TableHead className="w-24 text-slate-500 font-medium text-xs uppercase tracking-wider">
+                      Weightage
+                    </TableHead>
+                  )}
+                  <TableHead
+                    className={`${
+                      isReordering ? "w-16" : "w-24"
+                    } text-right text-slate-500 font-medium text-xs uppercase tracking-wider`}
+                  >
+                    {isReordering ? "Drag" : "Actions"}
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {milestoneList.map((milestone, index) => (
+                  <TableRow
                     key={milestone.name}
                     draggable={isReordering}
-                    onDragStart={(e) => isReordering && handleDragStart(e, index)}
-                    onDragEnter={(e) => isReordering && handleDragEnter(e, index)}
+                    onDragStart={(e) =>
+                      isReordering && handleDragStart(e, index)
+                    }
+                    onDragEnter={(e) =>
+                      isReordering && handleDragEnter(e, index)
+                    }
                     onDragEnd={isReordering ? handleDragEnd : undefined}
                     onDragOver={(e) => isReordering && e.preventDefault()}
-                    className={isReordering ? "cursor-move hover:bg-gray-50 bg-white" : ""}
-                >
-                  {isReordering && (
-                      <TableCell className="text-center font-mono text-gray-500">{index + 1}</TableCell>
-                  )}
-
-                  <TableCell>{milestone.work_milestone_name}</TableCell>
-
-                  {!isReordering && (
-                      <TableCell>{(milestone.weightage || 1.0).toFixed(2)}</TableCell>
-                  )}
-
-                  {isReordering ? (
-                       <TableCell className="text-center">
-                            <GripVertical className="w-5 h-5 text-gray-400 mx-auto" />
-                       </TableCell>
-                  ) : (
-                      <TableCell className="text-right flex items-center justify-end space-x-2">
-                        <EditWorkMilestoneDialog milestone={milestone} mutate={workMilestonesMutate} />
-                        <DeleteMilestoneAlertDialog milestone={milestone} mutate={workMilestonesMutate} />
+                    className={`border-b border-slate-50 last:border-0 transition-colors ${
+                      isReordering
+                        ? "cursor-move hover:bg-slate-50"
+                        : "hover:bg-slate-50/50"
+                    }`}
+                  >
+                    {isReordering && (
+                      <TableCell className="text-center">
+                        <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-slate-100 text-slate-500 text-xs font-medium">
+                          {index + 1}
+                        </span>
                       </TableCell>
-                  )}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </CardContent>
-    </Card>
+                    )}
+                    <TableCell className="font-medium text-slate-800">
+                      {milestone.work_milestone_name}
+                    </TableCell>
+                    {!isReordering && (
+                      <TableCell className="text-slate-600">
+                        {(milestone.weightage || 1.0).toFixed(2)}
+                      </TableCell>
+                    )}
+                    <TableCell className="text-right">
+                      {isReordering ? (
+                        <GripVertical className="w-4 h-4 text-slate-400 ml-auto" />
+                      ) : (
+                        <div className="flex items-center justify-end gap-0.5">
+                          <EditWorkMilestoneDialog
+                            milestone={milestone}
+                            mutate={workMilestonesMutate}
+                          />
+                          <DeleteMilestoneAlertDialog
+                            milestone={milestone}
+                            mutate={workMilestonesMutate}
+                          />
+                        </div>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+      )}
+    </div>
   );
 };
 
-// // src/pages/projects/WorkHeaderMilestones.tsx
-// import React, { useState, useEffect, useCallback, useMemo } from "react";
-// import { Button } from "@/components/ui/button";
-// import { Input } from "@/components/ui/input";
-// import { Label } from "@/components/ui/label";
-// import { toast } from "@/components/ui/use-toast";
-// import { TailSpin } from "react-loader-spinner";
-// import { Pencil, PlusCircle, Trash2, CheckCheck, X, FileEdit } from "lucide-react";
-// import {
-//   Dialog,
-//   DialogContent,
-//   DialogDescription,
-//   DialogHeader,
-//   DialogTitle,
-//   DialogTrigger,
-//   DialogClose,
-// } from "@/components/ui/dialog";
-// import {
-//   AlertDialog,
-//   AlertDialogAction,
-//   AlertDialogCancel,
-//   AlertDialogContent,
-//   AlertDialogDescription,
-//   AlertDialogFooter,
-//   AlertDialogHeader,
-//   AlertDialogTitle,
-//   AlertDialogTrigger,
-// } from "@/components/ui/alert-dialog";
-// import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-// import { Separator } from "@/components/ui/separator";
-// import {
-//   Table,
-//   TableBody,
-//   TableCell,
-//   TableHead,
-//   TableHeader,
-//   TableRow,
-// } from "@/components/ui/table";
-// import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-// import { useForm } from "react-hook-form";
-// import { zodResolver } from "@hookform/resolvers/zod";
-// import * as z from "zod";
-// import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
-
-// // Assuming these types are correctly defined based on Frappe DocType structure
-// // You MUST ensure these type definitions reflect the actual field names in Frappe
-// // src/types/NirmaanStack/WorkHeaders.ts
-// export interface WorkHeaders {
-//     name: string; // Frappe ID
-//     work_header_name: string; // Corrected field name
-//     creation?: string;
-//     modified?: string;
-//     owner?: string;
-//     modified_by?: string;
-// }
-
-// // src/types/NirmaanStack/WorkMilestone.ts
-// export interface WorkMilestone {
-//     name: string; // Frappe ID
-//     work_milestone_name: string; // Corrected field name
-//     work_header: string; // Link to Work Headers (Frappe ID)
-//     creation?: string;
-//     modified?: string;
-//     owner?: string;
-//     modified_by?: string;
-// }
-
-
-// // =========================================================================
-// // 1. Zod Schemas for Form Validation (UPDATED)
-// // =========================================================================
-
-// // Schema for Work Header creation/editing
-// const workHeaderFormSchema = z.object({
-//   work_header_name: z.string().min(1, "Work Header Name is required."),
-// });
-// type WorkHeaderFormValues = z.infer<typeof workHeaderFormSchema>;
-
-// // Schema for Work Milestone creation/editing (UPDATED - removed duration and description)
-// const workMilestoneFormSchema = z.object({
-//   work_milestone_name: z.string().min(1, "Milestone Name is required."),
-//   // `work_header` is linked, not directly editable via this form, so not included here.
-// });
-// type WorkMilestoneFormValues = z.infer<typeof workMilestoneFormSchema>;
-
-
-// // =========================================================================
-// // 2. Main WorkHeaderMilestones Component
-// // =========================================================================
-
-// export const WorkHeaderMilestones: React.FC = () => {
-//   // Fetch all Work Headers (UPDATED fields)
-//   const { data: workHeaders, isLoading: workHeadersLoading, error: workHeadersError, mutate: workHeadersMutate } = useFrappeGetDocList<WorkHeaders>(
-//     "Work Headers",
-//     { fields: ["name", "work_header_name"], limit: 0, orderBy: { field: "creation", order: "asc" } }
-//   );
-
-//   // Fetch all Work Milestones (UPDATED fields)
-//   const { data: workMilestones, isLoading: workMilestonesLoading, error: workMilestonesError, mutate: workMilestonesMutate } = useFrappeGetDocList<WorkMilestone>(
-//     "Work Milestones",
-//     { fields: ["name", "work_milestone_name", "work_header"], limit: 0, orderBy: { field: "creation", order: "asc" } }
-//   );
-
-//   if (workHeadersLoading || workMilestonesLoading) {
-//     return (
-//       <div className="flex justify-center items-center h-screen">
-//         <TailSpin width={40} height={40} color="#007bff" />
-//       </div>
-//     );
-//   }
-
-//   if (workHeadersError || workMilestonesError) {
-//     return (
-//       <div className="p-4 text-center text-red-600">
-//         Error loading data: {workHeadersError?.message || workMilestonesError?.message}
-//       </div>
-//     );
-//   }
-
-//   return (
-//     <div className="flex-1 space-y-6 p-4 md:p-6">
-//       <div className="flex justify-between items-center mb-6">
-//         <h2 className="text-2xl font-bold tracking-tight">Work Headers & Milestones</h2>
-//         {/* Component to create a new Work Header */}
-//         <CreateWorkHeaderDialog mutate={workHeadersMutate} />
-//       </div>
-
-//       <Separator />
-
-//       <div className="space-y-6">
-//         {workHeaders?.length === 0 ? (
-//           <p className="text-center text-gray-500">No Work Headers found. Start by creating a new one!</p>
-//         ) : (
-//           workHeaders?.map((header) => (
-//             <WorkHeaderCard
-//               key={header.name}
-//               header={header}
-//               // Filter milestones to show only those belonging to the current header
-//               milestones={workMilestones?.filter(m => m.work_header === header.name) || []}
-//               workHeadersMutate={workHeadersMutate}
-//               workMilestonesMutate={workMilestonesMutate}
-//             />
-//           ))
-//         )}
-//       </div>
-//     </div>
-//   );
-// };
-
-
-// // =========================================================================
-// // 3. Sub-components for Dialogs and Cards
-// // =========================================================================
-
-// // --- Dialog for Creating New Work Header ---
-// interface CreateWorkHeaderDialogProps {
-//   mutate: () => Promise<any>; // Function to re-fetch work headers list
-// }
-
-// const CreateWorkHeaderDialog: React.FC<CreateWorkHeaderDialogProps> = ({ mutate }) => {
-//   const [dialogOpen, setDialogOpen] = useState(false);
-//   const { createDoc, loading } = useFrappeCreateDoc();
-
-//   const form = useForm<WorkHeaderFormValues>({
-//     resolver: zodResolver(workHeaderFormSchema),
-//     defaultValues: {
-//       work_header_name: "",
-//     },
-//   });
-
-//   const onSubmit = async (values: WorkHeaderFormValues) => {
-//     try {
-//       await createDoc("Work Headers", { work_header_name: values.work_header_name }); // UPDATED payload
-//       toast({ title: "Success", description: "Work Header created successfully.", variant: "success" });
-//       form.reset();
-//       await mutate();
-//       setDialogOpen(false);
-//     } catch (error: any) {
-//       toast({ title: "Error", description: `Failed to create Work Header: ${error.message}`, variant: "destructive" });
-//     }
-//   };
-
-//   return (
-//     <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-//       <DialogTrigger asChild>
-//         <Button>
-//           <PlusCircle className="mr-2 h-4 w-4" /> Add New Work Header
-//         </Button>
-//       </DialogTrigger>
-//       <DialogContent className="sm:max-w-[425px]">
-//         <DialogHeader>
-//           <DialogTitle>Create New Work Header</DialogTitle>
-//           <DialogDescription>
-//             Define a new category of work for project milestones (e.g., Civil Work, Electrical).
-//           </DialogDescription>
-//         </DialogHeader>
-//         <Form {...form}>
-//           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-//             <FormField
-//               control={form.control}
-//               name="work_header_name" // UPDATED name
-//               render={({ field }) => (
-//                 <FormItem>
-//                   <FormLabel>Work Header Name</FormLabel>
-//                   <FormControl>
-//                     <Input placeholder="e.g., Civil Work, Electrical, Plumbing" {...field} />
-//                   </FormControl>
-//                   <FormMessage />
-//                 </FormItem>
-//               )}
-//             />
-//             <div className="flex justify-end space-x-2">
-//               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
-//                 Cancel
-//               </Button>
-//               <Button type="submit" disabled={loading}>
-//                 {loading ? <TailSpin height={20} width={20} color="currentColor" /> : "Create"}
-//               </Button>
-//             </div>
-//           </form>
-//         </Form>
-//       </DialogContent>
-//     </Dialog>
-//   );
-// };
-
-// // --- Dialog for Editing Work Header ---
-// interface EditWorkHeaderDialogProps {
-//   header: WorkHeaders;
-//   mutate: () => Promise<any>;
-//   onOpenChange: (open: boolean) => void;
-// }
-
-// const EditWorkHeaderDialog: React.FC<EditWorkHeaderDialogProps> = ({ header, mutate, onOpenChange }) => {
-//   const { updateDoc, loading } = useFrappeUpdateDoc();
-//   const form = useForm<WorkHeaderFormValues>({
-//     resolver: zodResolver(workHeaderFormSchema),
-//     defaultValues: {
-//       work_header_name: header.work_header_name, // Pre-fill with existing name
-//     },
-//   });
-
-//   const onSubmit = async (values: WorkHeaderFormValues) => {
-//     try {
-//       await updateDoc("Work Headers", header.name, { work_header_name: values.work_header_name }); // UPDATED payload
-//       toast({ title: "Success", description: "Work Header updated successfully.", variant: "success" });
-//       await mutate();
-//       onOpenChange(false);
-//     } catch (error: any) {
-//       toast({ title: "Error", description: `Failed to update Work Header: ${error.message}`, variant: "destructive" });
-//     }
-//   };
-
-//   return (
-//     <Dialog onOpenChange={onOpenChange}>
-//       <DialogContent className="sm:max-w-[425px]">
-//         <DialogHeader>
-//           <DialogTitle>Edit Work Header</DialogTitle>
-//           <DialogDescription>
-//             Rename this work header.
-//           </DialogDescription>
-//         </DialogHeader>
-//         <Form {...form}>
-//           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-//             <FormField
-//               control={form.control}
-//               name="work_header_name" // UPDATED name
-//               render={({ field }) => (
-//                 <FormItem>
-//                   <FormLabel>Work Header Name</FormLabel>
-//                   <FormControl>
-//                     <Input {...field} />
-//                   </FormControl>
-//                   <FormMessage />
-//                 </FormItem>
-//               )}
-//             />
-//             <div className="flex justify-end space-x-2">
-//               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-//                 Cancel
-//               </Button>
-//               <Button type="submit" disabled={loading}>
-//                 {loading ? <TailSpin height={20} width={20} color="currentColor" /> : "Save Changes"}
-//               </Button>
-//             </div>
-//           </form>
-//         </Form>
-//       </DialogContent>
-//     </Dialog>
-//   );
-// };
-
-// // --- Dialog for Creating New Work Milestone ---
-// interface CreateWorkMilestoneDialogProps {
-//   workHeaderId: string;
-//   mutate: () => Promise<any>;
-// }
-
-// const CreateWorkMilestoneDialog: React.FC<CreateWorkMilestoneDialogProps> = ({ workHeaderId, mutate }) => {
-//   const [dialogOpen, setDialogOpen] = useState(false);
-//   const { createDoc, loading } = useFrappeCreateDoc();
-
-//   const form = useForm<WorkMilestoneFormValues>({
-//     resolver: zodResolver(workMilestoneFormSchema),
-//     defaultValues: {
-//       work_milestone_name: "",
-//     },
-//   });
-
-//   const onSubmit = async (values: WorkMilestoneFormValues) => {
-//     try {
-//       console.log("Creating Work Milestone with values:", values, "under Work Header ID:", workHeaderId);
-//       await createDoc("Work Milestones", {
-//         work_milestone_name: values.work_milestone_name, // UPDATED payload field
-//         work_header: workHeaderId, // Link to the parent Work Header
-//       });
-//       toast({ title: "Success", description: "Work Milestone created successfully.", variant: "success" });
-//       form.reset();
-//       await mutate();
-//       setDialogOpen(false);
-//     } catch (error: any) {
-//       toast({ title: "Error", description: `Failed to create Work Milestone: ${error.message}`, variant: "destructive" });
-//     }
-//   };
-
-//   return (
-//     <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-//       <DialogTrigger asChild>
-//         <Button variant="outline" size="sm">
-//           <PlusCircle className="mr-2 h-3 w-3" /> Add Milestone
-//         </Button>
-//       </DialogTrigger>
-//       <DialogContent className="sm:max-w-[425px]">
-//         <DialogHeader>
-//           <DialogTitle>Add New Work Milestone</DialogTitle>
-//           <DialogDescription>
-//             Define a new milestone for this work header.
-//           </DialogDescription>
-//         </DialogHeader>
-//         <Form {...form}>
-//           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-//             <FormField
-//               control={form.control}
-//               name="work_milestone_name" // UPDATED name
-//               render={({ field }) => (
-//                 <FormItem>
-//                   <FormLabel>Milestone Name</FormLabel>
-//                   <FormControl>
-//                     <Input placeholder="e.g., Foundation, Rough-in Wiring" {...field} />
-//                   </FormControl>
-//                   <FormMessage />
-//                 </FormItem>
-//               )}
-//             />
-//             {/* Removed Expected Duration and Description fields */}
-//             <div className="flex justify-end space-x-2">
-//               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
-//                 Cancel
-//               </Button>
-//               <Button type="submit" disabled={loading}>
-//                 {loading ? <TailSpin height={20} width={20} color="currentColor" /> : "Create Milestone"}
-//               </Button>
-//             </div>
-//           </form>
-//         </Form>
-//       </DialogContent>
-//     </Dialog>
-//   );
-// };
-
-// // --- Dialog for Editing Work Milestone ---
-// interface EditWorkMilestoneDialogProps {
-//   milestone: WorkMilestone;
-//   mutate: () => Promise<any>;
-//   onOpenChange: (open: boolean) => void;
-// }
-
-// const EditWorkMilestoneDialog: React.FC<EditWorkMilestoneDialogProps> = ({ milestone, mutate, onOpenChange }) => {
-//   const { updateDoc, loading } = useFrappeUpdateDoc();
-//   const form = useForm<WorkMilestoneFormValues>({
-//     resolver: zodResolver(workMilestoneFormSchema),
-//     defaultValues: {
-//       work_milestone_name: milestone.work_milestone_name, // UPDATED pre-fill
-//     },
-//   });
-
-//   const onSubmit = async (values: WorkMilestoneFormValues) => {
-//     try {
-//       await updateDoc("Work Milestones", milestone.name, {
-//         work_milestone_name: values.work_milestone_name, // UPDATED payload field
-//       });
-//       toast({ title: "Success", description: "Work Milestone updated successfully.", variant: "success" });
-//       await mutate();
-//       onOpenChange(false);
-//     } catch (error: any) {
-//       toast({ title: "Error", description: `Failed to update Work Milestone: ${error.message}`, variant: "destructive" });
-//     }
-//   };
-
-//   return (
-//     <Dialog onOpenChange={onOpenChange}>
-//       <DialogContent className="sm:max-w-[425px]">
-//         <DialogHeader>
-//           <DialogTitle>Edit Work Milestone</DialogTitle>
-//           <DialogDescription>
-//             Modify the details of this milestone.
-//           </DialogDescription>
-//         </DialogHeader>
-//         <Form {...form}>
-//           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-//             <FormField
-//               control={form.control}
-//               name="work_milestone_name" // UPDATED name
-//               render={({ field }) => (
-//                 <FormItem>
-//                   <FormLabel>Milestone Name</FormLabel>
-//                   <FormControl>
-//                     <Input {...field} />
-//                   </FormControl>
-//                   <FormMessage />
-//                 </FormItem>
-//               )}
-//             />
-//             {/* Removed Expected Duration and Description fields */}
-//             <div className="flex justify-end space-x-2">
-//               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-//                 Cancel
-//               </Button>
-//               <Button type="submit" disabled={loading}>
-//                 {loading ? <TailSpin height={20} width={20} color="currentColor" /> : "Save Changes"}
-//               </Button>
-//             </div>
-//           </form>
-//         </Form>
-//       </DialogContent>
-//     </Dialog>
-//   );
-// };
-
-// // --- Alert Dialog for Deleting Work Milestone ---
-// interface DeleteMilestoneAlertDialogProps {
-//   milestone: WorkMilestone;
-//   mutate: () => Promise<any>;
-// }
-
-// const DeleteMilestoneAlertDialog: React.FC<DeleteMilestoneAlertDialogProps> = ({ milestone, mutate }) => {
-//   const { deleteDoc, loading } = useFrappeDeleteDoc();
-//   const [open, setOpen] = useState(false);
-
-//   const handleDelete = async () => {
-//     try {
-//       await deleteDoc("Work Milestones", milestone.name);
-//       toast({ title: "Success", description: "Work Milestone deleted successfully.", variant: "success" });
-//       await mutate();
-//       setOpen(false);
-//     } catch (error: any) {
-//       toast({ title: "Error", description: `Failed to delete Work Milestone: ${error.message}`, variant: "destructive" });
-//     }
-//   };
-
-//   return (
-//     <AlertDialog open={open} onOpenChange={setOpen}>
-//       <AlertDialogTrigger asChild>
-//         <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-800">
-//           <Trash2 className="h-4 w-4" />
-//         </Button>
-//       </AlertDialogTrigger>
-//       <AlertDialogContent>
-//         <AlertDialogHeader>
-//           <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-//           <AlertDialogDescription>
-//             This action cannot be undone. This will permanently delete the milestone "<span className="font-bold">{milestone.work_milestone_name}</span>". {/* UPDATED display name */}
-//           </AlertDialogDescription>
-//         </AlertDialogHeader>
-//         <AlertDialogFooter>
-//           <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
-//           <AlertDialogAction onClick={handleDelete} disabled={loading} className="bg-red-600 hover:bg-red-700">
-//             {loading ? <TailSpin height={20} width={20} color="white" /> : "Delete"}
-//           </AlertDialogAction>
-//         </AlertDialogFooter>
-//       </AlertDialogContent>
-//     </AlertDialog>
-//   );
-// };
-
-
-// // --- Card Component for each Work Header and its Milestones ---
-// interface WorkHeaderCardProps {
-//   header: WorkHeaders;
-//   milestones: WorkMilestone[];
-//   workHeadersMutate: () => Promise<any>;
-//   workMilestonesMutate: () => Promise<any>;
-// }
-
-// const WorkHeaderCard: React.FC<WorkHeaderCardProps> = ({ header, milestones, workHeadersMutate, workMilestonesMutate }) => {
-//   const [editHeaderDialogOpen, setEditHeaderDialogOpen] = useState(false);
-
-//   return (
-//     <Card className="hover:animate-shadow-drop-center">
-//       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-//         <CardTitle className="text-xl font-semibold flex items-center gap-2">
-//           {header.work_header_name} 
-//           <Dialog open={editHeaderDialogOpen} onOpenChange={setEditHeaderDialogOpen}>
-//             <DialogTrigger asChild>
-//               <Button variant="ghost" size="icon" className="h-6 w-6">
-//                 <FileEdit className="h-4 w-4 text-gray-500 hover:text-blue-600" />
-//               </Button>
-//             </DialogTrigger>
-//             {/* The actual Edit Work Header Dialog */}
-//             <EditWorkHeaderDialog header={header} mutate={workHeadersMutate} onOpenChange={setEditHeaderDialogOpen} />
-//           </Dialog>
-//         </CardTitle>
-//         {/* Button to add a new milestone for this specific Work Header */}
-//         <CreateWorkMilestoneDialog workHeaderId={header.name} mutate={workMilestonesMutate} />
-//       </CardHeader>
-//       <CardContent className="overflow-auto pt-4">
-//         {milestones.length === 0 ? (
-//           <p className="text-gray-500 text-sm">No milestones defined for this work header. Click "Add Milestone" to create one.</p>
-//         ) : (
-//           <Table>
-//             <TableHeader className="bg-gray-100">
-//               <TableRow>
-//                 <TableHead className="w-[80%]">Milestone</TableHead> {/* Adjusted width */}
-//                 <TableHead className="w-[20%] text-right">Actions</TableHead> {/* Adjusted width */}
-//               </TableRow>
-//             </TableHeader>
-//             <TableBody>
-//               {milestones.map((milestone) => (
-//                 <TableRow key={milestone.name}>
-//                   <TableCell>{milestone.work_milestone_name}</TableCell> {/* UPDATED display name */}
-//                   <TableCell className="text-right flex items-center justify-end space-x-2">
-//                     {/* Trigger for editing the Work Milestone */}
-//                     <Dialog>
-//                       <DialogTrigger asChild>
-//                         <Button variant="ghost" size="sm" className="text-blue-600 hover:text-blue-800">
-//                           <Pencil className="h-4 w-4" />
-//                         </Button>
-//                       </DialogTrigger>
-//                       {/* The actual Edit Work Milestone Dialog */}
-//                       <EditWorkMilestoneDialog milestone={milestone} mutate={workMilestonesMutate} onOpenChange={() => {}} />
-//                     </Dialog>
-//                     {/* Alert Dialog for deleting the Work Milestone */}
-//                     <DeleteMilestoneAlertDialog milestone={milestone} mutate={workMilestonesMutate} />
-//                   </TableCell>
-//                 </TableRow>
-//               ))}
-//             </TableBody>
-//           </Table>
-//         )}
-//       </CardContent>
-//     </Card>
-//   );
-// };
+export default WorkHeaderMilestones;

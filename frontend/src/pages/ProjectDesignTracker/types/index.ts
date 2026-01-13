@@ -29,7 +29,7 @@ export interface DesignTrackerTask {
     assigned_designers?: string; 
     
     // Status & Tracking (Server Names)
-    task_status: 'Todo' | 'In Progress' | 'On Hold' | 'Done' | 'Blocked'; 
+    task_status: 'Not Started' | 'Not Applicable' | 'Drawings Awaiting from Client' | 'In Progress' | 'Submitted' | 'Revision Pending' | 'Clarification Awaiting' | 'Approved' | 'Todo' | 'On Hold' | 'Done' | 'Blocked';
     task_sub_status?: string; 
     file_link?: string;
     comments?: string;
@@ -59,4 +59,16 @@ export interface MasterDataResponse {
     users: User[];
     categories: RawCategoryData[];
     // phases: DesignPhase[]; <-- REMOVED
+}
+
+// Task template from category master data
+export interface TaskTemplate {
+    task_name: string;
+    deadline_offset?: number;
+}
+
+// Category with tasks from master data
+export interface CategoryWithTasks {
+    category_name: string;
+    tasks: TaskTemplate[];
 }

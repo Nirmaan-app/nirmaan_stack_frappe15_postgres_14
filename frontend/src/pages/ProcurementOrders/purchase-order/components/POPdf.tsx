@@ -759,7 +759,7 @@
 // };
 
 // {# --- ATTACHMENT SECTION --- #}
-  
+
 //     {% if doc.attachment %}
 //         {% set image_list = frappe.call("nirmaan_stack.api.pdf_to_image.get_attachments_for_print", file_url=doc.attachment) %}
 //         {% if image_list and image_list | length > 0 %}
@@ -790,6 +790,7 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { MessageCircleMore, Printer, Download } from "lucide-react";
+import { useUserData } from "@/hooks/useUserData";
 // REMOVED: pdfjs-dist dependency - PDF preview in browser disabled
 // PDF download still works via backend API (handleDownloadPdf)
 // import * as pdfjsLib from "pdfjs-dist";
@@ -851,7 +852,7 @@ const POHeader: React.FC<{ po: ProcurementOrder; showVendorInfo?: boolean }> = (
         <div className="items-start text-start flex justify-between border-b-2 border-gray-600 pb-1 mb-1">
           <div className="text-xs text-gray-600 font-normal">
             {gstAddressMap[po?.project_gst]}
-              
+
           </div>
           <div className="text-xs text-gray-600 font-normal">
             GST: {po?.project_gst || "N/A"}
@@ -955,25 +956,25 @@ const POHeader: React.FC<{ po: ProcurementOrder; showVendorInfo?: boolean }> = (
 const estimateItemHeight = (item: PurchaseOrderItem, includeComments: boolean) => {
   const baseHeight = 40; // Base height for a simple item
   let estimatedHeight = baseHeight;
-  
+
   // Estimate height based on item name length (assume ~35 characters per line)
   const itemNameLines = Math.ceil((item.item_name?.length || 0) / 35);
   if (itemNameLines > 1) {
     estimatedHeight += (itemNameLines - 1) * 16; // 16px per additional line
   }
-  
+
   // Add height for make if present
   if (item.make) {
     const makeLines = Math.ceil(item.make.length / 35);
     estimatedHeight += makeLines * 16;
   }
-  
+
   // Add height for comments if present and included
   if (item.comment && includeComments) {
     const commentLines = Math.ceil(item.comment.length / 30); // Comments are usually smaller text
     estimatedHeight += commentLines * 14 + 20; // Extra padding for comment box
   }
-  
+
   return estimatedHeight;
 };
 
@@ -1036,12 +1037,13 @@ export const POPdf: React.FC<POPdfProps> = ({
 }) => {
   if (!po) return <div>No PO ID Provided</div>;
   const componentRef = useRef<HTMLDivElement>(null);
-  
+  const { role } = useUserData();
+
   // Dynamic page height calculation (approximate print page height in pixels)
   const PAGE_HEIGHT = 1000; // Adjust based on your print settings
   const HEADER_HEIGHT = 200; // Approximate header height
   const AVAILABLE_HEIGHT = PAGE_HEIGHT - HEADER_HEIGHT;
-  
+
   const finalPaymentTerms = paymentTerms && paymentTerms.length > 0 ? paymentTerms : po?.payment_terms;
 
   // const { data: attachmentsData } = useFrappeGetDocList(
@@ -1067,26 +1069,26 @@ export const POPdf: React.FC<POPdfProps> = ({
       console.log("Processing attachment:", att);
       let fileUrl = att.attachment;
       if (!fileUrl.startsWith("http")) {
-         const baseURL = window.location.origin;
-         const path = att.attachment.startsWith("/") ? att.attachment : `/${att.attachment}`;
-         fileUrl = `${baseURL}${path}`;
+        const baseURL = window.location.origin;
+        const path = att.attachment.startsWith("/") ? att.attachment : `/${att.attachment}`;
+        fileUrl = `${baseURL}${path}`;
       }
       console.log("File URL:", fileUrl);
-      
+
       let fileType = "unknown";
       try {
-          const urlObj = new URL(fileUrl);
-          const fileNameParam = urlObj.searchParams.get("file_name");
-          if (fileNameParam) {
-             fileType = fileNameParam.split(".").pop().toLowerCase();
-          } else {
-             fileType = urlObj.pathname.split(".").pop().toLowerCase();
-          }
+        const urlObj = new URL(fileUrl);
+        const fileNameParam = urlObj.searchParams.get("file_name");
+        if (fileNameParam) {
+          fileType = fileNameParam.split(".").pop().toLowerCase();
+        } else {
+          fileType = urlObj.pathname.split(".").pop().toLowerCase();
+        }
       } catch (e) {
-          console.warn("URL parsing failed, falling back to string split", e);
-          fileType = att.attachment.split(".").pop().toLowerCase();
+        console.warn("URL parsing failed, falling back to string split", e);
+        fileType = att.attachment.split(".").pop().toLowerCase();
       }
-      
+
       console.log("Detected File Type:", fileType);
 
       if (["pdf"].includes(fileType)) {
@@ -1142,34 +1144,34 @@ export const POPdf: React.FC<POPdfProps> = ({
     let isActive = true;
 
     const fetchAllAttachments = async () => {
-        // Direct PO Attachment
-        const allAttachments = [];
-        if (po?.attachment) {
-            allAttachments.push({ attachment: po.attachment });
-        }
+      // Direct PO Attachment
+      const allAttachments = [];
+      if (po?.attachment) {
+        allAttachments.push({ attachment: po.attachment });
+      }
 
-        console.log("Processing Attachments list:", allAttachments);
+      console.log("Processing Attachments list:", allAttachments);
 
-        if (allAttachments.length === 0) {
-            if (isActive) setImages([]);
-            return;
-        }
+      if (allAttachments.length === 0) {
+        if (isActive) setImages([]);
+        return;
+      }
 
-        // Process concurrently
-        const results = await Promise.all(allAttachments.map(att => getImagesFromAttachment(att)));
-        
-        // Flatten results
-        const flattenedImages = results.flat();
-        
-        if (isActive) {
-            setImages(flattenedImages);
-        }
+      // Process concurrently
+      const results = await Promise.all(allAttachments.map(att => getImagesFromAttachment(att)));
+
+      // Flatten results
+      const flattenedImages = results.flat();
+
+      if (isActive) {
+        setImages(flattenedImages);
+      }
     };
 
     fetchAllAttachments();
 
     return () => {
-        isActive = false;
+      isActive = false;
     };
   }, [po?.attachment]);
 
@@ -1197,13 +1199,13 @@ export const POPdf: React.FC<POPdfProps> = ({
       });
 
       const url = `/api/method/nirmaan_stack.api.pdf_helper.print_integration.download_merged_pdf?${params.toString()}`;
-      
+
       const response = await fetch(url);
       if (!response.ok) throw new Error("Network response was not ok");
-      
+
       const blob = await response.blob();
       const downloadUrl = window.URL.createObjectURL(blob);
-      
+
       // Create temporary link to trigger download with custom filename
       const link = document.createElement('a');
       link.href = downloadUrl;
@@ -1212,10 +1214,10 @@ export const POPdf: React.FC<POPdfProps> = ({
       const safeProjectName = (po.project_name || "Project").replace(/\//g, "_");
       const suffix = formatName === "PO Orders Without rate" ? "_NoRate" : "";
       link.download = `${safeName}_${safeProjectName}${suffix}.pdf`;
-      
+
       document.body.appendChild(link);
       link.click();
-      
+
       // Cleanup
       document.body.removeChild(link);
       window.URL.revokeObjectURL(downloadUrl);
@@ -1248,15 +1250,15 @@ export const POPdf: React.FC<POPdfProps> = ({
   // Smart pagination function that considers item height
   const smartPagination = (items: PurchaseOrderItem[]) => {
     if (!items || items.length === 0) return [];
-    
+
     const pages = [];
     let currentPage = [];
     let currentPageHeight = 0;
-    
+
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       const itemHeight = estimateItemHeight(item, includeComments);
-      
+
       // Check if adding this item would exceed page height
       if (currentPageHeight + itemHeight > AVAILABLE_HEIGHT && currentPage.length > 0) {
         // Start a new page
@@ -1269,12 +1271,12 @@ export const POPdf: React.FC<POPdfProps> = ({
         currentPageHeight += itemHeight;
       }
     }
-    
+
     // Add the last page if it has items
     if (currentPage.length > 0) {
       pages.push(currentPage);
     }
-    
+
     return pages;
   };
 
@@ -1284,18 +1286,23 @@ export const POPdf: React.FC<POPdfProps> = ({
     <Sheet open={poPdfSheet} onOpenChange={togglePoPdfSheet}>
       <SheetContent className="overflow-y-auto md:min-w-[900px]">
         <div className="flex gap-2">
-          <Button onClick={handlePrint} className="flex items-center gap-1">
-            <Printer className="h-4 w-4" />
-            Print
-          </Button>
-          <Button
-            onClick={() => handleDownloadPdf("PO Invoice")}
-            disabled={!!downloadingFormat}
-            className="flex items-center gap-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Download className={`h-4 w-4 ${downloadingFormat === "PO Invoice" ? "animate-bounce" : ""}`} />
-            {downloadingFormat === "PO Invoice" ? "Downloading..." : "Download"}
-          </Button>
+          {/* Hide Print and Download buttons for Project Manager role */}
+          {role !== "Nirmaan Project Manager Profile" && (
+            <>
+              <Button onClick={handlePrint} className="flex items-center gap-1">
+                <Printer className="h-4 w-4" />
+                Print
+              </Button>
+              <Button
+                onClick={() => handleDownloadPdf("PO Invoice")}
+                disabled={!!downloadingFormat}
+                className="flex items-center gap-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Download className={`h-4 w-4 ${downloadingFormat === "PO Invoice" ? "animate-bounce" : ""}`} />
+                {downloadingFormat === "PO Invoice" ? "Downloading..." : "Download"}
+              </Button>
+            </>
+          )}
           <Button
             onClick={() => handleDownloadPdf("PO Orders Without Rate")}
             disabled={!!downloadingFormat}
@@ -1332,7 +1339,7 @@ export const POPdf: React.FC<POPdfProps> = ({
                 }
               `}
             </style>
-            
+
             {/* Render all item pages with smart pagination */}
             {itemPages.map((pageItems, pageIndex) => (
               <div key={pageIndex} className={pageIndex > 0 ? "page-break" : ""}>
@@ -1344,7 +1351,7 @@ export const POPdf: React.FC<POPdfProps> = ({
                         // Calculate global index across all pages
                         const globalIndex = itemPages.slice(0, pageIndex).reduce((acc, page) => acc + page.length, 0) + itemIndex + 1;
                         return (
-                          <ItemRow 
+                          <ItemRow
                             key={globalIndex}
                             item={item}
                             index={globalIndex - 1}
@@ -1352,14 +1359,14 @@ export const POPdf: React.FC<POPdfProps> = ({
                           />
                         );
                       })}
-                         {pageIndex === itemPages.length - 1 && (
+                      {pageIndex === itemPages.length - 1 && (
                         <>
                           <tr className="border-b border-t border-black page-break-inside-avoid">
                             <td className="py-4 w-[8%]"></td>
                             <td className="py-4 w-[35%]"></td>
                             <td className="py-4 w-[10%]"></td>
                             <td className="py-4 w-[10%]"></td>
-                           <td className="py-4 w-[10%]"></td>
+                            <td className="py-4 w-[10%]"></td>
                             <td className="py-4 text-sm font-bold text-right pr-2 page-break-inside-avoid w-[30%]">
                               <div className="space-y-2">
                                 <div>Sub-Total:</div>
@@ -1389,8 +1396,8 @@ export const POPdf: React.FC<POPdfProps> = ({
                               </div>
                             </td>
                           </tr>
-                          
-                        
+
+
                           <tr>
                             <td colSpan={7}>
                               {finalPaymentTerms && finalPaymentTerms.length > 0 && (
@@ -1417,7 +1424,7 @@ export const POPdf: React.FC<POPdfProps> = ({
                               )}
                             </td>
                           </tr>
-                          
+
                           {/* Notes and signature */}
                           <tr className="page-break-inside-avoid">
                             <td colSpan={7}>
@@ -1445,7 +1452,7 @@ export const POPdf: React.FC<POPdfProps> = ({
                   </table>
                 </div>
                 {/* RENDER THE SUMMARY AND TOTALS SECTION ONLY ON THE LAST PAGE */}
-  
+
               </div>
             ))}
 
@@ -1662,7 +1669,7 @@ export const POPdf: React.FC<POPdfProps> = ({
                               Any agreed amount between the vendor and Nirmaan.
                             </li>
                           </ol>
-                          
+
                           <h2 className="text-lg font-semibold mt-6">
                             3. Technical Specifications of the Work:
                           </h2>
@@ -1695,7 +1702,7 @@ export const POPdf: React.FC<POPdfProps> = ({
                               Nirmaan.
                             </li>
                           </ol>
-                          
+
                           <h1 className="text-xl font-bold mb-4 mt-8">
                             General Terms & Conditions for Purchase Order
                           </h1>

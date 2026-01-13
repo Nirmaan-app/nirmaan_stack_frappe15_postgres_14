@@ -202,5 +202,47 @@
     "role": "Nirmaan Estimates Executive"
    }
   ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-01-09 11:58:40.457964",
+  "name": "Nirmaan HR Executive Profile",
+  "role_profile": "Nirmaan HR Executive Profile",
+  "roles": [
+   {
+    "parent": "Nirmaan HR Executive Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan HR Executive"
+   },
+   {
+    "parent": "Nirmaan HR Executive Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "System Manager"
+   }
+  ]
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Role Profile",
+  "modified": "2026-01-09 13:40:06.228276",
+  "name": "Nirmaan PMO Executive Profile",
+  "role_profile": "Nirmaan PMO Executive Profile",
+  "roles": [
+   {
+    "parent": "Nirmaan PMO Executive Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "System Manager"
+   },
+   {
+    "parent": "Nirmaan PMO Executive Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "Nirmaan PMO Executive"
+   }
+  ]
  }
 ]

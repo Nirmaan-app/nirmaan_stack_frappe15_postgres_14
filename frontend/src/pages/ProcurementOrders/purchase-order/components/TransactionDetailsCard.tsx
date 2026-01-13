@@ -374,6 +374,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                     </TableCell>
                     <TableCell className="text-red-500 text-end w-[5%]">
                       {!["Paid", "Approved"].includes(payment?.status) && !estimatesViewing && !summaryPage &&
+                        role !== "Nirmaan Accountant Profile" &&
                         <Button
                           variant="ghost"
                           size="icon"

@@ -1,4 +1,6 @@
 import {
+  Calendar,
+  ClipboardCheck,
   ClipboardMinus,
   ClipboardPlus,
   Milestone,
@@ -139,12 +141,12 @@ export const ProjectManager = () => {
             onClick={() => navigate("/service-requests-list")}
             variant="secondary"
           />
-          <DashboardCard
+          {/* <DashboardCard
             title="Item Price Search"
             icon={<Dices className="h-7 w-7" strokeWidth={1.5} />}
             onClick={() => navigate("/item-price")}
             variant="secondary"
-          />
+          /> */}
           <DashboardCard
             title="Reports"
             icon={<ClipboardMinus className="h-7 w-7" strokeWidth={1.5} />}
@@ -155,6 +157,18 @@ export const ProjectManager = () => {
             title="Design Tracker"
             icon={<PencilRuler className="h-7 w-7" strokeWidth={1.5} />}
             onClick={() => navigate("/design-tracker")}
+            variant="secondary"
+          />
+          <DashboardCard
+            title="PO Tracker"
+            icon={<ClipboardCheck className="h-7 w-7" strokeWidth={1.5} />}
+            onClick={() => navigate("/critical-po-tracker")}
+            variant="secondary"
+          />
+          <DashboardCard
+            title="Work Plan Tracker"
+            icon={<Calendar className="h-7 w-7" strokeWidth={1.5} />}
+            onClick={() => navigate("/work-plan-tracker")}
             variant="secondary"
           />
         </div>

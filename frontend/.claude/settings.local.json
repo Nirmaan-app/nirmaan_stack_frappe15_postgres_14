@@ -4,7 +4,13 @@
       "mcp__gemini-cli__Help",
       "mcp__gemini-cli__ask-gemini",
       "Bash(cat:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(npx tsc:*)",
+      "Bash(wc:*)",
+      "Skill(frontend-design)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Skill(webapp-testing)"
     ],
     "deny": [],
     "ask": []

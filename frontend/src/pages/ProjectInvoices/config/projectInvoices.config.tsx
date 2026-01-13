@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Trash2, Edit2 } from "lucide-react";
 import { SearchFieldOption } from '@/components/data-table/new-data-table';
+import { AggregationConfig } from "@/hooks/useServerDataTable";
 import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
@@ -26,6 +27,11 @@ export const PROJECT_INVOICE_SEARCHABLE_FIELDS: SearchFieldOption[] = [
 ];
 
 export const PROJECT_INVOICE_DATE_COLUMNS = ["invoice_date"];
+
+// Backend aggregation config for summary card
+export const PROJECT_INVOICE_AGGREGATES_CONFIG: AggregationConfig[] = [
+    { field: 'amount', function: 'sum' }
+];
 
 // =================================================================================
 // 2. TYPES & INTERFACES FOR COLUMN GENERATION
@@ -77,7 +83,9 @@ export const getProjectInvoiceColumns = (
             filterFn: facetedFilterFn,
             meta: {
                 exportHeaderName: "Project",
-                exportValue: (row: ProjectInvoice) => getProjectName(row.project)
+                exportValue: (row: ProjectInvoice) => getProjectName(row.project),
+                enableFacet: true,
+                facetTitle: "Project"
             }
         },
         {
@@ -94,7 +102,9 @@ export const getProjectInvoiceColumns = (
             filterFn: facetedFilterFn,
             meta: {
                 exportHeaderName: "Customer",
-                exportValue: (row: ProjectInvoice) => getCustomerName(row.customer)
+                exportValue: (row: ProjectInvoice) => getCustomerName(row.customer),
+                enableFacet: true,
+                facetTitle: "Customer"
             }
         },
         {
@@ -115,7 +125,12 @@ export const getProjectInvoiceColumns = (
             header: ({ column }) => <DataTableColumnHeader column={column} title="Created By" />,
             cell: ({ row }) => <div>{getUserName(row.original.owner)}</div>,
             filterFn: facetedFilterFn,
-            meta: { exportHeaderName: "Created By", exportValue: (row: ProjectInvoice) => getUserName(row.owner) }
+            meta: {
+                exportHeaderName: "Created By",
+                exportValue: (row: ProjectInvoice) => getUserName(row.owner),
+                enableFacet: true,
+                facetTitle: "Created By"
+            }
         },
 
         // --- CORRECTED INLINE SYNTAX ---

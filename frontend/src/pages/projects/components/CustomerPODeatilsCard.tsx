@@ -780,7 +780,7 @@ const getCustomerPOColumns = (
 export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ projectId }) => {
     
       const {role} = useUserData();
-      const isAdmin = role === "Nirmaan Admin Profile" 
+      const isAdmin = role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" 
     //   console.log("CustomerPODetailsCard: Current User Data =", role);
     
     // --- Edit Dialog State & Handlers ---

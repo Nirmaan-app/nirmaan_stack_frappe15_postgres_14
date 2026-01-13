@@ -26,7 +26,7 @@ const MAX_HEIGHT = 1000;
 
 interface DeliveryHistoryTableProps {
   deliveryData: DeliveryDataType | null;
-  onPrintHistory: (historyEntryData: DeliveryDataType[string]) => void; // <-- ADD THIS PROP
+  onPrintHistory: (date: string, historyEntryData: DeliveryDataType[string]) => void; // Updated to accept date
 }
 
 interface ExpandableRowProps {
@@ -35,7 +35,7 @@ interface ExpandableRowProps {
   data: DeliveryDataType[string];
   isExpanded: boolean;
   onToggle: (date: string) => void;
-  onPrint: (historyEntryData: DeliveryDataType[string]) => void;
+  onPrint: (date: string, historyEntryData: DeliveryDataType[string]) => void; // Updated to accept date
 }
 
 const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, data, isExpanded, onToggle, onPrint }) => {
@@ -72,7 +72,7 @@ const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, data, isExpa
             <div className="text-sm text-gray-500">{data.items.length} item(s) updated by {getUserName(data.updated_by)}</div>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); onPrint(data); }}><Printer className="h-4 w-4" /></Button>
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); onPrint(date, data); }}><Printer className="h-4 w-4" /></Button>
             <button aria-label="Toggle details" className="p-1">{isExpanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}</button>
           </div>
         </div>
@@ -95,7 +95,7 @@ const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, data, isExpa
         <TableCell className={`${index === 0 ? "font-bold" : ""}`}>{index === 0 ? "Create" : "Update"}</TableCell>
         <TableCell>{getUserName(data.updated_by)}</TableCell>
         <TableCell>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); onPrint(data); }}><Printer className="h-4 w-4 text-gray-700" /></Button>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); onPrint(date, data); }}><Printer className="h-4 w-4 text-gray-700" /></Button>
         </TableCell>
       </TableRow>
       {/* The expanded content row for desktop */}
@@ -121,7 +121,7 @@ const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, data, isExpa
 const DeliveryHistoryTable: React.FC<DeliveryHistoryTableProps> = ({ deliveryData, onPrintHistory }) => {
   const [expandedRows, setExpandedRows] = useState<string[]>([]);
 
-  
+
 
   const handleToggle = useCallback((date: string) => {
     setExpandedRows(prev => prev.includes(date)

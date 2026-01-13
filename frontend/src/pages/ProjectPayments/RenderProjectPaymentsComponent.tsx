@@ -17,9 +17,9 @@ const PaymentSummaryCards = React.lazy(() => import("./PaymentSummaryCards"));
 
 export const RenderProjectPaymentsComponent: React.FC = () => {
 
-    const {role} = useUserData();
+    const { role } = useUserData();
 
-    const {counts} = useDocCountStore()
+    const { counts } = useDocCountStore()
 
     // --- Tab State Management ---
     const initialTab = useMemo(() => {
@@ -27,7 +27,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
         const accountantDefault = "New Payments";
         const userDefault = "Payments Done";
         const remDefault = "PO Wise";
-        return getUrlStringParam("tab", role === "Nirmaan Admin Profile" ? adminDefault : role === "Nirmaan Accountant Profile" ?  accountantDefault : ["Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role) ? userDefault : remDefault);
+        return getUrlStringParam("tab", (role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile") ? adminDefault : role === "Nirmaan Accountant Profile" ? accountantDefault : ["Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role) ? userDefault : remDefault);
     }, [role]); // Calculate only once based on role
 
     const [tab, setTab] = useState<string>(initialTab);
@@ -39,7 +39,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
             urlStateManager.updateParam("tab", tab);
         }
     }, [tab]);
-    
+
     // Effect to sync URL state TO tab state (for popstate/direct URL load)
     useEffect(() => {
         const unsubscribe = urlStateManager.subscribe("tab", (_, value) => {
@@ -62,7 +62,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
     }, [tab]);
 
     const adminTabs = useMemo(() => [
-        ...(["Nirmaan Admin Profile"].includes(role) ? [
+        ...(["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role) ? [
             {
                 label: (
                     <div className="flex items-center">
@@ -78,7 +78,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
     ], [role, counts])
 
     const items = useMemo(() => [
-        ...(["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role) ? [
+        ...(["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile"].includes(role) ? [
             {
                 label: (
                     <div className="flex items-center">
@@ -103,15 +103,15 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
             // },
         ] : [])
     ], [role, counts])
-        
-    const allTab = useMemo(() => 
-            [
-                { label: (<div className="flex items-center"><span>All Payments</span><span className="ml-2 text-xs font-bold">{counts.pay.all}</span></div>), value: "All Payments" },
-            ]
-        ,[counts, role])
+
+    const allTab = useMemo(() =>
+        [
+            { label: (<div className="flex items-center"><span>All Payments</span><span className="ml-2 text-xs font-bold">{counts.pay.all}</span></div>), value: "All Payments" },
+        ]
+        , [counts, role])
 
     const remTabs = useMemo(() => [
-        ...(["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role) ? ["PO Wise"] : []),
+        ...(["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile"].includes(role) ? ["PO Wise"] : []),
         // "All Payments"
     ], [role])
 
@@ -144,7 +144,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
 
     return (
         <div className="flex-1 space-y-4">
-                {/* <PaymentSummaryCards/> */}
+            {/* <PaymentSummaryCards/> */}
 
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                 {adminTabs && (
@@ -200,18 +200,18 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                 <LoadingFallback />
             }>
                 {tab === "Approve Payments" ? (
-                <ApprovePayments />
+                    <ApprovePayments />
                 ) :
-                
-                ["New Payments"].includes(tab) ? 
-                (
-                    <AccountantTabs />
-                ) : ["Payments Pending", "Payments Done", "All Payments"].includes(tab) ? (
-                    <AllPayments tab={tab} />
-                )
-                 : (
-                    <ProjectPaymentsList />
-                )}
+
+                    ["New Payments"].includes(tab) ?
+                        (
+                            <AccountantTabs />
+                        ) : ["Payments Pending", "Payments Done", "All Payments"].includes(tab) ? (
+                            <AllPayments tab={tab} />
+                        )
+                            : (
+                                <ProjectPaymentsList />
+                            )}
             </Suspense>
         </div>
     );

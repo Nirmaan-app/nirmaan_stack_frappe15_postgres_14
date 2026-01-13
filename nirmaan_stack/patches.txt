@@ -66,3 +66,5 @@ nirmaan_stack.patches.v2_7.populate_project_design_tracker_start_date #2
 nirmaan_stack.patches.v2_7.create_customer_po_from_project_value
 
 nirmaan_stack.patches.v2_8.recalculate_critical_po_deadlines #2
+
+nirmaan_stack.patches.v2_8.remove_accountant_project_assignments

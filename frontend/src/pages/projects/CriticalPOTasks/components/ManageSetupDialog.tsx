@@ -1,9 +1,8 @@
 import React, { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/components/ui/use-toast";
 import { TailSpin } from "react-loader-spinner";
-import { AlertCircle, AlertTriangle } from "lucide-react";
+import { AlertCircle, AlertTriangle, Info } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -229,72 +228,91 @@ export const ManageSetupDialog: React.FC<ManageSetupDialogProps> = ({
               <>
                 {/* Add Categories Section */}
                 {availableCategories.length > 0 && (
-                  <div>
-                    <h3 className="text-sm font-semibold mb-3 text-gray-700">
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-semibold text-gray-700">
                       Add Categories ({availableCategories.length} available)
                     </h3>
-                    <div className="space-y-2 max-h-[200px] overflow-y-auto border rounded-md p-3">
-                      {availableCategories.map((category) => (
-                        <div
-                          key={category.name}
-                          className="flex items-center space-x-3 p-2 hover:bg-gray-50 rounded transition-colors"
-                        >
-                          <Checkbox
-                            id={`add-${category.name}`}
-                            checked={selectedToAdd.has(category.name)}
-                            onCheckedChange={() => handleAddToggle(category.name)}
-                          />
-                          <label
-                            htmlFor={`add-${category.name}`}
-                            className="flex-1 text-sm cursor-pointer"
-                          >
-                            {category.category_name}
-                          </label>
-                        </div>
-                      ))}
+
+                    {/* Info Message */}
+                    <div className="p-3 bg-blue-50/50 border border-blue-100 rounded-md">
+                      <div className="flex items-start gap-2">
+                        <Info className="h-4 w-4 text-blue-500 mt-0.5 flex-shrink-0" />
+                        <p className="text-xs text-blue-700">
+                          PO release deadlines will be calculated based on the project start date and each item's timeline offset.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="border rounded-md p-4">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {availableCategories.map((category) => {
+                          const isSelected = selectedToAdd.has(category.name);
+                          return (
+                            <Button
+                              key={category.name}
+                              type="button"
+                              variant={isSelected ? "default" : "outline"}
+                              onClick={() => handleAddToggle(category.name)}
+                              size="sm"
+                              className="text-xs h-auto py-2 whitespace-normal min-h-[40px] justify-start"
+                            >
+                              <span className="truncate">{category.category_name}</span>
+                            </Button>
+                          );
+                        })}
+                      </div>
+
+                      {selectedToAdd.size > 0 && (
+                        <p className="text-xs text-gray-500 mt-3">
+                          {selectedToAdd.size} categor{selectedToAdd.size !== 1 ? 'ies' : 'y'} selected to add
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}
 
                 {/* Remove Categories Section */}
                 {removableCategories.length > 0 && (
-                  <div>
-                    <h3 className="text-sm font-semibold mb-3 text-gray-700">
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-semibold text-gray-700">
                       Remove Categories ({removableCategories.length} in use)
                     </h3>
-                    <Alert variant="destructive" className="mb-3">
+
+                    <Alert variant="destructive">
                       <AlertTriangle className="h-4 w-4" />
                       <AlertDescription>
                         Warning: Removing a category will permanently delete all associated tasks.
                       </AlertDescription>
                     </Alert>
-                    <div className="space-y-2 max-h-[200px] overflow-y-auto border rounded-md p-3">
-                      {removableCategories.map((category) => {
-                        const taskCount = existingTasks.filter(
-                          (t) => t.critical_po_category === category.name
-                        ).length;
-                        return (
-                          <div
-                            key={category.name}
-                            className="flex items-center space-x-3 p-2 hover:bg-red-50 rounded transition-colors"
-                          >
-                            <Checkbox
-                              id={`remove-${category.name}`}
-                              checked={selectedToRemove.has(category.name)}
-                              onCheckedChange={() => handleRemoveToggle(category.name)}
-                            />
-                            <label
-                              htmlFor={`remove-${category.name}`}
-                              className="flex-1 text-sm cursor-pointer"
+
+                    <div className="border rounded-md p-4">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {removableCategories.map((category) => {
+                          const taskCount = existingTasks.filter(
+                            (t) => t.critical_po_category === category.name
+                          ).length;
+                          const isSelected = selectedToRemove.has(category.name);
+                          return (
+                            <Button
+                              key={category.name}
+                              type="button"
+                              variant={isSelected ? "destructive" : "outline"}
+                              onClick={() => handleRemoveToggle(category.name)}
+                              size="sm"
+                              className="text-xs h-auto py-2 whitespace-normal min-h-[40px] justify-start"
                             >
-                              {category.category_name}
-                              <span className="text-xs text-red-600 ml-2">
-                                ({taskCount} task{taskCount !== 1 ? "s" : ""})
-                              </span>
-                            </label>
-                          </div>
-                        );
-                      })}
+                              <span className="truncate">{category.category_name}</span>
+                              <span className="ml-1 text-[10px] opacity-70">({taskCount})</span>
+                            </Button>
+                          );
+                        })}
+                      </div>
+
+                      {selectedToRemove.size > 0 && (
+                        <p className="text-xs text-red-600 mt-3">
+                          {selectedToRemove.size} categor{selectedToRemove.size !== 1 ? 'ies' : 'y'} selected to remove
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}
@@ -312,42 +330,34 @@ export const ManageSetupDialog: React.FC<ManageSetupDialogProps> = ({
           </div>
 
           <DialogFooter>
-            <div className="flex justify-between items-center w-full">
-              <span className="text-sm text-gray-500">
-                {selectedToAdd.size > 0 && `${selectedToAdd.size} to add`}
-                {selectedToAdd.size > 0 && selectedToRemove.size > 0 && ", "}
-                {selectedToRemove.size > 0 && `${selectedToRemove.size} to remove`}
-                {selectedToAdd.size === 0 && selectedToRemove.size === 0 && "No categories selected"}
-              </span>
-              <div className="space-x-2">
+            <div className="flex justify-end items-center w-full gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleCancel}
+                disabled={isProcessing}
+              >
+                Cancel
+              </Button>
+              {availableCategories.length > 0 && (
                 <Button
                   type="button"
-                  variant="outline"
-                  onClick={handleCancel}
-                  disabled={isProcessing}
+                  onClick={handleAddCategories}
+                  disabled={isProcessing || selectedToAdd.size === 0}
                 >
-                  Cancel
+                  Add Selected
                 </Button>
-                {availableCategories.length > 0 && (
-                  <Button
-                    type="button"
-                    onClick={handleAddCategories}
-                    disabled={isProcessing || selectedToAdd.size === 0}
-                  >
-                    Add Selected
-                  </Button>
-                )}
-                {removableCategories.length > 0 && (
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    onClick={handleRemoveCategories}
-                    disabled={isProcessing || selectedToRemove.size === 0}
-                  >
-                    Remove Selected
-                  </Button>
-                )}
-              </div>
+              )}
+              {removableCategories.length > 0 && (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={handleRemoveCategories}
+                  disabled={isProcessing || selectedToRemove.size === 0}
+                >
+                  Remove Selected
+                </Button>
+              )}
             </div>
           </DialogFooter>
         </DialogContent>

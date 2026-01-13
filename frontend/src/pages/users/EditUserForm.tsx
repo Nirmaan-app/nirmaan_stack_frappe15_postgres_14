@@ -1,5 +1,5 @@
-import { ArrowLeft, ListChecks, ListRestart } from "lucide-react";
-import { useNavigate, useParams } from "react-router-dom";
+import { ListChecks, ListRestart, Lock, Info } from "lucide-react";
+import { useParams } from "react-router-dom";
 import { z } from "zod";
 import {
   Form,
@@ -17,8 +17,8 @@ import { Button } from "@/components/ui/button";
 import { useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useEffect } from "react";
 import { toast } from "@/components/ui/use-toast";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useUserData } from "@/hooks/useUserData";
+import ReactSelect from "react-select";
 
 const UserFormSchema = z.object({
   first_name: z
@@ -26,7 +26,7 @@ const UserFormSchema = z.object({
       required_error: "Must Provide First name",
     })
     .min(3, {
-      message: "Employee Name must be at least 3 characters.",
+      message: "First name must be at least 3 characters.",
     }),
   last_name: z.string({
     required_error: "Must Provide Last name",
@@ -142,142 +142,181 @@ const EditUserForm = ({ toggleEditSheet }: any) => {
     }
   };
 
-  return (
-    <div className="flex-1">
-      {/* <div className="flex items-center gap-2">
-                <ArrowLeft className="cursor-pointer" onClick={() => navigate(/users/${id})} />
-                <h2 className="text-xl md:text-2xl font-bold tracking-tight">Edit User: <span className="text-primary">{id}</span></h2>
-            </div>
+  const isAdmin = role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || role === "Nirmaan HR Executive Profile";
+  const isOwnProfile = actual_user_id === data?.email;
+  // Only allow role editing if user is Admin/PMO/HR AND not editing their own profile
+  const canEditRole = isAdmin && !isOwnProfile;
 
-            <Separator className="my-6 max-md:my-2" /> */}
+  return (
+    <div className="flex-1 space-y-6">
+      {/* Header */}
+      <div className="space-y-1">
+        <h2 className="text-lg font-semibold">Edit User</h2>
+        <p className="text-sm text-muted-foreground">Update user details and permissions</p>
+      </div>
+
+      <Separator />
+
       <Form {...form}>
         <form
           onSubmit={(event) => {
             event.stopPropagation();
             return form.handleSubmit(onSubmit)(event);
           }}
-          className="px-6 max-md:px-2 flex flex-col gap-4"
+          className="space-y-6"
         >
-          <p className="text-sky-600 font-semibold">User Details</p>
-          <FormField
-            control={form.control}
-            name="first_name"
-            render={({ field }) => (
-              <FormItem className="lg:flex lg:items-center gap-4">
-                <FormLabel className="md:basis-3/12">
-                  First Name<sup>*</sup>
-                </FormLabel>
-                <div className="flex flex-col items-start md:basis-2/4">
-                  <FormControl className="">
-                    <Input placeholder="First Name" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </div>
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="last_name"
-            render={({ field }) => (
-              <FormItem className="lg:flex lg:items-center gap-4">
-                <FormLabel className="md:basis-3/12">
-                  Last Name<sup>*</sup>
-                </FormLabel>
-                <div className="flex flex-col items-start md:basis-2/4">
-                  <FormControl className="">
-                    <Input placeholder="Last Name" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </div>
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="mobile_no"
-            render={({ field }) => (
-              <FormItem className="lg:flex lg:items-center gap-4">
-                <FormLabel className="md:basis-3/12">
-                  Mobile Number<sup>*</sup>
-                </FormLabel>
-                <div className="flex flex-col items-start md:basis-2/4">
-                  <FormControl className="">
-                    <Input placeholder="Mobile Number" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </div>
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="email"
-            render={({ field }) => (
-              <FormItem className="lg:flex lg:items-center gap-4">
-                <FormLabel className="md:basis-3/12">
-                  Email<sup>*</sup>
-                </FormLabel>
-                <div className="flex flex-col items-start md:basis-2/4">
-                  <FormControl className="">
-                    <Input disabled placeholder="Email" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </div>
-              </FormItem>
-            )}
-          />
-          {(role === "Nirmaan Admin Profile" || actual_user_id !== data.email) && <FormField
-            control={form.control}
-            name="role_profile_name"
-            render={({ field }) => (
-              <FormItem className="lg:flex lg:items-center gap-4">
-                <FormLabel className="md:basis-3/12">Role Profile<sup>*</sup></FormLabel>
-                <div className=" lg:w-1/2">
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <div className="flex flex-col items-start">
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a role" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <FormMessage />
+          {/* Personal Information Section */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-semibold text-gray-700">Personal Information</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="first_name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs font-medium text-gray-700">
+                      First Name <span className="text-red-500">*</span>
+                    </FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g., John" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="last_name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs font-medium text-gray-700">
+                      Last Name <span className="text-red-500">*</span>
+                    </FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g., Doe" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+            <FormField
+              control={form.control}
+              name="email"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-xs font-medium text-gray-700">
+                    Email Address <span className="text-red-500">*</span>
+                  </FormLabel>
+                  <FormControl>
+                    <div className="relative">
+                      <Input
+                        disabled
+                        className="bg-gray-50 pr-10"
+                        placeholder="e.g., john.doe@company.com"
+                        {...field}
+                      />
+                      <Lock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                     </div>
-                    <SelectContent>
-                      {role_profile_list_loading && <div>Loading...</div>}
-                      {role_profile_list_error && <div>Error: {role_profile_list_error.message}</div>}
-                      {options.map(option => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
+                  </FormControl>
+                  <FormMessage />
+                  <div className="flex items-start gap-2 mt-2 p-2 bg-blue-50 border border-blue-100 rounded-md">
+                    <Info className="h-4 w-4 text-blue-500 mt-0.5 flex-shrink-0" />
+                    <p className="text-xs text-blue-700">
+                      {canEditRole
+                        ? "To change the email address, use the \"Rename Email\" option in the Actions menu."
+                        : "To change the email address, please contact Admin or HR."}
+                    </p>
+                  </div>
+                </FormItem>
+              )}
+            />
+          </div>
 
-                    </SelectContent>
-                  </Select>
-                </div>
-              </FormItem>
-            )}
-          />}
-          <div className="flex items-center gap-2 justify-end lg:w-[68%]">
+          {/* Contact Section */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-semibold text-gray-700">Contact</h3>
+            <FormField
+              control={form.control}
+              name="mobile_no"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-xs font-medium text-gray-700">
+                    Mobile Number <span className="text-red-500">*</span>
+                  </FormLabel>
+                  <FormControl>
+                    <Input placeholder="e.g., 9876543210" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+
+          {/* Access & Permissions Section */}
+          {canEditRole && (
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-gray-700">Access & Permissions</h3>
+              <FormField
+                control={form.control}
+                name="role_profile_name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs font-medium text-gray-700">
+                      Role Profile <span className="text-red-500">*</span>
+                    </FormLabel>
+                    <FormControl>
+                      <ReactSelect
+                        options={options}
+                        value={options.find((option) => option.value === field.value) || null}
+                        onChange={(val) => field.onChange(val ? val.value : "")}
+                        isLoading={role_profile_list_loading}
+                        isClearable={true}
+                        placeholder="Select a role..."
+                        noOptionsMessage={() => role_profile_list_error ? "Error loading roles" : "No roles available"}
+                        styles={{
+                          control: (base, state) => ({
+                            ...base,
+                            borderColor: state.isFocused ? "hsl(var(--ring))" : "hsl(var(--border))",
+                            boxShadow: state.isFocused ? "0 0 0 1px hsl(var(--ring))" : "none",
+                            "&:hover": { borderColor: "hsl(var(--border))" },
+                            minHeight: "40px",
+                          }),
+                          menu: (base) => ({
+                            ...base,
+                            zIndex: 50,
+                          }),
+                        }}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div className="flex justify-end gap-2 pt-4 border-t">
             <Button
               type="button"
-              variant="secondary"
+              variant="outline"
               onClick={() => {
                 form.reset();
                 form.clearErrors();
               }}
-              className="flex items-center gap-1"
+              className="gap-2"
             >
               <ListRestart className="h-4 w-4" />
               Reset
             </Button>
             <Button
               disabled={!hasChanges() || loading}
-              className="flex items-center gap-1"
               type="submit"
+              className="gap-2"
             >
               <ListChecks className="h-4 w-4" />
-              {loading ? "Updating" : "Update"}
+              {loading ? "Updating..." : "Update User"}
             </Button>
           </div>
         </form>

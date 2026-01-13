@@ -50,7 +50,7 @@ export const POVendorLedger: React.FC<{ vendorId: string }> = ({ vendorId }) => 
     const { user_id, role } = useUserData();
 
     const canExport = useMemo(() => {
-        const allowedRoles = ["Nirmaan Accountant Profile", "Nirmaan Admin Profile"];
+        const allowedRoles = ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"];
         return user_id === "Administrator" || allowedRoles.includes(role);
     }, [user_id, role]);
 

@@ -1,31 +1,29 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk"
+import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
-import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
 import { ButtonLoading } from "@/components/ui/button-loading"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { useNavigate } from "react-router-dom"
-import { ArrowLeft, ListChecks } from "lucide-react"
+import { UserPlus } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
+import ReactSelect from "react-select"
 
 const UserFormSchema = z.object({
     first_name: z
-        .string(
-            {
-                required_error: "Must Provide First name"
-            })
+        .string({
+            required_error: "Must Provide First name"
+        })
         .min(3, {
-            message: "Employee Name must be at least 3 characters.",
+            message: "First name must be at least 3 characters.",
         }),
     last_name: z
-        .string(
-            {
-                required_error: "Must Provide Last name"
-            }),
+        .string({
+            required_error: "Must Provide Last name"
+        }),
     mobile_no: z
         .string({
             required_error: "Must provide Unique Mobile Number"
@@ -34,13 +32,10 @@ const UserFormSchema = z.object({
         .min(10, { message: "Mobile number must be of 10 digits" })
         .or(z.number()),
     email: z
-        .string(
-            {
-                required_error: "Must Provide Email"
-            })
-        .email(
-            { message: "Invalid email address" }
-        ),
+        .string({
+            required_error: "Must Provide Email"
+        })
+        .email({ message: "Invalid email address" }),
     role_profile_name: z
         .string({
             required_error: "Please select associated Role Profile."
@@ -76,165 +71,214 @@ export const UserForm = () => {
         mode: "onBlur",
     })
 
-    const { createDoc: createDoc, loading: loading } = useFrappeCreateDoc()
+    const { call: createUser, loading } = useFrappePostCall("nirmaan_stack.api.users.create_user")
 
     const { toast } = useToast()
 
     const onSubmit = async (values: UserFormValues) => {
         try {
-            const userDoc = await createDoc("User", values);
-            toast({
-                title: "Success",
-                description: `${userDoc.full_name} created successfully!`,
-                variant: "success"
-            })
-            form.reset({
-                first_name: "",
-                last_name: "",
-                mobile_no: "",
-                email: "",
-                role_profile_name: "Select the Role",
-            });
-            navigate("/users")
+            const response = await createUser(values);
+            const result = response.message;
+
+            if (result?.success) {
+                if (result.email_sent) {
+                    toast({
+                        title: "Success",
+                        description: result.message,
+                        variant: "success"
+                    });
+                } else {
+                    toast({
+                        title: "User Created (Email Not Sent)",
+                        description: result.message,
+                        variant: "default",
+                        duration: 8000
+                    });
+                }
+
+                form.reset({
+                    first_name: "",
+                    last_name: "",
+                    mobile_no: "",
+                    email: "",
+                    role_profile_name: "",
+                });
+                navigate("/users");
+            } else {
+                toast({
+                    title: "Error",
+                    description: result?.message || "Failed to create user",
+                    variant: "destructive"
+                });
+            }
         } catch (error: any) {
+            let errorMessage = "Failed to create user";
+            if (error?.message) {
+                errorMessage = error.message;
+            } else if (error?._server_messages) {
+                try {
+                    const serverMessages = JSON.parse(error._server_messages);
+                    if (Array.isArray(serverMessages) && serverMessages.length > 0) {
+                        const firstMessage = JSON.parse(serverMessages[0]);
+                        errorMessage = firstMessage?.message || errorMessage;
+                    }
+                } catch {
+                    // If parsing fails, use default message
+                }
+            } else if (error?.exc_type) {
+                errorMessage = `${error.exc_type}: ${error.message || "Unknown error"}`;
+            }
+
             toast({
                 title: "Error",
-                description: `${error?._debug_messages}`,
+                description: errorMessage,
                 variant: "destructive"
-            })
-
-            console.log("error", error)
+            });
+            console.error("User creation error:", error);
         }
     }
 
     return (
-        <div className="flex-1">
-            <p className="text-muted-foreground ml-2 md:ml-6">
-                Fill all the marked details to create a new User
-            </p>
+        <div className="flex-1 max-w-2xl mx-auto">
+            <Card className="border shadow-sm">
+                <CardHeader className="bg-gradient-to-r from-primary/10 to-primary/5 rounded-t-lg border-b">
+                    <CardTitle className="text-lg font-semibold">Create New User</CardTitle>
+                    <CardDescription>Add a new team member to the system</CardDescription>
+                </CardHeader>
 
-            <Separator className="my-4 max-md:my-2" />
-            <Form {...form}>
-                <form onSubmit={(event) => {
-                    event.stopPropagation();
-                    return form.handleSubmit(onSubmit)(event);
-                }} className="px-6 max-md:px-2 flex flex-col gap-4">
-                    <p className="text-sky-600 font-semibold">User Details</p>
-                    <FormField
-                        control={form.control}
-                        name="first_name"
-                        render={({ field }) => (
-                            <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">First Name<sup>*</sup></FormLabel>
-                                <div className="flex flex-col items-start md:basis-2/4">
-                                    <FormControl className="">
-                                        <Input placeholder="First Name" {...field} />
-                                    </FormControl>
-                                    <FormMessage />
+                <Form {...form}>
+                    <form onSubmit={(event) => {
+                        event.stopPropagation();
+                        return form.handleSubmit(onSubmit)(event);
+                    }}>
+                        <CardContent className="pt-6 space-y-6">
+                            {/* Personal Information Section */}
+                            <div className="space-y-4">
+                                <h3 className="text-sm font-semibold text-gray-700">Personal Information</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <FormField
+                                        control={form.control}
+                                        name="first_name"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel className="text-xs font-medium text-gray-700">
+                                                    First Name <span className="text-red-500">*</span>
+                                                </FormLabel>
+                                                <FormControl>
+                                                    <Input placeholder="e.g., John" {...field} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={form.control}
+                                        name="last_name"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel className="text-xs font-medium text-gray-700">
+                                                    Last Name <span className="text-red-500">*</span>
+                                                </FormLabel>
+                                                <FormControl>
+                                                    <Input placeholder="e.g., Doe" {...field} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
                                 </div>
-                                <FormDescription>
-                                    Example: John
-                                </FormDescription>
-                            </FormItem>
-                        )}
-                    />
-                    <FormField
-                        control={form.control}
-                        name="last_name"
-                        render={({ field }) => (
-                            <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">Last Name<sup>*</sup></FormLabel>
-                                <div className="flex flex-col items-start md:basis-2/4">
-                                    <FormControl className="">
-                                        <Input placeholder="Last Name" {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </div>
-                                <FormDescription>
-                                    Example: Doe
-                                </FormDescription>
-                            </FormItem>
-                        )}
-                    />
-                    <FormField
-                        control={form.control}
-                        name="mobile_no"
-                        render={({ field }) => (
-                            <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">Mobile Number<sup>*</sup></FormLabel>
-                                <div className="flex flex-col items-start md:basis-2/4">
-                                    <FormControl className="">
-                                        <Input placeholder="Mobile Number" {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </div>
-                                <FormDescription>
-                                    Example: 9999999999
-                                </FormDescription>
-                            </FormItem>
-                        )}
-                    />
-                    <FormField
-                        control={form.control}
-                        name="email"
-                        render={({ field }) => (
-                            <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">Email<sup>*</sup></FormLabel>
-                                <div className="flex flex-col items-start md:basis-2/4">
-                                    <FormControl className="">
-                                        <Input placeholder="Email" {...field} />
-                                    </FormControl>
-                                    <FormMessage />
-                                </div>
-                                <FormDescription>
-                                    Example: john@doe.in
-                                </FormDescription>
-                            </FormItem>
-                        )}
-                    />
-                    <FormField
-                        control={form.control}
-                        name="role_profile_name"
-                        render={({ field }) => (
-                            <FormItem className="lg:flex lg:items-center gap-4">
-                                <FormLabel className="md:basis-2/12">Role Profile<sup>*</sup></FormLabel>
-                                <div className="md:basis-2/4">
-                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                        <div className="flex flex-col items-start">
+                                <FormField
+                                    control={form.control}
+                                    name="email"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="text-xs font-medium text-gray-700">
+                                                Email Address <span className="text-red-500">*</span>
+                                            </FormLabel>
                                             <FormControl>
-                                                <SelectTrigger>
-                                                    <SelectValue placeholder="Select the Role" />
-                                                </SelectTrigger>
+                                                <Input type="email" placeholder="e.g., john.doe@company.com" {...field} />
                                             </FormControl>
                                             <FormMessage />
-                                        </div>
-                                        <SelectContent>
-                                            {role_profile_list_loading && <div>Loading...</div>}
-                                            {role_profile_list_error && <div>Error: {role_profile_list_error.message}</div>}
-                                            {options.map(option => (
-                                                <SelectItem value={option.value}>{option.label}</SelectItem>
-                                            ))}
+                                        </FormItem>
+                                    )}
+                                />
+                            </div>
 
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                                <FormDescription>
-                                    Role associated with this User
-                                </FormDescription>
-                            </FormItem>
-                        )}
-                    />
-                    <div className="flex items-center justify-end lg:justify-center">
-                        {loading ? (
-                            <ButtonLoading />
-                        ) : (
-                            <Button className="flex items-center gap-1" type="submit">
-                                <ListChecks className="h-4 w-4" />
-                                Submit</Button>
-                        )}
-                    </div>
-                </form>
-            </Form>
+                            {/* Contact Section */}
+                            <div className="space-y-4">
+                                <h3 className="text-sm font-semibold text-gray-700">Contact</h3>
+                                <FormField
+                                    control={form.control}
+                                    name="mobile_no"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="text-xs font-medium text-gray-700">
+                                                Mobile Number <span className="text-red-500">*</span>
+                                            </FormLabel>
+                                            <FormControl>
+                                                <Input placeholder="e.g., 9876543210" {...field} />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            </div>
+
+                            {/* Access & Permissions Section */}
+                            <div className="space-y-4">
+                                <h3 className="text-sm font-semibold text-gray-700">Access & Permissions</h3>
+                                <FormField
+                                    control={form.control}
+                                    name="role_profile_name"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="text-xs font-medium text-gray-700">
+                                                Role Profile <span className="text-red-500">*</span>
+                                            </FormLabel>
+                                            <FormControl>
+                                                <ReactSelect
+                                                    options={options}
+                                                    value={options.find((option) => option.value === field.value) || null}
+                                                    onChange={(val) => field.onChange(val ? val.value : "")}
+                                                    isLoading={role_profile_list_loading}
+                                                    isClearable={true}
+                                                    placeholder="Select a role..."
+                                                    noOptionsMessage={() => role_profile_list_error ? "Error loading roles" : "No roles available"}
+                                                    styles={{
+                                                        control: (base, state) => ({
+                                                            ...base,
+                                                            borderColor: state.isFocused ? "hsl(var(--ring))" : "hsl(var(--border))",
+                                                            boxShadow: state.isFocused ? "0 0 0 1px hsl(var(--ring))" : "none",
+                                                            "&:hover": { borderColor: "hsl(var(--border))" },
+                                                            minHeight: "40px",
+                                                        }),
+                                                        menu: (base) => ({
+                                                            ...base,
+                                                            zIndex: 50,
+                                                        }),
+                                                    }}
+                                                />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            </div>
+                        </CardContent>
+
+                        <CardFooter className="border-t bg-gray-50/50 rounded-b-lg flex justify-end py-4">
+                            {loading ? (
+                                <ButtonLoading />
+                            ) : (
+                                <Button type="submit" className="gap-2">
+                                    <UserPlus className="h-4 w-4" />
+                                    Create User
+                                </Button>
+                            )}
+                        </CardFooter>
+                    </form>
+                </Form>
+            </Card>
         </div>
     )
 }

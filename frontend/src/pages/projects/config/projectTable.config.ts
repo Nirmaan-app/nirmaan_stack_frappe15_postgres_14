@@ -4,7 +4,7 @@ import { Projects as ProjectsType } from '@/types/NirmaanStack/Projects'; // Adj
 // Fields to fetch for the main Projects table
 export const DEFAULT_PROJECT_FIELDS_TO_FETCH: (keyof ProjectsType | 'name')[] = [
     "name", "customer", "project_name", "project_type",
-    "project_city", "project_state", "creation", "status", "owner", "project_value" // Added owner, modified
+    "project_city", "project_state", "creation", "status", "owner", "project_value","project_value_gst" // Added owner, modified
 ];
 
 // Searchable fields for the Projects table

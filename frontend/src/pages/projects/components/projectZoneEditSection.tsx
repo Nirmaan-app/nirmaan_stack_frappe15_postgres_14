@@ -3,89 +3,83 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TailSpin } from "react-loader-spinner";
-import { CircleCheckBig, XIcon, PlusIcon, PencilIcon } from "lucide-react";
+import { X, Plus, Pencil, Check } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
-import { FrappeDoc, KeyedMutator, useFrappeUpdateDoc, useFrappePostCall } from "frappe-react-sdk"; // Added useFrappePostCall
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"; 
+import { FrappeDoc, useFrappeUpdateDoc, useFrappePostCall } from "frappe-react-sdk";
+import type { KeyedMutator } from "swr";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 
-// --- CONSTANTS ---
-// Allow: a-z, A-Z, 0-9, - (hyphen), _ (underscore), and \s (SPACE)
-// Disallow: Special chars like ?, &, /, etc.
+// Validation constants
 const ZONE_NAME_REGEX = /^[a-zA-Z0-9\s,]+$/;
-const VALIDATION_MSG = "Only letters, numbers, spaces, hyphens (-) and underscores (_) are allowed.";
 const VALID_CHAR_REGEX = /^[a-zA-Z0-9\s,]$/;
-// Regex for full string strings (used in onPaste)
-const VALID_STRING_REGEX = /[^a-zA-Z0-9\s,]/g;
+const INVALID_CHARS_REGEX = /[^a-zA-Z0-9\s,]/g;
 
-
-
-// Assuming types are imported from a shared location or re-declared for module usage
 interface ProjectZoneEntry {
-    name?: string; // Child Doc name (Frappe primary key for row)
+    name?: string;
     zone_name: string;
 }
+
 interface Projects {
     name: string;
     project_zones: ProjectZoneEntry[];
 }
-interface ProjectsWithZones extends Projects {
-    // Other fields if necessary
-}
+
+interface ProjectsWithZones extends Projects {}
 
 interface ProjectZoneEditSectionProps {
     projectData: ProjectsWithZones;
     isEditing: boolean;
-    setIsEditing: React.Dispatch<React.SetStateAction<boolean>>; // Setter for parent state
-    project_mutate: KeyedMutator<FrappeDoc<Projects>>; // Mutator for parent re-fetch
-    isEditingHeaders: boolean; // For disabling self
+    setIsEditing: React.Dispatch<React.SetStateAction<boolean>>;
+    project_mutate: KeyedMutator<FrappeDoc<Projects>>;
+    isEditingHeaders: boolean;
 }
 
+// Input validation handlers
+const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const allowedKeys = [
+        "Backspace", "Delete", "Tab", "Escape", "Enter",
+        "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown",
+        "Home", "End"
+    ];
 
-// --- Rename Dialog Component (Local) ---
+    if (allowedKeys.includes(e.key) || e.ctrlKey || e.metaKey) {
+        return;
+    }
+
+    if (!VALID_CHAR_REGEX.test(e.key)) {
+        e.preventDefault();
+    }
+};
+
+const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>, setValue: (val: string) => void) => {
+    e.preventDefault();
+    const pasteData = e.clipboardData.getData("text");
+    const sanitized = pasteData.replace(INVALID_CHARS_REGEX, "");
+    if (sanitized !== pasteData) {
+        toast({ title: "Note", description: "Special characters removed." });
+    }
+    setValue(sanitized);
+};
+
+// Rename Dialog Component
 interface RenameDialogProps {
     isOpen: boolean;
     zone: ProjectZoneEntry;
     onClose: () => void;
-    // onSave passes Frappe project name, child doc name, old name, new name
     onSave: (projectName: string, frappeDocName: string, oldZoneName: string, newZoneName: string) => void;
     isLoading: boolean;
     localProjectZones: ProjectZoneEntry[];
 }
 
-    // 1. Block invalid keys instantly
-const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    // List of allowed navigation/control keys
-    const allowedKeys = [
-        'Backspace', 'Delete', 'Tab', 'Escape', 'Enter',
-        'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 
-        'Home', 'End'
-    ];
-
-    // Allow navigation keys or Ctrl/Cmd shortcuts (e.g., Ctrl+C, Ctrl+V)
-    if (allowedKeys.includes(e.key) || e.ctrlKey || e.metaKey) {
-        return;
-    }
-
-    // Check if the pressed key matches the allowed regex
-    if (!VALID_CHAR_REGEX.test(e.key)) {
-        e.preventDefault(); // BLOCKS the character
-    }
-};
-
-// 2. Clean up pasted text
-const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
-    // Get the text being pasted
-    const pasteData = e.clipboardData.getData('text');
-
-    // Check if the pasted text contains invalid characters
-    if (!VALID_STRING_REGEX.test(pasteData)) {
-        e.preventDefault(); // BLOCKS the paste
-        // Optional: You could strip invalid chars and insert the rest manually, 
-        // but blocking is safer/simpler for strict validation.
-    }
-};
-
-const RenameZoneDialog: React.FC<RenameDialogProps> = ({ isOpen, zone, onClose, onSave, isLoading, localProjectZones }) => {
+const RenameZoneDialog: React.FC<RenameDialogProps> = ({
+    isOpen,
+    zone,
+    onClose,
+    onSave,
+    isLoading,
+    localProjectZones
+}) => {
     const [newName, setNewName] = useState(zone.zone_name);
 
     useEffect(() => {
@@ -94,23 +88,18 @@ const RenameZoneDialog: React.FC<RenameDialogProps> = ({ isOpen, zone, onClose, 
         }
     }, [isOpen, zone.zone_name]);
 
-        // 1. Validate Format (Allow Spaces)
     const isFormatValid = useMemo(() => {
         if (!newName) return false;
         return ZONE_NAME_REGEX.test(newName);
     }, [newName]);
 
-
-
-
-
     const isLocalDuplicate = useMemo(() => {
         const trimmedNewName = newName.trim();
         if (trimmedNewName === zone.zone_name.trim()) return false;
-        
+
         return localProjectZones
-            .filter(z => z.name !== zone.name) // Check against all OTHER zones
-            .some(z => z.zone_name.trim() === trimmedNewName);
+            .filter((z) => z.name !== zone.name)
+            .some((z) => z.zone_name.trim().toLowerCase() === trimmedNewName.toLowerCase());
     }, [newName, zone.name, zone.zone_name, localProjectZones]);
 
     const handleSave = () => {
@@ -118,47 +107,67 @@ const RenameZoneDialog: React.FC<RenameDialogProps> = ({ isOpen, zone, onClose, 
         const trimmedOldName = zone.zone_name.trim();
 
         if (trimmedNewName === trimmedOldName || !trimmedNewName || isLocalDuplicate || !zone.name) {
-            if (!trimmedNewName) toast({ title: "Validation", description: "Zone name cannot be empty.", variant: "destructive" });
-            if (isLocalDuplicate) toast({ title: "Validation", description: "Zone name is already in use.", variant: "destructive" });
+            if (!trimmedNewName) toast({ title: "Error", description: "Zone name cannot be empty.", variant: "destructive" });
+            if (isLocalDuplicate) toast({ title: "Error", description: "Zone name already exists.", variant: "destructive" });
             return;
         }
-        
-        // Pass projectData.name (parent doc name) as the first argument, which is the project ID
-        onSave(zone.name, zone.name, trimmedOldName, trimmedNewName); 
+
+        onSave(zone.name, zone.name, trimmedOldName, trimmedNewName);
     };
 
+    const canSave = newName.trim() && !isLocalDuplicate && newName.trim() !== zone.zone_name.trim() && isFormatValid;
+
     return (
-        <Dialog open={isOpen} onOpenChange={(open) => !isLoading && open ? {} : onClose()}>
-            <DialogContent className="sm:max-w-[425px]">
+        <Dialog open={isOpen} onOpenChange={(open) => !isLoading && !open && onClose()}>
+            <DialogContent className="sm:max-w-[400px]">
                 <DialogHeader>
-                    <DialogTitle>Rename Zone: {zone.zone_name}</DialogTitle>
-                    <DialogDescription>
-                        Enter the new name for the zone. This will trigger a system update to reflect the change in all progress reports.
+                    <DialogTitle className="text-base font-medium">Rename Zone</DialogTitle>
+                    <DialogDescription className="text-xs text-gray-500">
+                        Renaming will update all related progress reports.
                     </DialogDescription>
                 </DialogHeader>
-                <div className="py-4">
-                    <Input
-                        id="new-zone-name"
-                        value={newName}
-                        onChange={(e) => setNewName(e.target.value)}
-                        onKeyDown={handleKeyDown}                        // Blocks typing special chars
-                        onPaste={handlePaste}  
-                        placeholder="New Zone Name"
-                        autoFocus
-                    />
-                    {(isLocalDuplicate || !newName.trim()) && (
-                         <p className="text-red-500 text-sm mt-1">Zone name cannot be empty or a duplicate.</p>
+
+                <div className="py-4 space-y-3">
+                    <div className="space-y-1.5">
+                        <Label className="text-xs text-gray-500">Current Name</Label>
+                        <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded text-sm text-gray-600">
+                            {zone.zone_name}
+                        </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                        <Label className="text-xs text-gray-500">New Name</Label>
+                        <Input
+                            id="new-zone-name"
+                            value={newName}
+                            onChange={(e) => setNewName(e.target.value.replace(INVALID_CHARS_REGEX, ""))}
+                            onKeyDown={handleKeyDown}
+                            onPaste={(e) => handlePaste(e, setNewName)}
+                            placeholder="Enter new zone name"
+                            className="h-9 text-sm"
+                            autoFocus
+                        />
+                    </div>
+
+                    {isLocalDuplicate && (
+                        <p className="text-xs text-red-500">This zone name already exists.</p>
                     )}
                 </div>
-                <DialogFooter>
-                    <Button variant="outline" onClick={onClose} disabled={isLoading}>
+
+                <DialogFooter className="gap-2">
+                    <Button variant="ghost" onClick={onClose} disabled={isLoading} className="text-gray-600">
                         Cancel
                     </Button>
-                    <Button 
-                        onClick={handleSave} 
-                        disabled={isLoading || !newName.trim() || isLocalDuplicate || newName.trim() === zone.zone_name.trim()}
+                    <Button
+                        onClick={handleSave}
+                        disabled={isLoading || !canSave}
+                        className="bg-sky-500 hover:bg-sky-600 text-white"
                     >
-                         {isLoading ? <TailSpin width={16} height={16} color="white" /> : "Save & Cascade Rename"}
+                        {isLoading ? (
+                            <TailSpin width={14} height={14} color="white" />
+                        ) : (
+                            "Save"
+                        )}
                     </Button>
                 </DialogFooter>
             </DialogContent>
@@ -166,9 +175,7 @@ const RenameZoneDialog: React.FC<RenameDialogProps> = ({ isOpen, zone, onClose, 
     );
 };
 
-
-// --- ProjectZoneEditSection Component ---
-
+// Main Component
 export const ProjectZoneEditSection: React.FC<ProjectZoneEditSectionProps> = ({
     projectData,
     isEditing,
@@ -176,62 +183,58 @@ export const ProjectZoneEditSection: React.FC<ProjectZoneEditSectionProps> = ({
     project_mutate,
     isEditingHeaders,
 }) => {
-    // Internal state now manages the local list
     const [localProjectZones, setLocalProjectZones] = useState<ProjectZoneEntry[]>(projectData.project_zones || []);
-    const [newZoneName, setNewZoneName] = useState('');
-
-    // Rename Dialog State
+    const [newZoneName, setNewZoneName] = useState("");
     const [renameDialogOpen, setRenameDialogOpen] = useState(false);
     const [zoneToRename, setZoneToRename] = useState<ProjectZoneEntry | null>(null);
-    
-    // Hooks for API interaction
-    const { updateDoc, loading: updateDocLoading } = useFrappeUpdateDoc();
-    
-    // Dedicated hook for the backend API call (Simulated useFrappePostCall)
-    const { call:RenameProjectZones, isLoading: renameLoading } = useFrappePostCall('nirmaan_stack.api.projects.rename_project_zones.rename_zone_and_cascade'); 
 
-    // Sync local zone state with project data when not editing
+    const { updateDoc, loading: updateDocLoading } = useFrappeUpdateDoc();
+    const { call: RenameProjectZones, loading: renameLoading } = useFrappePostCall(
+        "nirmaan_stack.api.projects.rename_project_zones.rename_zone_and_cascade"
+    );
+
+    // Sync local state with project data when not editing
     useEffect(() => {
         if (!isEditing) {
             setLocalProjectZones(projectData.project_zones || []);
-            setNewZoneName('');
+            setNewZoneName("");
         }
     }, [projectData.project_zones, isEditing]);
 
-    // --- Validation (Bulk Save) ---
+    // Validation
     const isZoneSaveDisabled = useMemo(() => {
-        const trimmedNames = localProjectZones.map(z => z.zone_name.trim()).filter(Boolean);
-        const hasEmptyName = localProjectZones.some(z => !z.zone_name.trim());
-        const hasDuplicates = new Set(trimmedNames).size !== trimmedNames.length;
+        const trimmedNames = localProjectZones.map((z) => z.zone_name.trim()).filter(Boolean);
+        const hasEmptyName = localProjectZones.some((z) => !z.zone_name.trim());
+        const hasDuplicates = new Set(trimmedNames.map(n => n.toLowerCase())).size !== trimmedNames.length;
         return hasEmptyName || hasDuplicates;
     }, [localProjectZones]);
 
-    // --- Bulk Edit Handlers ---
-
+    // Add zone handler
     const handleAddZone = useCallback(() => {
         const newZone = newZoneName.trim();
         if (!newZone) return;
 
-        if (localProjectZones.some(z => z.zone_name.trim() === newZone)) {
+        if (localProjectZones.some((z) => z.zone_name.trim().toLowerCase() === newZone.toLowerCase())) {
             toast({ title: "Error", description: "Zone name must be unique.", variant: "destructive" });
             return;
         }
 
-        const newEntry: ProjectZoneEntry = { zone_name: newZone };
-        setLocalProjectZones(prev => [...prev, newEntry]);
-        setNewZoneName('');
+        setLocalProjectZones((prev) => [...prev, { zone_name: newZone }]);
+        setNewZoneName("");
     }, [newZoneName, localProjectZones]);
 
+    // Remove zone handler
     const handleRemoveZone = useCallback((index: number) => {
-        setLocalProjectZones(prev => prev.filter((_, i) => i !== index));
+        setLocalProjectZones((prev) => prev.filter((_, i) => i !== index));
     }, []);
 
+    // Save zones handler
     const handleSaveZones = async () => {
         const zonesToSave = localProjectZones
-            .filter(z => z.zone_name.trim()) 
-            .map(zone => ({
-                name: zone.name, 
-                zone_name: zone.zone_name.trim() 
+            .filter((z) => z.zone_name.trim())
+            .map((zone) => ({
+                name: zone.name,
+                zone_name: zone.zone_name.trim(),
             }));
 
         if (isZoneSaveDisabled) return;
@@ -243,204 +246,217 @@ export const ProjectZoneEditSection: React.FC<ProjectZoneEditSectionProps> = ({
             await project_mutate();
             toast({
                 title: "Success",
-                description: "Project Zones updated successfully.",
+                description: "Zones updated successfully.",
                 variant: "success",
             });
-            setIsEditing(false); // Update parent state
+            setIsEditing(false);
         } catch (error) {
             console.error("Failed to update project zones:", error);
             toast({
                 title: "Error",
-                description: "Failed to update Project Zones.",
+                description: "Failed to update zones.",
                 variant: "destructive",
             });
         }
     };
 
+    // Cancel edit handler
     const handleCancelZones = () => {
-        setLocalProjectZones(projectData.project_zones || []); // Reset state
-        setNewZoneName('');
-        setIsEditing(false); // Update parent state
+        setLocalProjectZones(projectData.project_zones || []);
+        setNewZoneName("");
+        setIsEditing(false);
     };
-    
-    // --- Rename Handlers (Direct API Call) ---
 
+    // Rename handlers
     const handleStartRename = (zone: ProjectZoneEntry) => {
         if (!zone.name) {
-             toast({ title: "Error", description: "New zones must be saved before renaming.", variant: "warning" });
-             return;
+            toast({ title: "Info", description: "Save new zones before renaming." });
+            return;
         }
         setZoneToRename(zone);
         setRenameDialogOpen(true);
     };
 
-    const handleRenameDirect = useCallback(async (projectName: string, frappeDocName: string, oldZoneName: string, newZoneName: string) => {
-        
-        try {
-            // STEP 1: Call the dedicated backend method for cascading rename
-            await RenameProjectZones({
-                project_name: projectName,
-                zone_doc_name: frappeDocName, // The unique child table row ID
-                old_zone_name: oldZoneName, // The old zone name (for filtering reports)
-                new_zone_name: newZoneName, // The new zone name (for updating records)
-            });
+    const handleRenameDirect = useCallback(
+        async (projectName: string, frappeDocName: string, oldZoneName: string, newZoneName: string) => {
+            try {
+                await RenameProjectZones({
+                    project_name: projectName,
+                    zone_doc_name: frappeDocName,
+                    old_zone_name: oldZoneName,
+                    new_zone_name: newZoneName,
+                });
 
-            // STEP 2: Update local state immediately for visual feedback
-            const updatedZones = localProjectZones.map((zone) => 
-                zone.name === frappeDocName ? { ...zone, zone_name: newZoneName } : zone
-            );
-            setLocalProjectZones(updatedZones);
+                const updatedZones = localProjectZones.map((zone) =>
+                    zone.name === frappeDocName ? { ...zone, zone_name: newZoneName } : zone
+                );
+                setLocalProjectZones(updatedZones);
 
-            // STEP 3: Close dialog and clear state
-            setRenameDialogOpen(false);
-            setZoneToRename(null);
-            
-            toast({
-                title: "Success",
-                description: `Zone renamed from "${oldZoneName}" to "${newZoneName}". Reports will be updated shortly.`,
-                variant: "success",
-            });
-            
-            // Trigger parent component to re-fetch/re-render fully
-            await project_mutate(); 
+                setRenameDialogOpen(false);
+                setZoneToRename(null);
 
-        } catch (error) {
-            console.error("Failed to rename and cascade zone:", error);
-            toast({
-                title: "Error",
-                description: "Failed to rename zone (Backend error).",
-                variant: "destructive",
-            });
-        }
-    }, [localProjectZones, projectData.name, project_mutate, RenameProjectZones]); 
+                toast({
+                    title: "Success",
+                    description: `Zone renamed to "${newZoneName}".`,
+                    variant: "success",
+                });
 
-
-    // --- Render Logic ---
+                await project_mutate();
+            } catch (error) {
+                console.error("Failed to rename zone:", error);
+                toast({
+                    title: "Error",
+                    description: "Failed to rename zone.",
+                    variant: "destructive",
+                });
+            }
+        },
+        [localProjectZones, projectData.name, project_mutate, RenameProjectZones]
+    );
 
     const zonesToRender = isEditing ? localProjectZones : projectData.project_zones;
     const zonesExist = zonesToRender && zonesToRender.length > 0;
     const isAnyLoading = updateDocLoading || renameLoading;
 
-    const renderZoneList = () => {
-        if (!zonesExist && !isEditing) {
-            return (
-                <div className="p-3 border rounded-md bg-white my-2">
-                    <p className="text-sm text-gray-500 italic">No zones currently defined for this project.</p>
-                </div>
-            );
-        }
-
-        const ZoneListContent = (
-            <div className="flex flex-wrap gap-2">
-                {isEditing && (
-                    <div className="flex items-center space-x-2 w-full mb-2 border-b pb-2">
-                        <Input
-                            placeholder="Enter New Zone Name"
-                            value={newZoneName}
-                            onChange={(e) => setNewZoneName(e.target.value)}
-                            onKeyDown={(e) => {
-                                handleKeyDown(e);
-                                if (e.key === 'Enter' && !e.defaultPrevented) handleAddZone();
-                            }}
-                            onPaste={handlePaste}
-                            disabled={updateDocLoading}
-                        />
-                        <Button 
-                            onClick={handleAddZone} 
-                            size="sm" 
-                            disabled={updateDocLoading || !newZoneName.trim()}
-                            variant="outline"
-                        >
-                            <PlusIcon className="h-4 w-4 mr-1" /> Add
-                        </Button>
-                    </div>
-                )}
-                
-                {zonesToRender.map((zone, index) => (
-                    <div 
-                        key={zone.name || `new-${index}`} 
-                        className="p-2 bg-gray-100 rounded-lg border border-gray-300 shadow-sm flex items-center justify-between space-x-2"
-                        style={{ minWidth: '150px' }}
-                    >
-                        <span className="text-sm font-medium truncate">{zone.zone_name}</span>
-                        
-                        <div className="flex space-x-1">
-                            
-                            <Button 
-                                variant="ghost" 
-                                size="icon" 
-                                onClick={() => handleStartRename(zone)} 
-                                className="h-7 w-7 text-blue-500 hover:bg-blue-50"
-                                // disabled={isEditing || isAnyLoading || !zone.name} 
-                                title={!zone.name ? "Save the new zone first to enable renaming" : "Rename Zone (Cascading Update)"}
-                            >
-                                <PencilIcon className="h-4 w-4" />
-                            </Button>
-
-                            {isEditing && ( // Only show Remove when in bulk edit mode
-                                <Button 
-                                    variant="ghost" 
-                                    size="icon" 
-                                    onClick={() => handleRemoveZone(index)} 
-                                    className="h-7 w-7 text-red-500 hover:bg-red-50"
-                                    disabled={zone.name||updateDocLoading}
-                                >
-                                    <XIcon className="h-4 w-4" />
-                                </Button>
-                            )}
-                        </div>
-                    </div>
-                ))}
-            </div>
-        );
-
-        return (
-            <div className="p-3 border rounded-md bg-white my-2">
-                {isEditing && isZoneSaveDisabled && <p className="text-red-500 text-sm mb-2">Zone names must be unique and non-empty.</p>}
-                {ZoneListContent}
-            </div>
-        );
-    };
-
     return (
         <>
-            <div className="flex items-center justify-between mt-4 mb-2">
-                <h3 className="text-lg font-semibold">Project Zones</h3>
-                
-                {/* Zone Edit Buttons (Save/Cancel/Edit) */}
+            {/* Header */}
+            <div className="flex items-center justify-between mb-3">
+                <div>
+                    <h3 className="text-sm font-medium text-gray-900">Project Zones</h3>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                        {zonesExist ? `${zonesToRender.length} zone${zonesToRender.length > 1 ? "s" : ""} configured` : "No zones configured"}
+                    </p>
+                </div>
+
                 {isEditing ? (
-                    <div className="flex space-x-2">
-                        <Button variant="outline" onClick={handleCancelZones} size="sm" disabled={updateDocLoading}>
-                            <XIcon size={16} className="mr-1 text-red-500" />Cancel
-                        </Button>
-                        <Button 
-                            variant="default" 
-                            onClick={handleSaveZones} 
-                            disabled={updateDocLoading || isZoneSaveDisabled || renameLoading}
+                    <div className="flex items-center gap-2">
+                        <Button
+                            variant="ghost"
                             size="sm"
+                            onClick={handleCancelZones}
+                            disabled={isAnyLoading}
+                            className="h-8 text-gray-600"
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            size="sm"
+                            onClick={handleSaveZones}
+                            disabled={isAnyLoading || isZoneSaveDisabled}
+                            className="h-8 bg-emerald-500 hover:bg-emerald-600 text-white"
                         >
                             {updateDocLoading ? (
-                                <TailSpin width={14} height={14} color="white" /> 
+                                <TailSpin width={14} height={14} color="white" />
                             ) : (
                                 <>
-                                    <CircleCheckBig size={16} className="mr-1" />Save Zones
+                                    <Check className="h-3.5 w-3.5 mr-1" /> Save
                                 </>
                             )}
                         </Button>
                     </div>
                 ) : (
-                    <Button 
-                        variant="outline" 
-                        size="sm" 
+                    <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => setIsEditing(true)}
-                        disabled={isEditingHeaders || renameLoading} // Disable if header editing or rename is in progress
+                        disabled={isEditingHeaders || renameLoading}
+                        className="h-8"
                     >
-                        <PencilIcon size={20} className="mr-2" /> Edit Zones
+                        <Pencil className="h-3.5 w-3.5 mr-1.5" /> Edit
                     </Button>
                 )}
             </div>
 
-            {renderZoneList()}
+            {/* Zone List */}
+            <div className="border border-gray-200 rounded">
+                {/* Add zone input (editing mode) */}
+                {isEditing && (
+                    <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-200 bg-gray-50">
+                        <Input
+                            type="text"
+                            placeholder="Enter zone name"
+                            value={newZoneName}
+                            onChange={(e) => setNewZoneName(e.target.value.replace(INVALID_CHARS_REGEX, ""))}
+                            onKeyDown={(e) => {
+                                handleKeyDown(e);
+                                if (e.key === "Enter" && !e.defaultPrevented && newZoneName.trim()) {
+                                    handleAddZone();
+                                }
+                            }}
+                            onPaste={(e) => handlePaste(e, setNewZoneName)}
+                            disabled={updateDocLoading}
+                            className="flex-1 h-8 text-sm"
+                        />
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={handleAddZone}
+                            disabled={updateDocLoading || !newZoneName.trim()}
+                            className="h-8 px-2"
+                        >
+                            <Plus className="h-4 w-4" />
+                        </Button>
+                    </div>
+                )}
+
+                {/* Zones */}
+                {zonesExist ? (
+                    <div className="divide-y divide-gray-200">
+                        {zonesToRender.map((zone, index) => (
+                            <div
+                                key={zone.name || `new-${index}`}
+                                className="flex items-center justify-between px-3 py-2"
+                            >
+                                <span className="text-sm text-gray-700">{zone.zone_name}</span>
+
+                                <div className="flex items-center gap-1">
+                                    {/* Rename button - always visible for saved zones */}
+                                    {zone.name && (
+                                        <button
+                                            type="button"
+                                            onClick={() => handleStartRename(zone)}
+                                            disabled={isAnyLoading}
+                                            className="p-1.5 text-gray-400 hover:text-sky-500 disabled:opacity-50"
+                                            title="Rename zone"
+                                        >
+                                            <Pencil className="h-3.5 w-3.5" />
+                                        </button>
+                                    )}
+
+                                    {/* Remove button - only for new zones in edit mode */}
+                                    {isEditing && !zone.name && (
+                                        <button
+                                            type="button"
+                                            onClick={() => handleRemoveZone(index)}
+                                            disabled={updateDocLoading}
+                                            className="p-1.5 text-gray-400 hover:text-red-500 disabled:opacity-50"
+                                            title="Remove zone"
+                                        >
+                                            <X className="h-3.5 w-3.5" />
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="px-3 py-4 text-center">
+                        <p className="text-sm text-gray-500">No zones defined.</p>
+                        {!isEditing && (
+                            <p className="text-xs text-gray-400 mt-1">Click Edit to add zones.</p>
+                        )}
+                    </div>
+                )}
+
+                {/* Validation error */}
+                {isEditing && isZoneSaveDisabled && localProjectZones.length > 0 && (
+                    <div className="px-3 py-2 bg-red-50 border-t border-red-100">
+                        <p className="text-xs text-red-600">Zone names must be unique and non-empty.</p>
+                    </div>
+                )}
+            </div>
 
             {/* Rename Dialog */}
             {zoneToRename && (
@@ -448,7 +464,9 @@ export const ProjectZoneEditSection: React.FC<ProjectZoneEditSectionProps> = ({
                     isOpen={renameDialogOpen}
                     zone={zoneToRename}
                     onClose={() => setRenameDialogOpen(false)}
-                    onSave={(projectName, frappeDocName, oldZoneName, newZoneName) => handleRenameDirect(projectData.name, frappeDocName, oldZoneName, newZoneName)}
+                    onSave={(_projectName, frappeDocName, oldZoneName, newZoneName) =>
+                        handleRenameDirect(projectData.name, frappeDocName, oldZoneName, newZoneName)
+                    }
                     isLoading={renameLoading}
                     localProjectZones={localProjectZones}
                 />
@@ -456,248 +474,3 @@ export const ProjectZoneEditSection: React.FC<ProjectZoneEditSectionProps> = ({
         </>
     );
 };
-
-// // src/pages/projects/components/ProjectZoneEditSection.tsx
-// import React, { useState, useEffect, useMemo, useCallback } from "react";
-// import { Button } from "@/components/ui/button";
-// import { Input } from "@/components/ui/input";
-// import { TailSpin } from "react-loader-spinner";
-// import { CircleCheckBig, XIcon, PlusIcon, PencilIcon } from "lucide-react";
-// import { toast } from "@/components/ui/use-toast";
-// import { FrappeDoc, KeyedMutator, useFrappeUpdateDoc } from "frappe-react-sdk"; // Needed for internal API call
-
-// // Assuming types are imported from a shared location or re-declared for module usage
-// interface ProjectZoneEntry {
-//     name?: string; 
-//     zone_name: string;
-// }
-// interface Projects {
-//     name: string;
-//     project_zones: ProjectZoneEntry[];
-// }
-// interface ProjectsWithZones extends Projects {
-//     // Other fields if necessary
-// }
-
-// interface ProjectZoneEditSectionProps {
-//     projectData: ProjectsWithZones;
-//     isEditing: boolean;
-//     setIsEditing: React.Dispatch<React.SetStateAction<boolean>>; // Setter for parent state
-//     project_mutate: KeyedMutator<FrappeDoc<Projects>>; // Mutator for parent re-fetch
-//     isEditingHeaders: boolean; // For disabling self
-// }
-
-// export const ProjectZoneEditSection: React.FC<ProjectZoneEditSectionProps> = ({
-//     projectData,
-//     isEditing,
-//     setIsEditing,
-//     project_mutate,
-//     isEditingHeaders,
-// }) => {
-//     // Internal state now manages the local list
-//     const [localProjectZones, setLocalProjectZones] = useState<ProjectZoneEntry[]>(projectData.project_zones || []);
-//     const [newZoneName, setNewZoneName] = useState('');
-
-//     const { updateDoc, loading: updateDocLoading } = useFrappeUpdateDoc();
-
-//     // Sync local zone state with project data when not editing
-//     useEffect(() => {
-//         if (!isEditing) {
-//             setLocalProjectZones(projectData.project_zones || []);
-//             setNewZoneName('');
-//         }
-//     }, [projectData.project_zones, isEditing]);
-
-//     // --- Validation (Moved from Parent) ---
-//     const isZoneSaveDisabled = useMemo(() => {
-//         const trimmedNames = localProjectZones.map(z => z.zone_name.trim()).filter(Boolean);
-//         const hasEmptyName = localProjectZones.some(z => !z.zone_name.trim());
-//         const hasDuplicates = new Set(trimmedNames).size !== trimmedNames.length;
-//         return hasEmptyName || hasDuplicates;
-//     }, [localProjectZones]);
-
-//     // --- Handlers (Moved from Parent) ---
-
-//     const handleAddZone = useCallback(() => {
-//         const newZone = newZoneName.trim();
-//         if (!newZone) return;
-
-//         if (localProjectZones.some(z => z.zone_name.trim() === newZone)) {
-//             toast({ title: "Error", description: "Zone name must be unique.", variant: "destructive" });
-//             return;
-//         }
-
-//         const newEntry: ProjectZoneEntry = { zone_name: newZone };
-//         setLocalProjectZones(prev => [...prev, newEntry]);
-//         setNewZoneName('');
-//     }, [newZoneName, localProjectZones]);
-
-//     const handleRemoveZone = useCallback((index: number) => {
-//         setLocalProjectZones(prev => prev.filter((_, i) => i !== index));
-//     }, []);
-
-//     const handleSaveZones = async () => {
-//         const zonesToSave = localProjectZones
-//             .filter(z => z.zone_name.trim()) 
-//             .map(zone => ({
-//                 name: zone.name, 
-//                 zone_name: zone.zone_name.trim() 
-//             }));
-
-//         if (isZoneSaveDisabled) return;
-
-//         try {
-//             await updateDoc("Projects", projectData.name, {
-//                 project_zones: zonesToSave,
-//             });
-//             await project_mutate();
-//             toast({
-//                 title: "Success",
-//                 description: "Project Zones updated successfully.",
-//                 variant: "success",
-//             });
-//             setIsEditing(false); // Update parent state
-//         } catch (error) {
-//             console.error("Failed to update project zones:", error);
-//             toast({
-//                 title: "Error",
-//                 description: "Failed to update Project Zones.",
-//                 variant: "destructive",
-//             });
-//         }
-//     };
-
-//     const handleCancelZones = () => {
-//         setLocalProjectZones(projectData.project_zones || []); // Reset state
-//         setNewZoneName('');
-//         setIsEditing(false); // Update parent state
-//     };
-
-
-//     // --- Render Logic ---
-
-//     const zonesToRender = isEditing ? localProjectZones : projectData.project_zones;
-//     const zonesExist = zonesToRender && zonesToRender.length > 0;
-
-//     const renderZoneList = () => {
-//         if (!zonesExist && !isEditing) {
-//             return (
-//                 <div className="p-3 border rounded-md bg-white my-2">
-//                     <p className="text-sm text-gray-500 italic">No zones currently defined for this project.</p>
-//                 </div>
-//             );
-//         }
-
-//         const ZoneListContent = (
-//             <div className="flex flex-wrap gap-2">
-//                 {isEditing && (
-//                     <div className="flex items-center space-x-2 w-full mb-2 border-b pb-2">
-//                         <Input
-//                             placeholder="Enter New Zone Name"
-//                             value={newZoneName}
-//                             onChange={(e) => setNewZoneName(e.target.value)}
-//                             onKeyDown={(e) => e.key === 'Enter' && handleAddZone()}
-//                             className="h-9 w-64"
-//                             disabled={updateDocLoading}
-//                         />
-//                         <Button 
-//                             onClick={handleAddZone} 
-//                             size="sm" 
-//                             disabled={updateDocLoading || !newZoneName.trim()}
-//                             variant="outline"
-//                         >
-//                             <PlusIcon className="h-4 w-4 mr-1" /> Add
-//                         </Button>
-//                     </div>
-//                 )}
-                
-//                 {zonesToRender.map((zone, index) => (
-//                     <div 
-//                         key={zone.name || `new-${index}`} 
-//                         className="p-2 bg-gray-100 rounded-lg border border-gray-300 shadow-sm flex items-center justify-between space-x-2"
-//                         style={{ minWidth: '150px' }}
-//                     >
-//                         <span className="text-sm font-medium truncate">{zone.zone_name}</span>
-                        
-//                         {isEditing && (
-//                             <div className="flex space-x-1">
-                                
-//                                 <Button 
-//                                     variant="ghost" 
-//                                     size="icon" 
-//                                     className="h-7 w-7 text-blue-500 hover:bg-blue-50"
-//                                     disabled={true} 
-//                                     title="Rename functionality is managed externally"
-//                                 >
-//                                     <PencilIcon className="h-4 w-4" />
-//                                 </Button>
-
-//                                 {/* Only allow removal of zones that haven't been saved yet (no 'name' field) */}
-//                                 {(!zone.name) && (
-//                                     <Button 
-//                                         variant="ghost" 
-//                                         size="icon" 
-//                                         onClick={() => handleRemoveZone(index)} 
-//                                         className="h-7 w-7 text-red-500 hover:bg-red-50"
-//                                         disabled={updateDocLoading}
-//                                     >
-//                                         <XIcon className="h-4 w-4" />
-//                                     </Button>
-//                                 )}
-//                             </div>
-//                         )}
-//                     </div>
-//                 ))}
-//             </div>
-//         );
-
-//         return (
-//             <div className="p-3 border rounded-md bg-white my-2">
-//                 {isEditing && isZoneSaveDisabled && <p className="text-red-500 text-sm mb-2">Zone names must be unique and non-empty.</p>}
-//                 {ZoneListContent}
-//             </div>
-//         );
-//     };
-
-//     return (
-//         <>
-//             <div className="flex items-center justify-between mt-4 mb-2">
-//                 <h3 className="text-lg font-semibold">Project Zones</h3>
-                
-//                 {/* Zone Edit Buttons (Save/Cancel/Edit) */}
-//                 {isEditing ? (
-//                     <div className="flex space-x-2">
-//                         <Button variant="outline" onClick={handleCancelZones} size="sm" disabled={updateDocLoading}>
-//                             <XIcon size={16} className="mr-1 text-red-500" />Cancel
-//                         </Button>
-//                         <Button 
-//                             variant="default" 
-//                             onClick={handleSaveZones} 
-//                             disabled={updateDocLoading || isZoneSaveDisabled}
-//                             size="sm"
-//                         >
-//                             {updateDocLoading ? (
-//                                 <TailSpin width={14} height={14} color="white" /> 
-//                             ) : (
-//                                 <>
-//                                     <CircleCheckBig size={16} className="mr-1" />Save Zones
-//                                 </>
-//                             )}
-//                         </Button>
-//                     </div>
-//                 ) : (
-//                     <Button 
-//                         variant="outline" 
-//                         size="sm" 
-//                         onClick={() => setIsEditing(true)}
-//                         disabled={isEditingHeaders} 
-//                     >
-//                         <PencilIcon size={20} className="mr-2" /> Edit Zones
-//                     </Button>
-//                 )}
-//             </div>
-
-//             {renderZoneList()}
-//         </>
-//     );
-// };

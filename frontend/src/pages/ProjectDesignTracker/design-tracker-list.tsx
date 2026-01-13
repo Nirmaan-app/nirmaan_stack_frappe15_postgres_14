@@ -348,7 +348,7 @@ export const DesignTrackerList: React.FC = () => {
     const { role,user_id } = useUserData();
     // console.log("role-Nirmaan Design Executive Profile",role,user_id)
     const isDesignExecutive = role === "Nirmaan Design Executive Profile";
-    const hasEditStructureAccess = role === "Nirmaan Design Lead Profile" || role === "Nirmaan Admin Profile" || user_id === "Administrator";
+    const hasEditStructureAccess = role === "Nirmaan Design Lead Profile" || role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator";
     const isProjectManager = role === "Nirmaan Project Manager Profile";
 
     const [isModalOpen, setIsModalOpen] = useState(false);

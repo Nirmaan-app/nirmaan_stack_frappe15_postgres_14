@@ -30,11 +30,13 @@ const poReportOptions: { label: string; value: POReportOption }[] = [
     { label: 'Pending Invoices', value: 'Pending Invoices' },
     { label: 'PO with Excess Payments', value: 'PO with Excess Payments' },
     { label: 'Dispatched for 1+ days', value: 'Dispatched for 1 days' },
+    { label: '2B Reconcile Report', value: '2B Reconcile Report' },
 ];
 
 const srReportOptions: { label: string; value: SROption }[] = [
     { label: 'Pending Invoices', value: 'Pending Invoices' },
     { label: 'Excess Payments (WO)', value: 'PO with Excess Payments' },
+    { label: '2B Reconcile Report', value: '2B Reconcile Report' },
 ];
 
 export default function ReportsContainer() {
@@ -127,13 +129,13 @@ export default function ReportsContainer() {
     // Define available tabs based on role
     const tabs = useMemo(() => {
         const availableTabs = [];
-        if (["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(role)) {
+        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(role)) {
             availableTabs.push({
                 label: <div className="flex items-center"><span>Projects</span></div>,
                 value: REPORTS_TABS.PROJECTS,
             });
         }
-        if (["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(role)) {
+        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(role)) {
             availableTabs.push({
                 label: <div className="flex items-center"><span>Vendors</span></div>,
                 value: REPORTS_TABS.VENDORS,
@@ -141,13 +143,13 @@ export default function ReportsContainer() {
         }
         //
         // All three roles (Admin, Accountant, PM) can see PO and SR tabs
-        if (["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)) {
+        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)) {
             availableTabs.push({
                 label: <div className="flex items-center"><span>PO</span></div>,
                 value: REPORTS_TABS.PO,
             });
         }
-        if (["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)) {
+        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)) {
             availableTabs.push({
                 label: <div className="flex items-center"><span>WO</span></div>,
                 value: REPORTS_TABS.SR,
@@ -170,26 +172,40 @@ export default function ReportsContainer() {
 
 
 
+    // Roles that can see 2B Reconcile Report
+    const canSee2BReconcileReport = ["Nirmaan Admin Profile", "Nirmaan Accountant Profile"].includes(role);
+
     const currentReportOptions = useMemo(() => {
         if (activeTab === REPORTS_TABS.PROJECTS) {
-            return ["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(role)
+            return ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(role)
                 ? projectReportOptions
                 : [];
         } else if (activeTab === REPORTS_TABS.VENDORS) {
-            return ["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(role)
+            return ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(role)
                 ? VendorReportOptions
                 : [];
         } else if (activeTab === REPORTS_TABS.PO) {
-            return role === "Nirmaan Project Manager Profile"
-                ? poReportOptions.filter(option => option.value === 'Dispatched for 1 days')
-                : (["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role) ? poReportOptions : []);
+            if (role === "Nirmaan Project Manager Profile") {
+                return poReportOptions.filter(option => option.value === 'Dispatched for 1 days');
+            }
+            if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)) {
+                // Filter out 2B Reconcile Report for non-Admin/Accountant roles
+                return canSee2BReconcileReport
+                    ? poReportOptions
+                    : poReportOptions.filter(option => option.value !== '2B Reconcile Report');
+            }
+            return [];
         } else if (activeTab === REPORTS_TABS.SR) {
-            return ["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
-                ? srReportOptions
-                : [];
+            if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)) {
+                // Filter out 2B Reconcile Report for non-Admin/Accountant roles
+                return canSee2BReconcileReport
+                    ? srReportOptions
+                    : srReportOptions.filter(option => option.value !== '2B Reconcile Report');
+            }
+            return [];
         }
         return [];
-    }, [activeTab, role]);
+    }, [activeTab, role, canSee2BReconcileReport]);
 
 
     // Effect to auto-select/validate report type when options change

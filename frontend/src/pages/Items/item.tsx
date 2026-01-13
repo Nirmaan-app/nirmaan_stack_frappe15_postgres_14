@@ -150,7 +150,7 @@ const FilterTargetRateUnit=targetRatesList?.filter((item)=>item.unit===unitFromQ
             <div className="flex items-center max-md:mb-2">
                 {isLoading ? (<Skeleton className="h-10 w-1/3 bg-gray-300" />) :
                     <h2 className="pl-2 text-xl md:text-3xl font-bold tracking-tight">{data?.item_name}</h2>}
-                    {(userData.role === "Nirmaan Admin Profile") && (
+                    {(userData.role === "Nirmaan Admin Profile" || userData.role === "Nirmaan PMO Executive Profile") && (
                         <Dialog>
                         <DialogTrigger>
                             {!unitFromQuery &&(<FilePenLine className="w-10 text-blue-300 hover:-translate-y-1 transition hover:text-blue-600 cursor-pointer" />)}

@@ -25,6 +25,8 @@ const VendorPaymentsTable = React.lazy(() => import("./components/VendorPayments
 const VendorApprovedQuotesTable = React.lazy(() => import("./components/VendorApprovedQuotesTable"));
 const ApprovedSRList = React.lazy(() => import("../ServiceRequests/service-request/approved-sr-list"));
 const POVendorLedger = React.lazy(() => import("./components/POVendorLedger"));
+const PoInvoices = React.lazy(() => import("../tasks/invoices/components/PoInvoices").then(m => ({ default: m.PoInvoices })));
+const SrInvoices = React.lazy(() => import("../tasks/invoices/components/SrInvoices").then(m => ({ default: m.SrInvoices })));
 
 type MenuItem = Required<MenuProps>["items"][number];
 
@@ -93,6 +95,10 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
         { label: "Payments", key: "vendorPayments" },
         (vendor?.vendor_type !== "Service") &&
         { label: "Approved Quotes", key: "approvedQuotes" },
+        (vendor?.vendor_type === "Material" || vendor?.vendor_type === "Material & Service") &&
+        { label: "PO Invoices", key: "poInvoices" },
+        (vendor?.vendor_type === "Service" || vendor?.vendor_type === "Material & Service") &&
+        { label: "SR Invoices", key: "srInvoices" },
 
     ].filter(Boolean) as MenuItem[], [vendor?.vendor_type]);
 
@@ -134,8 +140,12 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                 return <VendorApprovedQuotesTable
                     vendorId={vendorId}
                 />;
-            case "poVendorLedger": // <-- ADD THIS CASE
+            case "poVendorLedger":
                 return <POVendorLedger vendorId={vendorId} />
+            case "poInvoices":
+                return <PoInvoices vendorId={vendorId} />;
+            case "srInvoices":
+                return <SrInvoices vendorId={vendorId} />;
             default:
                 return <div>Select a tab.</div>;
         }

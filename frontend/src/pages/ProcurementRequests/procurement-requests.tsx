@@ -21,6 +21,7 @@ import { TailSpin } from "react-loader-spinner";
 
 // --- Hooks & Utils ---
 import { useServerDataTable, getUrlStringParam } from '@/hooks/useServerDataTable';
+import { useFacetValues } from "@/hooks/useFacetValues";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { useUserData } from "@/hooks/useUserData";
 import { formatDate } from "@/utils/FormatDate";
@@ -72,7 +73,17 @@ const PRDataTableWrapper: React.FC<{
         const dynamicUrlSyncKey = `${URL_SYNC_KEY_BASE}_${tab.toLowerCase().replace(/\s+/g, '_')}`;
         const eventIdForNotif = tab === "New PR Request" ? "pr:approved" : ""; // Example
 
-        const serverDataTable = useServerDataTable<ProcurementRequest>({
+        const {
+            table,
+            totalCount,
+            isLoading: listIsLoading,
+            error: listError,
+            columnFilters,
+            searchTerm: tableSearchTerm,
+            setSearchTerm,
+            selectedSearchField: tableSelectedSearchField,
+            setSelectedSearchField
+        } = useServerDataTable<ProcurementRequest>({
             doctype: DOCTYPE,
             columns,
             fetchFields: fieldsToFetch,
@@ -83,19 +94,64 @@ const PRDataTableWrapper: React.FC<{
             additionalFilters: staticFilters,
         });
 
+        const { facetOptions: projectFacets } = useFacetValues({
+            doctype: DOCTYPE,
+            field: 'project',
+            currentFilters: columnFilters,
+            searchTerm: tableSearchTerm,
+            selectedSearchField: tableSelectedSearchField,
+            additionalFilters: staticFilters,
+        });
+
+        const { facetOptions: wpFacets } = useFacetValues({
+            doctype: DOCTYPE,
+            field: 'work_package',
+            currentFilters: columnFilters,
+            searchTerm: tableSearchTerm,
+            selectedSearchField: tableSelectedSearchField,
+            additionalFilters: staticFilters,
+        });
+
+        const { facetOptions: ownerFacets } = useFacetValues({
+            doctype: DOCTYPE,
+            field: 'owner',
+            currentFilters: columnFilters,
+            searchTerm: tableSearchTerm,
+            selectedSearchField: tableSelectedSearchField,
+            additionalFilters: staticFilters,
+        });
+
+        const { facetOptions: statusFacets } = useFacetValues({
+            doctype: DOCTYPE,
+            field: 'workflow_state',
+            currentFilters: columnFilters,
+            searchTerm: tableSearchTerm,
+            selectedSearchField: tableSelectedSearchField,
+            additionalFilters: staticFilters,
+            enabled: tab === "All PRs"
+        });
+
+        const combinedFacetOptions = {
+            ...facetFilterOptions,
+            project: { title: "Project", options: projectFacets },
+            work_package: { title: "Package", options: wpFacets },
+            owner: { title: "Created By", options: ownerFacets },
+            workflow_state: tab === "All PRs" ? { title: "Status", options: statusFacets } : facetFilterOptions.workflow_state
+        };
+
         return (
             <DataTable<ProcurementRequest>
-                table={serverDataTable.table}
+                table={table}
                 columns={columns}
-                isLoading={serverDataTable.isLoading}
-                error={serverDataTable.error}
-                totalCount={serverDataTable.totalCount}
+                isLoading={listIsLoading}
+                error={listError}
+                totalCount={totalCount}
                 searchFieldOptions={prSearchableFields}
-                selectedSearchField={serverDataTable.selectedSearchField}
-                onSelectedSearchFieldChange={serverDataTable.setSelectedSearchField}
-                searchTerm={serverDataTable.searchTerm}
-                onSearchTermChange={serverDataTable.setSearchTerm}
-                facetFilterOptions={facetFilterOptions}
+                selectedSearchField={tableSelectedSearchField}
+                onSelectedSearchFieldChange={setSelectedSearchField}
+                searchTerm={tableSearchTerm}
+                onSearchTermChange={setSearchTerm}
+                facetFilterOptions={combinedFacetOptions}
                 dateFilterColumns={dateColumns}
                 showExportButton={true}
                 onExport={'default'}
@@ -114,7 +170,7 @@ export const ProcurementRequests: React.FC = () => {
     const initialTab = useMemo(() => {
         const adminDefault = "Approve PR";
         const userDefault = "New PR Request";
-        return getUrlStringParam("tab", ["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? adminDefault : userDefault);
+        return getUrlStringParam("tab", ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) ? adminDefault : userDefault);
     }, [role]);
 
     const [tab, setTab] = useState<string>(initialTab);
@@ -174,16 +230,16 @@ export const ProcurementRequests: React.FC = () => {
     const { counts } = useDocCountStore();
 
     // --- Tab Definitions ---
-    const adminTabs = useMemo(() => (["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? [
+    const adminTabs = useMemo(() => (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) ? [
         { label: (<div className="flex items-center"><span>Approve PR</span><span className="ml-2 text-xs font-bold">{counts.pr.pending}</span></div>), value: "Approve PR" },
     ] : []), [role, counts]);
 
-    const userPRExecTabs = useMemo(() => (["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? [
+    const userPRExecTabs = useMemo(() => (["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) ? [
         { label: (<div className="flex items-center"><span>New PR Request</span><span className="ml-2 text-xs font-bold">{counts.pr.approved}</span></div>), value: "New PR Request" },
         { label: (<div className="flex items-center"><span>In Progress</span><span className="ml-2 text-xs font-bold">{counts.pr.in_progress}</span></div>), value: "In Progress" },
     ] : []), [role, counts]);
 
-    const sentBackTabsConfig = useMemo(() => (["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) ? [
+    const sentBackTabsConfig = useMemo(() => (["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) ? [
         { label: (<div className="flex items-center"><span>Sent Back</span><span className="ml-2 text-xs font-bold">{counts.sb.rejected.pending}</span></div>), value: "Rejected" },
         { label: (<div className="flex items-center"><span>Skipped PR</span><span className="ml-2 rounded text-xs font-bold">{counts.sb.delayed.pending}</span></div>), value: "Delayed" },
         { label: (<div className="flex items-center"><span>Rejected PO</span><span className="ml-2 rounded text-xs font-bold">{counts.sb.cancelled.pending}</span></div>), value: "Cancelled" },
@@ -254,7 +310,7 @@ export const ProcurementRequests: React.FC = () => {
                         {!data.work_package && <Badge className="text-xs">Custom</Badge>}
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                             <ItemsHoverCard
-                                parentDocId={data}
+                                parentDoc={data}
                                 parentDoctype={DOCTYPE} // 'Procurement Requests'
                                 childTableName={"order_list"} // Or "procurement_list" - check your DocType
                                 isPR={true} // Pass relevant flags
@@ -265,9 +321,7 @@ export const ProcurementRequests: React.FC = () => {
             }, size: 170,
             meta: {
                 exportHeaderName: "PR ID",
-                exportValue: (row) => {
-                    return row.name
-                }
+                exportValue: (row: ProcurementRequest) => row.name
             }
         },
         {
@@ -276,7 +330,7 @@ export const ProcurementRequests: React.FC = () => {
             size: 150,
             meta: {
                 exportHeaderName: "Created",
-                exportValue: (row) => {
+                exportValue: (row: ProcurementRequest) => {
                     return formatDate(row.creation)
                 }
             }
@@ -290,7 +344,7 @@ export const ProcurementRequests: React.FC = () => {
             enableColumnFilter: true, size: 200,
             meta: {
                 exportHeaderName: "Project",
-                exportValue: (row) => {
+                exportValue: (row: ProcurementRequest) => {
                     const project = projectOptions.find(p => p.value === row.project);
                     return project?.label || row.project;
                 }
@@ -325,7 +379,7 @@ export const ProcurementRequests: React.FC = () => {
             enableColumnFilter: true,
             meta: {
                 exportHeaderName: "Created By",
-                exportValue: (row) => {
+                exportValue: (row: ProcurementRequest) => {
                     const ownerUser = userList?.find((entry) => row.owner === entry.name);
                     return ownerUser?.full_name || row.owner || "--";
                 }
@@ -337,7 +391,7 @@ export const ProcurementRequests: React.FC = () => {
                 accessorKey: "workflow_state",
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
                 cell: ({ row }) => {
-                    const status = row.getValue<string>("workflow_state");
+                    const status = row.getValue("workflow_state") as string;
                     const variant = status === "Approved" ? "gray" : status === "In Progress" ? "yellow" : status === "Pending" ? "blue" : ["Sent Back", "Delayed", "Rejected"].includes(status) ? "destructive" : "green";
                     return (
                         <Badge variant={variant} className="text-xs">{status}</Badge>
@@ -348,7 +402,7 @@ export const ProcurementRequests: React.FC = () => {
             } as ColumnDef<ProcurementRequest>
         ] : []),
         // Conditional Delete Column
-        ...((tab === "New PR Request" && ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile"].includes(role)) ? [{
+        ...((tab === "New PR Request" && ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role)) ? [{
             id: "actions", header: "Actions",
             cell: ({ row }) => (
                 <Button variant="ghost" size="sm" onClick={() => { setDeleteFlagged(row.original); toggleDeleteDialog(); }}>

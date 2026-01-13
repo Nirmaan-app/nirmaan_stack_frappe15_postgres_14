@@ -1,3 +1,4 @@
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -30,7 +31,7 @@ import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getTotalInflowAmount } from "@/utils/getAmounts";
 import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
-import { CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, CirclePlus, ListChecks, LinkIcon } from "lucide-react";
+import { AlertCircle, CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, CirclePlus, ListChecks, LinkIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link, useNavigate } from "react-router-dom";
@@ -255,15 +256,26 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Warning alert when customer is not selected */}
+      {!projectData?.customer && (
+        <Alert variant="warning" className="bg-amber-50 border-amber-200">
+          <AlertCircle className="h-4 w-4 text-amber-600" />
+          <AlertDescription className="text-amber-700">
+            No customer is assigned to this project. Project Invoice and Inflow Upload will not work until a customer is selected.
+          </AlertDescription>
+        </Alert>
+      )}
       <Card>
         <CardHeader>
           <CardTitle>
             <div className="flex justify-between items-center">
               <p className="text-2xl">Project Details</p>
-              <Button onClick={() => navigate("add-estimates")}>
-                <CirclePlus className="h-4 w-4 mr-2" /> Add Project
-                Estimates
-              </Button>
+              {role !== "Nirmaan Accountant Profile" && (
+                <Button onClick={() => navigate("add-estimates")}>
+                  <CirclePlus className="h-4 w-4 mr-2" /> Add Project
+                  Estimates
+                </Button>
+              )}
             </div>
           </CardTitle>
         </CardHeader>
@@ -388,7 +400,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
             Assignees
-            {["Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role) && (
+            {["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
               <Dialog open={assignUserDialog} onOpenChange={toggleAssignUserDialog}>
                 <DialogTrigger asChild>
                   <Button asChild>
@@ -525,9 +537,9 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
         <CustomerPODetailsCard projectId={projectData.name} />
       </Card>
       <Card>
-        <ProjectDriveLink projectId={projectData.name} />
+        <ProjectDriveLink projectId={projectData.name} role={role} />
       </Card>
-      <SevenDayPlanningTab isOverview={true} />
+      <SevenDayPlanningTab isOverview={true} projectName={projectData?.project_name}/>
     </div>
   )
 }

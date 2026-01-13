@@ -40,7 +40,7 @@ import Customers from "@/pages/customers/customers";
 import Dashboard from "@/pages/dashboard";
 import { PDF } from "@/pages/pdf";
 import { InFlowPayments } from "@/pages/inflow-payments/InFlowPayments";
-import { ProjectForm } from "@/pages/projects/project-form";
+import { ProjectForm } from "@/pages/projects/project-form/index";
 import Projects from "@/pages/projects/projects";
 import Roles from "@/pages/roles";
 import EditUserForm from "@/pages/users/EditUserForm";
@@ -53,13 +53,14 @@ import CreditsPage from "@/pages/credits/CreditsPage";
 //---New Vendors-AQ2 Page
 import VendorsAQ2 from "@/pages/vendors-wp-categories/vendors-aq2";
 import WorkPackages from "@/pages/work-packages";
-import { ProtectedRoute } from "@/utils/auth/ProtectedRoute";
+import { ProtectedRoute, UsersRoute, UserProfileRoute, InflowPaymentsRoute } from "@/utils/auth/ProtectedRoute";
 import { ProjectManager } from "../layout/dashboards/dashboard-pm";
 import InvoiceReconciliationContainer from "@/pages/tasks/invoices/InvoiceReconciliationContainer";
 import { NewProcurementRequestPage } from "@/pages/ProcurementRequests/NewPR/NewProcurementRequestPage";
 import ReportsContainer from "@/pages/reports/ReportsContainer";
 // import ProcurementOrdersTesting from "@/pages/ProcurementOrders/testing/ProcurementOrdersTesting";
 import ItemsPage from "@/pages/Items/itemsPage";
+import AssetsPage from "@/pages/Assets/AssetsPage";
 import AllProjectInvocies from "@/pages/ProjectInvoices/AllProjectInvoices";
 import NonProjectExpensesPage from "@/pages/NonProjectExpenses/NonProjectExpensesPage";
 import AllProjectExpensesPage from "@/pages/ProjectExpenses/AllProjectExpenses";
@@ -69,6 +70,7 @@ import { MilestoneTab } from "@/pages/Manpower-and-WorkMilestones/MilestoneTab";
 import { WorkHeaderMilestones } from "@/components/workHeaderMilestones";
 import MilestoneDailySummary from "@/pages/Manpower-and-WorkMilestones/MilestoneDailySummary";
 import { DeliveryChallansAndMirs } from "@/pages/DeliveryChallansAndMirs";
+import { TDSRepositoryMaster } from "@/pages/tds/TDSRepositoryMaster";
 // --- End component imports ---
 
 
@@ -77,6 +79,14 @@ import DesignTrackerList from "@/pages/ProjectDesignTracker/design-tracker-list"
 import ProjectDesignTrackerDetail from "@/pages/ProjectDesignTracker/project-design-tracker-details";
 import { DesignPackages } from "../design-packages";
 import { CriticalPOCategories } from "../layout/critical-po-categories";
+
+//Critical PO Tracker
+import CriticalPOTrackerList from "@/pages/CriticalPOTracker/critical-po-tracker-list";
+import CriticalPOTrackerDetail from "@/pages/CriticalPOTracker/critical-po-tracker-detail";
+
+//Work Plan Tracker
+import WorkPlanTrackerList from "@/pages/WorkPlanTracker/work-plan-tracker-list";
+import WorkPlanTrackerDetail from "@/pages/WorkPlanTracker/work-plan-tracker-detail";
 
 export const appRoutes: RouteObject[] = [
   // --- Public Routes ---
@@ -283,6 +293,38 @@ export const appRoutes: RouteObject[] = [
           // --- END: NEW DESIGN TRACKER SECTION ---
           // ======================================================
 
+          // ======================================================
+          // --- START: CRITICAL PO TRACKER SECTION ---
+          // ======================================================
+          {
+            path: "critical-po-tracker",
+            children: [
+              // List View (e.g., /critical-po-tracker)
+              { index: true, element: <CriticalPOTrackerList /> },
+              // Detail View (e.g., /critical-po-tracker/PROJ-0001)
+              { path: ":projectId", element: <CriticalPOTrackerDetail /> },
+            ],
+          },
+          // ======================================================
+          // --- END: CRITICAL PO TRACKER SECTION ---
+          // ======================================================
+
+          // ======================================================
+          // --- START: WORK PLAN TRACKER SECTION ---
+          // ======================================================
+          {
+            path: "work-plan-tracker",
+            children: [
+              // List View (e.g., /work-plan-tracker)
+              { index: true, element: <WorkPlanTrackerList /> },
+              // Detail View (e.g., /work-plan-tracker/PROJ-0001)
+              { path: ":projectId", element: <WorkPlanTrackerDetail /> },
+            ],
+          },
+          // ======================================================
+          // --- END: WORK PLAN TRACKER SECTION ---
+          // ======================================================
+
           // --- Projects Section ---
           {
             path: "projects",
@@ -348,6 +390,7 @@ export const appRoutes: RouteObject[] = [
           },
           {
             path: "in-flow-payments",
+            element: <InflowPaymentsRoute />,
             children: [
               { index: true, element: <InFlowPayments /> },
             ]
@@ -357,10 +400,23 @@ export const appRoutes: RouteObject[] = [
           {
             path: "users",
             children: [
-              { index: true, element: <Users /> },
-              { path: "new-user", element: <UserForm /> },
-              { path: ":userId", element: <Profile /> },
-              { path: ":userId/edit", element: <EditUserForm /> },
+              // UsersRoute guards only list and new-user (Admin/PMO/HR only)
+              {
+                element: <UsersRoute />,
+                children: [
+                  { index: true, element: <Users /> },
+                  { path: "new-user", element: <UserForm /> },
+                ],
+              },
+              // UserProfileRoute guards profile routes independently (Admin/PMO/HR OR own profile)
+              {
+                path: ":userId",
+                element: <UserProfileRoute />,
+                children: [
+                  { index: true, element: <Profile /> },
+                  { path: "edit", element: <EditUserForm /> },
+                ],
+              },
             ],
           },
 
@@ -371,6 +427,15 @@ export const appRoutes: RouteObject[] = [
               // { index: true, element: <ItemsTesting /> },
               { index: true, element: <ItemsPage /> },
               { path: ":productId", lazy: () => import("@/pages/Items/item") },
+            ],
+          },
+
+          // --- Assets Section ---
+          {
+            path: "asset-management",
+            children: [
+              { index: true, element: <AssetsPage /> },
+              { path: ":assetId", lazy: () => import("@/pages/Assets/AssetOverview") },
             ],
           },
 
@@ -476,6 +541,7 @@ export const appRoutes: RouteObject[] = [
           { path: "milestone-packages", element: <WorkHeaderMilestones /> },
           { path: "design-packages", element: <DesignPackages /> },
           { path: "critical-po-categories", element: <CriticalPOCategories /> },
+          { path: "tds-repository", element: <TDSRepositoryMaster /> },
 
           { path: "pdf", element: <PDF /> }, // Should PDF rendering be a route? Or triggered differently?
           { path: "milestone-update", element: <NewMilestones /> },

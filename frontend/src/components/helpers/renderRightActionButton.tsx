@@ -5,7 +5,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Separator } from "@/components/ui/separator";
 import { useUserData } from "@/hooks/useUserData";
 import { UserContext } from "@/utils/auth/UserProvider";
 import { CirclePlus } from "lucide-react";
@@ -54,10 +53,14 @@ export const RenderRightActionButton = ({
   const navigate = useNavigate();
   const { role, user_id } = useUserData()
   const { selectedProject } = useContext(UserContext);
-  const { toggleNewInflowDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog, toggleNewNonProjectExpenseDialog } = useDialogStore()
+  const { toggleNewInflowDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog, toggleNewNonProjectExpenseDialog, toggleNewProjectExpenseDialog } = useDialogStore()
 
   if (newButtonRoutes[locationPath]) {
     const routeInfo = newButtonRoutes[locationPath];
+    // Hide "New WO" button for Estimates Executive
+    if (locationPath === "/service-requests" && role === "Nirmaan Estimates Executive Profile") {
+      return null;
+    }
     return (
       <Button
         className="sm:mr-4 mr-2"
@@ -70,7 +73,7 @@ export const RenderRightActionButton = ({
     );
   } else if (locationPath === "/prs&milestones/procurement-requests" && selectedProject) {
     return (
-      ["Nirmaan Admin Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) || user_id === "Administrator" ? (
+      ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) || user_id === "Administrator" ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button className="sm:mr-4 mr-2">
@@ -98,7 +101,7 @@ export const RenderRightActionButton = ({
           Add <span className="hidden md:flex pl-1">New PR</span>
         </Button>)
     );
-  } else if (locationPath === "/service-requests-list" && selectedProject && role != "Nirmaan Project Manager Profile") {
+  } else if (locationPath === "/service-requests-list" && selectedProject && role !== "Nirmaan Project Manager Profile" && role !== "Nirmaan Estimates Executive Profile") {
     return (
       <Button
         className="sm:mr-4 mr-2"
@@ -108,7 +111,7 @@ export const RenderRightActionButton = ({
         Add <span className="hidden md:flex pl-1">New WO</span>
       </Button>
     );
-  } else if (locationPath === "/products") {
+  } else if (locationPath === "/products" && role === "Nirmaan Admin Profile") {
     return (
       <Button onClick={toggleNewItemDialog} className="sm:mr-4 mr-2">
         <CirclePlus className="w-5 h-5 pr-1" />
@@ -136,46 +139,14 @@ export const RenderRightActionButton = ({
         Add <span className="hidden md:flex pl-1">New Expense</span>
       </Button>
     );
-  } else if (
-    locationPath === "/" &&
-    ["Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile"].includes(role)
-  ) {
-    // For admin profiles, render a dropdown menu
+  } else if (locationPath === "/project-expenses") {
     return (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button className="sm:mr-4 mr-2">
-            <CirclePlus className="w-5 h-5 pr-1" />
-            Add
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent className="mr-16">
-          {role === "Nirmaan Admin Profile" && (
-            <>
-              <DropdownMenuItem onClick={() => navigate("/projects/new-project")}>
-                New Project
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate("/users/new-user")}>
-                New User
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate("/vendors/new-vendor")}>
-                New Vendor
-              </DropdownMenuItem>
-              <Separator />
-            </>
-          )}
-          <DropdownMenuItem onClick={() => navigate("/prs&milestones/procurement-requests")}>
-            {/* {role === "Nirmaan Admin Profile" ? "New PR" : "Urgent PR"} */}
-            New PR
-          </DropdownMenuItem>
-          {/* <DropdownMenuItem onClick={() => navigate("/prs&milestones/procurement-requests")}>
-            New Custom PR
-          </DropdownMenuItem> */}
-          <DropdownMenuItem onClick={() => navigate("/service-requests-list")}>
-            New Service Request
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      (role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || role === "Nirmaan Accountant Profile") ? (
+        <Button onClick={toggleNewProjectExpenseDialog} className="sm:mr-4 mr-2">
+          <CirclePlus className="w-5 h-5 pr-1" />
+          Add <span className="hidden md:flex pl-1">New Project Expense</span>
+        </Button>
+      ) : null
     );
   } else {
     return (

@@ -755,7 +755,7 @@ const RequestPaymentDialog = ({
 };
 
 const PaymentTermRow = ({ term, onReques_tPayment, role }) => {
-  const canRequestPayment = ["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role);
+  const canRequestPayment = ["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role);
 
   return (
     <li className="flex justify-between items-center py-2.5 border-b border-gray-100 last:border-b-0">
@@ -906,7 +906,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
   
   
 
-  const isReadOnly = accountsPage || estimatesViewing || PO.status === "Inactive" || !["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan Project Lead Profile"].includes(role);
+  const isReadOnly = accountsPage || estimatesViewing || PO.status === "Inactive" || !["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role);
 
   // const isPaymentTermsEditable = useMemo(() => {
   //   if (

@@ -67,7 +67,9 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     const params = useParams();
     const { role, user_id } = useUserData()
 
-    const isPMUser=role==="Nirmaan Project Manager Profile"
+    const isPMUser = role === "Nirmaan Project Manager Profile"
+    const isEstimatesExecutive = role === "Nirmaan Estimates Executive Profile"
+    const isRestrictedRole = isPMUser || isEstimatesExecutive
 
     const id = accountsPage ? params.id : params.srId;
 
@@ -401,49 +403,59 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                         </div>
                         <div className="flex items-center gap-2">
 
-                            <Button
-                                disabled={isDeleting || summaryPage || accountsPage || ((projectPayments || [])?.length > 0) || ((orderData?.invoice_data?.data || [])?.length > 0) || (orderData?.owner !== user_id && role !== "Nirmaan Admin Profile")}
-                                variant={"outline"} onClick={() => setDeleteDialog(true)} className="text-xs flex items-center gap-1 border border-primary px-2">
-                                <Trash2 className="w-4 h-4" />
-                                Delete
-                            </Button>
-
-                            {/* Render the Delete Confirmation Dialog */}
-                            <SRDeleteConfirmationDialog
-                                open={deleteDialog}
-                                onOpenChange={() => setDeleteDialog(false)}
-                                itemName={orderData?.name}
-                                itemType="Service Request" // Specific type for this instance
-                                onConfirm={handleConfirmDelete}
-                                isDeleting={isDeleting}
-                            />
-                            {!summaryPage && !accountsPage && (
-                                <Button variant={"outline"} onClick={toggleAmendDialog} className="text-xs flex items-center gap-1 border border-primary px-2">
-                                    <PencilRuler className="w-4 h-4" />
-                                    Amend
+                            {/* For restricted roles (PM, Estimates Executive), only show Preview button */}
+                            {isRestrictedRole ? (
+                                <Button variant={"outline"} disabled={!orderData?.project_gst} onClick={toggleSrPdfSheet} className="text-xs flex items-center gap-1 border border-primary px-2">
+                                    <Eye className="w-4 h-4" />
+                                    Preview
                                 </Button>
+                            ) : (
+                                <>
+                                    <Button
+                                        disabled={isDeleting || summaryPage || accountsPage || ((projectPayments || [])?.length > 0) || ((orderData?.invoice_data?.data || [])?.length > 0) || (orderData?.owner !== user_id && role !== "Nirmaan Admin Profile" && role !== "Nirmaan PMO Executive Profile")}
+                                        variant={"outline"} onClick={() => setDeleteDialog(true)} className="text-xs flex items-center gap-1 border border-primary px-2">
+                                        <Trash2 className="w-4 h-4" />
+                                        Delete
+                                    </Button>
+
+                                    {/* Render the Delete Confirmation Dialog */}
+                                    <SRDeleteConfirmationDialog
+                                        open={deleteDialog}
+                                        onOpenChange={() => setDeleteDialog(false)}
+                                        itemName={orderData?.name}
+                                        itemType="Service Request" // Specific type for this instance
+                                        onConfirm={handleConfirmDelete}
+                                        isDeleting={isDeleting}
+                                    />
+                                    {!summaryPage && !accountsPage && (
+                                        <Button variant={"outline"} onClick={toggleAmendDialog} className="text-xs flex items-center gap-1 border border-primary px-2">
+                                            <PencilRuler className="w-4 h-4" />
+                                            Amend
+                                        </Button>
+                                    )}
+
+                                    <Button
+                                        variant="outline"
+                                        className="text-primary border-primary text-xs px-2"
+                                        onClick={toggleNewInvoiceDialog}
+                                    >
+                                        Add Invoice
+                                    </Button>
+
+                                    <Sheet open={amendDialog} onOpenChange={toggleAmendDialog}>
+                                        <SheetContent className="overflow-auto">
+                                            <SheetHeader>
+                                                <SheetTitle className="text-center mb-6">Amend WO!</SheetTitle>
+                                            </SheetHeader>
+                                            <SelectServiceVendorPage sr_data={service_request} sr_data_mutate={service_request_mutate} amend={true} />
+                                        </SheetContent>
+                                    </Sheet>
+                                    <Button variant={"outline"} disabled={!orderData?.project_gst} onClick={toggleSrPdfSheet} className="text-xs flex items-center gap-1 border border-primary px-2">
+                                        <Eye className="w-4 h-4" />
+                                        Preview
+                                    </Button>
+                                </>
                             )}
-
-                            <Button
-                                variant="outline"
-                                className="text-primary border-primary text-xs px-2"
-                                onClick={toggleNewInvoiceDialog}
-                            >
-                                Add Invoice
-                            </Button>
-
-                            <Sheet open={amendDialog} onOpenChange={toggleAmendDialog}>
-                                <SheetContent className="overflow-auto">
-                                    <SheetHeader>
-                                        <SheetTitle className="text-center mb-6">Amend WO!</SheetTitle>
-                                    </SheetHeader>
-                                    <SelectServiceVendorPage sr_data={service_request} sr_data_mutate={service_request_mutate} amend={true} />
-                                </SheetContent>
-                            </Sheet>
-                            <Button variant={"outline"} disabled={!orderData?.project_gst} onClick={toggleSrPdfSheet} className="text-xs flex items-center gap-1 border border-primary px-2">
-                                <Eye className="w-4 h-4" />
-                                Preview
-                            </Button>
                         </div>
                     </CardTitle>
                 </CardHeader>
@@ -480,415 +492,421 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 </CardContent>
             </Card>
 
-            <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
-                <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
-                    <CardHeader>
-                        <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
-                            <p>Transaction Details</p>
+            {/* Hide Transaction Details and WO Options for restricted roles (PM, Estimates Executive) */}
+            {!isRestrictedRole && (
+                <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
+                    <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
+                        <CardHeader>
+                            <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
+                                <p>Transaction Details</p>
 
-                            {!accountsPage && !summaryPage && (
-                                <>
-                                    <Button
-                                        variant="outline"
-                                        className="text-primary border-primary text-xs px-2"
-                                        onClick={toggleRequestPaymentDialog}
-                                        disabled={isPMUser}
+                                {!accountsPage && !summaryPage && (
+                                    <>
+                                        <Button
+                                            variant="outline"
+                                            className="text-primary border-primary text-xs px-2"
+                                            onClick={toggleRequestPaymentDialog}
+                                            disabled={isPMUser}
 
-                                    >
-                                        Request Payment
-                                    </Button>
+                                        >
+                                            Request Payment
+                                        </Button>
 
-                                    <RequestPaymentDialog
-                                        totalIncGST={orderData?.gst === "true" ? getTotal * 1.18 : getTotal}
-                                        totalExGST={getTotal || 0}
-                                        paid={getAmountPaid}
-                                        pending={amountPending}
-                                        gst={orderData?.gst === "true"}
-                                        docType="Service Requests"
-                                        docName={orderData?.name || "Unknown"}
-                                        project={orderData?.project || "Unknown"}
-                                        vendor={orderData?.vendor || "Unknown"}
-                                        onSuccess={projectPaymentsMutate}
-                                    />
-                                </>
-                            )}
-                            {accountsPage && (
-                                <AlertDialog open={newPaymentDialog} onOpenChange={toggleNewPaymentDialog}>
-                                    <AlertDialogTrigger
-                                        onClick={() => setNewPayment({ ...newPayment, payment_date: new Date().toISOString().split("T")[0] })}
-                                    >
-                                        <SquarePlus className="w-5 h-5 text-red-500 cursor-pointer" />
-                                    </AlertDialogTrigger>
-                                    <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
-                                        <AlertDialogHeader className="text-start">
-                                            <div className="flex items-center justify-between">
-                                                <Label className=" text-red-700">Project:</Label>
-                                                <span className="">{project?.project_name}</span>
-                                            </div>
-                                            <div className="flex items-center justify-between">
-                                                <Label className=" text-red-700">Vendor:</Label>
-                                                <span className="">{service_vendor?.vendor_name}</span>
-                                            </div>
-                                            <div className="flex items-center justify-between">
-                                                <Label className=" text-red-700">PO Amt excl. Tax:</Label>
-                                                <span className="">{formatToRoundedIndianRupee(getTotal)}</span>
-                                            </div>
-                                            {orderData?.gst === "true" && (
+                                        <RequestPaymentDialog
+                                            totalIncGST={orderData?.gst === "true" ? getTotal * 1.18 : getTotal}
+                                            totalExGST={getTotal || 0}
+                                            paid={getAmountPaid}
+                                            pending={amountPending}
+                                            gst={orderData?.gst === "true"}
+                                            docType="Service Requests"
+                                            docName={orderData?.name || "Unknown"}
+                                            project={orderData?.project || "Unknown"}
+                                            vendor={orderData?.vendor || "Unknown"}
+                                            onSuccess={projectPaymentsMutate}
+                                        />
+                                    </>
+                                )}
+                                {accountsPage && (
+                                    <AlertDialog open={newPaymentDialog} onOpenChange={toggleNewPaymentDialog}>
+                                        <AlertDialogTrigger
+                                            onClick={() => setNewPayment({ ...newPayment, payment_date: new Date().toISOString().split("T")[0] })}
+                                        >
+                                            <SquarePlus className="w-5 h-5 text-red-500 cursor-pointer" />
+                                        </AlertDialogTrigger>
+                                        <AlertDialogContent className="py-8 max-sm:px-12 px-16 text-start overflow-auto">
+                                            <AlertDialogHeader className="text-start">
                                                 <div className="flex items-center justify-between">
-                                                    <Label className=" text-red-700">PO Amt incl. Tax:</Label>
-                                                    <span className="">{formatToRoundedIndianRupee(Math.floor(getTotal))}</span>
+                                                    <Label className=" text-red-700">Project:</Label>
+                                                    <span className="">{project?.project_name}</span>
                                                 </div>
-                                            )}
-                                            <div className="flex items-center justify-between">
-                                                <Label className=" text-red-700">Amt Paid Till Now:</Label>
-                                                <span className="">{getAmountPaid ? formatToRoundedIndianRupee(getAmountPaid) : "--"}</span>
-                                            </div>
-
-                                            <div className="flex flex-col gap-4 pt-4">
-                                                <div className="flex gap-4 w-full">
-                                                    <Label className="w-[40%]">Amount<sup className=" text-sm text-red-600">*</sup></Label>
-                                                    <div className="w-full">
-                                                        <Input
-                                                            type="number"
-                                                            placeholder="Enter Amount"
-                                                            value={newPayment.amount}
-                                                            onChange={(e) => handleAmountChange(e)}
-                                                        />
-                                                        {warning && <p className="text-red-600 mt-1 text-xs">{warning}</p>}
+                                                <div className="flex items-center justify-between">
+                                                    <Label className=" text-red-700">Vendor:</Label>
+                                                    <span className="">{service_vendor?.vendor_name}</span>
+                                                </div>
+                                                <div className="flex items-center justify-between">
+                                                    <Label className=" text-red-700">PO Amt excl. Tax:</Label>
+                                                    <span className="">{formatToRoundedIndianRupee(getTotal)}</span>
+                                                </div>
+                                                {orderData?.gst === "true" && (
+                                                    <div className="flex items-center justify-between">
+                                                        <Label className=" text-red-700">PO Amt incl. Tax:</Label>
+                                                        <span className="">{formatToRoundedIndianRupee(Math.floor(getTotal))}</span>
                                                     </div>
-                                                </div>
-                                                <div className="flex gap-4 w-full">
-                                                    <Label className="w-[40%]">TDS Amount</Label>
-                                                    <div className="w-full">
-                                                        <Input
-                                                            type="number"
-                                                            placeholder="Enter TDS Amount"
-                                                            value={newPayment.tds}
-                                                            onChange={(e) => {
-                                                                const tdsValue = e.target.value;
-                                                                setNewPayment({ ...newPayment, tds: tdsValue })
-                                                            }}
-                                                        />
-                                                        {parseNumber(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToRoundedIndianRupee(parseNumber(newPayment?.amount) - parseNumber(newPayment?.tds))}</span>}
-                                                    </div>
-                                                </div>
-                                                <div className="flex gap-4 w-full">
-                                                    <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
-                                                    <Input
-                                                        type="text"
-                                                        placeholder="Enter UTR"
-                                                        value={newPayment.utr}
-                                                        onChange={(e) => setNewPayment({ ...newPayment, utr: e.target.value })}
-                                                    />
-                                                </div>
-
-                                                <div className="flex gap-4 w-full" >
-                                                    <Label className="w-[40%]">Payment Date<sup className=" text-sm text-red-600">*</sup></Label>
-                                                    <Input
-                                                        type="date"
-                                                        value={newPayment.payment_date}
-                                                        placeholder="DD/MM/YYYY"
-                                                        onChange={(e) => setNewPayment({ ...newPayment, payment_date: e.target.value })}
-                                                        max={new Date().toISOString().split("T")[0]}
-                                                        onKeyDown={(e) => e.preventDefault()}
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            <CustomAttachment
-                                                maxFileSize={20 * 1024 * 1024} // 20MB
-                                                selectedFile={paymentScreenshot}
-                                                onFileSelect={setPaymentScreenshot}
-                                                label="Attach Screenshot"
-                                                className="w-full"
-                                            />
-
-                                            <div className="flex gap-2 items-center pt-4 justify-center">
-
-                                                {createLoading || upload_loading ? <TailSpin color="red" width={40} height={40} /> : (
-                                                    <>
-                                                        <AlertDialogCancel className="flex-1" asChild>
-                                                            <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
-                                                        </AlertDialogCancel>
-                                                        <Button
-                                                            onClick={AddPayment}
-                                                            disabled={!newPayment.amount || !newPayment.utr || !newPayment.payment_date || !!warning || isPMUser}
-                                                            className="flex-1">Add Payment
-                                                        </Button>
-                                                    </>
                                                 )}
-                                            </div>
+                                                <div className="flex items-center justify-between">
+                                                    <Label className=" text-red-700">Amt Paid Till Now:</Label>
+                                                    <span className="">{getAmountPaid ? formatToRoundedIndianRupee(getAmountPaid) : "--"}</span>
+                                                </div>
 
-                                        </AlertDialogHeader>
-                                    </AlertDialogContent>
-                                </AlertDialog>
-                            )}
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent className="overflow-auto">
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead className="text-black font-bold">Amount</TableHead>
-                                    {/* {service_request?.gst === "true" && (
+                                                <div className="flex flex-col gap-4 pt-4">
+                                                    <div className="flex gap-4 w-full">
+                                                        <Label className="w-[40%]">Amount<sup className=" text-sm text-red-600">*</sup></Label>
+                                                        <div className="w-full">
+                                                            <Input
+                                                                type="number"
+                                                                placeholder="Enter Amount"
+                                                                value={newPayment.amount}
+                                                                onChange={(e) => handleAmountChange(e)}
+                                                            />
+                                                            {warning && <p className="text-red-600 mt-1 text-xs">{warning}</p>}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex gap-4 w-full">
+                                                        <Label className="w-[40%]">TDS Amount</Label>
+                                                        <div className="w-full">
+                                                            <Input
+                                                                type="number"
+                                                                placeholder="Enter TDS Amount"
+                                                                value={newPayment.tds}
+                                                                onChange={(e) => {
+                                                                    const tdsValue = e.target.value;
+                                                                    setNewPayment({ ...newPayment, tds: tdsValue })
+                                                                }}
+                                                            />
+                                                            {parseNumber(newPayment?.tds) > 0 && <span className="text-xs">Amount Paid : {formatToRoundedIndianRupee(parseNumber(newPayment?.amount) - parseNumber(newPayment?.tds))}</span>}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex gap-4 w-full">
+                                                        <Label className="w-[40%]">UTR<sup className=" text-sm text-red-600">*</sup></Label>
+                                                        <Input
+                                                            type="text"
+                                                            placeholder="Enter UTR"
+                                                            value={newPayment.utr}
+                                                            onChange={(e) => setNewPayment({ ...newPayment, utr: e.target.value })}
+                                                        />
+                                                    </div>
+
+                                                    <div className="flex gap-4 w-full" >
+                                                        <Label className="w-[40%]">Payment Date<sup className=" text-sm text-red-600">*</sup></Label>
+                                                        <Input
+                                                            type="date"
+                                                            value={newPayment.payment_date}
+                                                            placeholder="DD/MM/YYYY"
+                                                            onChange={(e) => setNewPayment({ ...newPayment, payment_date: e.target.value })}
+                                                            max={new Date().toISOString().split("T")[0]}
+                                                            onKeyDown={(e) => e.preventDefault()}
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                <CustomAttachment
+                                                    maxFileSize={20 * 1024 * 1024} // 20MB
+                                                    selectedFile={paymentScreenshot}
+                                                    onFileSelect={setPaymentScreenshot}
+                                                    label="Attach Screenshot"
+                                                    className="w-full"
+                                                />
+
+                                                <div className="flex gap-2 items-center pt-4 justify-center">
+
+                                                    {createLoading || upload_loading ? <TailSpin color="red" width={40} height={40} /> : (
+                                                        <>
+                                                            <AlertDialogCancel className="flex-1" asChild>
+                                                                <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
+                                                            </AlertDialogCancel>
+                                                            <Button
+                                                                onClick={AddPayment}
+                                                                disabled={!newPayment.amount || !newPayment.utr || !newPayment.payment_date || !!warning || isPMUser}
+                                                                className="flex-1">Add Payment
+                                                            </Button>
+                                                        </>
+                                                    )}
+                                                </div>
+
+                                            </AlertDialogHeader>
+                                        </AlertDialogContent>
+                                    </AlertDialog>
+                                )}
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="overflow-auto">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead className="text-black font-bold">Amount</TableHead>
+                                        {/* {service_request?.gst === "true" && (
                                     <TableHead className="text-black font-bold">TDS Amt</TableHead>
                                 )} */}
-                                    <TableHead className="text-black font-bold">UTR No.</TableHead>
-                                    <TableHead className="text-black font-bold">Date</TableHead>
-                                    <TableHead className="text-black font-bold w-[5%]">Status</TableHead>
-                                    {/* 1. ADD VOUCHER HEADER */}
-                                    <TableHead className="text-black font-bold text-center">Voucher</TableHead>
-                                    {/* --------------------- */}
-                                    <TableHead></TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {(projectPayments || []).length > 0 ? (
-                                    projectPayments?.map((payment) => {
-                                        return (
-                                            <TableRow key={payment?.name}>
-                                                <TableCell className="font-semibold">{formatToRoundedIndianRupee(payment?.amount)}</TableCell>
-                                                {/* {service_request?.gst === "true" && (
+                                        <TableHead className="text-black font-bold">UTR No.</TableHead>
+                                        <TableHead className="text-black font-bold">Date</TableHead>
+                                        <TableHead className="text-black font-bold w-[5%]">Status</TableHead>
+                                        {/* 1. ADD VOUCHER HEADER */}
+                                        <TableHead className="text-black font-bold text-center">Voucher</TableHead>
+                                        {/* --------------------- */}
+                                        <TableHead></TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {(projectPayments || []).length > 0 ? (
+                                        projectPayments?.map((payment) => {
+                                            return (
+                                                <TableRow key={payment?.name}>
+                                                    <TableCell className="font-semibold">{formatToRoundedIndianRupee(payment?.amount)}</TableCell>
+                                                    {/* {service_request?.gst === "true" && (
                                                      <TableCell className="font-semibold">{formatToIndianRupee(payment?.tds)}</TableCell>
                                                  )} */}
-                                                {(payment?.utr && payment?.payment_attachment) ? (
-                                                    <TableCell className="font-semibold text-blue-500 underline">
-                                                        <a href={`${SITEURL}${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
-                                                            {payment?.utr}
-                                                        </a>
+                                                    {(payment?.utr && payment?.payment_attachment) ? (
+                                                        <TableCell className="font-semibold text-blue-500 underline">
+                                                            <a href={`${SITEURL}${payment?.payment_attachment}`} target="_blank" rel="noreferrer">
+                                                                {payment?.utr}
+                                                            </a>
+                                                        </TableCell>
+                                                    ) : (
+                                                        <TableCell className="font-semibold">
+                                                            {payment?.utr || "--"}
+                                                        </TableCell>
+                                                    )}
+
+
+                                                    <TableCell className="font-semibold">{formatDate(payment?.payment_date || payment?.creation)}</TableCell>
+                                                    <TableCell className="font-semibold">{payment?.status}</TableCell>
+                                                    {/* 2. RENDER THE PaymentVoucherActions COMPONENT */}
+                                                    <TableCell className="text-center w-[10%]">
+                                                        {payment?.status === "Paid" && orderData?.name ? (
+                                                            <PaymentVoucherActions
+                                                                payment={payment}
+                                                                srName={orderData.name} // Pass SR ID for file naming (if orderData is ServiceRequests)
+                                                                onVoucherUpdate={projectPaymentsMutate} // Pass the SWR mutate function to refresh payments after upload/delete
+                                                            />
+                                                        ) : ("--")}
                                                     </TableCell>
-                                                ) : (
-                                                    <TableCell className="font-semibold">
-                                                        {payment?.utr || "--"}
-                                                    </TableCell>
-                                                )}
+                                                    {/* ----------------------------------------------- */}
 
-                                              
-                                                <TableCell className="font-semibold">{formatDate(payment?.payment_date || payment?.creation)}</TableCell>
-                                                <TableCell className="font-semibold">{payment?.status}</TableCell>
-                                                  {/* 2. RENDER THE PaymentVoucherActions COMPONENT */}
-                                                <TableCell className="text-center w-[10%]">
-                                                    {payment?.status === "Paid" && orderData?.name ? (
-                                                        <PaymentVoucherActions
-                                                            payment={payment}
-                                                            srName={orderData.name} // Pass SR ID for file naming (if orderData is ServiceRequests)
-                                                            onVoucherUpdate={projectPaymentsMutate} // Pass the SWR mutate function to refresh payments after upload/delete
-                                                        />
-                                                    ):("--")}
-                                                </TableCell>
-                                                {/* ----------------------------------------------- */}
-
-                                                <TableCell className="text-red-500 text-end w-[5%]">
-                                                    {!["Paid", "Approved"].includes(payment?.status) && !summaryPage &&
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            className="h-6 w-6 p-0 text-destructive hover:bg-destructive/5 hover:text-destructive/90"
-                                                            onClick={() => setDeleteFlagged(payment)}
-                                                        >
-                                                            <Trash2 className="h-4 w-4" />
-                                                        </Button>
-                                                    }
-
-                                                    <DeletePaymentDialog isOpen={!!deleteFlagged} onOpenChange={() => setDeleteFlagged(null)} paymentToDelete={deleteFlagged} onDeleteSuccess={() => projectPaymentsMutate()} />
-                                                </TableCell>
-                                            </TableRow>
-                                        )
-                                    })
-                                ) : (
-                                    <TableRow>
-                                        <TableCell colSpan={orderData?.gst === "true" ? 4 : 3} className="text-center py-2">
-                                            No Payments Found
-                                        </TableCell>
-                                    </TableRow>
-                                )}
-                            </TableBody>
-                        </Table>
-                    </CardContent>
-                </Card>
-                <Card className="rounded-sm shadow-md col-span-3 overflow-x-auto">
-                    <CardHeader>
-                        <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
-                            <div className="flex items-center gap-1">
-                                WO Options
-                                {!orderData?.project_gst && (
-                                    <TriangleAlert className="text-primary max-sm:w-4 max-sm:h-4" />
-                                )}
-                            </div>
-                            {!summaryPage && !accountsPage && (
-                                <Dialog open={editSrTermsDialog} onOpenChange={toggleEditSrTermsDialog}>
-                                    <DialogTrigger>
-                                        <Button variant={"outline"} className="felx items-center gap-1">
-                                            <PencilIcon className="w-4 h-4" />
-                                            Edit
-                                        </Button>
-                                    </DialogTrigger>
-                                    <DialogContent className="overflow-auto max-h-[80vh] w-full">
-                                        <div className="flex flex-col gap-1 pt-6">
-                                            <h3
-                                                className={`font-semibold text-lg tracking-tight ${!selectedGST?.gst ? "text-primary" : ""
-                                                    }`}
-                                            >
-                                                Project GST Selection
-                                                <sup className="text-sm text-red-600">*</sup>
-                                            </h3>
-                                            {project &&
-                                                JSON.parse(project?.project_gst_number)?.list
-                                                    ?.length > 0 && (
-                                                    <>
-                                                        <Select
-                                                            value={selectedGST?.gst}
-                                                            defaultValue={orderData?.project_gst}
-                                                            onValueChange={(selectedOption) => {
-                                                                const gstArr = JSON.parse(
-                                                                    project?.project_gst_number
-                                                                )?.list;
-                                                                setSelectedGST(
-                                                                    gstArr.find(
-                                                                        (item) =>
-                                                                            item.gst === selectedOption
-                                                                    )
-                                                                );
-                                                            }}
-                                                        >
-                                                            <SelectTrigger
-                                                                className={`${!selectedGST?.gst
-                                                                    ? "text-primary border-primary ring-1 ring-inset ring-primary"
-                                                                    : ""
-                                                                    }`}
+                                                    <TableCell className="text-red-500 text-end w-[5%]">
+                                                        {!["Paid", "Approved"].includes(payment?.status) && !summaryPage &&
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="h-6 w-6 p-0 text-destructive hover:bg-destructive/5 hover:text-destructive/90"
+                                                                onClick={() => setDeleteFlagged(payment)}
                                                             >
-                                                                <SelectValue placeholder="Select Project GST" />
-                                                            </SelectTrigger>
-                                                            <SelectContent>
-                                                                {JSON.parse(
-                                                                    project?.project_gst_number
-                                                                )?.list?.map((option) => (
-                                                                    <SelectItem
-                                                                        key={option.location}
-                                                                        value={option.gst}
-                                                                    >
-                                                                        {option.location}
-                                                                        {` (${option.gst})`}
-                                                                    </SelectItem>
-                                                                ))}
-                                                            </SelectContent>
-                                                        </Select>
-                                                        {selectedGST?.gst && !orderData?.project_gst && (
-                                                            <span className="text-sm">
-                                                                <strong>Note:</strong>{" "}
-                                                                <span className="text-primary">
-                                                                    GST selected but not saved, click on
-                                                                    Save below!
+                                                                <Trash2 className="h-4 w-4" />
+                                                            </Button>
+                                                        }
+
+                                                        <DeletePaymentDialog isOpen={!!deleteFlagged} onOpenChange={() => setDeleteFlagged(null)} paymentToDelete={deleteFlagged} onDeleteSuccess={() => projectPaymentsMutate()} />
+                                                    </TableCell>
+                                                </TableRow>
+                                            )
+                                        })
+                                    ) : (
+                                        <TableRow>
+                                            <TableCell colSpan={orderData?.gst === "true" ? 4 : 3} className="text-center py-2">
+                                                No Payments Found
+                                            </TableCell>
+                                        </TableRow>
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </CardContent>
+                    </Card>
+                    <Card className="rounded-sm shadow-md col-span-3 overflow-x-auto">
+                        <CardHeader>
+                            <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
+                                <div className="flex items-center gap-1">
+                                    WO Options
+                                    {!orderData?.project_gst && (
+                                        <TriangleAlert className="text-primary max-sm:w-4 max-sm:h-4" />
+                                    )}
+                                </div>
+                                {!summaryPage && !accountsPage && (
+                                    <Dialog open={editSrTermsDialog} onOpenChange={toggleEditSrTermsDialog}>
+                                        <DialogTrigger>
+                                            <Button variant={"outline"} className="felx items-center gap-1">
+                                                <PencilIcon className="w-4 h-4" />
+                                                Edit
+                                            </Button>
+                                        </DialogTrigger>
+                                        <DialogContent className="overflow-auto max-h-[80vh] w-full">
+                                            <div className="flex flex-col gap-1 pt-6">
+                                                <h3
+                                                    className={`font-semibold text-lg tracking-tight ${!selectedGST?.gst ? "text-primary" : ""
+                                                        }`}
+                                                >
+                                                    Project GST Selection
+                                                    <sup className="text-sm text-red-600">*</sup>
+                                                </h3>
+                                                {project &&
+                                                    JSON.parse(project?.project_gst_number)?.list
+                                                        ?.length > 0 && (
+                                                        <>
+                                                            <Select
+                                                                value={selectedGST?.gst}
+                                                                defaultValue={orderData?.project_gst}
+                                                                onValueChange={(selectedOption) => {
+                                                                    const gstArr = JSON.parse(
+                                                                        project?.project_gst_number
+                                                                    )?.list;
+                                                                    setSelectedGST(
+                                                                        gstArr.find(
+                                                                            (item) =>
+                                                                                item.gst === selectedOption
+                                                                        )
+                                                                    );
+                                                                }}
+                                                            >
+                                                                <SelectTrigger
+                                                                    className={`${!selectedGST?.gst
+                                                                        ? "text-primary border-primary ring-1 ring-inset ring-primary"
+                                                                        : ""
+                                                                        }`}
+                                                                >
+                                                                    <SelectValue placeholder="Select Project GST" />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    {JSON.parse(
+                                                                        project?.project_gst_number
+                                                                    )?.list?.map((option) => (
+                                                                        <SelectItem
+                                                                            key={option.location}
+                                                                            value={option.gst}
+                                                                        >
+                                                                            {option.location}
+                                                                            {` (${option.gst})`}
+                                                                        </SelectItem>
+                                                                    ))}
+                                                                </SelectContent>
+                                                            </Select>
+                                                            {selectedGST?.gst && !orderData?.project_gst && (
+                                                                <span className="text-sm">
+                                                                    <strong>Note:</strong>{" "}
+                                                                    <span className="text-primary">
+                                                                        GST selected but not saved, click on
+                                                                        Save below!
+                                                                    </span>
                                                                 </span>
-                                                            </span>
-                                                        )}
-                                                    </>
-                                                )}
-                                        </div>
-                                        {gstEnabled !== null && (
-                                            <div className="flex flex-col gap-2 pb-6 border-b border-gray-200">
-                                                <p className="font-semibold">GST?</p>
-                                                <Switch id="hello" defaultChecked={gstEnabled} onCheckedChange={(e) => setGstEnabled(e)} />
+                                                            )}
+                                                        </>
+                                                    )}
                                             </div>
-                                        )}
+                                            {gstEnabled !== null && (
+                                                <div className="flex flex-col gap-2 pb-6 border-b border-gray-200">
+                                                    <p className="font-semibold">GST?</p>
+                                                    <Switch id="hello" defaultChecked={gstEnabled} onCheckedChange={(e) => setGstEnabled(e)} />
+                                                </div>
+                                            )}
 
-                                        <div className="flex flex-col pt-4 gap-2">
-                                            <h3 className="text-sm font-semibold">Create Note Points</h3>
-                                            <div className="flex max-md:flex-col gap-4 md:items-center">
-                                                <Input
-                                                    type="text"
-                                                    placeholder="type notes here..."
-                                                    value={curNote || ""}
-                                                    className="w-[90%]"
-                                                    onChange={(e) => setCurNote(e.target.value)}
-                                                />
-                                                <Button onClick={handleAddNote}
-                                                    className="w-20"
-                                                    disabled={!curNote}>
-                                                    {editingIndex === null ? <div className="flex gap-1 items-center"><CirclePlus className="w-4 h-4" /><span>Add</span></div> : <div className="flex gap-1 items-center"><Edit className="w-4 h-4" /><span>Update</span></div>}
-                                                </Button>
+                                            <div className="flex flex-col pt-4 gap-2">
+                                                <h3 className="text-sm font-semibold">Create Note Points</h3>
+                                                <div className="flex max-md:flex-col gap-4 md:items-center">
+                                                    <Input
+                                                        type="text"
+                                                        placeholder="type notes here..."
+                                                        value={curNote || ""}
+                                                        className="w-[90%]"
+                                                        onChange={(e) => setCurNote(e.target.value)}
+                                                    />
+                                                    <Button onClick={handleAddNote}
+                                                        className="w-20"
+                                                        disabled={!curNote}>
+                                                        {editingIndex === null ? <div className="flex gap-1 items-center"><CirclePlus className="w-4 h-4" /><span>Add</span></div> : <div className="flex gap-1 items-center"><Edit className="w-4 h-4" /><span>Update</span></div>}
+                                                    </Button>
+                                                </div>
                                             </div>
-                                        </div>
 
-                                        {notes?.length > 0 && (
-                                            <div className="flex flex-col gap-2 pt-4">
-                                                <h3 className="text-sm font-semibold">Notes Preview</h3>
-                                                <ul className="list-[number] space-y-2">
-                                                    {notes.map((note) => (
-                                                        <li key={note?.id} className="ml-4">
-                                                            <div className="flex items-center gap-2">
-                                                                <p>{note?.note}</p>
-                                                                <div className="flex gap-2 items-center">
-                                                                    {editingIndex === note?.id ? (
-                                                                        <CheckIcon
-                                                                            className="w-4 h-4 cursor-pointer text-green-500"
-                                                                            onClick={handleAddNote}
+                                            {notes?.length > 0 && (
+                                                <div className="flex flex-col gap-2 pt-4">
+                                                    <h3 className="text-sm font-semibold">Notes Preview</h3>
+                                                    <ul className="list-[number] space-y-2">
+                                                        {notes.map((note) => (
+                                                            <li key={note?.id} className="ml-4">
+                                                                <div className="flex items-center gap-2">
+                                                                    <p>{note?.note}</p>
+                                                                    <div className="flex gap-2 items-center">
+                                                                        {editingIndex === note?.id ? (
+                                                                            <CheckIcon
+                                                                                className="w-4 h-4 cursor-pointer text-green-500"
+                                                                                onClick={handleAddNote}
+                                                                            />
+                                                                        ) : (
+                                                                            <Pencil2Icon
+                                                                                className="w-4 h-4 cursor-pointer"
+                                                                                onClick={() => handleEditNote(note?.id)}
+                                                                            />
+                                                                        )}
+                                                                        <span>|</span>
+                                                                        <Trash
+                                                                            className="w-4 h-4 text-primary cursor-pointer"
+                                                                            onClick={() => handleDeleteNote(note?.id)}
                                                                         />
-                                                                    ) : (
-                                                                        <Pencil2Icon
-                                                                            className="w-4 h-4 cursor-pointer"
-                                                                            onClick={() => handleEditNote(note?.id)}
-                                                                        />
-                                                                    )}
-                                                                    <span>|</span>
-                                                                    <Trash
-                                                                        className="w-4 h-4 text-primary cursor-pointer"
-                                                                        onClick={() => handleDeleteNote(note?.id)}
-                                                                    />
+                                                                    </div>
                                                                 </div>
-                                                            </div>
-                                                        </li>
-                                                    ))}
-                                                </ul>
-                                            </div>
-                                        )}
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
 
-                                        <Button disabled={update_loading || (!notes?.length && !(orderData?.notes?.list?.length) && orderData?.gst === String(gstEnabled) &&
-                                            orderData?.project_gst === selectedGST?.gst)
-                                        }
-                                            onClick={handleNotesSave}
-                                            className="w-full mt-4 items-center flex gap-2">
-                                            {update_loading ? <TailSpin width={20} height={20} color="red" /> : <><Save className="w-4 h-4" /> <span>Save</span></>}
-                                        </Button>
-                                    </DialogContent>
-                                </Dialog>
-                            )}
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="flex flex-col gap-2 items-start mt-4">
-                            <Label className="font-bold">Notes</Label>
-                            {notes?.length > 0 ? (
-                                <ul className="list-[number]">
-                                    {notes?.map((note) => (
-                                        <li key={note?.id} className="text-sm text-gray-900 ml-4">{note?.note}</li>
-                                    ))}
-                                </ul>
-                            ) : (
-                                <span>--</span>
-                            )}
-                        </div>
-
-                        <Separator className="my-4" />
-
-                        <div className="flex items-center justify-between">
+                                            <Button disabled={update_loading || (!notes?.length && !(orderData?.notes?.list?.length) && orderData?.gst === String(gstEnabled) &&
+                                                orderData?.project_gst === selectedGST?.gst)
+                                            }
+                                                onClick={handleNotesSave}
+                                                className="w-full mt-4 items-center flex gap-2">
+                                                {update_loading ? <TailSpin width={20} height={20} color="red" /> : <><Save className="w-4 h-4" /> <span>Save</span></>}
+                                            </Button>
+                                        </DialogContent>
+                                    </Dialog>
+                                )}
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent>
                             <div className="flex flex-col gap-2 items-start mt-4">
-                                <Label className="font-bold">GST?</Label>
-                                <span>{gstEnabled ? "Yes" : "No"}</span>
+                                <Label className="font-bold">Notes</Label>
+                                {notes?.length > 0 ? (
+                                    <ul className="list-[number]">
+                                        {notes?.map((note) => (
+                                            <li key={note?.id} className="text-sm text-gray-900 ml-4">{note?.note}</li>
+                                        ))}
+                                    </ul>
+                                ) : (
+                                    <span>--</span>
+                                )}
                             </div>
-                        </div>
-                    </CardContent>
-                </Card>
-            </div>
 
-            <DocumentAttachments
-                docType="Service Requests"
-                docName={service_request?.name}
-                documentData={orderData}
-                docMutate={service_request_mutate}
-                project={project}
-                isPMUserChallans={isPMUser||false}
-            />
+                            <Separator className="my-4" />
+
+                            <div className="flex items-center justify-between">
+                                <div className="flex flex-col gap-2 items-start mt-4">
+                                    <Label className="font-bold">GST?</Label>
+                                    <span>{gstEnabled ? "Yes" : "No"}</span>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
+
+            {/* Hide DocumentAttachments (Invoices and DCs) for restricted roles */}
+            {!isRestrictedRole && (
+                <DocumentAttachments
+                    docType="Service Requests"
+                    docName={service_request?.name}
+                    documentData={orderData}
+                    docMutate={service_request_mutate}
+                    project={project}
+                    isPMUserChallans={isPMUser || false}
+                />
+            )}
             {/* <SRAttachments SR={orderData} /> */}
 
             <InvoiceDialog docType={"Service Requests"} docName={service_request?.name} docMutate={service_request_mutate} />

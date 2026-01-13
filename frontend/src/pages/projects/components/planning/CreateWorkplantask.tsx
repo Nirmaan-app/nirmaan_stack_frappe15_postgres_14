@@ -85,7 +85,7 @@ export const CreateWorkplantask = ({
             if (new Date(formData.wp_end_date) < new Date(formData.wp_start_date)) {
                 toast({
                     title: "Error",
-                    description: "End Date cannot be before Start Date",
+                    description: "Planned End Date cannot be before Planned Start Date",
                     variant: "destructive",
                 });
                 return;
@@ -168,29 +168,30 @@ export const CreateWorkplantask = ({
                         />
                     </div>
 
-                    <div className="grid gap-2">
-                        <Label htmlFor="wp_status">Status</Label>
-                        <Select
-                            value={formData.wp_status}
-                            onValueChange={(value) => handleChange("wp_status", value)}
-                        >
-                            <SelectTrigger>
-                                <SelectValue placeholder="Select Status" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="Not Started">Not Started</SelectItem>
-
-                                <SelectItem value="Pending">Pending</SelectItem>
-                                <SelectItem value="In Progress">In Progress</SelectItem>
-                                <SelectItem value="Completed">Completed</SelectItem>
-                                <SelectItem value="On Hold">On Hold</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
+                    {isEditMode && (
+                        <div className="grid gap-2">
+                            <Label htmlFor="wp_status">Status</Label>
+                            <Select
+                                value={formData.wp_status}
+                                onValueChange={(value) => handleChange("wp_status", value)}
+                                disabled={true}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select Status" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="Not Started">Not Started</SelectItem>
+                                    <SelectItem value="In Progress">In Progress</SelectItem>
+                                    <SelectItem value="Completed">Completed</SelectItem>
+                                    <SelectItem value="On Hold">On Hold</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
 
                     <div className="grid grid-cols-2 gap-4">
                         <div className="grid gap-2">
-                            <Label htmlFor="wp_start_date">Start Date</Label>
+                            <Label htmlFor="wp_start_date">Planned Start Date</Label>
                             <Input
                                 id="wp_start_date"
                                 type="date"
@@ -206,7 +207,7 @@ export const CreateWorkplantask = ({
                         </div>
                         <div className="grid gap-2">
                             <Label htmlFor="wp_end_date" className={!formData.wp_start_date ? "text-gray-400" : ""}>
-                                End Date
+                                Planned End Date
                             </Label>
                             <Input
                                 id="wp_end_date"
@@ -215,7 +216,7 @@ export const CreateWorkplantask = ({
                                 min={formData.wp_start_date}
                                 disabled={!formData.wp_start_date}
                                 onChange={(e) => handleChange("wp_end_date", e.target.value)}
-                                title={!formData.wp_start_date ? "Please select a Start Date first" : ""}
+                                title={!formData.wp_start_date ? "Please select a Planned Start Date first" : ""}
                             />
                         </div>
                     </div>

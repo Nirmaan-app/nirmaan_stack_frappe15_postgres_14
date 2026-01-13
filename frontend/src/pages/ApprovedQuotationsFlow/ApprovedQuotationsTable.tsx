@@ -77,7 +77,6 @@
 //   return text.toLowerCase().split(/[\s-_/()]+/).filter(Boolean);
 // };
 
-
 // const calculateTotalAmount = (row: ApprovedQuotationsType): number => {
 //   const quote = parseFloat(row.quote || "0");
 //   const quantity = parseFloat(row.quantity || "1");
@@ -120,7 +119,6 @@
 //       }
 //     );
 
-
 //   const {
 //     data: vendorsList,
 //     vendorOptionsForSelect,
@@ -157,7 +155,7 @@
 //       let score = 0;
 
 //       if (itemNameLower.includes(query)) score += 1000;
-      
+
 //       let termsFoundCount = 0;
 //       searchTerms.forEach(term => {
 //         if (itemNameLower.includes(term)) {
@@ -172,7 +170,7 @@
 //       if (termsFoundCount === searchTerms.length && searchTerms.length > 1) {
 //         score += 200;
 //       }
-      
+
 //       return { item, score };
 //     });
 
@@ -182,7 +180,6 @@
 //       .map(result => result.item);
 
 //   }, [debouncedSearchInput, allItems]); // Depends on the debounced value
-
 
 //     // --- THIS IS THE DEFINITIVE "BEST OF BOTH WORLDS" SEARCH LOGIC ---
 //   // const itemSuggestions = useMemo(() => {
@@ -220,7 +217,7 @@
 //   //     if (termsFoundCount === searchTerms.length && searchTerms.length > 1) {
 //   //       score += 200;
 //   //     }
-      
+
 //   //     return { item, score };
 //   //   });
 
@@ -231,7 +228,7 @@
 //   //     .map(result => result.item);
 
 //   // }, [itemSearchInput, allItems]);
-  
+
 //   const vendorMap = useMemo(() => {
 //     const map = new Map<string, string>();
 //     vendorsList?.forEach((vendor) => map.set(vendor.name, vendor.vendor_name));
@@ -257,26 +254,6 @@
 
 //   // --- This hook now fetches data based on the simplified server filters ---
 //   const {
-//     data: serverData,
-//     isLoading: aqTableLoading,
-//     error: aqTableError,
-//   } = useFrappeGetDocList<ApprovedQuotationsType>(
-//     APPROVED_QUOTATION_DOCTYPE,
-//     {
-//       fields: AQ_LIST_FIELDS_TO_FETCH,
-//       filters: serverSideFilters,
-//       limit: 0, // Fetch all that match the (minimal) server filter
-//     },
-//     `aq_data_client_table_${productId}` // SWR key is now simpler
-//   );
-
-//   // The multi-select item filter is now applied on the CLIENT side
-//   const filteredData = useMemo(() => {
-//     if (!serverData) return [];
-//     // If we are on the main page AND items are selected, filter the server data.
-//     if (!productId && selectedItems.length > 0) {
-//       const selectedItemValues = new Set(
-//         selectedItems.map((item) => item.value)
 //       );
 //       return serverData.filter((aq) => selectedItemValues.has(aq.item_id));
 //     }
@@ -295,7 +272,7 @@
 //         cell: ({ row }) => (
 //           <Link
 //             className="text-blue-600 hover:underline font-medium"
-//             to={`/products/${row.original.item_id}`}
+//             to={`/products/${row.original.item_id || ""}`}
 //           >
 //             {row.getValue("item_name")}
 //           </Link>
@@ -367,8 +344,7 @@
 //         ),
 //         enableColumnFilter: false,
 //       },
-     
-     
+
 //       {
 //         id: "amount",
 //         accessorFn: (row) => calculateTotalAmount(row),
@@ -657,20 +633,10 @@
 //   );
 // }
 
-
-
-
-import { useMemo, useState, useCallback, useRef,useEffect } from "react";
-import Fuse from "fuse.js";
+import { useMemo, useState, useCallback, useRef, useEffect } from "react";
 import {
   ColumnDef,
-  useReactTable,
-  getCoreRowModel,
-  getPaginationRowModel,
-  getSortedRowModel,
-  getFilteredRowModel,
   ColumnFiltersState,
-  PaginationState,
   SortingState,
 } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
@@ -678,7 +644,9 @@ import { useFrappeGetDocList } from "frappe-react-sdk";
 
 // UI Components
 import { DataTable } from "@/components/data-table/new-data-table";
+import { cn } from "@/lib/utils";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+
 import {
   Command,
   CommandEmpty,
@@ -702,8 +670,10 @@ import { Items as ItemsType } from "@/types/NirmaanStack/Items";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { useVendorsList } from "../ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
-import { useNirmaanUnitOptions } from '@/components/helpers/SelectUnit';
+import { useNirmaanUnitOptions } from "@/components/helpers/SelectUnit";
 import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
+import { useServerDataTable } from "@/hooks/useServerDataTable";
+import { useFacetValues, FacetValue } from "@/hooks/useFacetValues";
 
 // Constants
 import {
@@ -714,7 +684,7 @@ import {
   ITEM_DOCTYPE,
   getSingleItemStaticFilters,
   SelectedItem,
-  ALL_ITEMS_CACHE_KEY
+  ALL_ITEMS_CACHE_KEY,
 } from "./approvedQuotations.constants";
 
 interface ApprovedQuotationsTableProps {
@@ -765,70 +735,80 @@ const ITEM_SEARCH_CONFIG: TokenSearchConfig = {
   },
 };
 
-
 // Utility function placed outside the component
 function calculateMatchScore(
   item: ItemsType,
   searchTokens: string[],
   config: TokenSearchConfig
 ): SearchMatch | null {
-  const { searchFields, caseSensitive, partialMatch, fieldWeights, minTokenMatches } = config as Required<TokenSearchConfig>; // Use Required type for safety
-  
+  const {
+    searchFields,
+    caseSensitive,
+    partialMatch,
+    fieldWeights,
+    minTokenMatches,
+  } = config as Required<TokenSearchConfig>; // Use Required type for safety
+
   let totalScore = 0;
   const matchedFields: string[] = [];
   const matchPositions: Record<string, number[]> = {};
-  
+
   const tokenMatchStatus = new Array(searchTokens.length).fill(false);
   let totalTokenMatches = 0;
 
   for (const field of searchFields) {
     // We assume item[field] is of type string based on your config and ItemsType definition
-    const fieldValue = String(item[field as keyof ItemsType] || ''); 
-    const searchableText = caseSensitive ? fieldValue : fieldValue.toLowerCase();
+    const fieldValue = String(item[field as keyof ItemsType] || "");
+    const searchableText = caseSensitive
+      ? fieldValue
+      : fieldValue.toLowerCase();
     const fieldWeight = fieldWeights[field as keyof ItemsType] || 1;
-    
+
     let fieldMatchCount = 0;
     const positions: number[] = [];
 
- searchTokens.forEach((token, tokenIndex) => {
-            const searchToken = caseSensitive ? token : token.toLowerCase();
-            
-            if (partialMatch) {
-                const position = searchableText.indexOf(searchToken);
-                if (position !== -1) {
-                    if (!tokenMatchStatus[tokenIndex]) {
-                        tokenMatchStatus[tokenIndex] = true;
-                        totalTokenMatches++;
-                    }
-                    fieldMatchCount++;
-                    positions.push(position);
-                }
-            } else {
-                const wordBoundaryRegex = new RegExp(`\\b${escapeRegex(searchToken)}\\b`, 'i');
-                if (wordBoundaryRegex.test(searchableText)) {
-                    if (!tokenMatchStatus[tokenIndex]) {
-                        tokenMatchStatus[tokenIndex] = true;
-                        totalTokenMatches++;
-                    }
-                    fieldMatchCount++;
-                    const match = searchableText.match(wordBoundaryRegex);
-                    if (match) positions.push(match.index || 0);
-                }
-            }
-        });
+    searchTokens.forEach((token, tokenIndex) => {
+      const searchToken = caseSensitive ? token : token.toLowerCase();
 
+      if (partialMatch) {
+        const position = searchableText.indexOf(searchToken);
+        if (position !== -1) {
+          if (!tokenMatchStatus[tokenIndex]) {
+            tokenMatchStatus[tokenIndex] = true;
+            totalTokenMatches++;
+          }
+          fieldMatchCount++;
+          positions.push(position);
+        }
+      } else {
+        const wordBoundaryRegex = new RegExp(
+          `\\b${escapeRegex(searchToken)}\\b`,
+          "i"
+        );
+        if (wordBoundaryRegex.test(searchableText)) {
+          if (!tokenMatchStatus[tokenIndex]) {
+            tokenMatchStatus[tokenIndex] = true;
+            totalTokenMatches++;
+          }
+          fieldMatchCount++;
+          const match = searchableText.match(wordBoundaryRegex);
+          if (match) positions.push(match.index || 0);
+        }
+      }
+    });
 
     if (fieldMatchCount > 0) {
       matchedFields.push(field as string);
       matchPositions[field as string] = positions;
-      
+
       // Score calculation
       const matchRatio = fieldMatchCount / searchTokens.length;
-      const avgPosition = positions.length > 0 
-          ? positions.reduce((a, b) => a + b, 0) / positions.length 
+      const avgPosition =
+        positions.length > 0
+          ? positions.reduce((a, b) => a + b, 0) / positions.length
           : 0;
       const positionScore = positions.length > 0 ? 1 / (avgPosition + 1) : 0;
-      
+
       // Combine ratio and position score, weighted by the field's importance
       totalScore += (matchRatio * 1000 + positionScore * 100) * fieldWeight;
     }
@@ -836,31 +816,30 @@ function calculateMatchScore(
 
   // Check if minimum token matches requirement is met
   if (totalTokenMatches < minTokenMatches) {
-      return null;
+    return null;
   }
 
   // Calculate if this is a full match (all tokens matched)
-  const isFullMatch = tokenMatchStatus.every(status => status);
+  const isFullMatch = tokenMatchStatus.every((status) => status);
 
   // Bonus for full matches
   if (isFullMatch) {
-      totalScore *= 1.5; // 50% bonus for full matches
+    totalScore *= 1.5; // 50% bonus for full matches
   }
 
   return {
-      item,
-      score: totalScore,
-      matchedFields,
-      matchPositions,
-      isFullMatch,
-      matchedTokenCount: totalTokenMatches
+    item,
+    score: totalScore,
+    matchedFields,
+    matchPositions,
+    isFullMatch,
+    matchedTokenCount: totalTokenMatches,
   };
 }
 
-
 // Helper to escape special regex characters
 function escapeRegex(str: string): string {
-    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 const calculateTotalAmount = (row: ApprovedQuotationsType): number => {
@@ -879,26 +858,16 @@ export default function ApprovedQuotationsTable({
   const [isPopoverOpen, setPopoverOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-   const { UnitOptions, isunitOptionsLoading } = useNirmaanUnitOptions();
-  
+  const { UnitOptions, isunitOptionsLoading } = useNirmaanUnitOptions();
 
-  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
-  const [sorting, setSorting] = useState<SortingState>([
-    { id: "creation", desc: true },
-  ]);
-  const [pagination, setPagination] = useState<PaginationState>({
-    pageIndex: 0,
-    pageSize: 50,
-  });
-  const [globalFilter, setGlobalFilter] = useState("");
-
-    // --- Debounced State (1/3) ---
+  // --- Debounced State (1/3) ---
   const [debouncedSearchInput, setDebouncedSearchInput] = useState("");
-  
+
   // --- New State for filtered suggestions (3/3) ---
   // This replaces itemSuggestions and finalRenderedSuggestions useMemos.
-  const [filteredSuggestions, setFilteredSuggestions] = useState<ItemsType[]>([]);
-
+  const [filteredSuggestions, setFilteredSuggestions] = useState<ItemsType[]>(
+    []
+  );
 
   // --- Data fetching for UI elements and enrichment ---
   const { data: allItems, isLoading: allItemsLoading } =
@@ -911,7 +880,6 @@ export default function ApprovedQuotationsTable({
         revalidateOnReconnect: false, // Don't refetch on network reconnection
       }
     );
-
 
   const {
     data: vendorsList,
@@ -939,74 +907,80 @@ export default function ApprovedQuotationsTable({
     };
   }, [itemSearchInput]);
 
-
   // --- Combined Search Logic and Final Filtering useEffect (Refactored) ---
   // This replaces the itemSuggestions useMemo and the finalRenderedSuggestions useMemo.
   useEffect(() => {
     const trimmedInput = debouncedSearchInput.trim();
     const allOptions = allItems || [];
-    
+
     // 1. Check if we should search based on length or data presence
-    if (!trimmedInput || trimmedInput.length < ITEM_SEARCH_CONFIG.minSearchLength || !allItems) {
-        setFilteredSuggestions([]);
-        return;
+    if (
+      !trimmedInput ||
+      trimmedInput.length < ITEM_SEARCH_CONFIG.minSearchLength ||
+      !allItems
+    ) {
+      setFilteredSuggestions([]);
+      return;
     }
 
     // 2. Tokenize the search input
     const searchTokens = trimmedInput
-        .split(ITEM_SEARCH_CONFIG.tokenSeparator)
-        .map(token => token.trim())
-        .filter(token => token.length >= ITEM_SEARCH_CONFIG.minTokenLength);
+      .split(ITEM_SEARCH_CONFIG.tokenSeparator)
+      .map((token) => token.trim())
+      .filter((token) => token.length >= ITEM_SEARCH_CONFIG.minTokenLength);
 
     if (searchTokens.length === 0) {
-        setFilteredSuggestions([]);
-        return;
+      setFilteredSuggestions([]);
+      return;
     }
 
     // 3. Score and filter all options
     const matchResults: SearchMatch[] = [];
-    
+
     for (const option of allOptions) {
-        // Use custom function
-        const matchResult = calculateMatchScore(option, searchTokens, ITEM_SEARCH_CONFIG);
-        if (matchResult) {
-            matchResults.push(matchResult);
-        }
+      // Use custom function
+      const matchResult = calculateMatchScore(
+        option,
+        searchTokens,
+        ITEM_SEARCH_CONFIG
+      );
+      if (matchResult) {
+        matchResults.push(matchResult);
+      }
     }
 
     // 4. Multi-tiered Sorting (The Ranking)
     matchResults.sort((a, b) => {
-        // Primary sort: by full match status (true first: -1)
-        if (a.isFullMatch !== b.isFullMatch) {
-            return a.isFullMatch ? -1 : 1;
-        }
-        // Secondary sort: by number of matched tokens (higher count first)
-        if (a.matchedTokenCount !== b.matchedTokenCount) {
-            return b.matchedTokenCount - a.matchedTokenCount;
-        }
-        // Tertiary sort: by score (higher score first)
-        return b.score - a.score;
+      // Primary sort: by full match status (true first: -1)
+      if (a.isFullMatch !== b.isFullMatch) {
+        return a.isFullMatch ? -1 : 1;
+      }
+      // Secondary sort: by number of matched tokens (higher count first)
+      if (a.matchedTokenCount !== b.matchedTokenCount) {
+        return b.matchedTokenCount - a.matchedTokenCount;
+      }
+      // Tertiary sort: by score (higher score first)
+      return b.score - a.score;
     });
 
     // 5. Extract items AND perform final filtering (excluding already selected items)
     const selectedItemNames = new Set(selectedItems.map((item) => item.value));
-    
+
     const finalSuggestions = matchResults
-        .map(result => result.item)
-        .filter(item => !selectedItemNames.has(item.name)); // Filter out selected items here
-        
+      .map((result) => result.item)
+      .filter((item) => !selectedItemNames.has(item.name)); // Filter out selected items here
+
     setFilteredSuggestions(finalSuggestions);
-
   }, [debouncedSearchInput, allItems, selectedItems]); // Dependencies: debounced input, all items, and selected items list
-  
-    // Removed original itemSuggestions useMemo and finalRenderedSuggestions useMemo
 
+  // Removed original itemSuggestions useMemo and finalRenderedSuggestions useMemo
 
   const vendorMap = useMemo(() => {
     const map = new Map<string, string>();
     vendorsList?.forEach((vendor) => map.set(vendor.name, vendor.vendor_name));
     return map;
   }, [vendorsList]);
+
   const poProjectMap = useMemo(() => {
     const map: { [key: string]: string } = {};
     poList?.forEach((po) => {
@@ -1014,45 +988,6 @@ export default function ApprovedQuotationsTable({
     });
     return map;
   }, [poList]);
-
-  // --- FIX: This is now the ONLY server-side filter logic ---
-  const serverSideFilters = useMemo(() => {
-    // If we are on a specific product page, apply a server filter.
-    if (productId) {
-      return getSingleItemStaticFilters(productId);
-    }
-    // Otherwise, on the main page, apply NO filters. Fetch everything.
-    return [];
-  }, [productId]);
-
-  // --- This hook now fetches data based on the simplified server filters ---
-  const {
-    data: serverData,
-    isLoading: aqTableLoading,
-    error: aqTableError,
-  } = useFrappeGetDocList<ApprovedQuotationsType>(
-    APPROVED_QUOTATION_DOCTYPE,
-    {
-      fields: AQ_LIST_FIELDS_TO_FETCH,
-      filters: serverSideFilters,
-      limit: 0, // Fetch all that match the (minimal) server filter
-    },
-    `aq_data_client_table_${productId}` // SWR key is now simpler
-  );
-
-  // The multi-select item filter is now applied on the CLIENT side
-  const filteredData = useMemo(() => {
-    if (!serverData) return [];
-    // If we are on the main page AND items are selected, filter the server data.
-    if (!productId && selectedItems.length > 0) {
-      const selectedItemValues = new Set(
-        selectedItems.map((item) => item.value)
-      );
-      return serverData.filter((aq) => selectedItemValues.has(aq.item_id));
-    }
-    // Otherwise, return the full dataset fetched from the server.
-    return serverData;
-  }, [serverData, selectedItems, productId]);
 
   const columns = useMemo<ColumnDef<ApprovedQuotationsType>[]>(
     () => [
@@ -1062,22 +997,24 @@ export default function ApprovedQuotationsTable({
           <DataTableColumnHeader column={column} title="Item" />
         ),
         filterFn: facetedFilterFn,
-        cell: ({ row }) => (
-          row.original.item_id ? (<Link
-            className="text-blue-600 hover:underline font-medium"
-            to={`/products/${row.original.item_id}?unit=${row.original.unit}?make=${row.original.make}`}
-          >
-            {row.getValue("item_name")}
-          </Link>):(<div className="font-medium truncate">
-            {row.original.item_name}
-          </div>)
-        
-          
-        ),
+        cell: ({ row }) =>
+          row.original.item_id ? (
+            <Link
+              className="text-blue-600 hover:underline font-medium"
+              to={`/products/${row.original.item_id}?unit=${row.original.unit}?make=${row.original.make}`}
+            >
+              {row.getValue("item_name")}
+            </Link>
+          ) : (
+            <div className="font-medium truncate">{row.original.item_name}</div>
+          ),
       },
       {
         id: "project_name",
-        accessorFn: (row) => poProjectMap[row.procurement_order] || "N/A",
+        accessorFn: (row) =>
+          (row.procurement_order
+            ? poProjectMap[row.procurement_order]
+            : null) || "N/A",
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Project" />
         ),
@@ -1107,7 +1044,7 @@ export default function ApprovedQuotationsTable({
         },
         filterFn: facetedFilterFn,
       },
-       {
+      {
         accessorKey: "unit",
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Unit" />
@@ -1117,7 +1054,7 @@ export default function ApprovedQuotationsTable({
         ),
         filterFn: facetedFilterFn,
       },
-       {
+      {
         accessorKey: "quantity",
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Qty" />
@@ -1141,8 +1078,7 @@ export default function ApprovedQuotationsTable({
         ),
         enableColumnFilter: false,
       },
-     
-     
+
       {
         id: "amount",
         accessorFn: (row) => calculateTotalAmount(row),
@@ -1176,7 +1112,7 @@ export default function ApprovedQuotationsTable({
           return poId ? (
             <Link
               className="text-blue-600 hover:underline font-medium"
-              to={`/project-payments/${poId.replaceAll("/", "&=")}`}
+              to={`/project-payments/${poId.replace(/\//g, "&=")}`}
             >
               {poId}
             </Link>
@@ -1202,58 +1138,128 @@ export default function ApprovedQuotationsTable({
     [vendorMap, poProjectMap]
   );
 
-  // A single, fully client-controlled table instance using the client-filtered data
-  const table = useReactTable({
+  const {
+    table,
     data: filteredData,
-    columns,
-    state: {
-      columnFilters,
-      pagination,
-      sorting,
-      globalFilter,
-    },
-    onColumnFiltersChange: setColumnFilters,
-    onPaginationChange: setPagination,
-    onSortingChange: setSorting,
-    onGlobalFilterChange: setGlobalFilter,
-    getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
+    totalCount,
+    isLoading: aqTableLoading,
+    error: aqTableError,
+    columnFilters,
+    searchTerm: tableSearchTerm,
+    setSearchTerm,
+    selectedSearchField: tableSelectedSearchField,
+    setSelectedSearchField,
+  } = useServerDataTable<ApprovedQuotationsType>({
+    doctype: APPROVED_QUOTATION_DOCTYPE,
+    columns: columns,
+    fetchFields: AQ_LIST_FIELDS_TO_FETCH,
+    searchableFields: AQ_SEARCHABLE_FIELDS,
+    urlSyncKey: productId ? `aq_details_${productId}` : "aq_table",
+    defaultSort: "creation desc",
+    additionalFilters: useMemo(() => {
+      const filters = [];
+      if (productId) filters.push(["item_id", "=", productId]);
+      if (selectedItems.length > 0) {
+        filters.push(["item_id", "in", selectedItems.map((i) => i.value)]);
+      }
+      return filters;
+    }, [productId, selectedItems]),
   });
 
-  const itemFacetOptions = useMemo(() => {
-    if (!allItems) return [];
-    return allItems.map((item) => ({
-      label: item.item_name,
-      value: item.item_name,
-    }));
-  }, [allItems]);
+  const { facetOptions: projectFacets, isLoading: projectFacetsLoading } =
+    useFacetValues({
+      doctype: APPROVED_QUOTATION_DOCTYPE,
+      field: "procurement_order",
+      currentFilters: columnFilters,
+      searchTerm: tableSearchTerm,
+      selectedSearchField: tableSelectedSearchField,
+      additionalFilters: useMemo(() => {
+        const filters = [];
+        if (productId) filters.push(["item_id", "=", productId]);
+        if (selectedItems.length > 0) {
+          filters.push(["item_id", "in", selectedItems.map((i) => i.value)]);
+        }
+        return filters;
+      }, [productId, selectedItems]),
+    });
 
-  const projectFacetOptions = useMemo(() => {
-    if (!poList) return [];
-    const projectNames = new Set(
-      poList.map((po) => po.project_name).filter(Boolean)
-    );
-    return Array.from(projectNames).map((name) => ({
-      label: name!,
-      value: name!,
-    }));
-  }, [poList]);
+  const { facetOptions: vendorFacets, isLoading: vendorFacetsLoading } =
+    useFacetValues({
+      doctype: APPROVED_QUOTATION_DOCTYPE,
+      field: "vendor",
+      currentFilters: columnFilters,
+      searchTerm: tableSearchTerm,
+      selectedSearchField: tableSelectedSearchField,
+      additionalFilters: useMemo(() => {
+        const filters = [];
+        if (productId) filters.push(["item_id", "=", productId]);
+        if (selectedItems.length > 0) {
+          filters.push(["item_id", "in", selectedItems.map((i) => i.value)]);
+        }
+        return filters;
+      }, [productId, selectedItems]),
+    });
+
+  const { facetOptions: unitFacets, isLoading: unitFacetsLoading } =
+    useFacetValues({
+      doctype: APPROVED_QUOTATION_DOCTYPE,
+      field: "unit",
+      currentFilters: columnFilters,
+      searchTerm: tableSearchTerm,
+      selectedSearchField: tableSelectedSearchField,
+      additionalFilters: useMemo(() => {
+        const filters = [];
+        if (productId) filters.push(["item_id", "=", productId]);
+        if (selectedItems.length > 0) {
+          filters.push(["item_id", "in", selectedItems.map((i) => i.value)]);
+        }
+        return filters;
+      }, [productId, selectedItems]),
+    });
+
+  /* --- Context-Aware Facet Logic (Client-Side) --- */
+  const projectFacetOptionsMapped = useMemo(() => {
+    return projectFacets
+      .map((f: { label: string; value: string }) => ({
+        label: poProjectMap[f.value] || f.value,
+        value: f.value,
+      }))
+      .sort((a: { label: string }, b: { label: string }) =>
+        a.label.localeCompare(b.label)
+      );
+  }, [projectFacets, poProjectMap]);
 
   const facetFilterOptions = useMemo(
     () => ({
-      // item_name: { title: "Item", options: itemFacetOptions },
-      project_name: { title: "Project", options: projectFacetOptions },
-      vendor: { title: "Vendor", options: vendorOptionsForSelect },
-      unit: { title: "Unit", options: UnitOptions },
+      procurement_order: {
+        title: "Project",
+        options: projectFacetOptionsMapped,
+        isLoading: projectFacetsLoading,
+      },
+      vendor: {
+        title: "Vendor",
+        options: vendorFacets,
+        isLoading: vendorFacetsLoading,
+      },
+      unit: {
+        title: "Unit",
+        options: unitFacets,
+        isLoading: unitFacetsLoading,
+      },
     }),
-    [itemFacetOptions, projectFacetOptions, vendorOptionsForSelect]
+    [
+      projectFacetOptionsMapped,
+      projectFacetsLoading,
+      vendorFacets,
+      vendorFacetsLoading,
+      unitFacets,
+      unitFacetsLoading,
+    ]
   );
 
   const handleItemSelect = useCallback(
     (item: ItemsType) => {
-    // setItemSearchInput(""); // Optionally clear the input on select
+      // setItemSearchInput(""); // Optionally clear the input on select
 
       if (!selectedItems.some((selected) => selected.value === item.name)) {
         setSelectedItems((prev) => [
@@ -1280,7 +1286,16 @@ export default function ApprovedQuotationsTable({
   // console.log("filteredSuggestions",filteredSuggestions)
 
   return (
-     <div className="h-[calc(100vh-80px)] flex flex-col gap-2 overflow-hidden">
+    <div
+      className={cn(
+        "flex flex-col gap-2 overflow-hidden",
+        totalCount > 10
+          ? "h-[calc(100vh-80px)]"
+          : totalCount > 0
+          ? "h-auto"
+          : ""
+      )}
+    >
       {!productId ? (
         <div className="space-y-3">
           <div className="flex justify-between items-center">
@@ -1369,33 +1384,34 @@ export default function ApprovedQuotationsTable({
                   <CommandEmpty>
                     {allItemsLoading
                       ? "Loading products..."
-                      : debouncedSearchInput.length > 0 && filteredSuggestions.length === 0
+                      : debouncedSearchInput.length > 0 &&
+                        filteredSuggestions.length === 0
                       ? "No matching products found."
                       : "Start typing to search products..."}
                   </CommandEmpty>
                   <CommandGroup>
                     {/* Use the new state variable here */}
                     {filteredSuggestions.map((suggestion) => (
-                        <CommandItem
-                          key={suggestion.name}
-                          value={suggestion.name}
-                          className="flex justify-between items-center"
+                      <CommandItem
+                        key={suggestion.name}
+                        value={suggestion.name}
+                        className="flex justify-between items-center"
+                      >
+                        <span>{suggestion.item_name}</span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleItemSelect(suggestion);
+                          }}
+                          aria-label={`Add ${suggestion.item_name}`}
                         >
-                          <span>{suggestion.item_name}</span>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleItemSelect(suggestion);
-                            }}
-                            aria-label={`Add ${suggestion.item_name}`}
-                          >
-                            <PlusCircleIcon className="h-5 w-5 text-muted-foreground hover:text-primary" />
-                          </Button>
-                        </CommandItem>
-                      ))}
+                          <PlusCircleIcon className="h-5 w-5 text-muted-foreground hover:text-primary" />
+                        </Button>
+                      </CommandItem>
+                    ))}
                   </CommandGroup>
                 </CommandList>
               </Command>
@@ -1415,12 +1431,12 @@ export default function ApprovedQuotationsTable({
         columns={columns}
         isLoading={overallIsLoading}
         error={overallError}
-        totalCount={table.getFilteredRowModel().rows.length}
+        totalCount={totalCount}
         searchFieldOptions={AQ_SEARCHABLE_FIELDS}
-        selectedSearchField={AQ_SEARCHABLE_FIELDS[0].value}
-        onSelectedSearchFieldChange={() => {}} // No longer needed
-        searchTerm={globalFilter}
-        onSearchTermChange={setGlobalFilter}
+        selectedSearchField={tableSelectedSearchField}
+        onSelectedSearchFieldChange={setSelectedSearchField}
+        searchTerm={tableSearchTerm}
+        onSearchTermChange={setSearchTerm}
         showSearchBar={productId ? true : false}
         facetFilterOptions={facetFilterOptions}
         dateFilterColumns={AQ_DATE_COLUMNS}
