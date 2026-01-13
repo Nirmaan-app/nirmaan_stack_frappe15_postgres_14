@@ -85,12 +85,15 @@ export default function Profile() {
   );
 
   // Fetch user permissions (for admin OR when viewing own profile)
+  // Note: We fetch from "User Permission" (Frappe's built-in) instead of
+  // "Nirmaan User Permissions" (mirror) so that the document names match
+  // when performing delete operations
   const {
     data: permission_list,
     isLoading: permission_list_loading,
     mutate: permission_list_mutate,
   } = useFrappeGetDocList<NirmaanUserPermissions>(
-    "Nirmaan User Permissions",
+    "User Permission",
     {
       fields: ["name", "for_value", "creation"],
       filters: [
