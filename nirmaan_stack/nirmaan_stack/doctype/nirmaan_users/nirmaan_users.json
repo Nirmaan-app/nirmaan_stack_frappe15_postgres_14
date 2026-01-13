@@ -84,7 +84,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-12-31 12:42:51.099105",
+ "modified": "2026-01-13 21:00:14.744628",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Nirmaan Users",
@@ -162,6 +162,33 @@
    "role": "Nirmaan Accountant",
    "share": 1,
    "write": 1
+  },
+  {
+   "role": "Nirmaan Design Lead",
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "share": 1
+  },
+  {
+   "role": "Nirmaan HR Executive",
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "share": 1
+  },
+  {
+   "role": "Nirmaan PMO Executive",
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "share": 1
   }
  ],
  "sort_field": "modified",

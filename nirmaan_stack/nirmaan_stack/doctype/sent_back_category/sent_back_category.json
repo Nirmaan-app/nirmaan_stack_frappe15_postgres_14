@@ -98,7 +98,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2025-12-16 08:38:06.626296",
+ "modified": "2026-01-13 21:00:14.754253",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Sent Back Category",
@@ -199,6 +199,24 @@
    "role": "Nirmaan Design Lead",
    "share": 1,
    "write": 1
+  },
+  {
+   "role": "Nirmaan HR Executive",
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "share": 1
+  },
+  {
+   "role": "Nirmaan PMO Executive",
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "share": 1
   }
  ],
  "row_format": "Dynamic",
