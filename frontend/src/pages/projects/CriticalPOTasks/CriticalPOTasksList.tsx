@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -10,12 +11,22 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
 import { TaskStatusBadge } from "./components/TaskStatusBadge";
 import { EditTaskDialog } from "./components/EditTaskDialog";
 import { LinkedPOsColumn } from "./components/LinkedPOsColumn";
 import { formatDate } from "@/utils/FormatDate";
-import { Settings2 } from "lucide-react";
+import { Settings2, ChevronRight, MoreVertical } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -23,6 +34,104 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { LinkPODialog } from "./components/LinkPODialog";
+
+// Mobile Card Component for tasks
+interface TaskMobileCardProps {
+  task: CriticalPOTask;
+  projectId: string;
+  mutate: () => Promise<any>;
+  canEdit: boolean;
+}
+
+const TaskMobileCard: React.FC<TaskMobileCardProps> = ({ task, projectId, mutate, canEdit }) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  // Parse linked POs count
+  const linkedPOsCount = React.useMemo(() => {
+    try {
+      const associated = task.associated_pos;
+      if (typeof associated === "string") {
+        const parsed = JSON.parse(associated);
+        return parsed?.pos?.length || 0;
+      } else if (associated && typeof associated === "object") {
+        return associated.pos?.length || 0;
+      }
+      return 0;
+    } catch {
+      return 0;
+    }
+  }, [task.associated_pos]);
+
+  return (
+    <Card className="p-3">
+      {/* Header: Item name + Actions */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <h4 className="font-medium text-sm leading-tight">{task.item_name}</h4>
+          <div className="flex flex-wrap gap-1 mt-1.5">
+            <Badge variant="outline" className="text-xs">
+              {task.critical_po_category}
+            </Badge>
+            {task.sub_category && (
+              <Badge variant="secondary" className="text-xs">
+                {task.sub_category}
+              </Badge>
+            )}
+            <TaskStatusBadge status={task.status} />
+          </div>
+        </div>
+        {canEdit && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <EditTaskDialog task={task} projectId={projectId} mutate={mutate} />
+              <LinkPODialog task={task} projectId={projectId} mutate={mutate} />
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
+
+      {/* Deadline info */}
+      <div className="mt-2 text-xs text-muted-foreground space-y-0.5">
+        <div className="flex items-center gap-1">
+          <span className="text-gray-500">Deadline:</span>
+          <span className="font-medium">{formatDate(task.po_release_date)}</span>
+        </div>
+        {task.revised_date && (
+          <div className="flex items-center gap-1">
+            <span className="text-amber-600">Revised:</span>
+            <span className="font-medium text-amber-700">{formatDate(task.revised_date)}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Remarks (if any) */}
+      {task.remarks && (
+        <div className="mt-2 text-xs text-gray-500 bg-gray-50 rounded p-2">
+          {task.remarks}
+        </div>
+      )}
+
+      {/* Associated POs - collapsible section */}
+      {linkedPOsCount > 0 && (
+        <Collapsible open={isOpen} onOpenChange={setIsOpen} className="mt-2 pt-2 border-t">
+          <CollapsibleTrigger className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors w-full">
+            <ChevronRight className={`h-3 w-3 transition-transform ${isOpen ? "rotate-90" : ""}`} />
+            <span>Show {linkedPOsCount} linked PO{linkedPOsCount > 1 ? "s" : ""}</span>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="mt-2">
+            <LinkedPOsColumn task={task} projectId={projectId} mutate={mutate} canDelete={canEdit} />
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+    </Card>
+  );
+};
 
 interface CriticalPOTasksListProps {
   tasks: CriticalPOTask[];
@@ -127,8 +236,8 @@ export const CriticalPOTasksList: React.FC<CriticalPOTasksListProps> = ({
           </div>
 
           {/* Filters */}
-          <div className="flex flex-wrap gap-4 mb-6">
-            <div className="flex-1 min-w-[200px]">
+          <div className="flex flex-col sm:flex-row flex-wrap gap-4 mb-6">
+            <div className="flex-1 min-w-0 sm:min-w-[200px]">
               <Input
                 placeholder="Search by item, category, or sub-category..."
                 value={searchQuery}
@@ -137,7 +246,7 @@ export const CriticalPOTasksList: React.FC<CriticalPOTasksListProps> = ({
               />
             </div>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[180px]">
+              <SelectTrigger className="w-full sm:w-[180px]">
                 <SelectValue placeholder="Filter by Status" />
               </SelectTrigger>
               <SelectContent>
@@ -149,7 +258,7 @@ export const CriticalPOTasksList: React.FC<CriticalPOTasksListProps> = ({
               </SelectContent>
             </Select>
             <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-              <SelectTrigger className="w-[180px]">
+              <SelectTrigger className="w-full sm:w-[180px]">
                 <SelectValue placeholder="Filter by Category" />
               </SelectTrigger>
               <SelectContent>
@@ -163,58 +272,74 @@ export const CriticalPOTasksList: React.FC<CriticalPOTasksListProps> = ({
             </Select>
           </div>
 
-          {/* Table */}
+          {/* Task List */}
           {sortedTasks.length === 0 ? (
             <div className="text-center py-10 text-gray-500">
               <p>No tasks found matching your filters.</p>
             </div>
           ) : (
-            <div className="border rounded-md">
-              <Table>
-                <TableHeader className="bg-gray-50">
-                  <TableRow>
-                    <TableHead className="w-[15%]">Item Name</TableHead>
-                    <TableHead className="w-[10%]">Category</TableHead>
-                    <TableHead className="w-[8%]">Sub Category</TableHead>
-                    <TableHead className="w-[9%]">PO Release Deadline</TableHead>
-                    <TableHead className="w-[9%]">Revised Deadline</TableHead>
-                    <TableHead className="w-[10%]">Status</TableHead>
-                    <TableHead className="w-[15%]">Remarks</TableHead>
-                    <TableHead className="w-[14%]">Associated POs</TableHead>
-                    {canEdit && <TableHead className="w-[10%] text-right">Actions</TableHead>}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {sortedTasks.map((task) => (
-                    <TableRow key={task.name} className="hover:bg-gray-50">
-                      <TableCell className="font-medium">{task.item_name}</TableCell>
-                      <TableCell>{task.critical_po_category}</TableCell>
-                      <TableCell className="text-gray-500">
-                        {task.sub_category || "-"}
-                      </TableCell>
-                      <TableCell>{formatDate(task.po_release_date)}</TableCell>
-                      <TableCell className="text-gray-500">
-                        {task.revised_date ? formatDate(task.revised_date) : "-"}
-                      </TableCell>
-                      <TableCell>
-                        <TaskStatusBadge status={task.status} />
-                      </TableCell>
-                      <TableCell className="text-gray-500 text-sm max-w-[200px] whitespace-normal break-words">
-                        {task.remarks || "-"}
-                      </TableCell>
-                      <TableCell>
-                        <LinkedPOsColumn task={task} projectId={projectId} mutate={mutate} canDelete={canEdit} />
-                      </TableCell>
-                      {canEdit && (
-                        <TableCell className="text-right">
-                          <EditTaskDialog task={task} projectId={projectId} mutate={mutate} />
-                        </TableCell>
-                      )}
+            <>
+              {/* MOBILE VIEW - Card-based layout */}
+              <div className="sm:hidden space-y-3">
+                {sortedTasks.map((task) => (
+                  <TaskMobileCard
+                    key={task.name}
+                    task={task}
+                    projectId={projectId}
+                    mutate={mutate}
+                    canEdit={canEdit}
+                  />
+                ))}
+              </div>
+
+              {/* DESKTOP VIEW - Table with horizontal scroll */}
+              <div className="hidden sm:block border rounded-md overflow-x-auto">
+                <Table>
+                  <TableHeader className="bg-gray-50">
+                    <TableRow>
+                      <TableHead className="min-w-[150px]">Item Name</TableHead>
+                      <TableHead className="min-w-[100px]">Category</TableHead>
+                      <TableHead className="min-w-[100px]">Sub Category</TableHead>
+                      <TableHead className="min-w-[120px]">PO Release Deadline</TableHead>
+                      <TableHead className="min-w-[120px]">Revised Deadline</TableHead>
+                      <TableHead className="min-w-[100px]">Status</TableHead>
+                      <TableHead className="min-w-[150px]">Remarks</TableHead>
+                      <TableHead className="min-w-[140px]">Associated POs</TableHead>
+                      {canEdit && <TableHead className="min-w-[100px] text-right">Actions</TableHead>}
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {sortedTasks.map((task) => (
+                      <TableRow key={task.name} className="hover:bg-gray-50">
+                        <TableCell className="font-medium">{task.item_name}</TableCell>
+                        <TableCell>{task.critical_po_category}</TableCell>
+                        <TableCell className="text-gray-500">
+                          {task.sub_category || "-"}
+                        </TableCell>
+                        <TableCell>{formatDate(task.po_release_date)}</TableCell>
+                        <TableCell className="text-gray-500">
+                          {task.revised_date ? formatDate(task.revised_date) : "-"}
+                        </TableCell>
+                        <TableCell>
+                          <TaskStatusBadge status={task.status} />
+                        </TableCell>
+                        <TableCell className="text-gray-500 text-sm max-w-[200px] whitespace-normal break-words">
+                          {task.remarks || "-"}
+                        </TableCell>
+                        <TableCell>
+                          <LinkedPOsColumn task={task} projectId={projectId} mutate={mutate} canDelete={canEdit} />
+                        </TableCell>
+                        {canEdit && (
+                          <TableCell className="text-right">
+                            <EditTaskDialog task={task} projectId={projectId} mutate={mutate} />
+                          </TableCell>
+                        )}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
