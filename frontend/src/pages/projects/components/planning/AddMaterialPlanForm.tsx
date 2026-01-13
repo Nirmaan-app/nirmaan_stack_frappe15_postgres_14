@@ -226,7 +226,7 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
     // Search Logic Effect
     useEffect(() => {
         const trimmedInput = debouncedSearchInput.trim();
-        const allOptions = itemsByPackage || [];
+        const allOptions = Array.isArray(itemsByPackage) ? itemsByPackage : [];
 
         // If input is empty, show ALL available (unselected) items
         if (!trimmedInput) {
