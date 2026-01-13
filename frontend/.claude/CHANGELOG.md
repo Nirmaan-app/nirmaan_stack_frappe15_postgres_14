@@ -4,6 +4,46 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-13: Fix CSRF Token Error on HR Executive Login
+
+### Summary
+Fixed CSRFTokenError that occurred when logging in as HR Executive. The HR Dashboard was making POST requests before the CSRF token was available.
+
+### Root Cause
+- `useFrappePostCall` makes POST requests which require CSRF tokens
+- The `useEffect` with empty dependency array fired immediately on component mount
+- After login redirect, the CSRF token cookie may not be synchronized yet
+- Result: Multiple API calls failed with `CSRFTokenError`
+
+### Solution
+Changed from `useFrappePostCall` (POST) to `useFrappeGetCall` (GET) for the read-only `get_user_role_counts` API. GET requests don't require CSRF token validation.
+
+### Files Modified
+
+- `src/components/layout/dashboards/dashboard-hr.tsx`:
+  - Changed import from `useFrappePostCall` to `useFrappeGetCall`
+  - Removed manual state management (`useState` for roleCounts, isLoading, error)
+  - Removed `useEffect` that called the API on mount
+  - Replaced with SWR-based `useFrappeGetCall` hook which handles request timing automatically
+
+### Pattern: Avoiding CSRF Issues
+
+**Use GET for read-only operations:**
+```typescript
+// ❌ POST - requires CSRF token, may fail on initial load
+const { call } = useFrappePostCall("api.method");
+useEffect(() => { call({}); }, []);
+
+// ✅ GET - no CSRF required, SWR handles timing
+const { data, isLoading, error } = useFrappeGetCall("api.method");
+```
+
+**When to use each:**
+- `useFrappeGetCall` - Read-only data fetching (counts, lists, lookups)
+- `useFrappePostCall` - Data mutations (create, update, delete)
+
+---
+
 ## 2026-01-12: Project Creation Dialog Layout Fix and Customer PO Button
 
 ### Summary
