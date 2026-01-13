@@ -107,6 +107,7 @@ export const CriticalPOTaskLinkingSection: React.FC<CriticalPOTaskLinkingSection
     setSelectedStatus,
     selectedTaskDetails,
     linkedPOsToSelectedTask,
+    poLinkedToOtherTasks,
   } = linkingState;
 
   // Extract PO ID (2nd part after /)
@@ -260,6 +261,34 @@ export const CriticalPOTaskLinkingSection: React.FC<CriticalPOTaskLinkingSection
                     </div>
                   )}
                 </div>
+
+                {/* Cross-Task Conflict Warning - PO already linked to OTHER tasks */}
+                {poLinkedToOtherTasks.length > 0 && (
+                  <div className="pt-2 mt-2 border-t border-emerald-200">
+                    <div className="flex items-start gap-2 p-2 bg-amber-50 rounded-md border border-amber-200">
+                      <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                      <div>
+                        <p className="text-xs font-medium text-amber-700">
+                          This PO is already linked to other task(s):
+                        </p>
+                        <ul className="mt-1 space-y-0.5">
+                          {poLinkedToOtherTasks.map((linkedTask) => (
+                            <li
+                              key={linkedTask.taskName}
+                              className="text-xs text-slate-600"
+                            >
+                              • {linkedTask.itemName}{" "}
+                              <span className="text-slate-400">({linkedTask.category})</span>
+                            </li>
+                          ))}
+                        </ul>
+                        <p className="text-xs text-amber-600 mt-1.5 font-medium">
+                          Linking will associate this PO with multiple tasks.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Linked POs Warning */}
                 {linkedPOsToSelectedTask.length > 0 && (
