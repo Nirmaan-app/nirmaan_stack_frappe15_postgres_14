@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo,useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import {
     useFrappeGetDoc,
@@ -8,6 +8,7 @@ import {
     useFrappeDocumentEventListener,
 } from 'frappe-react-sdk';
 import ReactSelect from 'react-select';
+import { TailSpin } from 'react-loader-spinner';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -57,6 +58,7 @@ import {
     UserMinus,
     AlertTriangle,
     Upload,
+    Printer
 } from 'lucide-react';
 
 import { AssignAssetDialog } from './components/AssignAssetDialog';
@@ -130,6 +132,52 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
     // Upload declaration state
     const [declarationFile, setDeclarationFile] = useState<File | null>(null);
     const [isUploadingDeclaration, setIsUploadingDeclaration] = useState(false);
+
+    // Print state
+    const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+
+    const handleDownloadPrint = useCallback(async () => {
+        if (!assetId) return;
+
+        setIsGeneratingPdf(true);
+        try {
+            const params = new URLSearchParams({
+                doctype: ASSET_MASTER_DOCTYPE,
+                name: assetId,
+                format: 'Asset Master Form',
+                no_letterhead: '0',
+                _lang: 'en'
+            });
+
+            const response = await fetch(`/api/method/frappe.utils.print_format.download_pdf?${params.toString()}`);
+            if (!response.ok) throw new Error('PDF generation failed');
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `${assetId}_Form.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+
+            toast({
+                title: "Success",
+                description: "Print format downloaded successfully.",
+                variant: "success",
+            });
+        } catch (error) {
+            console.error('Print Error:', error);
+            toast({
+                title: "Failed",
+                description: "Failed to generate print format.",
+                variant: "destructive",
+            });
+        } finally {
+            setIsGeneratingPdf(false);
+        }
+    }, [assetId, toast]);
 
     // Edit form state
     const [editForm, setEditForm] = useState({
@@ -366,6 +414,22 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
 
                 {canManageAssets && !isLoading && (
                     <div className="flex items-center gap-2">
+                        {/* Print Button */}
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleDownloadPrint}
+                            disabled={isGeneratingPdf}
+                            className="gap-2"
+                        >
+                            {isGeneratingPdf ? (
+                                <TailSpin height={16} width={16} color="grey" />
+                            ) : (
+                                <Printer className="h-4 w-4" />
+                            )}
+                            <span className="hidden sm:inline">{isGeneratingPdf ? 'Printing...' : 'Print'}</span>
+                        </Button>
+
                         {/* Assignment Actions */}
                         {asset?.current_assignee ? (
                             <Button
@@ -387,7 +451,6 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                                 <span className="hidden sm:inline">Assign</span>
                             </Button>
                         )}
-
                         {/* Edit Button */}
                         <Button
                             variant="outline"
