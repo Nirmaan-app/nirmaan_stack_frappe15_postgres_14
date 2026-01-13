@@ -1,8 +1,7 @@
-import { useFrappeGetDocCount, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeGetDocCount, useFrappeGetCall } from "frappe-react-sdk";
 import { UsersRound, ArrowUpRight } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { TailSpin } from "react-loader-spinner";
-import { useEffect, useState } from "react";
 import { getRoleColors, getRoleLabel } from "@/utils/roleColors";
 
 // Brand primary color (rose)
@@ -41,11 +40,6 @@ const RoleCountPill: React.FC<RoleCountPillProps> = ({
 export const HRDashboard = () => {
   const navigate = useNavigate();
 
-  // State for role counts
-  const [roleCounts, setRoleCounts] = useState<Record<string, number>>({});
-  const [isLoadingRoles, setIsLoadingRoles] = useState(true);
-  const [roleError, setRoleError] = useState<string | null>(null);
-
   // Fetch total users count
   const {
     data: usersCount,
@@ -59,33 +53,26 @@ export const HRDashboard = () => {
     "hr_users_count"
   );
 
-  // Fetch role counts via API
-  const { call: getUserRoleCounts } = useFrappePostCall(
-    "nirmaan_stack.api.users.get_user_role_counts"
+  // Fetch role counts via GET API (using GET avoids CSRF token issues on initial load)
+  const {
+    data: roleCountsData,
+    isLoading: isLoadingRoles,
+    error: roleError,
+  } = useFrappeGetCall<{ message: Record<string, number> }>(
+    "nirmaan_stack.api.users.get_user_role_counts",
+    undefined,
+    "hr_role_counts",
+    {
+      revalidateOnFocus: false,
+    }
   );
 
-  useEffect(() => {
-    const fetchRoleCounts = async () => {
-      try {
-        setIsLoadingRoles(true);
-        const result = await getUserRoleCounts({});
-        setRoleCounts(result.message || {});
-        setRoleError(null);
-      } catch (err) {
-        console.error("Failed to fetch role counts:", err);
-        setRoleError("Failed to load role statistics");
-        setRoleCounts({});
-      } finally {
-        setIsLoadingRoles(false);
-      }
-    };
-
-    fetchRoleCounts();
-  }, []);
+  // Extract role counts from response
+  const roleCounts = roleCountsData?.message || {};
 
   // Convert role counts object to sorted array
   const roleCountsArray = Object.entries(roleCounts)
-    .map(([role_profile, count]) => ({ role_profile, count }))
+    .map(([role_profile, count]) => ({ role_profile, count: count as number }))
     .sort((a, b) => b.count - a.count);
 
   // Navigate to users page with role filter
@@ -248,7 +235,7 @@ export const HRDashboard = () => {
             />
           </div>
         ) : roleError ? (
-          <p className="text-sm text-gray-400">{roleError}</p>
+          <p className="text-sm text-gray-400">Failed to load role statistics</p>
         ) : roleCountsArray.length === 0 ? (
           <p className="text-sm text-gray-400">No role data available</p>
         ) : (
