@@ -2,33 +2,46 @@ import { ProjectDesignTracker, DesignTrackerTask, User, AssignedDesignerDetail }
 
 
 // Consolidated Status Logic
+// Color scheme aligned with WorkPlanTracker and CriticalPOTracker:
+// - Completed/Approved -> Green
+// - In Progress/Active work -> Blue
+// - Blocked/On Hold -> Orange
+// - Not Started/Todo -> Gray
+// - Not Applicable -> Gray (lighter)
 export const getUnifiedStatusStyle = (status: string) => {
-    if (!status) return 'bg-gray-100 text-gray-700 border border-gray-300 font-medium rounded-full';
-    
+    if (!status) return 'bg-gray-50 text-gray-700 border border-gray-200';
+
     const lowerStatus = status.toLowerCase();
 
-    // 1. Not Applicable -> Gray
+    // 1. Approved/Done/Submitted -> Green (completed states)
+    if (lowerStatus.includes('approved') || lowerStatus.includes('done') || lowerStatus.includes('submitted')) {
+        return 'bg-green-50 text-green-700 border border-green-200';
+    }
+
+    // 2. In Progress -> Blue (active work)
+    if (lowerStatus.includes('in progress')) {
+        return 'bg-blue-50 text-blue-700 border border-blue-200';
+    }
+
+    // 3. Blocked/On Hold/Revision/Clarification -> Orange (needs attention)
+    if (lowerStatus.includes('blocked') || lowerStatus.includes('on hold') ||
+        lowerStatus.includes('revision') || lowerStatus.includes('clarification') ||
+        lowerStatus.includes('awaiting')) {
+        return 'bg-orange-50 text-orange-700 border border-orange-200';
+    }
+
+    // 4. Not Started/Todo -> Gray (not yet started)
+    if (lowerStatus.includes('not started') || lowerStatus.includes('todo')) {
+        return 'bg-gray-100 text-gray-700 border border-gray-300';
+    }
+
+    // 5. Not Applicable -> Light Gray
     if (lowerStatus.includes('not applicable')) {
-        return 'bg-gray-100 text-gray-700 border border-gray-300 font-medium rounded-full';
+        return 'bg-gray-50 text-gray-500 border border-gray-200';
     }
 
-    // 2. Not Started -> Red
-    if (lowerStatus.includes('not started')) {
-        return 'bg-red-100 text-red-700 border border-red-500 font-medium rounded-full';
-    }
-
-    // 3. Submitted -> Light Green
-    if (lowerStatus.includes('submitted')) {
-        return 'bg-green-100 text-green-700 border border-green-500 font-medium rounded-full';
-    }
-
-    // 4. Approved -> Dark Green (Using a stronger green variant)
-    if (lowerStatus.includes('approved')) {
-         return 'bg-green-300 text-green-900 border border-green-500 font-medium rounded-full';
-    }
-
-    // 5. Default / Others -> Amber
-    return 'bg-amber-100 text-amber-700 border border-amber-500 font-medium rounded-full';
+    // 6. Default -> Gray
+    return 'bg-gray-50 text-gray-700 border border-gray-200';
 };
 
 // Keeping these for backward compatibility if needed, but they can just alias the unified one
@@ -36,13 +49,14 @@ export const getStatusBadgeStyle = getUnifiedStatusStyle;
 export const getTaskStatusStyle = getUnifiedStatusStyle;
 
 export const getTaskSubStatusStyle = (subStatus?: string) => {
-    if (!subStatus || subStatus === '...') return 'bg-gray-100 text-gray-700 border border-gray-300 font-medium rounded-full ';
-    
+    if (!subStatus || subStatus === '...') return 'bg-gray-50 text-gray-700 border border-gray-200';
+
     const lowerSubStatus = subStatus.toLowerCase();
+    // Needs attention states -> Orange
     if (lowerSubStatus.includes('clarification') || lowerSubStatus.includes('rework') || lowerSubStatus.includes('sub-status 1')) {
-        return 'bg-amber-100 text-amber-700 border border-amber-500 font-medium rounded-full';
+        return 'bg-orange-50 text-orange-700 border border-orange-200';
     }
-    return 'bg-gray-100 text-gray-700 border border-gray-300 font-medium rounded-full';
+    return 'bg-gray-50 text-gray-700 border border-gray-200';
 };
 
 // --- DATE & STYLE HELPERS ---

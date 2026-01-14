@@ -7,9 +7,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ProgressCircle } from "@/components/ui/ProgressCircle";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, CheckCircle2 } from "lucide-react";
 import { ProjectWithCriticalPOStats } from "../types";
-import { getStatusStyle, getProgressColor, STATUS_DISPLAY_ORDER } from "../utils";
+import { getStatusStyle, getProgressColor } from "../utils";
 
 interface CriticalPOProjectCardProps {
   project: ProjectWithCriticalPOStats;
@@ -27,11 +27,24 @@ export const CriticalPOProjectCard: React.FC<CriticalPOProjectCardProps> = ({
 
   const progressColor = getProgressColor(completionPercentage);
 
-  // Get ordered status entries for display
-  const orderedStatusEntries = STATUS_DISPLAY_ORDER.map((status) => ({
-    status,
-    count: status_counts[status] || 0,
-  })).filter((entry) => entry.count > 0);
+  // Check completion status
+  const isAllReleased = released_tasks === total_tasks && total_tasks > 0;
+  const notReleasedCount = status_counts["Not Released"] || 0;
+  const partiallyReleasedCount = status_counts["Partially Released"] || 0;
+  const hasIncompleteWork = notReleasedCount > 0 || partiallyReleasedCount > 0;
+
+  // Get incomplete status entries for display (exclude "Released" since it's the primary metric)
+  const incompleteStatusEntries = [
+    { status: "Partially Released" as const, count: partiallyReleasedCount },
+    { status: "Not Released" as const, count: notReleasedCount },
+  ].filter((entry) => entry.count > 0);
+
+  // All status entries for data mismatch fallback
+  const allStatusEntries = [
+    { status: "Released" as const, count: status_counts["Released"] || 0 },
+    { status: "Partially Released" as const, count: partiallyReleasedCount },
+    { status: "Not Released" as const, count: notReleasedCount },
+  ].filter((entry) => entry.count > 0);
 
   return (
     <Card
@@ -63,15 +76,18 @@ export const CriticalPOProjectCard: React.FC<CriticalPOProjectCardProps> = ({
       </CardHeader>
 
       <CardContent className="flex-1 flex flex-col justify-between pt-0 pb-4">
-        {/* Task Counter */}
+        {/* Completion Counter - Primary Info */}
         <div className="mb-4">
-          <div className="text-xs text-gray-500 mb-1">POs Released</div>
-          <div className="flex items-baseline gap-1.5">
+          <div className="flex items-center gap-1.5 mb-1">
+            <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+            <span className="text-xs text-gray-500">POs Released</span>
+          </div>
+          <div className="flex items-baseline gap-1">
             <span className={`text-2xl font-bold tabular-nums ${progressColor}`}>
               {released_tasks}
             </span>
-            <span className="text-lg text-gray-400">/</span>
-            <span className="text-lg font-semibold text-gray-600 tabular-nums">
+            <span className="text-lg text-gray-400 font-medium">/</span>
+            <span className="text-lg text-gray-500 font-semibold tabular-nums">
               {total_tasks}
             </span>
           </div>
@@ -80,33 +96,70 @@ export const CriticalPOProjectCard: React.FC<CriticalPOProjectCardProps> = ({
         {/* Status Breakdown */}
         {total_tasks > 0 ? (
           <div className="flex-1">
-            <div className="grid grid-cols-1 gap-2">
-              {orderedStatusEntries.map(({ status, count }) => (
-                <TooltipProvider key={status}>
-                  <Tooltip delayDuration={300}>
-                    <TooltipTrigger asChild>
-                      <div
-                        className={`
-                          flex items-center justify-between px-2.5 py-1.5 rounded-md
-                          ${getStatusStyle(status)}
-                          cursor-default
-                        `}
-                      >
-                        <span className="text-[11px] font-medium truncate pr-1">
-                          {status}
-                        </span>
-                        <span className="text-xs font-bold tabular-nums">
-                          {count}
-                        </span>
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="text-xs">
-                      {status}: {count} {count === 1 ? "task" : "tasks"}
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              ))}
-            </div>
+            {hasIncompleteWork ? (
+              // Show only incomplete statuses (Not Released, Partially Released)
+              <div className="grid grid-cols-2 gap-2">
+                {incompleteStatusEntries.map(({ status, count }) => (
+                  <TooltipProvider key={status}>
+                    <Tooltip delayDuration={300}>
+                      <TooltipTrigger asChild>
+                        <div
+                          className={`
+                            flex items-center justify-between px-2.5 py-1.5 rounded-md
+                            ${getStatusStyle(status)}
+                            cursor-default
+                          `}
+                        >
+                          <span className="text-[11px] font-medium truncate pr-1">
+                            {status}
+                          </span>
+                          <span className="text-xs font-bold tabular-nums">
+                            {count}
+                          </span>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-xs">
+                        {status}: {count} {count === 1 ? "task" : "tasks"}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                ))}
+              </div>
+            ) : isAllReleased ? (
+              // All POs are released
+              <div className="flex items-center justify-center py-2 px-3 rounded-md bg-green-50 text-green-700">
+                <span className="text-xs font-medium">All POs released!</span>
+              </div>
+            ) : allStatusEntries.length > 0 ? (
+              // Data mismatch - show all available statuses
+              <div className="grid grid-cols-2 gap-2">
+                {allStatusEntries.map(({ status, count }) => (
+                  <TooltipProvider key={status}>
+                    <Tooltip delayDuration={300}>
+                      <TooltipTrigger asChild>
+                        <div
+                          className={`
+                            flex items-center justify-between px-2.5 py-1.5 rounded-md
+                            ${getStatusStyle(status)}
+                            cursor-default
+                          `}
+                        >
+                          <span className="text-[11px] font-medium truncate pr-1">
+                            {status}
+                          </span>
+                          <span className="text-xs font-bold tabular-nums">
+                            {count}
+                          </span>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-xs">
+                        {status}: {count} {count === 1 ? "task" : "tasks"}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : (
           <div className="flex-1 flex items-center justify-center py-4">

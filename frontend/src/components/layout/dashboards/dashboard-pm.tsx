@@ -1,4 +1,5 @@
 import {
+  BlendIcon,
   Calendar,
   ClipboardCheck,
   ClipboardMinus,
@@ -7,7 +8,6 @@ import {
   HandPlatter,
   ShoppingCart,
   Truck,
-  Dices,
   PencilRuler,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -135,6 +135,12 @@ export const ProjectManager = () => {
         <SectionHeader title="Other Options" />
 
         <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-6">
+          <DashboardCard
+            title="Projects"
+            icon={<BlendIcon className="h-7 w-7" strokeWidth={1.5} />}
+            onClick={() => navigate("/projects")}
+            variant="secondary"
+          />
           <DashboardCard
             title="View Work Orders"
             icon={<HandPlatter className="h-7 w-7" strokeWidth={1.5} />}

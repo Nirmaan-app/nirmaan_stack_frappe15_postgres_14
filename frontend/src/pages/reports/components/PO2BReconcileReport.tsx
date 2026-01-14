@@ -275,7 +275,7 @@ export default function PO2BReconcileReport() {
                         </div>
                     </CardHeader>
                     <CardContent className="px-5 pb-4 pt-0">
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                        <div className="grid grid-cols-3 gap-3">
                             {/* Total Amount */}
                             <div className="bg-gradient-to-br from-blue-50 to-indigo-50/50 dark:from-blue-950/40 dark:to-indigo-950/30 rounded-lg p-3 border border-blue-100 dark:border-blue-900/50">
                                 <dt className="text-[10px] font-medium text-blue-600/80 dark:text-blue-400/80 uppercase tracking-wide mb-1 flex items-center gap-1">
@@ -317,19 +317,6 @@ export default function PO2BReconcileReport() {
                                         {((dynamicSummary.pending2bActivation / dynamicSummary.totalInvoices) * 100).toFixed(0)}% pending
                                     </span>
                                 )}
-                            </div>
-
-                            {/* Average Invoice */}
-                            <div className="bg-slate-50/80 dark:bg-slate-800/50 rounded-lg p-3 border border-slate-200 dark:border-slate-700">
-                                <dt className="text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">
-                                    Avg. Invoice Value
-                                </dt>
-                                <dd className="text-xl font-bold text-slate-700 dark:text-slate-300 tabular-nums">
-                                    {dynamicSummary.totalInvoices > 0
-                                        ? formatToRoundedIndianRupee(dynamicSummary.totalAmount / dynamicSummary.totalInvoices)
-                                        : '₹0'
-                                    }
-                                </dd>
                             </div>
                         </div>
                     </CardContent>

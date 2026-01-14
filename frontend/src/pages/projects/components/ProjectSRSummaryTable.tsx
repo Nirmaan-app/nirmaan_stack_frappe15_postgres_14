@@ -95,6 +95,7 @@ const DOCTYPE = "Service Requests"; // Main Doctype for the list
 
 interface ProjectSRSummaryTableProps {
   projectId: string | undefined;
+  hideSummaryCard?: boolean;
 }
 
 interface SRAggregates {
@@ -106,6 +107,7 @@ interface SRAggregates {
 // --- Component ---
 export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
   projectId,
+  hideSummaryCard = false,
 }) => {
   const { toast } = useToast();
 
@@ -477,56 +479,58 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardContent className="flex flex-row items-center justify-between p-4">
-          <CardDescription>
-            <p className="text-lg font-semibold text-gray-700">
-              WO Summary
-              {/* ({getProjectName(projectId) || "All Projects"}) */}
-            </p>
-            <p className="text-sm text-gray-500">
-              Overview of Approved Service Request totals
-            </p>
-          </CardDescription>
-          <CardDescription className="text-right">
-            {aggregatesLoading ? (
-              <TailSpin height={20} width={20} />
-            ) : aggregatesError ? (
-              <span className="text-xs text-destructive">
-                Error loading totals
-              </span>
-            ) : (
-              <div className="flex flex-col items-end text-sm">
-                <p className="text-gray-700">
-                  <span className="font-medium">Total Value (inc. GST):</span>{" "}
-                  <span className="text-blue-600 font-semibold">
-                    {formatToRoundedIndianRupee(
-                      srAggregates.total_sr_value_inc_gst
-                    )}
-                  </span>
-                </p>
-                <p className="text-gray-700">
-                  <span className="font-medium">Total Amt Paid:</span>{" "}
-                  <span className="text-green-600 font-semibold">
-                    {formatToRoundedIndianRupee(
-                      srAggregates.total_amount_paid_for_srs
-                    )}
-                  </span>
-                </p>
-                <p className="text-gray-700">
-                  <span className="font-medium">Total Amt Payable:</span>{" "}
-                  <span className="text-yellow-600 font-semibold">
-                    {formatToRoundedIndianRupee(
-                      srAggregates.total_sr_value_inc_gst -
+      {!hideSummaryCard && (
+        <Card>
+          <CardContent className="flex flex-row items-center justify-between p-4">
+            <CardDescription>
+              <p className="text-lg font-semibold text-gray-700">
+                WO Summary
+                {/* ({getProjectName(projectId) || "All Projects"}) */}
+              </p>
+              <p className="text-sm text-gray-500">
+                Overview of Approved Service Request totals
+              </p>
+            </CardDescription>
+            <CardDescription className="text-right">
+              {aggregatesLoading ? (
+                <TailSpin height={20} width={20} />
+              ) : aggregatesError ? (
+                <span className="text-xs text-destructive">
+                  Error loading totals
+                </span>
+              ) : (
+                <div className="flex flex-col items-end text-sm">
+                  <p className="text-gray-700">
+                    <span className="font-medium">Total Value (inc. GST):</span>{" "}
+                    <span className="text-blue-600 font-semibold">
+                      {formatToRoundedIndianRupee(
+                        srAggregates.total_sr_value_inc_gst
+                      )}
+                    </span>
+                  </p>
+                  <p className="text-gray-700">
+                    <span className="font-medium">Total Amt Paid:</span>{" "}
+                    <span className="text-green-600 font-semibold">
+                      {formatToRoundedIndianRupee(
                         srAggregates.total_amount_paid_for_srs
-                    )}
-                  </span>
-                </p>
-              </div>
-            )}
-          </CardDescription>
-        </CardContent>
-      </Card>
+                      )}
+                    </span>
+                  </p>
+                  <p className="text-gray-700">
+                    <span className="font-medium">Total Amt Payable:</span>{" "}
+                    <span className="text-yellow-600 font-semibold">
+                      {formatToRoundedIndianRupee(
+                        srAggregates.total_sr_value_inc_gst -
+                          srAggregates.total_amount_paid_for_srs
+                      )}
+                    </span>
+                  </p>
+                </div>
+              )}
+            </CardDescription>
+          </CardContent>
+        </Card>
+      )}
 
       {isInitialLoading ? (
         <TableSkeleton />

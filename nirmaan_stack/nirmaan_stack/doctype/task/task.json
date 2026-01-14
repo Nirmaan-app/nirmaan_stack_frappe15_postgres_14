@@ -55,12 +55,11 @@
   },
   {
    "fieldname": "assignee",
-   "fieldtype": "Link",
+   "fieldtype": "Data",
    "in_global_search": 1,
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Assignee",
-   "options": "Nirmaan Users",
    "search_index": 1
   },
   {
@@ -133,7 +132,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-13 21:00:14.755289",
+ "modified": "2026-01-14 17:45:13.859230",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Task",
@@ -148,6 +147,30 @@
    "read": 1,
    "report": 1,
    "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan HR Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
    "share": 1,
    "write": 1
   },
@@ -234,24 +257,6 @@
    "role": "Nirmaan Design Lead",
    "share": 1,
    "write": 1
-  },
-  {
-   "role": "Nirmaan HR Executive",
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "share": 1
-  },
-  {
-   "role": "Nirmaan PMO Executive",
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "share": 1
   }
  ],
  "row_format": "Dynamic",

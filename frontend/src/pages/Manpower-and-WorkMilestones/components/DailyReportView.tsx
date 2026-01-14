@@ -217,6 +217,51 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
         </div>
       )}
 
+      {/* Client / Clearance Issues Section */}
+      <div className="mb-6">
+        <h3 className="text-base md:text-lg font-bold mb-3">Client / Clearance Issues</h3>
+        
+        {/* Drawing Remarks */}
+        <div className="mb-4">
+          <p className="text-sm font-medium text-gray-700 mb-2">Drawing Remarks</p>
+          {dailyReportDetails.drawing_remarks && dailyReportDetails.drawing_remarks.trim() !== "" ? (
+            <div className="p-3 rounded-md bg-orange-50 border border-orange-200">
+              <ul className="list-disc list-inside text-sm text-orange-900 space-y-1 ml-2">
+                {dailyReportDetails.drawing_remarks.split("$#,,,").filter((item: string) => item.trim() !== "").map((remark: string, idx: number) => (
+                  <li key={`drawing-${idx}`} className="break-words whitespace-pre-wrap">
+                    {remark.trim()}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400 italic p-3 bg-gray-50 rounded-md border border-gray-200">
+              No drawing remarks for this report
+            </p>
+          )}
+        </div>
+        
+        {/* Site Remarks */}
+        <div>
+          <p className="text-sm font-medium text-gray-700 mb-2">Site Remarks</p>
+          {dailyReportDetails.site_remarks && dailyReportDetails.site_remarks.trim() !== "" ? (
+            <div className="p-3 rounded-md bg-red-50 border border-red-200">
+              <ul className="list-disc list-inside text-sm text-red-900 space-y-1 ml-2">
+                {dailyReportDetails.site_remarks.split("$#,,,").filter((item: string) => item.trim() !== "").map((remark: string, idx: number) => (
+                  <li key={`site-${idx}`} className="break-words whitespace-pre-wrap">
+                    {remark.trim()}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400 italic p-3 bg-gray-50 rounded-md border border-gray-200">
+              No site remarks for this report
+            </p>
+          )}
+        </div>
+      </div>
+
       {/* Work Plan Summary */}
       {workPlanGroups.length > 0 && (
         <div className="mb-6">

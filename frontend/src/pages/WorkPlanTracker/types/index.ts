@@ -1,9 +1,11 @@
 /**
  * Status counts for work plan activities
+ * Status values must match those used in ProjectManagerEditWorkPlanDialog
  */
 export interface WorkPlanStatusCounts {
-  Pending?: number;
+  "Not Started"?: number;
   "In Progress"?: number;
+  "On Hold"?: number;
   Completed?: number;
   [key: string]: number | undefined;
 }

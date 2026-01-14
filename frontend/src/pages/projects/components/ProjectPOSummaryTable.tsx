@@ -139,6 +139,7 @@ const DOCTYPE = "Procurement Orders";
 
 interface ProjectPOSummaryTableProps {
   projectId: string | undefined;
+  hideSummaryCard?: boolean;
 }
 
 interface POAmountsDict {
@@ -233,6 +234,7 @@ const AppliedFiltersDisplay = ({ filters, search }) => {
 // --- Component ---
 export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
   projectId,
+  hideSummaryCard = false,
 }) => {
   const { toast } = useToast();
 
@@ -921,7 +923,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
           onExport={"default"}
           exportFileName={`Project_PO_Summary_${projectId || "all"}`}
           showRowSelection={false} // No selection needed for this summary
-          summaryCard={
+          summaryCard={hideSummaryCard ? undefined :
             <Card>
               <CardHeader className="p-4">
                 <CardTitle className="text-lg">PO Summary</CardTitle>

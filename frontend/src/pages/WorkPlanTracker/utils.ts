@@ -1,9 +1,10 @@
 /**
- * Work Plan status values
+ * Work Plan status values (must match the values used in ProjectManagerEditWorkPlanDialog)
  */
 export const WORK_PLAN_STATUSES = {
-  PENDING: "Pending",
+  NOT_STARTED: "Not Started",
   IN_PROGRESS: "In Progress",
+  ON_HOLD: "On Hold",
   COMPLETED: "Completed",
 } as const;
 
@@ -22,16 +23,22 @@ export const getStatusStyle = (status: string): { bg: string; text: string; bord
       };
     case WORK_PLAN_STATUSES.IN_PROGRESS:
       return {
+        bg: "bg-blue-50",
+        text: "text-blue-700",
+        border: "border-blue-200",
+      };
+    case WORK_PLAN_STATUSES.ON_HOLD:
+      return {
         bg: "bg-orange-50",
         text: "text-orange-700",
         border: "border-orange-200",
       };
-    case WORK_PLAN_STATUSES.PENDING:
+    case WORK_PLAN_STATUSES.NOT_STARTED:
     default:
       return {
-        bg: "bg-yellow-50",
-        text: "text-yellow-700",
-        border: "border-yellow-200",
+        bg: "bg-gray-50",
+        text: "text-gray-700",
+        border: "border-gray-200",
       };
   }
 };
@@ -51,7 +58,8 @@ export const getProgressColor = (value: number): string => {
  * Status display order for consistent UI
  */
 export const STATUS_DISPLAY_ORDER: WorkPlanStatus[] = [
-  WORK_PLAN_STATUSES.PENDING,
+  WORK_PLAN_STATUSES.NOT_STARTED,
   WORK_PLAN_STATUSES.IN_PROGRESS,
+  WORK_PLAN_STATUSES.ON_HOLD,
   WORK_PLAN_STATUSES.COMPLETED,
 ];

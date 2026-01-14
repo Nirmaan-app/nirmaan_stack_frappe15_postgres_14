@@ -348,6 +348,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const isAccountant = role === "Nirmaan Accountant Profile";
   const isProcurementExecutive = role === "Nirmaan Procurement Executive Profile";
   const isEstimatesExecutive = role === "Nirmaan Estimates Executive Profile";
+  const isProjectManager = role === "Nirmaan Project Manager Profile";
 
   // Allowed tabs for non-privileged users (all roles except Admin, PMO, Accountant)
   const nonPrivilegedAllowedTabs = useMemo(() => new Set([
@@ -1150,9 +1151,9 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       case PROJECT_PAGE_TABS.PR_SUMMARY:
         return <ProjectPRSummaryTable projectId={projectId} />;
       case PROJECT_PAGE_TABS.SR_SUMMARY:
-        return <ProjectSRSummaryTable projectId={projectId} />;
+        return <ProjectSRSummaryTable projectId={projectId} hideSummaryCard={isProjectManager} />;
       case PROJECT_PAGE_TABS.PO_SUMMARY:
-        return <ProjectPOSummaryTable projectId={projectId} />;
+        return <ProjectPOSummaryTable projectId={projectId} hideSummaryCard={isProjectManager} />;
       case PROJECT_PAGE_TABS.FINANCIALS:
         return <ProjectFinancialsTab projectData={data} projectCustomer={projectCustomer}
           totalPOAmountWithGST={totalPOAmountWithGST} getTotalAmountPaid={getTotalAmountPaid} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getAllPODeliveredAmount={totalPoDeliveredAmount}

@@ -97,13 +97,20 @@ const FINANCIAL_COLUMNS_ROLES = [
   "Nirmaan Accountant Profile",
 ];
 
+// Roles that can see the summary card
+const SUMMARY_CARD_ROLES = [
+  "Nirmaan Admin Profile",
+  "Nirmaan PMO Executive Profile",
+];
+
 export const Projects: React.FC<ProjectsProps> = ({
   customersView = false,
   customerId,
   urlContext = "main", // Default context for URL key
 }) => {
-  const { role } = useUserData();
+  const { role, user_id } = useUserData();
   const canViewFinancials = FINANCIAL_COLUMNS_ROLES.includes(role);
+  const canViewSummaryCard = user_id === "Administrator" || SUMMARY_CARD_ROLES.includes(role);
 
   const urlSyncKey = useMemo(
     () =>
@@ -788,7 +795,7 @@ export const Projects: React.FC<ProjectsProps> = ({
           : ""
       )}
     >
-      {!customersView && (
+      {!customersView && canViewSummaryCard && (
         <Card className="hover:animate-shadow-drop-center max-md:w-full my-2 w-[60%]">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-medium">

@@ -4,6 +4,70 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-14: Project Manager Access & Summary Card Restrictions
+
+### Summary
+Expanded Project Manager role access to Projects page while restricting visibility of financial summary cards based on role.
+
+### Files Modified
+
+- `src/components/layout/NewSidebar.tsx`:
+  - Added `Nirmaan Project Manager Profile` to Projects sidebar menu condition
+  - PM now has Projects in sidebar alongside PL, Procurement, and Accountant
+
+- `src/components/layout/dashboards/dashboard-pm.tsx`:
+  - Added "Projects" card to "Other Options" section
+  - Uses `BlendIcon` for visual consistency with sidebar
+
+- `src/pages/projects/projects.tsx`:
+  - Added `SUMMARY_CARD_ROLES` constant (Admin, PMO only)
+  - Added `canViewSummaryCard` check using `user_id` and role
+  - Projects summary card (total/status counts) now hidden for non-Admin/PMO users
+
+- `src/pages/projects/project.tsx`:
+  - Added `isProjectManager` role check
+  - Pass `hideSummaryCard={isProjectManager}` to summary table components
+
+- `src/pages/projects/components/ProjectSRSummaryTable.tsx`:
+  - Added `hideSummaryCard?: boolean` prop to interface
+  - Wrapped summary card with conditional `{!hideSummaryCard && ...}`
+
+- `src/pages/projects/components/ProjectPOSummaryTable.tsx`:
+  - Added `hideSummaryCard?: boolean` prop to interface
+  - Changed `summaryCard` prop to `summaryCard={hideSummaryCard ? undefined : ...}`
+
+### Pattern: Role-Based Summary Card Visibility
+
+```typescript
+// In parent component (project.tsx)
+const isProjectManager = role === "Nirmaan Project Manager Profile";
+
+<ProjectSRSummaryTable projectId={projectId} hideSummaryCard={isProjectManager} />
+<ProjectPOSummaryTable projectId={projectId} hideSummaryCard={isProjectManager} />
+
+// In child component
+interface Props {
+  projectId: string | undefined;
+  hideSummaryCard?: boolean;
+}
+
+// For direct rendering
+{!hideSummaryCard && <Card>...</Card>}
+
+// For DataTable summaryCard prop
+summaryCard={hideSummaryCard ? undefined : <Card>...</Card>}
+```
+
+### Access Matrix Update
+
+| Feature | Admin | PMO | PL | PM | Procurement | Accountant |
+|---------|:-----:|:---:|:--:|:--:|:-----------:|:----------:|
+| Projects Sidebar | Y | Y | Y | Y | Y | Y |
+| Projects Summary Card | Y | Y | - | - | - | - |
+| WO/PO Summary Cards | Y | Y | Y | - | Y | Y |
+
+---
+
 ## 2026-01-14: Project Makes Management Refactoring
 
 ### Summary
