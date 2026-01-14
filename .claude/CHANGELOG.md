@@ -4,6 +4,33 @@ Changes made by Claude Code sessions.
 
 ---
 
+### 2026-01-14: PO Details Section Redesign
+
+**Summary:** Reorganized PO Details card into logical sections with enterprise-minimal design, added PO Amount Delivered field.
+
+**Files Modified:**
+- `frontend/src/pages/ProcurementOrders/purchase-order/components/PODetails.tsx` - Complete layout restructure
+
+**Layout Changes:**
+- **Header Section**: Title "PO Details" with validation warning + Approved By (right-aligned)
+- **Info Section**: Vendor, Package, Status, Critical PO Tag (horizontal flow with separators)
+- **Amounts Section**: PO Amount (Incl/Excl GST), Total Invoiced Amount, Total Amount Paid (green), PO Amount Delivered (blue)
+- **Timeline Section**: Created, Dispatched, Latest Delivery, Latest Payment dates
+- **Actions Section**: All buttons grouped at end, horizontal scroll on mobile
+
+**New Features:**
+- Added PO Amount Delivered field (blue color) to amounts section
+- Subtle section dividers (borders) instead of heavy card borders
+- Uppercase tracking-wide labels for section headers (10px font)
+
+**Code Improvements:**
+- Reduced file from ~1900 lines to ~1300 lines by removing duplicates
+- Moved all dialogs/sheets outside main content flow
+- Removed commented-out legacy code
+- Improved responsive layout for mobile devices
+
+---
+
 ### 2026-01-12: Work Plan Tracker Module
 
 **Summary:** Created Work Plan Tracker module for Project Leads and Project Managers to track work plan activities across all projects. Also added PO Tracker cards to PM and PL dashboards.
