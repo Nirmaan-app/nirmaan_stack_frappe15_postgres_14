@@ -4,6 +4,146 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-14: Project Makes Management Refactoring
+
+### Summary
+Refactored project makes management by removing makes configuration from edit project form and revamping the dedicated Project Makes tab with enterprise minimalist UI.
+
+### Files Modified
+
+- `src/pages/projects/edit-project-form.tsx`:
+  - Revamped WorkPackageSelection component with 2-column grid layout
+  - Added "Select All" header with selection counter ("X of Y selected")
+  - Removed Category & Makes Configuration section (functionality moved to Project Makes tab)
+  - Added info banner directing users to Project Makes tab
+  - Cleaned up unused imports (Controller, ReactSelect, Users)
+  - Added proper TypeScript types for component props
+
+- `src/pages/projects/ProjectMakesTab.tsx`:
+  - Replaced Ant Design `Radio.Group` with custom segmented button control
+  - Added horizontal `ScrollArea` for work package selector overflow
+  - Replaced `TailSpin` spinner with `Skeleton` loading states
+  - Redesigned table with CSS Grid layout and compact styling
+  - Added progressive disclosure (edit button appears on row hover)
+  - Improved empty state with centered icon and helpful message
+  - Added footer showing category/makes count summary
+  - Modernized edit dialog with two-column context panel
+  - Styled ReactSelect to match enterprise theme
+
+### Pattern: Enterprise Minimalist Segmented Control
+
+Replace Ant Design Radio.Group with native buttons:
+```tsx
+<div className="flex gap-1.5">
+  {options.map((option) => (
+    <button
+      key={option.value}
+      onClick={() => setSelected(option.value)}
+      className={cn(
+        "inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md border",
+        selected === option.value
+          ? "bg-gray-900 text-white border-gray-900 shadow-sm"
+          : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
+      )}
+    >
+      {selected === option.value && <Check className="h-3.5 w-3.5" />}
+      {option.label}
+    </button>
+  ))}
+</div>
+```
+
+### Pattern: Progressive Disclosure Table Actions
+
+Show actions on row hover for cleaner UI:
+```tsx
+<div className="... group">
+  {/* Row content */}
+  <Button
+    className="opacity-0 group-hover:opacity-100 transition-opacity"
+  >
+    <Pencil className="h-3.5 w-3.5" />
+  </Button>
+</div>
+```
+
+---
+
+## 2026-01-13: Critical PO Tasks Mobile Responsiveness
+
+### Summary
+Enhanced the Critical PO Tasks list with mobile-responsive design: card-based layout for mobile, horizontal-scrolling table for desktop, and improved filter controls.
+
+### Files Modified
+
+- `src/pages/projects/CriticalPOTasks/CriticalPOTasksList.tsx`:
+  - Added `TaskMobileCard` component for mobile view with collapsible linked POs
+  - Split layout: card view for mobile (`sm:hidden`), table for desktop (`hidden sm:block`)
+  - Made filters stack vertically on mobile (`flex-col sm:flex-row`)
+  - Changed table column widths from percentage (`w-[15%]`) to minimum widths (`min-w-[150px]`)
+  - Added horizontal scroll container for desktop table (`overflow-x-auto`)
+  - Added dropdown menu for mobile task actions (Edit, Link PO)
+
+- `src/pages/projects/CriticalPOTasks/components/LinkedPOsColumn.tsx`:
+  - Added `max-w-[140px]` and `truncate` to PO link badges for overflow handling
+
+### Pattern: Mobile-First Responsive Tables
+
+For complex tables with many columns:
+```tsx
+{/* Mobile: Card layout */}
+<div className="sm:hidden space-y-3">
+  {items.map(item => <MobileCard key={item.id} item={item} />)}
+</div>
+
+{/* Desktop: Table with horizontal scroll */}
+<div className="hidden sm:block overflow-x-auto">
+  <Table>
+    <TableHeader>
+      <TableHead className="min-w-[150px]">Column</TableHead>
+      {/* Use min-w instead of percentage widths */}
+    </TableHeader>
+    {/* ... */}
+  </Table>
+</div>
+```
+
+---
+
+## 2026-01-13: Nirmaan Role Permissions Sync
+
+### Summary
+Added missing Nirmaan role permissions to 55 doctypes, ensuring all 9 Nirmaan roles have access across the entire app.
+
+### Files Created
+
+**Backend Patch:**
+- `nirmaan_stack/patches/v2_8/add_missing_nirmaan_role_permissions.py` - Database patch to add missing permissions
+
+**Utility Script:**
+- `scripts/analyze_doctype_permissions.py` - Standalone script to analyze and fix doctype permissions in JSON files
+
+### Changes
+- 45 doctypes: Added Nirmaan HR Executive, Nirmaan PMO Executive
+- 7 doctypes: Added above + Nirmaan Design Lead
+- 3 doctypes: Added all 9 roles (had none before):
+  - Auto Approval Counter Settings
+  - Material Delivery Plan
+  - TDS Repository
+
+### Nirmaan Roles (9 total)
+1. Nirmaan Accountant
+2. Nirmaan Design Executive
+3. Nirmaan Design Lead
+4. Nirmaan Estimates Executive
+5. Nirmaan HR Executive
+6. Nirmaan PMO Executive
+7. Nirmaan Procurement Executive
+8. Nirmaan Project Lead
+9. Nirmaan Project Manager
+
+---
+
 ## 2026-01-13: PO Attachment Reconciliation Report
 
 ### Summary
