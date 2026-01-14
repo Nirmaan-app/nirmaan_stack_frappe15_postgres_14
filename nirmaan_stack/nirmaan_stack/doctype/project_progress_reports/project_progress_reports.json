@@ -7,6 +7,9 @@
  "field_order": [
   "links_section",
   "project",
+  "client__clearance_issues_section",
+  "drawing_remarks",
+  "site_remarks",
   "report_details_section",
   "report_date",
   "report_zone",
@@ -94,13 +97,28 @@
    "fieldname": "report_zone",
    "fieldtype": "Data",
    "label": "Report Zone"
+  },
+  {
+   "fieldname": "client__clearance_issues_section",
+   "fieldtype": "Section Break",
+   "label": "Client / Clearance issues"
+  },
+  {
+   "fieldname": "drawing_remarks",
+   "fieldtype": "Text",
+   "label": "Drawing Remarks"
+  },
+  {
+   "fieldname": "site_remarks",
+   "fieldtype": "Text",
+   "label": "Site Remarks"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-13 21:00:14.752114",
- "modified_by": "Administrator",
+ "modified": "2026-01-14 15:25:27.756193",
+ "modified_by": "madhubalan1247@gmail.com",
  "module": "Nirmaan Stack",
  "name": "Project Progress Reports",
  "owner": "Administrator",
@@ -202,25 +220,26 @@
    "write": 1
   },
   {
-   "role": "Nirmaan HR Executive",
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
+   "role": "Nirmaan HR Executive",
    "share": 1
   },
   {
-   "role": "Nirmaan PMO Executive",
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
+   "role": "Nirmaan PMO Executive",
    "share": 1
   }
  ],
  "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": []
