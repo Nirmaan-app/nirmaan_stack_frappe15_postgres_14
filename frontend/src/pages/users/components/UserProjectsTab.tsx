@@ -193,8 +193,8 @@ export function UserProjectsTab({
                 options={options}
                 value={options.find((option) => option.value === curProj) || null}
                 onChange={(val) => setCurProj(val ? (val.value as string) : "")}
-                menuPortalTarget={document.body}
-                menuPosition="fixed"
+                // menuPortalTarget={document.body}
+                // menuPosition="fixed"
                 isClearable={true}
                 placeholder="Select a project..."
                 noOptionsMessage={() => "No projects available"}
@@ -213,6 +213,7 @@ export function UserProjectsTab({
                     zIndex: 9999,
                   }),
                 }}
+                
               />
             </div>
             <div className="flex items-center gap-2 text-sm">

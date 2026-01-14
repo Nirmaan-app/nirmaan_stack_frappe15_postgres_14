@@ -92,6 +92,9 @@ export const AssignedAssetsList: React.FC = () => {
         {
             id: 'asset_name',
             header: ({ column }) => <DataTableColumnHeader column={column} title="Asset Name" />,
+            meta: {
+                exportValue: (row: any) => assetsMap[row.asset]?.asset_name || row.asset
+            },
             cell: ({ row }) => {
                 const assetData = assetsMap[row.original.asset];
                 return (
@@ -108,6 +111,9 @@ export const AssignedAssetsList: React.FC = () => {
         {
             id: 'asset_category',
             header: ({ column }) => <DataTableColumnHeader column={column} title="Category" />,
+            meta: {
+                exportValue: (row: any) => assetsMap[row.asset]?.asset_category || ''
+            },
             cell: ({ row }) => {
                 const assetData = assetsMap[row.original.asset];
                 return assetData?.asset_category ? (
@@ -123,6 +129,9 @@ export const AssignedAssetsList: React.FC = () => {
         {
             accessorKey: 'asset_assigned_to',
             header: ({ column }) => <DataTableColumnHeader column={column} title="Assigned To" />,
+            meta: {
+                exportValue: (row: any) => usersMap[row.asset_assigned_to] || row.asset_assigned_to
+            },
             cell: ({ row }) => {
                 const userId = row.getValue<string>('asset_assigned_to');
                 const userName = usersMap[userId] || userId;

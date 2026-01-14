@@ -170,6 +170,9 @@ export const UnassignedAssetsList: React.FC<UnassignedAssetsListProps> = ({ onAs
         },
         ...(canManageAssets ? [{
             id: 'actions',
+            meta: {
+                excludeFromExport: true
+            },
             header: () => <span className="sr-only">Actions</span>,
             cell: ({ row }: { row: any }) => (
                 <Button
