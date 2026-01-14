@@ -227,15 +227,15 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                                             {/* Col 2: Planned End Date and Planned Start Date */}
                                             <div className="flex items-center justify-center gap-4 p-4">
                                                 <div className="flex flex-col items-center gap-1">
-                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Planned222 End Date</span>
-                                                    <div className="text-center rounded border px-3 py-1 text-xs font-semibold bg-white text-gray-700 shadow-sm whitespace-nowrap">
-                                                        {safeFormatDate(plan.wp_end_date)}
-                                                    </div>
-                                                </div>
-                                                <div className="flex flex-col items-center gap-1">
                                                     <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Planned Start Date</span>
                                                     <div className="text-center rounded border px-3 py-1 text-xs font-semibold bg-white text-gray-700 shadow-sm whitespace-nowrap">
                                                         {safeFormatDate(plan.wp_start_date)}
+                                                    </div>
+                                                </div>
+                                                <div className="flex flex-col items-center gap-1">
+                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Planned End Date</span>
+                                                    <div className="text-center rounded border px-3 py-1 text-xs font-semibold bg-white text-gray-700 shadow-sm whitespace-nowrap">
+                                                        {safeFormatDate(plan.wp_end_date)}
                                                     </div>
                                                 </div>
                                             </div>
@@ -259,7 +259,7 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                                                     </div>
                                                 </div>
                                                 <div className="flex flex-col items-center gap-1">
-                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Estimated Completion Date</span>
+                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Estd. Completion Date</span>
                                                     <div className="text-center rounded border px-3 py-1 text-xs font-semibold bg-white text-gray-700 shadow-sm whitespace-nowrap">
                                                         {plan.wp_estimate_completion_date ? safeFormatDate(plan.wp_estimate_completion_date) : 'N/A'}
                                                     </div>
@@ -806,18 +806,16 @@ export const SevendaysWorkPlan = ({
                                     key={zone}
                                     type="button"
                                     onClick={() => handleZoneChange(zone)}
-                                    className={`px-3 py-1.5 text-sm rounded transition-colors flex items-center gap-2 ${
-                                        activeZone === zone
-                                            ? "bg-sky-500 text-white"
-                                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                                    }`}
+                                    className={`px-3 py-1.5 text-sm rounded transition-colors flex items-center gap-2 ${activeZone === zone
+                                        ? "bg-sky-500 text-white"
+                                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                        }`}
                                 >
                                     {zone}
-                                    <span className={`ml-1 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-medium ${
-                                        activeZone === zone 
-                                            ? "bg-white text-sky-600" 
-                                            : "bg-white text-gray-600"
-                                    }`}>
+                                    <span className={`ml-1 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-medium ${activeZone === zone
+                                        ? "bg-white text-sky-600"
+                                        : "bg-white text-gray-600"
+                                        }`}>
                                         {zoneCounts[zone]}
                                     </span>
                                 </button>
