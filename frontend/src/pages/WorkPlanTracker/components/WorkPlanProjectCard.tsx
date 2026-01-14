@@ -7,9 +7,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ProgressCircle } from "@/components/ui/ProgressCircle";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, CheckCircle2 } from "lucide-react";
 import { ProjectWithWorkPlanStats } from "../types";
-import { getStatusStyle, getProgressColor, STATUS_DISPLAY_ORDER } from "../utils";
+import { getStatusStyle, getProgressColor, WORK_PLAN_STATUSES } from "../utils";
 
 interface WorkPlanProjectCardProps {
   project: ProjectWithWorkPlanStats;
@@ -23,12 +23,29 @@ export const WorkPlanProjectCard: React.FC<WorkPlanProjectCardProps> = ({
   const { status_counts, total_activities, overall_progress, project_name } = project;
 
   const progressColor = getProgressColor(overall_progress);
+  const completedCount = status_counts[WORK_PLAN_STATUSES.COMPLETED] || 0;
+  const notStartedCount = status_counts[WORK_PLAN_STATUSES.NOT_STARTED] || 0;
+  const inProgressCount = status_counts[WORK_PLAN_STATUSES.IN_PROGRESS] || 0;
+  const onHoldCount = status_counts[WORK_PLAN_STATUSES.ON_HOLD] || 0;
 
-  // Get ordered status entries for display
-  const orderedStatusEntries = STATUS_DISPLAY_ORDER.map((status) => ({
-    status,
-    count: status_counts[status] || 0,
-  })).filter((entry) => entry.count > 0);
+  // Check if all activities are accounted for
+  const isAllCompleted = completedCount === total_activities && total_activities > 0;
+  const hasIncompleteWork = notStartedCount > 0 || inProgressCount > 0 || onHoldCount > 0;
+
+  // Get non-completed status entries for display
+  const otherStatusEntries = [
+    { status: WORK_PLAN_STATUSES.IN_PROGRESS, count: inProgressCount },
+    { status: WORK_PLAN_STATUSES.ON_HOLD, count: onHoldCount },
+    { status: WORK_PLAN_STATUSES.NOT_STARTED, count: notStartedCount },
+  ].filter((entry) => entry.count > 0);
+
+  // All status entries (for data mismatch fallback)
+  const allStatusEntries = [
+    { status: WORK_PLAN_STATUSES.COMPLETED, count: completedCount },
+    { status: WORK_PLAN_STATUSES.IN_PROGRESS, count: inProgressCount },
+    { status: WORK_PLAN_STATUSES.ON_HOLD, count: onHoldCount },
+    { status: WORK_PLAN_STATUSES.NOT_STARTED, count: notStartedCount },
+  ].filter((entry) => entry.count > 0);
 
   return (
     <Card
@@ -60,47 +77,90 @@ export const WorkPlanProjectCard: React.FC<WorkPlanProjectCardProps> = ({
       </CardHeader>
 
       <CardContent className="flex-1 flex flex-col justify-between pt-0 pb-4">
-        {/* Activity Counter */}
+        {/* Completion Counter - Primary Info */}
         <div className="mb-4">
-          <div className="text-xs text-gray-500 mb-1">Planned Activities</div>
-          <div className="flex items-baseline gap-1.5">
+          <div className="flex items-center gap-1.5 mb-1">
+            <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+            <span className="text-xs text-gray-500">Activities Completed</span>
+          </div>
+          <div className="flex items-baseline gap-1">
             <span className={`text-2xl font-bold tabular-nums ${progressColor}`}>
+              {completedCount}
+            </span>
+            <span className="text-lg text-gray-400 font-medium">/</span>
+            <span className="text-lg text-gray-500 font-semibold tabular-nums">
               {total_activities}
             </span>
-            <span className="text-sm text-gray-400">activities</span>
           </div>
         </div>
 
         {/* Status Breakdown */}
         {total_activities > 0 ? (
           <div className="flex-1">
-            <div className="grid grid-cols-1 gap-2">
-              {orderedStatusEntries.map(({ status, count }) => (
-                <TooltipProvider key={status}>
-                  <Tooltip delayDuration={300}>
-                    <TooltipTrigger asChild>
-                      <div
-                        className={`
-                          flex items-center justify-between px-2.5 py-1.5 rounded-md
-                          ${getStatusStyle(status).bg} ${getStatusStyle(status).text}
-                          cursor-default
-                        `}
-                      >
-                        <span className="text-[11px] font-medium truncate pr-1">
-                          {status}
-                        </span>
-                        <span className="text-xs font-bold tabular-nums">
-                          {count}
-                        </span>
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="text-xs">
-                      {status}: {count} {count === 1 ? "activity" : "activities"}
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              ))}
-            </div>
+            {hasIncompleteWork ? (
+              // Show only incomplete statuses (Pending, In Progress)
+              <div className="grid grid-cols-2 gap-2">
+                {otherStatusEntries.map(({ status, count }) => (
+                  <TooltipProvider key={status}>
+                    <Tooltip delayDuration={300}>
+                      <TooltipTrigger asChild>
+                        <div
+                          className={`
+                            flex items-center justify-between px-2.5 py-1.5 rounded-md
+                            ${getStatusStyle(status).bg} ${getStatusStyle(status).text}
+                            cursor-default
+                          `}
+                        >
+                          <span className="text-[11px] font-medium truncate pr-1">
+                            {status}
+                          </span>
+                          <span className="text-xs font-bold tabular-nums">
+                            {count}
+                          </span>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-xs">
+                        {status}: {count} {count === 1 ? "activity" : "activities"}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                ))}
+              </div>
+            ) : isAllCompleted ? (
+              // All activities are completed
+              <div className="flex items-center justify-center py-2 px-3 rounded-md bg-green-50 text-green-700">
+                <span className="text-xs font-medium">All activities completed!</span>
+              </div>
+            ) : allStatusEntries.length > 0 ? (
+              // Data mismatch - show all available statuses
+              <div className="grid grid-cols-2 gap-2">
+                {allStatusEntries.map(({ status, count }) => (
+                  <TooltipProvider key={status}>
+                    <Tooltip delayDuration={300}>
+                      <TooltipTrigger asChild>
+                        <div
+                          className={`
+                            flex items-center justify-between px-2.5 py-1.5 rounded-md
+                            ${getStatusStyle(status).bg} ${getStatusStyle(status).text}
+                            cursor-default
+                          `}
+                        >
+                          <span className="text-[11px] font-medium truncate pr-1">
+                            {status}
+                          </span>
+                          <span className="text-xs font-bold tabular-nums">
+                            {count}
+                          </span>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-xs">
+                        {status}: {count} {count === 1 ? "activity" : "activities"}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : (
           <div className="flex-1 flex items-center justify-center py-4">

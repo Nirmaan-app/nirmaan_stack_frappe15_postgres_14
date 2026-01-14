@@ -156,7 +156,7 @@ def get_projects_with_work_plan_stats():
 
             for wp in work_plans:
                 total_activities += 1
-                status = wp.wp_status or "Pending"
+                status = wp.wp_status or "Not Started"
                 status_counts[status] += 1
 
                 # Track progress for averaging
