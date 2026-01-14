@@ -8,7 +8,7 @@ interface UserContextProps {
   isLoading: boolean;
   currentUser: string;
   login: (username: string, password: string) => Promise<AuthResponse>;
-  logout: () => Promise<undefined[]>;
+  logout: () => Promise<void>;
   updateCurrentUser: VoidFunction;
   selectedProject: string | undefined;
   setSelectedProject: any;
@@ -22,9 +22,7 @@ export const UserContext = createContext<UserContextProps>({
   login: async () => {
     return {message : "loding not implemented" , user: ""}
   },
-  logout: async () => {
-    return []
-  },
+  logout: async () => {},
   updateCurrentUser: () => {},
   selectedProject: undefined,
   setSelectedProject: () => {},
@@ -95,26 +93,24 @@ export const UserProvider: FC<PropsWithChildren> = ({ children }) => {
     Sentry.setUser(null);
     console.log("Sentry user context cleared on logout");
 
+    // Clear local storage early
     localStorage.removeItem("app-cache");
-    return logout().then(() => {
-      //Clear cache on logout
+
+    try {
+      await logout();
+      // Clear cache on successful logout
       sessionStorage.clear();
-      return mutate(() => true, undefined, false);
-    });
-    // .then(() => {
-    //     //Reload the page so that the boot info is fetched again
-    //     const URL = import.meta.env.VITE_BASE_NAME ? `${import.meta.env.VITE_BASE_NAME}` : ``
-    //     if (URL) {
-    //         window.location.replace(`/${URL}/login`)
-    //     } else {
-    //         window.location.replace('/login')
-    //     }
+      await mutate(() => true, undefined, false);
+    } catch (error) {
+      // Handle CSRF token errors or other logout failures gracefully
+      // User should still be able to logout even if the API call fails
+      console.error("Logout API error (likely CSRF token issue):", error);
+      sessionStorage.clear();
 
-    //     // window.location.reload()
-    // })
-
-    // setAuthStatus("loggedOut")
-    // await logout()
+      // Force redirect to login page to complete logout flow
+      const basePath = import.meta.env.VITE_BASE_NAME || "";
+      window.location.href = basePath ? `/${basePath}/login` : "/login";
+    }
   };
 
   const handleLogin = async (username: string, password: string) => {
