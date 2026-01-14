@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useFrappeUpdateDoc } from "frappe-react-sdk";
 import { z } from "zod";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import ReactSelect from "react-select";
@@ -57,7 +57,19 @@ export const ProjectManagerEditWorkPlanDialog = ({
     const { updateDoc, loading: updating } = useFrappeUpdateDoc();
 
     const handleChange = (field: string, value: any) => {
-        setFormData((prev) => ({ ...prev, [field]: value }));
+        setFormData((prev) => {
+            const newData = { ...prev, [field]: value };
+
+            // When status changes to "In Progress", clear the estimated completion date
+            // so user must enter a fresh value
+            if (field === "wp_status" && value === "In Progress") {
+                newData.wp_estimate_completion_date = "";
+                // Reset progress to empty so user must enter a value between 1-99
+                newData.wp_progress = "";
+            }
+
+            return newData;
+        });
     };
 
     // Zod Schema Definition
@@ -67,6 +79,7 @@ export const ProjectManagerEditWorkPlanDialog = ({
         wp_estimate_completion_date: z.string().optional(),
     }).superRefine((data, ctx) => {
         if (data.wp_status === "In Progress") {
+            // Validate Estimated Completion Date is required
             if (!data.wp_estimate_completion_date) {
                 ctx.addIssue({
                     code: z.ZodIssueCode.custom,
@@ -74,12 +87,26 @@ export const ProjectManagerEditWorkPlanDialog = ({
                     path: ["wp_estimate_completion_date"],
                 });
             }
+
+            // Validate Progress is required and between 1-99
             if (data.wp_progress === "" || data.wp_progress === undefined || data.wp_progress === null) {
                 ctx.addIssue({
                     code: z.ZodIssueCode.custom,
                     message: "Progress is required for In Progress tasks",
                     path: ["wp_progress"],
                 });
+            } else {
+                const progressValue = typeof data.wp_progress === "string"
+                    ? parseFloat(data.wp_progress)
+                    : data.wp_progress;
+
+                if (isNaN(progressValue) || progressValue < 1 || progressValue > 99) {
+                    ctx.addIssue({
+                        code: z.ZodIssueCode.custom,
+                        message: "Progress must be between 1 and 99 for In Progress tasks",
+                        path: ["wp_progress"],
+                    });
+                }
             }
         }
     });
@@ -123,11 +150,22 @@ export const ProjectManagerEditWorkPlanDialog = ({
 
         try {
             await updateDoc("Work Plan", docName, dataToUpdate);
-            toast({
-                title: "Success",
-                description: "Task updated successfully",
-                variant: "success",
-            });
+
+            // Show contextual toast based on status change
+            if (formData.wp_status === "Completed") {
+                toast({
+                    title: "Task Completed",
+                    description: "Task marked as 100% complete. It may no longer appear in the current date range filter.",
+                    variant: "success",
+                    duration: 5000,
+                });
+            } else {
+                toast({
+                    title: "Success",
+                    description: "Task updated successfully",
+                    variant: "success",
+                });
+            }
 
             onSuccess();
             onClose();
@@ -174,32 +212,37 @@ export const ProjectManagerEditWorkPlanDialog = ({
                                 { label: "Completed", value: "Completed" },
                             ]}
                             onChange={(newValue) => handleChange("wp_status", newValue?.value)}
-                            menuPosition="auto"
-                           
+                            menuPlacement="auto"
                         />
                     </div>
 
                     {shouldShowFields && (
                         <>
                             <div className="grid gap-2">
-                                <Label htmlFor="wp_progress">Progress (%)</Label>
+                                <Label htmlFor="wp_progress">
+                                    Progress (%) <span className="text-red-500">*</span>
+                                </Label>
                                 <Input
                                     id="wp_progress"
                                     type="number"
-                                    min="0"
-                                    max="100"
+                                    min="1"
+                                    max="99"
+                                    placeholder="Enter 1-99"
                                     value={formData.wp_progress}
                                     onChange={(e) => handleChange("wp_progress", e.target.value === "" ? "" : parseFloat(e.target.value))}
                                 />
+                                <p className="text-xs text-gray-500">Must be between 1 and 99</p>
                             </div>
 
                             <div className="grid gap-2">
-                                <Label htmlFor="wp_estimate_completion_date">Estimated Completion Date</Label>
+                                <Label htmlFor="wp_estimate_completion_date">
+                                    Estimated Completion Date <span className="text-red-500">*</span>
+                                </Label>
                                 <Input
                                     id="wp_estimate_completion_date"
                                     type="date"
                                     value={formData.wp_estimate_completion_date}
-                                    min={new Date().toISOString().split("T")[0]} 
+                                    min={new Date().toISOString().split("T")[0]}
                                     onChange={(e) => handleChange("wp_estimate_completion_date", e.target.value)}
                                 />
                             </div>
