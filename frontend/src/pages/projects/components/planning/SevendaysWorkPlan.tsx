@@ -2,9 +2,8 @@
 
 import React, { useMemo, useState, useEffect } from "react";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappeDeleteDoc } from "frappe-react-sdk";
-import { format, addDays, subDays } from "date-fns";
-import { safeFormatDate } from "@/lib/utils";
-import { AlertCircle, Calendar, CheckCircle, Circle, Loader2, ChevronDown, ChevronUp, Pencil, Trash2, Download } from "lucide-react";
+import { format } from "date-fns";
+import { AlertCircle, Loader2, ChevronDown, ChevronUp, Pencil, Trash2, Download, Play, Flag, Activity, TrendingUp, Target, Zap } from "lucide-react";
 import { ProgressCircle } from "@/components/ui/ProgressCircle";
 import { CreateWorkplantask } from "./CreateWorkplantask";
 import { Badge } from "@/components/ui/badge";
@@ -31,7 +30,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface SevendaysWorkPlanProps {
     projectId: string;
@@ -75,6 +73,16 @@ export const getColorForProgress = (value: number): string => {
     if (val < 75) return "text-yellow-600";
     if (val < 100) return "text-green-600";
     return "text-green-500";
+};
+
+// Format date as dd-MMM-yyyy (e.g., 15-Jan-2024)
+const formatDate = (dateStr: string | undefined | null): string => {
+    if (!dateStr) return '—';
+    try {
+        return format(new Date(dateStr), 'dd-MMM-yyyy');
+    } catch {
+        return dateStr;
+    }
 };
 
 const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilestone, isOverview, isProjectManager }: {
@@ -141,12 +149,12 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                 </td>
                 <td className="px-4 py-3 text-xs font-medium text-gray-700 border-b-0 text-center">
                     {item.expected_starting_date ? (
-                        <span className="text-red-600 font-bold">{safeFormatDate(item.expected_starting_date)}</span>
+                        <span className="text-red-600 font-bold">{formatDate(item.expected_starting_date)}</span>
                     ) : "NA"}
                 </td>
                 <td className="px-4 py-3 text-xs font-medium text-gray-700 border-b-0 text-center">
                     {item.expected_completion_date ? (
-                        <span className="text-red-600 font-bold">{safeFormatDate(item.expected_completion_date)}</span>
+                        <span className="text-red-600 font-bold">{formatDate(item.expected_completion_date)}</span>
                     ) : "NA"}
                 </td>
                 {!isOverview && !isProjectManager && (
@@ -193,112 +201,189 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                                         </div>
                                         <div className="p-3 text-center">Action</div>
                                     </div> */}
-                                    {/* Data Rows */}
-                                    {workPlans.map((plan) => (
-                                        <div key={plan.name} className="grid grid-cols-[1fr_1fr_2fr_auto] divide-x divide-gray-200 items-center rounded-lg border border-gray-200 bg-white shadow-[0_2px_4px_rgba(0,0,0,0.02)] hover:shadow-md transition-shadow">
-                                            {/* Col 1: Title and Description */}
-                                            {/* <div className="space-y-1.5 p-4">
-                                                <div className="font-semibold text-gray-900 text-sm leading-tight" title={plan.wp_title}>{plan.wp_title}</div>
-                                                {plan.wp_description && (
-                                                    <div className="text-xs text-gray-500 whitespace-normal break-words leading-relaxed line-clamp-2" title={plan.wp_description}>
-                                                        <span className="font-semibold text-yellow-600">Note: </span>
-                                                        {plan.wp_description}
-                                                    </div>
-                                                )}
-                                            </div> */}
-                                            <div className="space-y-1.5 p-4">
-                                                {/* Title */}
-                                                <div className="font-semibold text-gray-900 text-sm leading-tight" title={plan.wp_title}>
-                                                    {plan.wp_title}
+                                    {/* Data Rows - Enterprise Minimalist Cards with Labels */}
+                                    {workPlans.map((plan) => {
+                                        const progressNum = parseInt(plan.wp_progress || '0', 10);
+
+                                        return (
+                                            <div
+                                                key={plan.name}
+                                                className="bg-white border border-gray-150 rounded-lg hover:border-gray-200 transition-colors"
+                                            >
+                                                {/* Two-row layout: Title row + Data row */}
+                                                <div className="px-4 py-3 border-b border-gray-100">
+                                                    <h4 className="text-sm font-semibold text-gray-900 leading-tight" title={plan.wp_title}>
+                                                        {plan.wp_title}
+                                                    </h4>
+                                                    {plan.wp_description && (
+                                                        <p className="mt-1.5 text-xs text-gray-500 leading-relaxed">
+                                                            <span className="font-medium text-amber-600">Note:</span>{" "}
+                                                            {plan.wp_description}
+                                                        </p>
+                                                    )}
                                                 </div>
 
-                                                {/* Description - Removed 'line-clamp-2' */}
-                                                {plan.wp_description && (
-                                                    <div
-                                                        className="text-xs text-gray-500 whitespace-normal break-words leading-relaxed"
-                                                        title={plan.wp_description}
-                                                    >
-                                                        <span className="font-semibold text-yellow-600">Note: </span>
-                                                        {plan.wp_description}
-                                                    </div>
-                                                )}
-                                            </div>
+                                                {/* Data Fields Row - Two Sections */}
+                                                <div className="flex items-stretch">
+                                                    {/* SECTION 1: Admin/Lead Defined - Planning Dates */}
+                                                    <div className="flex items-center bg-blue-50/40 border-r-2 border-blue-100">
+                                                        {/* Section Label */}
+                                                        <div className="px-2 py-2.5 border-r border-blue-100/50">
+                                                            <div className="text-[9px] font-semibold text-blue-600 uppercase tracking-wider whitespace-nowrap [writing-mode:vertical-lr] rotate-180">
+                                                                Planned
+                                                            </div>
+                                                        </div>
 
-                                            {/* Col 2: Planned End Date and Planned Start Date */}
-                                            <div className="flex items-center justify-center gap-4 p-4">
-                                                <div className="flex flex-col items-center gap-1">
-                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Planned Start Date</span>
-                                                    <div className="text-center rounded border px-3 py-1 text-xs font-semibold bg-white text-gray-700 shadow-sm whitespace-nowrap">
-                                                        {safeFormatDate(plan.wp_start_date)}
-                                                    </div>
-                                                </div>
-                                                <div className="flex flex-col items-center gap-1">
-                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Planned End Date</span>
-                                                    <div className="text-center rounded border px-3 py-1 text-xs font-semibold bg-white text-gray-700 shadow-sm whitespace-nowrap">
-                                                        {safeFormatDate(plan.wp_end_date)}
-                                                    </div>
-                                                </div>
-                                            </div>
+                                                        {/* Start Date */}
+                                                        <div className="px-4 py-2.5 text-center border-r border-blue-100/50">
+                                                            <div className="flex items-center justify-center gap-1 text-[10px] font-medium text-blue-500 uppercase tracking-wider mb-1">
+                                                                <Play className="h-2.5 w-2.5" />
+                                                                <span>Start</span>
+                                                            </div>
+                                                            <div className="text-xs font-semibold text-gray-700 tabular-nums">
+                                                                {formatDate(plan.wp_start_date)}
+                                                            </div>
+                                                        </div>
 
-                                            {/* Col 3: Status, Percentage, and Estimated Completion Date */}
-                                            <div className="flex items-center justify-center gap-4 p-4">
-                                                <div className="flex flex-col items-center gap-1">
-                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Status</span>
-                                                    <span className={`text-center rounded-md px-3 py-1 text-xs font-semibold border whitespace-nowrap ${plan.wp_status === 'Pending' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
-                                                        plan.wp_status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' :
-                                                            plan.wp_status === 'In Progress' ? 'bg-orange-50 text-orange-700 border-orange-200' :
-                                                                'bg-gray-50 text-gray-700 border-gray-200'
-                                                        }`}>
-                                                        {plan.wp_status || 'Pending'}
-                                                    </span>
-                                                </div>
-                                                <div className="flex flex-col items-center gap-1">
-                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Progress</span>
-                                                    <div className="text-center rounded border px-3 py-1 text-xs font-bold bg-white shadow-sm whitespace-nowrap">
-                                                        {plan.wp_progress || '0'}%
+                                                        {/* End Date */}
+                                                        <div className="px-4 py-2.5 text-center">
+                                                            <div className="flex items-center justify-center gap-1 text-[10px] font-medium text-blue-500 uppercase tracking-wider mb-1">
+                                                                <Flag className="h-2.5 w-2.5" />
+                                                                <span>End</span>
+                                                            </div>
+                                                            <div className="text-xs font-semibold text-gray-700 tabular-nums">
+                                                                {formatDate(plan.wp_end_date)}
+                                                            </div>
+                                                        </div>
                                                     </div>
-                                                </div>
-                                                <div className="flex flex-col items-center gap-1">
-                                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Estd. Completion Date</span>
-                                                    <div className="text-center rounded border px-3 py-1 text-xs font-semibold bg-white text-gray-700 shadow-sm whitespace-nowrap">
-                                                        {plan.wp_estimate_completion_date ? safeFormatDate(plan.wp_estimate_completion_date) : 'N/A'}
-                                                    </div>
-                                                </div>
-                                            </div>
 
-                                            {/* Col 4: Action */}
-                                            {/* Col 4: Action */}
-                                            <div className="flex flex-col items-center gap-1 p-4">
-                                                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Action</span>
-                                                <div className="flex items-center justify-center gap-2">
-                                                    {!isOverview ? (
-                                                        <>
-                                                            <button
-                                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-sm"
-                                                                onClick={() => onEditTask(plan, item)}
-                                                                title="Update Task"
-                                                            >
-                                                                <Pencil className="h-3 w-3" />
-                                                                Update
-                                                            </button>
-                                                            {/* Delete button - visible only for Admin */}
-                                                            {!isProjectManager && (
+                                                    {/* SECTION 2: Project Team Reported - Execution Status (Status-dependent colors) */}
+                                                    {(() => {
+                                                        // Status-based color scheme
+                                                        const statusColors = {
+                                                            'Completed': {
+                                                                bg: 'bg-emerald-50/50',
+                                                                border: 'border-emerald-200/50',
+                                                                text: 'text-emerald-600',
+                                                            },
+                                                            'In Progress': {
+                                                                bg: 'bg-amber-50/50',
+                                                                border: 'border-amber-200/50',
+                                                                text: 'text-amber-600',
+                                                            },
+                                                            'Pending': {
+                                                                bg: 'bg-red-50/50',
+                                                                border: 'border-red-200/50',
+                                                                text: 'text-red-600',
+                                                            },
+                                                            'Not Started': {
+                                                                bg: 'bg-red-50/50',
+                                                                border: 'border-red-200/50',
+                                                                text: 'text-red-600',
+                                                            },
+                                                            'On Hold': {
+                                                                bg: 'bg-gray-100/50',
+                                                                border: 'border-gray-200/50',
+                                                                text: 'text-gray-500',
+                                                            },
+                                                        };
+                                                        const colors = statusColors[plan.wp_status as keyof typeof statusColors] || statusColors['Pending'];
+
+                                                        return (
+                                                            <div className={`flex-1 flex items-center ${colors.bg}`}>
+                                                                {/* Section Label */}
+                                                                <div className={`px-2 py-2.5 border-r ${colors.border}`}>
+                                                                    <div className={`text-[9px] font-semibold ${colors.text} uppercase tracking-wider whitespace-nowrap [writing-mode:vertical-lr] rotate-180`}>
+                                                                        Tracked
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* Status */}
+                                                                <div className={`flex-1 px-4 py-2.5 text-center border-r ${colors.border}`}>
+                                                                    <div className={`flex items-center justify-center gap-1 text-[10px] font-medium ${colors.text} uppercase tracking-wider mb-1`}>
+                                                                        <Activity className="h-2.5 w-2.5" />
+                                                                        <span>Status</span>
+                                                                    </div>
+                                                                    <span className={`inline-flex items-center px-2 py-0.5 text-[11px] font-medium rounded ${
+                                                                        plan.wp_status === 'Completed' ? 'bg-emerald-100 text-emerald-700' :
+                                                                        plan.wp_status === 'In Progress' ? 'bg-amber-100 text-amber-700' :
+                                                                        plan.wp_status === 'Pending' || plan.wp_status === 'Not Started' ? 'bg-red-100 text-red-700' :
+                                                                        plan.wp_status === 'On Hold' ? 'bg-gray-200 text-gray-600' :
+                                                                        'bg-red-100 text-red-700'
+                                                                    }`}>
+                                                                        {plan.wp_status || 'Pending'}
+                                                                    </span>
+                                                                </div>
+
+                                                                {/* Progress */}
+                                                                <div className={`flex-1 px-4 py-2.5 text-center border-r ${colors.border}`}>
+                                                                    <div className={`flex items-center justify-center gap-1 text-[10px] font-medium ${colors.text} uppercase tracking-wider mb-1`}>
+                                                                        <TrendingUp className="h-2.5 w-2.5" />
+                                                                        <span>Progress</span>
+                                                                    </div>
+                                                                    <div className="flex items-center justify-center gap-2">
+                                                                        <div className="w-10 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                                                            <div
+                                                                                className={`h-full rounded-full ${progressNum >= 100 ? 'bg-emerald-500' :
+                                                                                    progressNum >= 50 ? 'bg-amber-500' :
+                                                                                        progressNum > 0 ? 'bg-sky-500' :
+                                                                                            'bg-gray-300'
+                                                                                    }`}
+                                                                                style={{ width: `${Math.min(progressNum, 100)}%` }}
+                                                                            />
+                                                                        </div>
+                                                                        <span className="text-xs font-bold text-gray-700 tabular-nums w-8">
+                                                                            {plan.wp_progress || '0'}%
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* Est. Completion */}
+                                                                <div className="flex-1 px-4 py-2.5 text-center">
+                                                                    <div className={`flex items-center justify-center gap-1 text-[10px] font-medium ${colors.text} uppercase tracking-wider mb-1`}>
+                                                                        <Target className="h-2.5 w-2.5" />
+                                                                        <span>Est. Completion</span>
+                                                                    </div>
+                                                                    <div className="text-xs font-semibold text-gray-700 tabular-nums">
+                                                                        {formatDate(plan.wp_estimate_completion_date)}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })()}
+
+                                                    {/* Actions - Neutral Section */}
+                                                    {!isOverview && (
+                                                        <div className="px-4 py-2.5 text-center bg-gray-50 border-l border-gray-200">
+                                                            <div className="flex items-center justify-center gap-1 text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1">
+                                                                <Zap className="h-2.5 w-2.5" />
+                                                                <span>Action</span>
+                                                            </div>
+                                                            <div className="flex items-center justify-center gap-1">
                                                                 <button
-                                                                    className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-all"
-                                                                    onClick={() => onDeleteTask(plan.name)}
-                                                                    title="Delete Task"
+                                                                    className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors"
+                                                                    onClick={() => onEditTask(plan, item)}
+                                                                    title="Update Task"
                                                                 >
-                                                                    <Trash2 className="h-4 w-4" />
+                                                                    <Pencil className="h-3 w-3" />
+                                                                    Update
                                                                 </button>
-                                                            )}
-                                                        </>
-                                                    ) : (
-                                                        <span className="text-xs text-gray-400">-</span>
+                                                                {!isProjectManager && (
+                                                                    <button
+                                                                        className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                                                                        onClick={() => onDeleteTask(plan.name)}
+                                                                        title="Delete"
+                                                                    >
+                                                                        <Trash2 className="h-3.5 w-3.5" />
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        </div>
                                                     )}
                                                 </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             )}
                         </div>
@@ -327,7 +412,7 @@ export const SevendaysWorkPlan = ({
     const [bufferDays, setBufferDays] = useState<number | string>("");
     const [addToStart, setAddToStart] = useState<boolean>(true);
     const [addToEnd, setAddToEnd] = useState<boolean>(true);
-    const [isMainExpanded, setIsMainExpanded] = useState(true);
+    const [isMainExpanded, _setIsMainExpanded] = useState(true);
 
     const { toast } = useToast();
     const { deleteDoc } = useFrappeDeleteDoc();
