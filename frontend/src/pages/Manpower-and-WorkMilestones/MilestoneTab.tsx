@@ -140,6 +140,8 @@ interface ProjectProgressReportData {
   report_zone?: string; // <-- NEW FIELD
   draft_owner?: string; // ADDED
   draft_last_updated?: string; // ADDED
+  drawing_remarks?: string; // NEW: Client/Clearance Issues - Drawing Remarks
+  site_remarks?: string; // NEW: Client/Clearance Issues - Site Remarks
 }
 
 interface FrappeProjectProgressReportPayload {
@@ -153,6 +155,14 @@ interface FrappeProjectProgressReportPayload {
   report_zone?: string; // <-- NEW FIELD
   draft_owner?: string; // ADDED
   draft_last_updated?: string; // ADDED
+  drawing_remarks?: string; // NEW: Client/Clearance Issues - Drawing Remarks
+  site_remarks?: string; // NEW: Client/Clearance Issues - Site Remarks
+}
+
+// --- Client/Clearance Issues Tab Data ---
+interface ClientClearanceData {
+  drawingRemarks: string[]; // Array of drawing remark points
+  siteRemarks: string[]; // Array of site remark points
 }
 
 interface WorkMilestoneFromFrappe {
@@ -175,7 +185,7 @@ interface FullPreviousProjectProgressReport extends ProjectProgressReportData {
 // --- END: Refined Interfaces ---
 // Place these near the top of MilestoneTabInner or outside if preferred
 
-export const DELIMITER = "$#,,,"; // Custom delimiter for work plan points
+export const DELIMITER = "$#,,,"; // Custom delimiter for work plan points and client/clearance remarks
 
 export const parseWorkPlan = (workPlanString?: string | null): string[] => {
   if (!workPlanString || typeof workPlanString !== 'string' || workPlanString.trim() === '') {
@@ -188,6 +198,23 @@ export const parseWorkPlan = (workPlanString?: string | null): string[] => {
 export const serializeWorkPlan = (workPlanPoints: string[]): string => {
   // Filter out empty lines before joining
   return workPlanPoints.filter(p => p.trim() !== '').join(DELIMITER);
+};
+
+// --- Client/Clearance Issues Parsing Functions ---
+// Parse remarks from backend field - each remark is separated by $#,,,
+// Format: remark1$#,,,remark2$#,,,remark3
+export const parseClientClearanceRemarks = (remarksString?: string | null): string[] => {
+  if (!remarksString || typeof remarksString !== 'string' || remarksString.trim() === '') {
+    return [];
+  }
+  // Split by delimiter and filter out empty entries
+  return remarksString.split(DELIMITER).filter(p => p.trim() !== '');
+};
+
+// Serialize remarks to backend format
+// Format: remark1$#,,,remark2$#,,,remark3
+export const serializeClientClearanceRemarks = (remarks: string[]): string => {
+  return remarks.filter(r => r.trim() !== '').join(DELIMITER);
 };
 
 // Helper component for the radio circle indicator
@@ -377,10 +404,18 @@ const latestCompletedReportDateIsToday =
   const [isMilestoneDatePickerOpen, setIsMilestoneDatePickerOpen] = useState(false);
   const [milestoneRemarks, setMilestoneRemarks] = useState('');
 
-  // --- NEW STATES FOR WORK PLAN ---
+// --- NEW STATES FOR WORK PLAN ---
 const [workPlanRatio, setWorkPlanRatio] = useState<'Plan Not Required' | 'Plan Required'>('Plan Not Required');
 const [workPlanPoints, setWorkPlanPoints] = useState<string[]>([]); // Array of points for the text area
 //
+
+// --- STATE FOR CLIENT/CLEARANCE ISSUES TAB ---
+const [drawingRemarksList, setDrawingRemarksList] = useState<string[]>([]);
+const [siteRemarksList, setSiteRemarksList] = useState<string[]>([]);
+const [newDrawingRemark, setNewDrawingRemark] = useState<string>("");
+const [newSiteRemark, setNewSiteRemark] = useState<string>("");
+const getClientClearanceStorageKey = (dateString: string) => `project_${projectId}_date_${dateString}_zone_${reportZone}_tab_Client_Clearance_Issues`;
+// --- END STATE FOR CLIENT/CLEARANCE ISSUES TAB ---
 
   const [currentTabMilestones, setCurrentTabMilestones] = useState<LocalMilestoneData[]>([]);
 
@@ -435,6 +470,7 @@ const [workPlanPoints, setWorkPlanPoints] = useState<string[]>([]); // Array of 
 
     return [
       { name: "Work force", project_work_header_name: "Work force", enabled: "True" },
+      { name: "Client / Clearance Issues", project_work_header_name: "Client / Clearance Issues", enabled: "True" },
       ...dynamicTabs,
       {name:"Photos",project_work_header_name:"Photos",enabled:"True"},
     ];
@@ -558,6 +594,21 @@ const [workPlanPoints, setWorkPlanPoints] = useState<string[]>([]); // Array of 
           };
         } else if (tab.project_work_header_name === "Photos") {
           initialData = { photos: existingDraftReport?.[0]?.photos || [] };
+        } else if (tab.project_work_header_name === "Client / Clearance Issues") {
+          // Initialize Client/Clearance Issues tab with drawing/site remarks from draft
+          initialData = {
+            project: projectId,
+            report_date: dateString,
+            manpower: [],
+            milestones: [],
+            photos: [],
+            report_status: 'Draft',
+            report_zone: reportZone,
+            draft_owner: existingDraftOwner,
+            draft_last_updated: existingDraftLastUpdated,
+            drawing_remarks: DraftReport?.drawing_remarks || "",
+            site_remarks: DraftReport?.site_remarks || "",
+          };
         } else {
           // MODIFIED LOGIC HERE: Use existing draft milestones, OR the inherited list
           // if no existing draft milestones are present for this header.
@@ -585,7 +636,7 @@ const [workPlanPoints, setWorkPlanPoints] = useState<string[]>([]); // Array of 
         sessionStorage.setItem(storageKey, JSON.stringify(initialData));
       } else {
         const parsedData = JSON.parse(existingData) as ProjectProgressReportData;
-        if (tab.project_work_header_name !== "Work force" && tab.project_work_header_name !== "Photos") {
+        if (tab.project_work_header_name !== "Work force" && tab.project_work_header_name !== "Photos" && tab.project_work_header_name !== "Client / Clearance Issues") {
             const milestonesWithUpdatedFlag = (parsedData.milestones || []).map(m => ({
                 ...m,
                 is_updated_for_current_report: m.is_updated_for_current_report ?? false
@@ -616,6 +667,18 @@ const [workPlanPoints, setWorkPlanPoints] = useState<string[]>([]); // Array of 
     if (activeTabValue === "Photos") {
       const parsedData: Pick<ProjectProgressReportData, 'photos'> = storedData ? JSON.parse(storedData) : { photos: [] };
       setLocalPhotos(parsedData.photos || []);
+      setReportsLoading(false);
+      return;
+    }
+
+    // Handle Client / Clearance Issues tab loading
+    if (activeTabValue === "Client / Clearance Issues") {
+      const parsedData: ProjectProgressReportData = storedData ? JSON.parse(storedData) : { drawing_remarks: "", site_remarks: "" };
+      // Parse the drawing and site remarks into arrays
+      const drawingPoints = parseClientClearanceRemarks(parsedData.drawing_remarks);
+      const sitePoints = parseClientClearanceRemarks(parsedData.site_remarks);
+      setDrawingRemarksList(drawingPoints);
+      setSiteRemarksList(sitePoints);
       setReportsLoading(false);
       return;
     }
@@ -969,7 +1032,26 @@ console.log(user)
     } else if (activeTabValue === "Photos") {
             const payload: Pick<ProjectProgressReportData, 'photos'> = { photos: localPhotos };
             sessionStorage.setItem(storageKey, JSON.stringify(payload));
-      }else {
+    } else if (activeTabValue === "Client / Clearance Issues") {
+      // Save Client/Clearance Issues tab data
+      const drawingRemarksStr = serializeClientClearanceRemarks(drawingRemarksList);
+      const siteRemarksStr = serializeClientClearanceRemarks(siteRemarksList);
+      
+      const payload: ProjectProgressReportData = {
+        project: projectId,
+        report_date: dateString,
+        manpower: [],
+        milestones: [],
+        photos: [],
+        report_status: 'Draft',
+        report_zone: reportZone,
+        draft_owner: currentDraftOwner,
+        draft_last_updated: currentTimestamp,
+        drawing_remarks: drawingRemarksStr,
+        site_remarks: siteRemarksStr,
+      };
+      sessionStorage.setItem(storageKey, JSON.stringify(payload));
+    } else {
       const payload: ProjectProgressReportData = {
         project: projectId,
         report_date: dateString,
@@ -993,6 +1075,8 @@ console.log(user)
     let allMilestones: LocalMilestoneData[] = [];
     let allPhotos: ProjectProgressAttachment[] = [];
     let manpowerRemarks = "";
+    let clientClearanceDrawingRemarks = "";
+    let clientClearanceSiteRemarks = "";
 
     allTabs.forEach(tab => {
 
@@ -1009,6 +1093,11 @@ console.log(user)
         manpowerRemarks = (parsedData as ProjectProgressReportData)?.manpower_remarks || "";
       } else if (tab.project_work_header_name === "Photos") {
         allPhotos.push(...((parsedData as Pick<ProjectProgressReportData, 'photos'>)?.photos || []).filter(p => p.image_link));
+      } else if (tab.project_work_header_name === "Client / Clearance Issues") {
+        // Collect drawing and site remarks - these will be added to the final payload later
+        // We capture them from the parsed data
+        clientClearanceDrawingRemarks = (parsedData as ProjectProgressReportData)?.drawing_remarks || "";
+        clientClearanceSiteRemarks = (parsedData as ProjectProgressReportData)?.site_remarks || "";
       } else { // Milestone tabs
         let tabMilestones: LocalMilestoneData[] = [];
         if (parsedData && (parsedData as ProjectProgressReportData).milestones && (parsedData as ProjectProgressReportData).milestones!.length > 0) {
@@ -1060,7 +1149,8 @@ console.log(user)
       attachments: cleanedAttachments,
       report_status: status,
       report_zone: reportZone, // <-- NEW: Add the zone to the payload
-
+      drawing_remarks: clientClearanceDrawingRemarks, // NEW: Client/Clearance Issues
+      site_remarks: clientClearanceSiteRemarks, // NEW: Client/Clearance Issues
     };
 
     if (status === 'Draft') {
@@ -1613,6 +1703,8 @@ console.log(user)
       return "Manpower";
     } else if (activeTabValue === "Photos") {
       return "Photos";
+    } else if (activeTabValue === "Client / Clearance Issues") {
+      return "Client / Clearance Issues";
     } else {
       return "Milestones"; // For all other work header tabs
     }
@@ -1827,6 +1919,160 @@ console.log(user)
                 {/* </CardContent> */}
               {/* </Card> */}
             </TabsContent>
+
+            {/* --- CLIENT / CLEARANCE ISSUES TAB --- */}
+            <TabsContent value="Client / Clearance Issues" className="mt-4 p-1">
+              <div className="space-y-6">
+                {/* Drawing Remarks Section */}
+                <Card className="bg-white shadow-sm rounded-lg">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base font-semibold text-gray-800">
+                      Drawing Remarks
+                    </CardTitle>
+                    <p className="text-sm text-gray-500">Issues related to drawings, approvals, or documentation</p>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {/* Input for new drawing remark */}
+                    <div className="flex gap-2">
+                      <Textarea
+                        value={newDrawingRemark}
+                        onChange={(e) => setNewDrawingRemark(e.target.value)}
+                        placeholder="Enter a drawing-related remark..."
+                        className="flex-1 min-h-[60px] text-sm resize-none"
+                        disabled={isBlockedByDraftOwnership}
+                      />
+                      <Button
+                        variant="outline"
+                        className="flex-shrink-0 text-red-600 border-red-600 hover:bg-red-50"
+                        onClick={() => {
+                          if (newDrawingRemark.trim()) {
+                            setDrawingRemarksList(prev => [...prev, newDrawingRemark.trim()]);
+                            setNewDrawingRemark("");
+                            toast({
+                              title: "Added! ✅",
+                              description: "Drawing remark added successfully.",
+                              variant: "default",
+                            });
+                          }
+                        }}
+                        disabled={isBlockedByDraftOwnership || !newDrawingRemark.trim()}
+                      >
+                        <PlusCircledIcon className="h-4 w-4 mr-1" /> Add
+                      </Button>
+                    </div>
+
+                    {/* List of drawing remarks */}
+                    {drawingRemarksList.length > 0 ? (
+                      <div className="space-y-2 mt-3 border-t pt-3">
+                        <p className="text-xs text-gray-500 font-medium">Added Points ({drawingRemarksList.length})</p>
+                        {drawingRemarksList.map((remark, index) => (
+                          <div 
+                            key={`drawing-${index}`}
+                            className="flex items-start gap-2 p-2 bg-gray-50 rounded-md border border-gray-200"
+                          >
+                            <span className="flex-shrink-0 text-xs text-gray-500 font-medium mt-1">{index + 1}.</span>
+                            <p className="flex-1 text-sm text-gray-700 break-words">{remark}</p>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 flex-shrink-0 text-red-500 hover:bg-red-50"
+                              onClick={() => {
+                                setDrawingRemarksList(prev => prev.filter((_, i) => i !== index));
+                                toast({
+                                  title: "Removed",
+                                  description: "Drawing remark removed.",
+                                  variant: "default",
+                                });
+                              }}
+                              disabled={isBlockedByDraftOwnership}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-400 text-center py-3">No drawing remarks added yet.</p>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Site Remarks Section */}
+                <Card className="bg-white shadow-sm rounded-lg">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base font-semibold text-gray-800">
+                      Site Remarks
+                    </CardTitle>
+                    <p className="text-sm text-gray-500">Issues related to site access, clearances, or on-ground blockers</p>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {/* Input for new site remark */}
+                    <div className="flex gap-2">
+                      <Textarea
+                        value={newSiteRemark}
+                        onChange={(e) => setNewSiteRemark(e.target.value)}
+                        placeholder="Enter a site-related remark..."
+                        className="flex-1 min-h-[60px] text-sm resize-none"
+                        disabled={isBlockedByDraftOwnership}
+                      />
+                      <Button
+                        variant="outline"
+                        className="flex-shrink-0 text-red-600 border-red-600 hover:bg-red-50"
+                        onClick={() => {
+                          if (newSiteRemark.trim()) {
+                            setSiteRemarksList(prev => [...prev, newSiteRemark.trim()]);
+                            setNewSiteRemark("");
+                            toast({
+                              title: "Added! ✅",
+                              description: "Site remark added successfully.",
+                              variant: "default",
+                            });
+                          }
+                        }}
+                        disabled={isBlockedByDraftOwnership || !newSiteRemark.trim()}
+                      >
+                        <PlusCircledIcon className="h-4 w-4 mr-1" /> Add
+                      </Button>
+                    </div>
+
+                    {/* List of site remarks */}
+                    {siteRemarksList.length > 0 ? (
+                      <div className="space-y-2 mt-3 border-t pt-3">
+                        <p className="text-xs text-gray-500 font-medium">Added Points ({siteRemarksList.length})</p>
+                        {siteRemarksList.map((remark, index) => (
+                          <div 
+                            key={`site-${index}`}
+                            className="flex items-start gap-2 p-2 bg-gray-50 rounded-md border border-gray-200"
+                          >
+                            <span className="flex-shrink-0 text-xs text-gray-500 font-medium mt-1">{index + 1}.</span>
+                            <p className="flex-1 text-sm text-gray-700 break-words">{remark}</p>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 flex-shrink-0 text-red-500 hover:bg-red-50"
+                              onClick={() => {
+                                setSiteRemarksList(prev => prev.filter((_, i) => i !== index));
+                                toast({
+                                  title: "Removed",
+                                  description: "Site remark removed.",
+                                  variant: "default",
+                                });
+                              }}
+                              disabled={isBlockedByDraftOwnership}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-400 text-center py-3">No site remarks added yet.</p>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
+            {/* --- END CLIENT / CLEARANCE ISSUES TAB --- */}
             
       <TabsContent value="Photos" className="mt-4 p-1">
       <Card className="border-none shadow-none bg-transparent">
@@ -1960,7 +2206,7 @@ console.log(user)
             ))} */}
 
 {allAvailableTabs.map((tab) => {
-              if (tab.project_work_header_name !== "Work force" && tab.project_work_header_name !== "Photos") {
+              if (tab.project_work_header_name !== "Work force" && tab.project_work_header_name !== "Photos" && tab.project_work_header_name !== "Client / Clearance Issues") {
                 // --- Start of new calculation for this specific tab ---
                 // const dateString = formatDate(summaryWorkDate);
                 // const storageKey = `project_${projectId}_date_${dateString}_tab_${tab.project_work_header_name}`;
