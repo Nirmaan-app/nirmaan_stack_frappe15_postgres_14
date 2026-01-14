@@ -246,7 +246,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(role == "Nirmaan Project Lead Profile" || role == "Nirmaan Accountant Profile" || role == "Nirmaan Procurement Executive Profile"
+    ...(role == "Nirmaan Project Lead Profile" || role == "Nirmaan Accountant Profile" || role == "Nirmaan Procurement Executive Profile" || role == "Nirmaan Project Manager Profile"
       ? [
         {
           key: "/projects",
