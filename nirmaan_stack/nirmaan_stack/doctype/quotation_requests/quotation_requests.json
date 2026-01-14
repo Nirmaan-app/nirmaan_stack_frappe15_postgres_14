@@ -112,7 +112,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-01-06 21:05:12.982193",
+ "modified": "2026-01-13 21:00:14.753706",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Quotation Requests",
@@ -194,6 +194,33 @@
    "read": 1,
    "report": 1,
    "role": "Nirmaan Accountant",
+   "share": 1
+  },
+  {
+   "role": "Nirmaan Design Lead",
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "share": 1
+  },
+  {
+   "role": "Nirmaan HR Executive",
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "share": 1
+  },
+  {
+   "role": "Nirmaan PMO Executive",
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
    "share": 1
   }
  ],

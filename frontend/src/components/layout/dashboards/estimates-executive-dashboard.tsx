@@ -2,7 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { useFrappeGetDocCount, useFrappeGetDocList } from "frappe-react-sdk";
-import { CheckCircle2, Coins, HardHat, ShoppingCart, Store } from "lucide-react";
+import { CheckCircle2, Coins, FileText, HardHat, ShoppingCart, Store } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
 
@@ -38,6 +38,9 @@ export const EstimatesExecutive = () => {
     )
 
     const { data: vendorsCount, isLoading: vendorsCountLoading } = useFrappeGetDocCount("Vendors");
+
+    // TDS Repository count
+    const { data: tdsCount, isLoading: tdsCountLoading } = useFrappeGetDocCount("TDS Repository");
 
     // Approved Work Orders count
     const { data: approvedWOCount, isLoading: approvedWOCountLoading } = useFrappeGetDocCount("Service Requests", [["status", "=", "Approved"]]);
@@ -128,7 +131,22 @@ export const EstimatesExecutive = () => {
                                 {(vendorsCountLoading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
                                     : (vendorsCount)}
                             </div>
-                            {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
+                        </CardContent>
+                    </Link>
+                </Card>
+                <Card className="hover:animate-shadow-drop-center">
+                    <Link to="/tds-repository">
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium">
+                                TDS Repository
+                            </CardTitle>
+                            <FileText className="h-4 w-4 text-muted-foreground" />
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold">
+                                {(tdsCountLoading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
+                                    : (tdsCount)}
+                            </div>
                         </CardContent>
                     </Link>
                 </Card>

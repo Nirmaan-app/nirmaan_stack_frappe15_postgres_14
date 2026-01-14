@@ -3,6 +3,21 @@ import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
 import { toast } from "@/components/ui/use-toast";
 
+// Helper to parse associated_pos from string or object
+const parseAssociatedPOs = (associated: any): string[] => {
+  try {
+    if (typeof associated === "string") {
+      const parsed = JSON.parse(associated);
+      return parsed?.pos || [];
+    } else if (associated && typeof associated === "object") {
+      return associated.pos || [];
+    }
+    return [];
+  } catch {
+    return [];
+  }
+};
+
 export interface CategoryOption {
   label: string;
   value: string;
@@ -12,6 +27,13 @@ export interface TaskOption {
   label: string;
   value: string;
   data: CriticalPOTask;
+}
+
+// Type for cross-task PO conflict info
+export interface POLinkedToOtherTask {
+  taskName: string;
+  itemName: string;
+  category: string;
 }
 
 export interface UseCriticalPOTaskLinkingProps {
@@ -45,6 +67,9 @@ export interface UseCriticalPOTaskLinkingReturn {
   // Derived data
   selectedTaskDetails: CriticalPOTask | null;
   linkedPOsToSelectedTask: string[];
+
+  // Cross-task conflict detection
+  poLinkedToOtherTasks: POLinkedToOtherTask[];
 
   // Actions
   linkPOToTask: () => Promise<boolean>;
@@ -156,6 +181,21 @@ export const useCriticalPOTaskLinking = ({
       return [];
     }
   }, [selectedTaskDetails]);
+
+  // Check if this PO is already linked to OTHER tasks (cross-task conflict detection)
+  const poLinkedToOtherTasks = useMemo<POLinkedToOtherTask[]>(() => {
+    return tasks
+      .filter((t) => t.name !== selectedTaskDetails?.name) // Exclude the currently selected task
+      .filter((t) => {
+        const pos = parseAssociatedPOs(t.associated_pos);
+        return pos.includes(poName);
+      })
+      .map((t) => ({
+        taskName: t.name,
+        itemName: t.item_name,
+        category: t.critical_po_category,
+      }));
+  }, [tasks, selectedTaskDetails, poName]);
 
   // Handler for category selection
   const setSelectedCategory = useCallback((option: CategoryOption | null) => {
@@ -271,6 +311,9 @@ export const useCriticalPOTaskLinking = ({
     // Derived data
     selectedTaskDetails,
     linkedPOsToSelectedTask,
+
+    // Cross-task conflict detection
+    poLinkedToOtherTasks,
 
     // Actions
     linkPOToTask,

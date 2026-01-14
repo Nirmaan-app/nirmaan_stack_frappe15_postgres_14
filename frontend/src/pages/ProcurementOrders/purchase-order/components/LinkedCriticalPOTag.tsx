@@ -1,7 +1,6 @@
 import React, { useState, useMemo, useCallback } from "react";
 import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import ReactSelect from "react-select";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -20,14 +19,28 @@ import {
 import { toast } from "@/components/ui/use-toast";
 import { TailSpin } from "react-loader-spinner";
 import {
-  Link2,
   Pencil,
   X,
-  CheckCircle2,
   Unlink,
+  AlertTriangle,
 } from "lucide-react";
 import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
 import { formatDate } from "@/utils/FormatDate";
+
+// Helper to parse associated_pos from string or object
+const parseAssociatedPOs = (associated: any): string[] => {
+  try {
+    if (typeof associated === "string") {
+      const parsed = JSON.parse(associated);
+      return parsed?.pos || [];
+    } else if (associated && typeof associated === "object") {
+      return associated.pos || [];
+    }
+    return [];
+  } catch {
+    return [];
+  }
+};
 
 interface LinkedCriticalPOTagProps {
   poName: string;
@@ -86,6 +99,8 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
   const [unlinkDialogOpen, setUnlinkDialogOpen] = useState(false);
   const [selectedNewTask, setSelectedNewTask] = useState<TaskOption | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
+  // Track which specific task is being edited (for per-task editing with multiple linked tasks)
+  const [taskToEdit, setTaskToEdit] = useState<CriticalPOTask | null>(null);
 
   const { updateDoc } = useFrappeUpdateDoc();
 
@@ -108,34 +123,19 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
     }
   );
 
-  // Find task that has this PO linked
-  const linkedTask = useMemo<CriticalPOTask | null>(() => {
-    for (const task of tasks) {
-      try {
-        const associated = task.associated_pos;
-        let pos: string[] = [];
-
-        if (typeof associated === "string") {
-          const parsed = JSON.parse(associated);
-          pos = parsed?.pos || [];
-        } else if (associated && typeof associated === "object") {
-          pos = associated.pos || [];
-        }
-
-        if (pos.includes(poName)) {
-          return task;
-        }
-      } catch {
-        continue;
-      }
-    }
-    return null;
+  // Find ALL tasks that have this PO linked (supports multiple task links)
+  const linkedTasks = useMemo<CriticalPOTask[]>(() => {
+    return tasks.filter((task) => {
+      const pos = parseAssociatedPOs(task.associated_pos);
+      return pos.includes(poName);
+    });
   }, [tasks, poName]);
 
-  // Create task options for re-linking
-  const taskOptions = useMemo<TaskOption[]>(() => {
+  // Create task options for re-linking (excludes all currently linked tasks)
+  const getTaskOptionsExcluding = useCallback((excludeTaskName: string): TaskOption[] => {
+    const linkedTaskNames = new Set(linkedTasks.map((t) => t.name));
     return tasks
-      .filter((task) => task.name !== linkedTask?.name) // Exclude currently linked task
+      .filter((task) => task.name !== excludeTaskName && !linkedTaskNames.has(task.name))
       .map((task) => ({
         label: task.sub_category
           ? `${task.item_name} (${task.sub_category})`
@@ -143,7 +143,7 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
         value: task.name,
         data: task,
       }));
-  }, [tasks, linkedTask]);
+  }, [tasks, linkedTasks]);
 
   // Get linked POs for a task
   const getLinkedPOs = (task: CriticalPOTask): string[] => {
@@ -161,28 +161,29 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
     }
   };
 
-  // Handle unlink
+  // Handle unlink - uses taskToEdit for per-task unlinking
   const handleUnlink = useCallback(async () => {
-    if (!linkedTask) return;
+    if (!taskToEdit) return;
 
     setIsUpdating(true);
     try {
-      const currentPOs = getLinkedPOs(linkedTask);
+      const currentPOs = getLinkedPOs(taskToEdit);
       const updatedPOs = currentPOs.filter((po) => po !== poName);
 
-      await updateDoc("Critical PO Tasks", linkedTask.name, {
+      await updateDoc("Critical PO Tasks", taskToEdit.name, {
         associated_pos: JSON.stringify({ pos: updatedPOs }),
       });
 
       toast({
         title: "Success",
-        description: `PO unlinked from "${linkedTask.item_name}".`,
+        description: `PO unlinked from "${taskToEdit.item_name}".`,
         variant: "success",
       });
 
       await mutate();
       if (onUpdate) await onUpdate();
       setUnlinkDialogOpen(false);
+      setTaskToEdit(null);
     } catch (error: any) {
       toast({
         title: "Error",
@@ -192,19 +193,19 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
     } finally {
       setIsUpdating(false);
     }
-  }, [linkedTask, poName, updateDoc, mutate, onUpdate]);
+  }, [taskToEdit, poName, updateDoc, mutate, onUpdate]);
 
-  // Handle change to different task
+  // Handle change to different task - uses taskToEdit for per-task editing
   const handleChangeTask = useCallback(async () => {
-    if (!linkedTask || !selectedNewTask) return;
+    if (!taskToEdit || !selectedNewTask) return;
 
     setIsUpdating(true);
     try {
       // Remove from old task
-      const oldPOs = getLinkedPOs(linkedTask);
+      const oldPOs = getLinkedPOs(taskToEdit);
       const updatedOldPOs = oldPOs.filter((po) => po !== poName);
 
-      await updateDoc("Critical PO Tasks", linkedTask.name, {
+      await updateDoc("Critical PO Tasks", taskToEdit.name, {
         associated_pos: JSON.stringify({ pos: updatedOldPOs }),
       });
 
@@ -226,6 +227,7 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
       if (onUpdate) await onUpdate();
       setEditDialogOpen(false);
       setSelectedNewTask(null);
+      setTaskToEdit(null);
     } catch (error: any) {
       toast({
         title: "Error",
@@ -235,59 +237,117 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
     } finally {
       setIsUpdating(false);
     }
-  }, [linkedTask, selectedNewTask, poName, updateDoc, mutate, onUpdate]);
+  }, [taskToEdit, selectedNewTask, poName, updateDoc, mutate, onUpdate]);
 
-  // If no linked task, don't render anything
-  if (!linkedTask) {
+  // Helper to open edit dialog for a specific task
+  const openEditDialog = useCallback((task: CriticalPOTask) => {
+    setTaskToEdit(task);
+    setEditDialogOpen(true);
+  }, []);
+
+  // Get task options for the currently editing task
+  const currentTaskOptions = useMemo(() => {
+    if (!taskToEdit) return [];
+    return getTaskOptionsExcluding(taskToEdit.name);
+  }, [taskToEdit, getTaskOptionsExcluding]);
+
+  // If no linked tasks, don't render anything
+  if (linkedTasks.length === 0) {
     return null;
   }
 
   return (
     <>
-      {/* Linked Task Tag */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <div className="inline-flex items-center gap-1 mt-1">
-            <Badge
-              variant="outline"
-              className={`bg-emerald-50 border-emerald-200 text-emerald-700 transition-colors ${
-                canEdit ? "hover:bg-emerald-100 cursor-pointer group" : ""
-              }`}
-              onClick={canEdit ? () => setEditDialogOpen(true) : undefined}
-            >
-              <Link2 className="w-3 h-3 mr-1" />
-              <span className="text-xs font-medium truncate max-w-[150px]">
-                {linkedTask.item_name}
-                {linkedTask.sub_category && (
-                  <span className="text-emerald-500 ml-1">
-                    ({linkedTask.sub_category})
+      {/* Linked Task Tags - Multiple badges with horizontal wrap */}
+      <div className="flex flex-wrap items-center gap-2 mt-1">
+        {linkedTasks.map((task) => (
+          <Tooltip key={task.name}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className={`
+                  group relative inline-flex items-center gap-1.5
+                  px-2 py-0.5 rounded-md text-xs font-medium
+                  bg-gradient-to-r from-red-50 to-amber-50
+                  border border-red-200/60
+                  text-slate-700
+                  shadow-sm shadow-red-100/50
+                  transition-all duration-200 ease-out
+                  ${canEdit
+                    ? "cursor-pointer hover:shadow-md hover:shadow-red-200/40 hover:border-red-300 hover:from-red-100 hover:to-amber-100"
+                    : "cursor-default"
+                  }
+                `}
+                onClick={canEdit ? () => openEditDialog(task) : undefined}
+              >
+                {/* Pulsing critical indicator dot */}
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                </span>
+
+                {/* Task name with truncation */}
+                <span className="truncate max-w-[120px] tracking-tight">
+                  {task.item_name}
+                </span>
+
+                {/* Sub-category in muted style */}
+                {task.sub_category && (
+                  <span className="text-slate-400 font-normal truncate max-w-[60px]">
+                    · {task.sub_category}
                   </span>
                 )}
-              </span>
-              {canEdit && (
-                <Pencil className="w-3 h-3 ml-1.5 opacity-0 group-hover:opacity-100 transition-opacity" />
-              )}
-            </Badge>
-          </div>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" className="max-w-xs">
-          <div className="space-y-1 text-xs">
-            <p className="font-semibold">Linked Critical PO Task</p>
-            <p>Category: {linkedTask.critical_po_category}</p>
-            <p>Deadline: {formatDate(linkedTask.po_release_date)}</p>
-            <p>Status: {linkedTask.status}</p>
-            {canEdit && <p className="text-slate-400 mt-1">Click to edit</p>}
-          </div>
-        </TooltipContent>
-      </Tooltip>
 
-      {/* Edit Dialog - Only rendered when canEdit is true */}
-      {canEdit && (
-        <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+                {/* Edit indicator on hover */}
+                {canEdit && (
+                  <Pencil className="w-3 h-3 text-red-400 opacity-0 group-hover:opacity-100 transition-opacity duration-150 ml-0.5" />
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent
+              side="bottom"
+              className="bg-slate-900 text-white border-slate-800 shadow-xl"
+            >
+              <div className="space-y-1.5 text-xs py-0.5">
+                <div className="flex items-center gap-1.5 text-red-400 font-semibold">
+                  <AlertTriangle className="w-3 h-3" />
+                  Critical PO Task
+                </div>
+                <div className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 text-slate-300">
+                  <span className="text-slate-500">Category</span>
+                  <span>{task.critical_po_category}</span>
+                  <span className="text-slate-500">Deadline</span>
+                  <span className="text-amber-400">{formatDate(task.po_release_date)}</span>
+                  <span className="text-slate-500">Status</span>
+                  <span>{task.status}</span>
+                </div>
+                {canEdit && (
+                  <p className="text-slate-500 pt-1 border-t border-slate-700 mt-1">
+                    Click to edit link
+                  </p>
+                )}
+              </div>
+            </TooltipContent>
+          </Tooltip>
+        ))}
+      </div>
+
+      {/* Edit Dialog - Only rendered when canEdit is true and taskToEdit is set */}
+      {canEdit && taskToEdit && (
+        <Dialog
+          open={editDialogOpen}
+          onOpenChange={(open) => {
+            setEditDialogOpen(open);
+            if (!open) {
+              setTaskToEdit(null);
+              setSelectedNewTask(null);
+            }
+          }}
+        >
           <DialogContent className="sm:max-w-[450px]">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
-                <Link2 className="w-5 h-5 text-emerald-600" />
+                <AlertTriangle className="w-5 h-5 text-red-500" />
                 Edit Critical PO Task Link
               </DialogTitle>
               <DialogDescription>
@@ -297,39 +357,42 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
 
             <div className="space-y-4 py-2">
               {/* Current Link Info */}
-              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-md">
+              <div className="p-3 bg-gradient-to-r from-red-50 to-amber-50 border border-red-200/60 rounded-md">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">
+                  <span className="text-xs font-semibold text-red-600 uppercase tracking-wide">
                     Currently Linked To
                   </span>
-                  <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                  </span>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div>
                     <span className="text-slate-500">Item</span>
-                    <p className="font-medium text-slate-800">{linkedTask.item_name}</p>
+                    <p className="font-medium text-slate-800">{taskToEdit.item_name}</p>
                   </div>
                   <div>
                     <span className="text-slate-500">Category</span>
-                    <p className="font-medium text-slate-800">{linkedTask.critical_po_category}</p>
+                    <p className="font-medium text-slate-800">{taskToEdit.critical_po_category}</p>
                   </div>
                   <div>
                     <span className="text-slate-500">Sub-Category</span>
-                    <p className="font-medium text-slate-800">{linkedTask.sub_category || "-"}</p>
+                    <p className="font-medium text-slate-800">{taskToEdit.sub_category || "-"}</p>
                   </div>
                   <div>
                     <span className="text-slate-500">Deadline</span>
-                    <p className="font-medium text-slate-800">{formatDate(linkedTask.po_release_date)}</p>
+                    <p className="font-medium text-slate-800">{formatDate(taskToEdit.po_release_date)}</p>
                   </div>
                 </div>
               </div>
 
               {/* Change To Different Task */}
-              {taskOptions.length > 0 && (
+              {currentTaskOptions.length > 0 && (
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">Change To Different Task</Label>
                   <ReactSelect<TaskOption>
-                    options={taskOptions}
+                    options={currentTaskOptions}
                     placeholder="Select a different task..."
                     isClearable
                     styles={selectStyles}
@@ -361,6 +424,7 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
                   onClick={() => {
                     setEditDialogOpen(false);
                     setSelectedNewTask(null);
+                    setTaskToEdit(null);
                   }}
                 >
                   Cancel
@@ -382,9 +446,15 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
         </Dialog>
       )}
 
-      {/* Unlink Confirmation Dialog - Only rendered when canEdit is true */}
-      {canEdit && (
-        <Dialog open={unlinkDialogOpen} onOpenChange={setUnlinkDialogOpen}>
+      {/* Unlink Confirmation Dialog - Only rendered when canEdit is true and taskToEdit is set */}
+      {canEdit && taskToEdit && (
+        <Dialog
+          open={unlinkDialogOpen}
+          onOpenChange={(open) => {
+            setUnlinkDialogOpen(open);
+            if (!open) setTaskToEdit(null);
+          }}
+        >
           <DialogContent className="sm:max-w-[400px]">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 text-red-600">
@@ -394,7 +464,7 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
               <DialogDescription>
                 Are you sure you want to unlink this PO from{" "}
                 <span className="font-semibold text-slate-700">
-                  "{linkedTask.item_name}"
+                  "{taskToEdit.item_name}"
                 </span>
                 ?
               </DialogDescription>
@@ -403,7 +473,10 @@ export const LinkedCriticalPOTag: React.FC<LinkedCriticalPOTagProps> = ({
             <DialogFooter>
               <Button
                 variant="outline"
-                onClick={() => setUnlinkDialogOpen(false)}
+                onClick={() => {
+                  setUnlinkDialogOpen(false);
+                  setTaskToEdit(null);
+                }}
               >
                 Cancel
               </Button>

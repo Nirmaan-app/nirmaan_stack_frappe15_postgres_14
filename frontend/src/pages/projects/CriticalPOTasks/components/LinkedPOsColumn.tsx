@@ -107,11 +107,11 @@ export const LinkedPOsColumn: React.FC<LinkedPOsColumnProps> = ({ task, projectI
           <Badge
             key={poName}
             variant="secondary"
-            className={`flex items-center gap-1 ${canDelete ? "pr-1 group hover:bg-red-100" : "pr-2"} transition-colors`}
+            className={`flex items-center gap-1 max-w-[140px] ${canDelete ? "pr-1 group hover:bg-red-100" : "pr-2"} transition-colors`}
           >
             <Link
               to={`/projects/${projectId}/po/${encodePOName(poName)}`}
-              className="text-blue-600 hover:underline"
+              className="text-blue-600 hover:underline truncate"
               onClick={(e) => e.stopPropagation()}
             >
               {extractPOId(poName)}

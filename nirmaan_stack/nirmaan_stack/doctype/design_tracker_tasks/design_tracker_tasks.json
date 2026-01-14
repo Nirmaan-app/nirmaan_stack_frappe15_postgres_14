@@ -30,7 +30,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-12-17 17:25:59.115854",
+ "modified": "2026-01-13 21:00:14.739889",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Design Tracker Tasks",
@@ -131,6 +131,24 @@
    "role": "Nirmaan Project Manager",
    "share": 1,
    "write": 1
+  },
+  {
+   "role": "Nirmaan HR Executive",
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "share": 1
+  },
+  {
+   "role": "Nirmaan PMO Executive",
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "share": 1
   }
  ],
  "row_format": "Dynamic",

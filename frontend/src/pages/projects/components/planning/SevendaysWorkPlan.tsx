@@ -358,6 +358,22 @@ export const SevendaysWorkPlan = ({
         return projectDoc.project_zones.map((z: any) => z.zone_name).sort();
     }, [projectDoc]);
 
+    const zoneCounts = useMemo(() => {
+        const counts: Record<string, number> = {};
+        if (result?.message?.data) {
+            Object.values(result.message.data).forEach((items) => {
+                items.forEach((item) => {
+                    const zone = item.zone;
+                    const count = item.work_plan_doc?.length || 0;
+                    if (count > 0 && zone) {
+                        counts[zone] = (counts[zone] || 0) + count;
+                    }
+                });
+            });
+        }
+        return counts;
+    }, [result]);
+
     const urlZone = useUrlParam("planningZone");
 
     // Derived state from URL or fallback
@@ -746,7 +762,7 @@ export const SevendaysWorkPlan = ({
                             <h3 className="text-xl font-bold text-gray-900">Work Plan</h3>
                         </div>
                         {/* GLOBAL EXPORT BUTTONS (ALL ZONES) */}
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2">
                             <Button
                                 variant="outline"
                                 size="sm"
@@ -779,23 +795,37 @@ export const SevendaysWorkPlan = ({
             </div>
 
             {zones.length > 0 && (
-                <div className="flex items-center justify-between bg-white py-2">
-                    <div className="flex items-center justify-between bg-gray-100/50 p-1 rounded-md">
-                        <Tabs value={activeZone} onValueChange={handleZoneChange} className="w-auto overflow-x-auto">
-                            <TabsList className="bg-transparent p-0 h-auto justify-start">
-                                {zones.map((zone) => (
-                                    <TabsTrigger key={zone} value={zone} className="px-3 py-1.5 text-xs gap-2">
-                                        {zone}
-                                    </TabsTrigger>
-                                ))}
-                            </TabsList>
-                        </Tabs>
-
-                        {/* PER-ZONE EXPORT BUTTONS */}
-
+                <div className="border border-gray-200 rounded bg-white mb-4">
+                    <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100">
+                        <span className="text-xs font-medium text-gray-500 uppercase tracking-wide flex-shrink-0">
+                            Zone
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                            {zones.filter(zone => (zoneCounts[zone] || 0) > 0).map((zone) => (
+                                <button
+                                    key={zone}
+                                    type="button"
+                                    onClick={() => handleZoneChange(zone)}
+                                    className={`px-3 py-1.5 text-sm rounded transition-colors flex items-center gap-2 ${
+                                        activeZone === zone
+                                            ? "bg-sky-500 text-white"
+                                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                    }`}
+                                >
+                                    {zone}
+                                    <span className={`ml-1 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-medium ${
+                                        activeZone === zone 
+                                            ? "bg-white text-sky-600" 
+                                            : "bg-white text-gray-600"
+                                    }`}>
+                                        {zoneCounts[zone]}
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center justify-end gap-2 px-4 py-2 bg-gray-50/50 rounded-b">
                         <Button
                             variant="outline"
                             size="sm"
@@ -806,12 +836,11 @@ export const SevendaysWorkPlan = ({
                         >
                             <Download className="h-3 w-3" />
                             Buffer Export
-                            {/* {activeZone} */}
                         </Button>
                         <Button
                             variant="outline"
                             size="sm"
-                            className="h-7 text-[10px] text-gray-600 hover:text-blue-600 gap-1.5 px-2 mr-1"
+                            className="h-7 text-[10px] text-gray-600 hover:text-blue-600 gap-1.5 px-2"
                             onClick={handleDownloadZone}
                             disabled={isDownloading}
                             title={`Export ${activeZone} data`}
@@ -822,11 +851,9 @@ export const SevendaysWorkPlan = ({
                                 <Download className="h-3 w-3" />
                             )}
                             Export
-                            {/* {activeZone} */}
                         </Button>
                     </div>
                 </div>
-
             )}
 
             {isMainExpanded && (

@@ -33,6 +33,7 @@ import { format } from "path";
 import { useUserData } from "@/hooks/useUserData";
 import { late } from "zod";
 import PO2BReconcileReport from "./PO2BReconcileReport";
+import POAttachmentReconcileReport from "./POAttachmentReconcileReport";
 
 interface SelectOption {
   label: string;
@@ -330,6 +331,11 @@ export default function POReports() {
   // If 2B Reconcile Report is selected, render the dedicated component
   if (selectedReportType === '2B Reconcile Report') {
     return <PO2BReconcileReport />;
+  }
+
+  // If PO Attachment Reconciliation Report is selected, render the dedicated component
+  if (selectedReportType === 'PO Attachment Reconciliation Report') {
+    return <POAttachmentReconcileReport />;
   }
 
   if (overallError) {

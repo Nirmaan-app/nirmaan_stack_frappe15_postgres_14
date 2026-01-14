@@ -1,4 +1,4 @@
-import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeCreateDoc } from "frappe-react-sdk";
 import { calculatePOReleaseDate } from "../utils/calculatePODate";
 import { CriticalPOItem } from "@/pages/CriticalPOCategories/components/CriticalPOCategoriesMaster";
 
@@ -26,10 +26,12 @@ export const useBulkCreateTasks = () => {
   }: CreateTasksParams): Promise<CreateTasksResult> => {
     try {
       // Fetch all Critical PO Items for selected categories
+      // URL-encode the filters and fields to handle special characters in category names
+      const filters = JSON.stringify([["critical_po_category", "in", selectedCategoryIds]]);
+      const fields = JSON.stringify(["name", "item_name", "sub_category", "critical_po_category", "release_timeline_offset"]);
+
       const response = await fetch(
-        `/api/resource/Critical PO Items?filters=[["critical_po_category","in",${JSON.stringify(
-          selectedCategoryIds
-        )}]]&fields=["name","item_name","sub_category","critical_po_category","release_timeline_offset"]&limit=0`,
+        `/api/resource/Critical PO Items?filters=${encodeURIComponent(filters)}&fields=${encodeURIComponent(fields)}&limit=0`,
         {
           headers: {
             "Content-Type": "application/json",

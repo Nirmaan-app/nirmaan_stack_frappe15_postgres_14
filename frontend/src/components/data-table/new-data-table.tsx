@@ -73,6 +73,9 @@ export interface DataTableProps<T> {
   stickyHeaderClassName?: string;
   stickyColumnClassName?: string;
   tableHeight?: string;
+
+  /* row-level styling callback */
+  getRowClassName?: (row: TanRow<T>) => string | undefined;
 }
 
 /* ---------- component --------------------------------------------------- */
@@ -95,6 +98,7 @@ export function DataTable<T>({
   stickyHeaderClassName = "bg-red-50",
   stickyColumnClassName = "bg-background",
   tableHeight = "70vh",
+  getRowClassName,
 }: DataTableProps<T>) {
 
   /* ───────── helpers ───────── */
@@ -311,8 +315,9 @@ export function DataTable<T>({
 
                 {virtualRows.map(vRow => {
                   const row = rows[vRow.index] as TanRow<T>;
+                  const customRowClassName = getRowClassName?.(row);
                   return (
-                    <TableRow key={row.id} data-state={row.getIsSelected() ? "selected" : undefined}>
+                    <TableRow key={row.id} data-state={row.getIsSelected() ? "selected" : undefined} className={customRowClassName}>
                       {shouldRenderIndicatorColumn && (
                         <TableCell
                           className={cn("sticky left-0 w-[20px] px-1", stickyColumnClassName)}

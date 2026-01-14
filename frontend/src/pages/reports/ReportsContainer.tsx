@@ -31,6 +31,7 @@ const poReportOptions: { label: string; value: POReportOption }[] = [
     { label: 'PO with Excess Payments', value: 'PO with Excess Payments' },
     { label: 'Dispatched for 1+ days', value: 'Dispatched for 1 days' },
     { label: '2B Reconcile Report', value: '2B Reconcile Report' },
+    { label: 'PO Attachment Reconciliation', value: 'PO Attachment Reconciliation Report' },
 ];
 
 const srReportOptions: { label: string; value: SROption }[] = [

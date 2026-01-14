@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/components/ui/use-toast";
 import { TailSpin } from "react-loader-spinner";
-import { Link as LinkIcon, AlertCircle } from "lucide-react";
+import { Link as LinkIcon, AlertCircle, AlertTriangle } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -13,6 +13,16 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useFrappeGetDocList, useFrappeUpdateDoc, useFrappeGetDoc } from "frappe-react-sdk";
 import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
@@ -23,6 +33,31 @@ import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { Badge } from "@/components/ui/badge";
 import ReactSelect from "react-select";
+
+// Type for cross-task PO conflict info
+interface POConflictInfo {
+  poName: string;
+  linkedTo: {
+    taskName: string;
+    itemName: string;
+    category: string;
+  }[];
+}
+
+// Helper to parse associated_pos from string or object
+const parseAssociatedPOs = (associated: any): string[] => {
+  try {
+    if (typeof associated === "string") {
+      const parsed = JSON.parse(associated);
+      return parsed?.pos || [];
+    } else if (associated && typeof associated === "object") {
+      return associated.pos || [];
+    }
+    return [];
+  } catch {
+    return [];
+  }
+};
 
 interface LinkPODialogProps {
   task: CriticalPOTask;
@@ -35,6 +70,10 @@ export const LinkPODialog: React.FC<LinkPODialogProps> = ({ task, projectId, mut
   const [selectedPackage, setSelectedPackage] = useState<string>("");
   const [selectedPOs, setSelectedPOs] = useState<Set<string>>(new Set());
   const [isUpdating, setIsUpdating] = useState(false);
+
+  // State for cross-task conflict detection
+  const [conflictingPOs, setConflictingPOs] = useState<POConflictInfo[]>([]);
+  const [showConflictDialog, setShowConflictDialog] = useState(false);
 
   const { updateDoc } = useFrappeUpdateDoc();
 
@@ -121,6 +160,40 @@ export const LinkPODialog: React.FC<LinkPODialogProps> = ({ task, projectId, mut
     selectedPackage ? `PRs-${projectId}` : null
   );
 
+  // Fetch ALL Critical PO Tasks for the project (for cross-task conflict detection)
+  const { data: allProjectTasks } = useFrappeGetDocList<CriticalPOTask>(
+    "Critical PO Tasks",
+    {
+      fields: ["name", "item_name", "critical_po_category", "associated_pos"],
+      filters: [["project", "=", projectId]],
+      limit: 0,
+    },
+    open ? `all-tasks-${projectId}-link` : null
+  );
+
+  // Build a map of PO → other tasks it's linked to (excluding current task)
+  const poToOtherTasksMap = useMemo(() => {
+    const map = new Map<string, { taskName: string; itemName: string; category: string }[]>();
+
+    allProjectTasks
+      ?.filter((t) => t.name !== task.name) // Exclude current task
+      .forEach((t) => {
+        const pos = parseAssociatedPOs(t.associated_pos);
+        pos.forEach((po) => {
+          if (!map.has(po)) {
+            map.set(po, []);
+          }
+          map.get(po)!.push({
+            taskName: t.name,
+            itemName: t.item_name,
+            category: t.critical_po_category,
+          });
+        });
+      });
+
+    return map;
+  }, [allProjectTasks, task.name]);
+
   // Get currently linked POs from task
   const currentlyLinkedPOs = useMemo(() => {
     try {
@@ -173,17 +246,10 @@ export const LinkPODialog: React.FC<LinkPODialogProps> = ({ task, projectId, mut
     setSelectedPOs(newSelected);
   };
 
-  const handleLinkPOs = async () => {
-    if (selectedPOs.size === 0) {
-      toast({
-        title: "No POs Selected",
-        description: "Please select at least one PO to link.",
-        variant: "destructive",
-      });
-      return;
-    }
-
+  // Actual linking logic (called after conflict confirmation or if no conflicts)
+  const proceedWithLinking = async () => {
     setIsUpdating(true);
+    setShowConflictDialog(false);
 
     try {
       // Merge with existing linked POs
@@ -201,6 +267,7 @@ export const LinkPODialog: React.FC<LinkPODialogProps> = ({ task, projectId, mut
 
       setSelectedPOs(new Set());
       setSelectedPackage("");
+      setConflictingPOs([]);
       await mutate();
       setOpen(false);
     } catch (error: any) {
@@ -214,6 +281,35 @@ export const LinkPODialog: React.FC<LinkPODialogProps> = ({ task, projectId, mut
     }
   };
 
+  const handleLinkPOs = async () => {
+    if (selectedPOs.size === 0) {
+      toast({
+        title: "No POs Selected",
+        description: "Please select at least one PO to link.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Check for cross-task conflicts
+    const conflicts: POConflictInfo[] = Array.from(selectedPOs)
+      .filter((po) => poToOtherTasksMap.has(po))
+      .map((po) => ({
+        poName: po,
+        linkedTo: poToOtherTasksMap.get(po)!,
+      }));
+
+    if (conflicts.length > 0) {
+      // Show confirmation dialog with conflict details
+      setConflictingPOs(conflicts);
+      setShowConflictDialog(true);
+      return; // Wait for user confirmation
+    }
+
+    // No conflicts, proceed directly
+    await proceedWithLinking();
+  };
+
   // Extract PO ID (2nd part after /)
   const extractPOId = (fullName: string) => {
     const parts = fullName.split("/");
@@ -221,6 +317,7 @@ export const LinkPODialog: React.FC<LinkPODialogProps> = ({ task, projectId, mut
   };
 
   return (
+    <>
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button variant="ghost" size="sm" className="text-green-600 hover:text-green-800 w-full">
@@ -301,7 +398,7 @@ export const LinkPODialog: React.FC<LinkPODialogProps> = ({ task, projectId, mut
                               {extractPOId(po.name)}
                             </label>
                             <ItemsHoverCard
-                              parentDocId={{ name: po.name }}
+                              parentDoc={{ name: po.name }}
                               parentDoctype="Procurement Orders"
                               childTableName="items"
                             />
@@ -369,5 +466,62 @@ export const LinkPODialog: React.FC<LinkPODialogProps> = ({ task, projectId, mut
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+      {/* Cross-Task Conflict Confirmation Dialog */}
+      <AlertDialog open={showConflictDialog} onOpenChange={setShowConflictDialog}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              PO Already Linked to Other Tasks
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              The following PO(s) are already linked to other Critical PO Tasks.
+              Linking will associate them with multiple tasks.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="max-h-[200px] overflow-y-auto space-y-2 my-2">
+            {conflictingPOs.map((conflict) => (
+              <div
+                key={conflict.poName}
+                className="p-3 bg-amber-50 rounded-md border border-amber-200"
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <Badge variant="outline" className="font-mono">
+                    {extractPOId(conflict.poName)}
+                  </Badge>
+                  <span className="text-sm text-gray-500">is linked to:</span>
+                </div>
+                <ul className="ml-2 space-y-1">
+                  {conflict.linkedTo.map((linkedTask) => (
+                    <li
+                      key={linkedTask.taskName}
+                      className="text-sm text-gray-700 flex items-start gap-1"
+                    >
+                      <span className="text-amber-600">•</span>
+                      <span>
+                        {linkedTask.itemName}{" "}
+                        <span className="text-gray-500">({linkedTask.category})</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setConflictingPOs([])}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={proceedWithLinking}
+              className="bg-amber-600 hover:bg-amber-700"
+            >
+              Link Anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 };
