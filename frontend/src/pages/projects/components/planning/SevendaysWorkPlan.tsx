@@ -6,7 +6,6 @@ import { format } from "date-fns";
 import { AlertCircle, Loader2, ChevronDown, ChevronUp, Pencil, Trash2, Download, Play, Flag, Activity, TrendingUp, Target, Zap } from "lucide-react";
 import { ProgressCircle } from "@/components/ui/ProgressCircle";
 import { CreateWorkplantask } from "./CreateWorkplantask";
-import { Badge } from "@/components/ui/badge";
 import { WorkPlanOverview } from "./WorkPlanOverview";
 import { ProjectManagerEditWorkPlanDialog } from "./ProjectManagerEditWorkPlanDialog";
 
@@ -85,6 +84,86 @@ const formatDate = (dateStr: string | undefined | null): string => {
     }
 };
 
+// Mobile Card Component for Milestone
+const MilestoneCard = ({ item, onAddTask, onEditMilestone, isOverview, isProjectManager }: {
+    item: WorkPlanItem,
+    onAddTask: (item: WorkPlanItem) => void,
+    onEditMilestone: (item: WorkPlanItem) => void,
+    isOverview?: boolean,
+    isProjectManager?: boolean
+}) => {
+    return (
+        <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+            {/* Title Row */}
+            <div className="flex items-start justify-between gap-2">
+                <h4 className="font-semibold text-gray-900 text-sm leading-tight flex-1">
+                    {item.work_milestone_name}
+                </h4>
+                {!isOverview && !isProjectManager && (
+                    <button
+                        className="flex-shrink-0 p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-all"
+                        onClick={() => onEditMilestone(item)}
+                        title="Edit Milestone"
+                    >
+                        <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                )}
+            </div>
+
+            {/* Status & Progress Row */}
+            <div className="flex items-center justify-between">
+                <span
+                    className={`inline-flex items-center justify-center h-6 rounded-full px-2.5 text-[11px] font-medium whitespace-nowrap ${item.status === "Completed"
+                        ? "bg-green-100 text-green-800 border border-green-200"
+                        : item.status === "WIP" || item.status === "In Progress"
+                            ? "bg-orange-100 text-orange-800 border border-orange-200"
+                            : item.status === "Not Started"
+                                ? "bg-red-100 text-red-800 border border-red-200"
+                                : "bg-gray-100 text-gray-800 border border-gray-200"
+                        }`}
+                >
+                    {item.status}
+                </span>
+                <div className="flex items-center gap-2">
+                    <ProgressCircle
+                        value={item.progress}
+                        className={`size-9 ${getColorForProgress(item.progress)}`}
+                        textSizeClassName="text-[9px]"
+                    />
+                </div>
+            </div>
+
+            {/* Dates Row */}
+            <div className="flex items-center gap-4 text-xs">
+                <div className="flex items-center gap-1.5">
+                    <Play className="h-3 w-3 text-gray-400" />
+                    <span className="text-gray-500">Start:</span>
+                    <span className="font-semibold text-gray-700">
+                        {item.expected_starting_date ? formatDate(item.expected_starting_date) : "NA"}
+                    </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                    <Flag className="h-3 w-3 text-gray-400" />
+                    <span className="text-gray-500">End:</span>
+                    <span className="font-semibold text-gray-700">
+                        {item.expected_completion_date ? formatDate(item.expected_completion_date) : "NA"}
+                    </span>
+                </div>
+            </div>
+
+            {/* Add Task Button */}
+            {!isOverview && !isProjectManager && (
+                <button
+                    className="w-full flex items-center justify-center rounded-md border border-gray-300 bg-gray-50 px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-100 transition-colors"
+                    onClick={() => onAddTask(item)}
+                >
+                    <span className="mr-1 text-lg leading-none">+</span> Add Task
+                </button>
+            )}
+        </div>
+    );
+};
+
 const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilestone, isOverview, isProjectManager }: {
     item: WorkPlanItem,
     onAddTask: (item: WorkPlanItem) => void,
@@ -101,15 +180,11 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
 
     return (
         <>
-            <tr className="hover:bg-gray-50/50">
+            {/* Desktop Table Row - Hidden on mobile/tablet */}
+            <tr className="hover:bg-gray-50/50 hidden lg:table-row">
                 <td className="px-4 py-3 text-gray-700 border-b-0">
                     <div className="font-medium text-gray-900">{item.work_milestone_name}</div>
                 </td>
-                {/* <td className="px-4 py-3 font-medium text-gray-900 border-b-0 text-center">
-                    <span className="inline-flex items-center justify-center h-6 min-w-[100px] w-fit rounded border border-dashed border-gray-300 bg-gray-50 px-3 text-xs text-gray-600 whitespace-nowrap">
-                        {item.zone || "Zone 1"}
-                    </span>
-                </td> */}
                 <td className="px-4 py-3 border-b-0 text-center">
                     <span
                         className={`inline-flex items-center justify-center h-6 min-w-[100px] w-fit rounded-full px-3 text-xs font-medium whitespace-nowrap ${item.status === "Completed"
@@ -168,9 +243,22 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                     </td>
                 )}
             </tr>
+
+            {/* Mobile/Tablet Card Row - Shown on mobile and tablet */}
+            <tr className="lg:hidden">
+                <td colSpan={(isOverview || isProjectManager) ? 5 : 6} className="p-2 border-b border-gray-100">
+                    <MilestoneCard
+                        item={item}
+                        onAddTask={onAddTask}
+                        onEditMilestone={onEditMilestone}
+                        isOverview={isOverview}
+                        isProjectManager={isProjectManager}
+                    />
+                </td>
+            </tr>
             {hasWorkPlans && (
                 <tr>
-                    <td colSpan={(isOverview || isProjectManager) ? 5 : 6} className=" pb-2 pt-0 m-0 p-0">
+                    <td colSpan={(isOverview || isProjectManager) ? 5 : 6} className="pb-2 pt-0 m-0 p-0">
                         <div className="rounded-md border-b bg-blue-50/30">
                             <button
                                 className="flex w-full items-center justify-between px-4 py-2 text-sm text-blue-800 hover:bg-blue-50"
@@ -178,9 +266,9 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                             >
                                 <div className="flex items-center gap-2 font-semibold">
                                     Planned Activities
-                                    <Badge className="bg-blue-700 text-white hover:bg-blue-800 h-5 w-5 p-0 flex items-center justify-center rounded-full text-[10px]">
+                                    <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-blue-700 text-white text-[10px] font-bold">
                                         {workPlans.length}
-                                    </Badge>
+                                    </span>
                                 </div>
                                 {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                             </button>
@@ -223,36 +311,45 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                                                     )}
                                                 </div>
 
-                                                {/* Data Fields Row - Two Sections */}
-                                                <div className="flex items-stretch">
+                                                {/* Data Fields Row - Two Sections (Responsive: stack on mobile/tablet, horizontal on desktop) */}
+                                                <div className="flex flex-col lg:flex-row lg:items-stretch">
                                                     {/* SECTION 1: Admin/Lead Defined - Planning Dates */}
-                                                    <div className="flex items-center bg-blue-50/40 border-r-2 border-blue-100">
-                                                        {/* Section Label */}
-                                                        <div className="px-2 py-2.5 border-r border-blue-100/50">
+                                                    <div className="flex flex-col lg:flex-row lg:items-center bg-blue-50/40 border-b-2 lg:border-b-0 lg:border-r-2 border-blue-100">
+                                                        {/* Section Label - Horizontal on mobile/tablet, Vertical on desktop */}
+                                                        <div className="hidden lg:block px-2 py-2.5 border-r border-blue-100/50">
                                                             <div className="text-[9px] font-semibold text-blue-600 uppercase tracking-wider whitespace-nowrap [writing-mode:vertical-lr] rotate-180">
                                                                 Planned
                                                             </div>
                                                         </div>
-
-                                                        {/* Start Date */}
-                                                        <div className="px-4 py-2.5 text-center border-r border-blue-100/50">
-                                                            <div className="flex items-center justify-center gap-1 text-[10px] font-medium text-blue-500 uppercase tracking-wider mb-1">
-                                                                <Play className="h-2.5 w-2.5" />
-                                                                <span>Start</span>
-                                                            </div>
-                                                            <div className="text-xs font-semibold text-gray-700 tabular-nums">
-                                                                {formatDate(plan.wp_start_date)}
-                                                            </div>
+                                                        {/* Mobile/Tablet Section Header */}
+                                                        <div className="lg:hidden w-full px-3 py-1.5 border-b border-blue-100/50 bg-blue-100/30">
+                                                            <span className="text-[10px] font-semibold text-blue-600 uppercase tracking-wider">
+                                                                Planned
+                                                            </span>
                                                         </div>
 
-                                                        {/* End Date */}
-                                                        <div className="px-4 py-2.5 text-center">
-                                                            <div className="flex items-center justify-center gap-1 text-[10px] font-medium text-blue-500 uppercase tracking-wider mb-1">
-                                                                <Flag className="h-2.5 w-2.5" />
-                                                                <span>End</span>
+                                                        {/* Start & End Dates - Grid on mobile/tablet, Flex on desktop */}
+                                                        <div className="flex-1 grid grid-cols-2 lg:flex lg:items-center">
+                                                            {/* Start Date */}
+                                                            <div className="px-3 lg:px-4 py-2 lg:py-2.5 text-center border-r border-blue-100/50">
+                                                                <div className="flex items-center justify-center gap-1 text-[10px] font-medium text-blue-500 uppercase tracking-wider mb-1">
+                                                                    <Play className="h-2.5 w-2.5" />
+                                                                    <span>Start</span>
+                                                                </div>
+                                                                <div className="text-xs font-semibold text-gray-700 tabular-nums">
+                                                                    {formatDate(plan.wp_start_date)}
+                                                                </div>
                                                             </div>
-                                                            <div className="text-xs font-semibold text-gray-700 tabular-nums">
-                                                                {formatDate(plan.wp_end_date)}
+
+                                                            {/* End Date */}
+                                                            <div className="px-3 lg:px-4 py-2 lg:py-2.5 text-center">
+                                                                <div className="flex items-center justify-center gap-1 text-[10px] font-medium text-blue-500 uppercase tracking-wider mb-1">
+                                                                    <Flag className="h-2.5 w-2.5" />
+                                                                    <span>End</span>
+                                                                </div>
+                                                                <div className="text-xs font-semibold text-gray-700 tabular-nums">
+                                                                    {formatDate(plan.wp_end_date)}
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -265,103 +362,117 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                                                                 bg: 'bg-emerald-50/50',
                                                                 border: 'border-emerald-200/50',
                                                                 text: 'text-emerald-600',
+                                                                mobileBg: 'bg-emerald-100/30',
                                                             },
                                                             'In Progress': {
                                                                 bg: 'bg-amber-50/50',
                                                                 border: 'border-amber-200/50',
                                                                 text: 'text-amber-600',
+                                                                mobileBg: 'bg-amber-100/30',
                                                             },
                                                             'Pending': {
                                                                 bg: 'bg-red-50/50',
                                                                 border: 'border-red-200/50',
                                                                 text: 'text-red-600',
+                                                                mobileBg: 'bg-red-100/30',
                                                             },
                                                             'Not Started': {
                                                                 bg: 'bg-red-50/50',
                                                                 border: 'border-red-200/50',
                                                                 text: 'text-red-600',
+                                                                mobileBg: 'bg-red-100/30',
                                                             },
                                                             'On Hold': {
                                                                 bg: 'bg-gray-100/50',
                                                                 border: 'border-gray-200/50',
                                                                 text: 'text-gray-500',
+                                                                mobileBg: 'bg-gray-100/50',
                                                             },
                                                         };
                                                         const colors = statusColors[plan.wp_status as keyof typeof statusColors] || statusColors['Pending'];
 
                                                         return (
-                                                            <div className={`flex-1 flex items-center ${colors.bg}`}>
-                                                                {/* Section Label */}
-                                                                <div className={`px-2 py-2.5 border-r ${colors.border}`}>
+                                                            <div className={`flex-1 flex flex-col lg:flex-row lg:items-center ${colors.bg}`}>
+                                                                {/* Section Label - Vertical on desktop only */}
+                                                                <div className={`hidden lg:block px-2 py-2.5 border-r ${colors.border}`}>
                                                                     <div className={`text-[9px] font-semibold ${colors.text} uppercase tracking-wider whitespace-nowrap [writing-mode:vertical-lr] rotate-180`}>
                                                                         Tracked
                                                                     </div>
                                                                 </div>
-
-                                                                {/* Status */}
-                                                                <div className={`flex-1 px-4 py-2.5 text-center border-r ${colors.border}`}>
-                                                                    <div className={`flex items-center justify-center gap-1 text-[10px] font-medium ${colors.text} uppercase tracking-wider mb-1`}>
-                                                                        <Activity className="h-2.5 w-2.5" />
-                                                                        <span>Status</span>
-                                                                    </div>
-                                                                    <span className={`inline-flex items-center px-2 py-0.5 text-[11px] font-medium rounded ${
-                                                                        plan.wp_status === 'Completed' ? 'bg-emerald-100 text-emerald-700' :
-                                                                        plan.wp_status === 'In Progress' ? 'bg-amber-100 text-amber-700' :
-                                                                        plan.wp_status === 'Pending' || plan.wp_status === 'Not Started' ? 'bg-red-100 text-red-700' :
-                                                                        plan.wp_status === 'On Hold' ? 'bg-gray-200 text-gray-600' :
-                                                                        'bg-red-100 text-red-700'
-                                                                    }`}>
-                                                                        {plan.wp_status || 'Pending'}
+                                                                {/* Mobile/Tablet Section Header */}
+                                                                <div className={`lg:hidden w-full px-3 py-1.5 border-b ${colors.border} ${colors.mobileBg}`}>
+                                                                    <span className={`text-[10px] font-semibold ${colors.text} uppercase tracking-wider`}>
+                                                                        Tracked
                                                                     </span>
                                                                 </div>
 
-                                                                {/* Progress */}
-                                                                <div className={`flex-1 px-4 py-2.5 text-center border-r ${colors.border}`}>
-                                                                    <div className={`flex items-center justify-center gap-1 text-[10px] font-medium ${colors.text} uppercase tracking-wider mb-1`}>
-                                                                        <TrendingUp className="h-2.5 w-2.5" />
-                                                                        <span>Progress</span>
-                                                                    </div>
-                                                                    <div className="flex items-center justify-center gap-2">
-                                                                        <div className="w-10 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                                                                            <div
-                                                                                className={`h-full rounded-full ${progressNum >= 100 ? 'bg-emerald-500' :
-                                                                                    progressNum >= 50 ? 'bg-amber-500' :
-                                                                                        progressNum > 0 ? 'bg-sky-500' :
-                                                                                            'bg-gray-300'
-                                                                                    }`}
-                                                                                style={{ width: `${Math.min(progressNum, 100)}%` }}
-                                                                            />
+                                                                {/* Status, Progress, Est. Completion - Grid on mobile/tablet, Flex on desktop */}
+                                                                <div className="flex-1 grid grid-cols-3 lg:flex lg:items-center">
+                                                                    {/* Status */}
+                                                                    <div className={`px-2 lg:px-4 py-2 lg:py-2.5 text-center border-r ${colors.border} lg:flex-1`}>
+                                                                        <div className={`flex items-center justify-center gap-1 text-[9px] lg:text-[10px] font-medium ${colors.text} uppercase tracking-wider mb-1`}>
+                                                                            <Activity className="h-2.5 w-2.5" />
+                                                                            <span className="hidden sm:inline">Status</span>
                                                                         </div>
-                                                                        <span className="text-xs font-bold text-gray-700 tabular-nums w-8">
-                                                                            {plan.wp_progress || '0'}%
+                                                                        <span className={`inline-flex items-center px-1.5 lg:px-2 py-0.5 text-[10px] lg:text-[11px] font-medium rounded ${
+                                                                            plan.wp_status === 'Completed' ? 'bg-emerald-100 text-emerald-700' :
+                                                                            plan.wp_status === 'In Progress' ? 'bg-amber-100 text-amber-700' :
+                                                                            plan.wp_status === 'Pending' || plan.wp_status === 'Not Started' ? 'bg-red-100 text-red-700' :
+                                                                            plan.wp_status === 'On Hold' ? 'bg-gray-200 text-gray-600' :
+                                                                            'bg-red-100 text-red-700'
+                                                                        }`}>
+                                                                            {plan.wp_status || 'Pending'}
                                                                         </span>
                                                                     </div>
-                                                                </div>
 
-                                                                {/* Est. Completion */}
-                                                                <div className="flex-1 px-4 py-2.5 text-center">
-                                                                    <div className={`flex items-center justify-center gap-1 text-[10px] font-medium ${colors.text} uppercase tracking-wider mb-1`}>
-                                                                        <Target className="h-2.5 w-2.5" />
-                                                                        <span>Est. Completion</span>
+                                                                    {/* Progress */}
+                                                                    <div className={`px-2 lg:px-4 py-2 lg:py-2.5 text-center border-r ${colors.border} lg:flex-1`}>
+                                                                        <div className={`flex items-center justify-center gap-1 text-[9px] lg:text-[10px] font-medium ${colors.text} uppercase tracking-wider mb-1`}>
+                                                                            <TrendingUp className="h-2.5 w-2.5" />
+                                                                            <span className="hidden sm:inline">Progress</span>
+                                                                        </div>
+                                                                        <div className="flex items-center justify-center gap-1 lg:gap-2">
+                                                                            <div className="w-6 lg:w-10 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                                                                <div
+                                                                                    className={`h-full rounded-full ${progressNum >= 100 ? 'bg-emerald-500' :
+                                                                                        progressNum >= 50 ? 'bg-amber-500' :
+                                                                                            progressNum > 0 ? 'bg-sky-500' :
+                                                                                                'bg-gray-300'
+                                                                                        }`}
+                                                                                    style={{ width: `${Math.min(progressNum, 100)}%` }}
+                                                                                />
+                                                                            </div>
+                                                                            <span className="text-[10px] lg:text-xs font-bold text-gray-700 tabular-nums">
+                                                                                {plan.wp_progress || '0'}%
+                                                                            </span>
+                                                                        </div>
                                                                     </div>
-                                                                    <div className="text-xs font-semibold text-gray-700 tabular-nums">
-                                                                        {formatDate(plan.wp_estimate_completion_date)}
+
+                                                                    {/* Est. Completion */}
+                                                                    <div className="px-2 lg:px-4 py-2 lg:py-2.5 text-center lg:flex-1">
+                                                                        <div className={`flex items-center justify-center gap-1 text-[9px] lg:text-[10px] font-medium ${colors.text} uppercase tracking-wider mb-1`}>
+                                                                            <Target className="h-2.5 w-2.5" />
+                                                                            <span className="hidden sm:inline">Est.</span>
+                                                                        </div>
+                                                                        <div className="text-[10px] lg:text-xs font-semibold text-gray-700 tabular-nums">
+                                                                            {formatDate(plan.wp_estimate_completion_date)}
+                                                                        </div>
                                                                     </div>
                                                                 </div>
                                                             </div>
                                                         );
                                                     })()}
 
-                                                    {/* Actions - Neutral Section */}
+                                                    {/* Actions - Neutral Section (Full width on mobile/tablet) */}
                                                     {!isOverview && (
-                                                        <div className="px-4 py-2.5 text-center bg-gray-50 border-l border-gray-200">
-                                                            <div className="flex items-center justify-center gap-1 text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1">
+                                                        <div className="px-3 lg:px-4 py-2 lg:py-2.5 text-center bg-gray-50 border-t lg:border-t-0 lg:border-l border-gray-200">
+                                                            <div className="hidden lg:flex items-center justify-center gap-1 text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1">
                                                                 <Zap className="h-2.5 w-2.5" />
                                                                 <span>Action</span>
                                                             </div>
-                                                            <div className="flex items-center justify-center gap-1">
+                                                            <div className="flex items-center justify-center gap-2 lg:gap-1">
                                                                 <button
-                                                                    className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors"
+                                                                    className="inline-flex items-center gap-1 px-3 lg:px-2 py-1.5 lg:py-1 text-[11px] font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors"
                                                                     onClick={() => onEditTask(plan, item)}
                                                                     title="Update Task"
                                                                 >
@@ -390,6 +501,10 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                     </td>
                 </tr>
             )}
+            {/* Visual Separator between milestones */}
+            <tr className="h-3 bg-transparent">
+                <td colSpan={(isOverview || isProjectManager) ? 5 : 6} className="p-0 border-b-2 border-dashed border-gray-200/60" />
+            </tr>
         </>
     );
 };
@@ -616,9 +731,10 @@ export const SevendaysWorkPlan = ({
     };
 
     const confirmDelete = async () => {
-        if (deleteDialogState.planName) {
+        const planName = deleteDialogState.planName;
+        if (planName) {
             try {
-                await deleteDoc("Work Plan", deleteDialogState.planName);
+                await deleteDoc("Work Plan", planName);
                 toast({
                     title: "Success",
                     description: "Task deleted successfully",
@@ -837,40 +953,40 @@ export const SevendaysWorkPlan = ({
     }
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-4 md:space-y-6">
             <div className="overflow-hidden bg-white">
                 {
                     <div
-                        className="flex items-center justify-between bg-white py-2"
+                        className="flex flex-col sm:flex-row sm:items-center justify-between bg-white py-2 gap-3"
                     >
                         <div className="flex items-center gap-3">
-                            <h3 className="text-xl font-bold text-gray-900">Work Plan</h3>
+                            <h3 className="text-lg sm:text-xl font-bold text-gray-900">Work Plan</h3>
                         </div>
                         {/* GLOBAL EXPORT BUTTONS (ALL ZONES) */}
-                        <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2">
+                        <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
                             <Button
                                 variant="outline"
                                 size="sm"
-                                className="gap-2 h-8 text-xs border-gray-300 text-gray-700"
-                                onClick={(e) => openBufferDialog(e, undefined)} // Undefined = All Zones
+                                className="gap-1.5 sm:gap-2 h-7 sm:h-8 text-[10px] sm:text-xs border-gray-300 text-gray-700 whitespace-nowrap flex-shrink-0"
+                                onClick={(e) => openBufferDialog(e, undefined)}
                                 disabled={isDownloading}
                                 title="Export Buffered plan for ALL zones"
                             >
-                                <Download className="h-3.5 w-3.5" />
-                                Buffer Export (All)
+                                <Download className="h-3 sm:h-3.5 w-3 sm:w-3.5" />
+                                <span className="hidden xs:inline">Buffer</span> Export (All)
                             </Button>
                             <Button
                                 variant="outline"
                                 size="sm"
-                                className="gap-2 h-8 text-xs border-gray-300 text-gray-700"
+                                className="gap-1.5 sm:gap-2 h-7 sm:h-8 text-[10px] sm:text-xs border-gray-300 text-gray-700 whitespace-nowrap flex-shrink-0"
                                 onClick={handleDownloadAll}
                                 disabled={isDownloading}
                                 title="Export plan for ALL zones"
                             >
                                 {isDownloading ? (
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    <Loader2 className="h-3 sm:h-3.5 w-3 sm:w-3.5 animate-spin" />
                                 ) : (
-                                    <Download className="h-3.5 w-3.5" />
+                                    <Download className="h-3 sm:h-3.5 w-3 sm:w-3.5" />
                                 )}
                                 Export (All)
                             </Button>
@@ -881,49 +997,54 @@ export const SevendaysWorkPlan = ({
 
             {zones.length > 0 && (
                 <div className="border border-gray-200 rounded bg-white mb-4">
-                    <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100">
-                        <span className="text-xs font-medium text-gray-500 uppercase tracking-wide flex-shrink-0">
+                    {/* Zone Tabs - Horizontal scroll on mobile, wrap on larger screens */}
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 border-b border-gray-100">
+                        <span className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wide flex-shrink-0">
                             Zone
                         </span>
-                        <div className="flex flex-wrap gap-1.5">
-                            {zones.filter(zone => (zoneCounts[zone] || 0) > 0).map((zone) => (
-                                <button
-                                    key={zone}
-                                    type="button"
-                                    onClick={() => handleZoneChange(zone)}
-                                    className={`px-3 py-1.5 text-sm rounded transition-colors flex items-center gap-2 ${activeZone === zone
-                                        ? "bg-sky-500 text-white"
-                                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                                        }`}
-                                >
-                                    {zone}
-                                    <span className={`ml-1 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-medium ${activeZone === zone
-                                        ? "bg-white text-sky-600"
-                                        : "bg-white text-gray-600"
-                                        }`}>
-                                        {zoneCounts[zone]}
-                                    </span>
-                                </button>
-                            ))}
+                        {/* Horizontal scroll container on mobile */}
+                        <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">
+                            <div className="flex gap-1.5 sm:flex-wrap pb-1 sm:pb-0">
+                                {zones.filter(zone => (zoneCounts[zone] || 0) > 0).map((zone) => (
+                                    <button
+                                        key={zone}
+                                        type="button"
+                                        onClick={() => handleZoneChange(zone)}
+                                        className={`px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded transition-colors flex items-center gap-1.5 sm:gap-2 whitespace-nowrap flex-shrink-0 ${activeZone === zone
+                                            ? "bg-sky-500 text-white"
+                                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                            }`}
+                                    >
+                                        {zone}
+                                        <span className={`flex h-4 w-4 sm:h-5 sm:w-5 items-center justify-center rounded-full text-[9px] sm:text-[10px] font-medium ${activeZone === zone
+                                            ? "bg-white text-sky-600"
+                                            : "bg-white text-gray-600"
+                                            }`}>
+                                            {zoneCounts[zone]}
+                                        </span>
+                                    </button>
+                                ))}
+                            </div>
                         </div>
                     </div>
 
-                    <div className="flex items-center justify-end gap-2 px-4 py-2 bg-gray-50/50 rounded-b">
+                    {/* Zone-specific Export Buttons */}
+                    <div className="flex items-center justify-end gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 bg-gray-50/50 rounded-b">
                         <Button
                             variant="outline"
                             size="sm"
-                            className="h-7 text-[10px] text-gray-600 gap-1.5 px-2 border-gray-300"
-                            onClick={(e) => openBufferDialog(e, activeZone)} // Specific Zone
+                            className="h-7 text-[9px] sm:text-[10px] text-gray-600 gap-1 sm:gap-1.5 px-2 border-gray-300"
+                            onClick={(e) => openBufferDialog(e, activeZone)}
                             disabled={isDownloading}
                             title={`Buffer Export ${activeZone}`}
                         >
                             <Download className="h-3 w-3" />
-                            Buffer Export
+                            <span className="hidden xs:inline">Buffer</span> Export
                         </Button>
                         <Button
                             variant="outline"
                             size="sm"
-                            className="h-7 text-[10px] text-gray-600 hover:text-blue-600 gap-1.5 px-2"
+                            className="h-7 text-[9px] sm:text-[10px] text-gray-600 hover:text-blue-600 gap-1 sm:gap-1.5 px-2"
                             onClick={handleDownloadZone}
                             disabled={isDownloading}
                             title={`Export ${activeZone} data`}
@@ -993,20 +1114,24 @@ export const SevendaysWorkPlan = ({
 
                             return (
                                 <div key={header} className="overflow-hidden bg-white">
+                                    {/* Work Header Row - Collapsible */}
                                     <div
-                                        className={`flex cursor-pointer flex-col md:flex-row md:items-center justify-between gap-3 ${isExpanded ? "" : "border bg-gray-100/50 px-3 py-3 rounded-md"} py-3 transition-colors`}
+                                        className={`flex cursor-pointer flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 ${isExpanded ? "" : "border bg-gray-100/50 px-3 py-3 rounded-md"} py-2 sm:py-3 transition-colors`}
                                         onClick={() => toggleHeader(header)}
                                     >
-                                        <div className="flex flex-col items-start gap-3 md:flex-row md:items-center md:gap-3">
-                                            <h4 className="font-bold text-gray-900 text-base">{`${header} - ${items.length}`}</h4>
-                                            <span className="rounded-full bg-blue-200 px-2 py-0.5 text-xs font-medium text-gray-900 border border-blue-700 whitespace-nowrap">
+                                        <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3">
+                                            <h4 className="font-bold text-gray-900 text-sm sm:text-base line-clamp-2 sm:line-clamp-none">{header}</h4>
+                                            {/* Milestone count with border */}
+                                            <span className="rounded border border-gray-400 bg-gray-50 px-2 py-0.5 text-[10px] sm:text-xs font-medium text-gray-700 whitespace-nowrap">
+                                                {items.length} Milestones
+                                            </span>
+                                            {/* Planned Activities badge */}
+                                            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] sm:text-xs font-medium text-blue-700 border border-blue-300 whitespace-nowrap">
                                                 {plannedActivitiesCount} Planned Activities
                                             </span>
                                         </div>
-                                        <div className="flex items-center justify-between w-full md:w-auto md:gap-4 md:justify-start">
-                                            <div className="text-sm text-gray-600 flex items-center gap-2">
-                                            </div>
-                                            <div className={`flex h-8 w-8 items-center justify-center ${isExpanded ? "" : "bg-blue-100 rounded border border-gray-200 shadow-sm"}`}>
+                                        <div className="flex items-center justify-end w-full sm:w-auto">
+                                            <div className={`flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center ${isExpanded ? "" : "bg-blue-100 rounded border border-gray-200 shadow-sm"}`}>
                                                 {isExpanded ? (
                                                     <ChevronUp className="h-4 w-4 text-gray-500" />
                                                 ) : (
@@ -1016,13 +1141,13 @@ export const SevendaysWorkPlan = ({
                                         </div>
                                     </div>
                                     {isExpanded && (
-                                        <div className="overflow-x-auto rounded-lg border bg-white shadow-sm mt-2 mx-2 border-[#D7D7EC]">
+                                        <div className="rounded-lg border bg-white shadow-sm mt-2 mx-0 sm:mx-2 border-[#D7D7EC]">
                                             <div className="p-0">
                                                 <table className="w-full text-left text-sm">
-                                                    <thead className="bg-gray-100/50">
+                                                    {/* Table Header - Hidden on mobile/tablet, shown on desktop (lg+) */}
+                                                    <thead className="bg-gray-100/50 hidden lg:table-header-group">
                                                         <tr>
                                                             <th className="px-4 py-3 font-semibold text-gray-900 w-[300px]">Work</th>
-                                                            {/* <th className="px-4 py-3 font-semibold text-gray-900 w-[140px] text-center">Zone</th> */}
                                                             <th className="px-4 py-3 font-semibold text-gray-900 w-[140px] text-center">Status</th>
                                                             <th className="px-4 py-3 font-semibold text-gray-900 w-[100px] text-center">Progress</th>
                                                             <th className="px-4 py-3 font-semibold text-gray-900 w-[120px] text-center">Start Date</th>
@@ -1032,7 +1157,8 @@ export const SevendaysWorkPlan = ({
                                                             )}
                                                         </tr>
                                                     </thead>
-                                                    <tbody className="divide-y divide-gray-100">
+                                                    {/* Mobile/Tablet: Cards layout via MilestoneCard | Desktop (lg+): Table rows */}
+                                                    <tbody className="divide-y divide-gray-100 lg:divide-y-0">
                                                         {items.map((item, idx) => (
                                                             <MilestoneRow
                                                                 key={idx}
