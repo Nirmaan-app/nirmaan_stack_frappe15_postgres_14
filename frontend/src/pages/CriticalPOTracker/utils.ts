@@ -2,20 +2,24 @@ import { CriticalPOTaskStatus } from "./types";
 
 /**
  * Get Tailwind CSS classes for status badge styling
- * Matches the existing TaskStatusBadge colors from CriticalPOTasks
+ * Color scheme:
+ * - Released: Green (completed)
+ * - Partially Released: Blue (in-progress)
+ * - Not Released: Red (not started)
+ * - Not Applicable: Gray
  */
 export const getStatusStyle = (status: CriticalPOTaskStatus | string): string => {
   switch (status) {
     case "Released":
-      return "bg-green-100 text-green-700 border border-green-500";
+      return "bg-green-50 text-green-700 border border-green-200";
     case "Partially Released":
-      return "bg-yellow-100 text-yellow-700 border border-yellow-500";
+      return "bg-blue-50 text-blue-700 border border-blue-200";
     case "Not Released":
-      return "bg-red-100 text-red-700 border border-red-500";
+      return "bg-red-50 text-red-700 border border-red-200";
     case "Not Applicable":
-      return "bg-gray-100 text-gray-700 border border-gray-300";
+      return "bg-gray-50 text-gray-700 border border-gray-200";
     default:
-      return "bg-gray-100 text-gray-600 border border-gray-300";
+      return "bg-gray-50 text-gray-600 border border-gray-200";
   }
 };
 
@@ -31,6 +35,7 @@ export const getProgressColor = (percentage: number): string => {
 
 /**
  * Order for displaying status badges (most critical first)
+ * Note: This is kept for potential use in other components
  */
 export const STATUS_DISPLAY_ORDER: CriticalPOTaskStatus[] = [
   "Not Released",

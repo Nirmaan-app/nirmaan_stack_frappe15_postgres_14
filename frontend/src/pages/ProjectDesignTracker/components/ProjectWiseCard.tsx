@@ -2,7 +2,7 @@ import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ProgressCircle } from "@/components/ui/ProgressCircle";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, CheckCircle2 } from "lucide-react";
 import { getUnifiedStatusStyle } from "../utils";
 
 interface ProjectWiseCardProps {
@@ -26,6 +26,21 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
     };
 
     const progressColor = getProgressColor(completionPercentage);
+
+    // Check completion status
+    const isAllApproved = completedTasks === totalTasks && totalTasks > 0;
+
+    // Filter out "Approved" status since it's shown as the primary metric
+    // Also filter out "Not Applicable" as it's typically excluded from active tracking
+    const incompleteStatusEntries = Object.entries(statusCounts)
+        .filter(([status]) => status !== "Approved" && status !== "Not Applicable")
+        .filter(([, count]) => (count as number) > 0);
+
+    const hasIncompleteWork = incompleteStatusEntries.length > 0;
+
+    // All status entries for data mismatch fallback
+    const allStatusEntries = Object.entries(statusCounts)
+        .filter(([, count]) => (count as number) > 0);
 
     return (
         <Card
@@ -57,15 +72,18 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
             </CardHeader>
 
             <CardContent className="flex-1 flex flex-col justify-between pt-0 pb-4">
-                {/* Task Counter */}
+                {/* Completion Counter - Primary Info */}
                 <div className="mb-4">
-                    <div className="text-xs text-gray-500 mb-1">Drawings Approved</div>
-                    <div className="flex items-baseline gap-1.5">
+                    <div className="flex items-center gap-1.5 mb-1">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+                        <span className="text-xs text-gray-500">Drawings Approved</span>
+                    </div>
+                    <div className="flex items-baseline gap-1">
                         <span className={`text-2xl font-bold tabular-nums ${progressColor}`}>
                             {completedTasks}
                         </span>
-                        <span className="text-lg text-gray-400">/</span>
-                        <span className="text-lg font-semibold text-gray-600 tabular-nums">
+                        <span className="text-lg text-gray-400 font-medium">/</span>
+                        <span className="text-lg text-gray-500 font-semibold tabular-nums">
                             {totalTasks}
                         </span>
                     </div>
@@ -74,33 +92,70 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
                 {/* Status Breakdown */}
                 {totalTasks > 0 ? (
                     <div className="flex-1">
-                        <div className="grid grid-cols-2 gap-2">
-                            {Object.entries(statusCounts).map(([status, count]) => (
-                                <TooltipProvider key={status}>
-                                    <Tooltip delayDuration={300}>
-                                        <TooltipTrigger asChild>
-                                            <div
-                                                className={`
-                                                    flex items-center justify-between px-2.5 py-1.5 rounded-md
-                                                    ${getUnifiedStatusStyle(status)}
-                                                    cursor-default
-                                                `}
-                                            >
-                                                <span className="text-[11px] font-medium truncate pr-1">
-                                                    {status}
-                                                </span>
-                                                <span className="text-xs font-bold tabular-nums">
-                                                    {count as number}
-                                                </span>
-                                            </div>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="top" className="text-xs">
-                                            {status}: {count as number} {(count as number) === 1 ? 'task' : 'tasks'}
-                                        </TooltipContent>
-                                    </Tooltip>
-                                </TooltipProvider>
-                            ))}
-                        </div>
+                        {hasIncompleteWork ? (
+                            // Show only incomplete statuses (exclude Approved and Not Applicable)
+                            <div className="grid grid-cols-2 gap-2">
+                                {incompleteStatusEntries.map(([status, count]) => (
+                                    <TooltipProvider key={status}>
+                                        <Tooltip delayDuration={300}>
+                                            <TooltipTrigger asChild>
+                                                <div
+                                                    className={`
+                                                        flex items-center justify-between px-2.5 py-1.5 rounded-md
+                                                        ${getUnifiedStatusStyle(status)}
+                                                        cursor-default
+                                                    `}
+                                                >
+                                                    <span className="text-[11px] font-medium truncate pr-1">
+                                                        {status}
+                                                    </span>
+                                                    <span className="text-xs font-bold tabular-nums">
+                                                        {count as number}
+                                                    </span>
+                                                </div>
+                                            </TooltipTrigger>
+                                            <TooltipContent side="top" className="text-xs">
+                                                {status}: {count as number} {(count as number) === 1 ? 'task' : 'tasks'}
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </TooltipProvider>
+                                ))}
+                            </div>
+                        ) : isAllApproved ? (
+                            // All drawings are approved
+                            <div className="flex items-center justify-center py-2 px-3 rounded-md bg-green-50 text-green-700">
+                                <span className="text-xs font-medium">All drawings approved!</span>
+                            </div>
+                        ) : allStatusEntries.length > 0 ? (
+                            // Data mismatch - show all available statuses
+                            <div className="grid grid-cols-2 gap-2">
+                                {allStatusEntries.map(([status, count]) => (
+                                    <TooltipProvider key={status}>
+                                        <Tooltip delayDuration={300}>
+                                            <TooltipTrigger asChild>
+                                                <div
+                                                    className={`
+                                                        flex items-center justify-between px-2.5 py-1.5 rounded-md
+                                                        ${getUnifiedStatusStyle(status)}
+                                                        cursor-default
+                                                    `}
+                                                >
+                                                    <span className="text-[11px] font-medium truncate pr-1">
+                                                        {status}
+                                                    </span>
+                                                    <span className="text-xs font-bold tabular-nums">
+                                                        {count as number}
+                                                    </span>
+                                                </div>
+                                            </TooltipTrigger>
+                                            <TooltipContent side="top" className="text-xs">
+                                                {status}: {count as number} {(count as number) === 1 ? 'task' : 'tasks'}
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </TooltipProvider>
+                                ))}
+                            </div>
+                        ) : null}
                     </div>
                 ) : (
                     <div className="flex-1 flex items-center justify-center py-4">
