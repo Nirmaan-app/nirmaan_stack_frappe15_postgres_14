@@ -476,10 +476,31 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
     return (
         <Dialog open={isOpen} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-xl overflow-visible">
-                <DialogHeader>
-                    <DialogTitle>{task.design_category}</DialogTitle>
+                <DialogHeader className="space-y-1">
+                    <DialogTitle className="text-base font-semibold">Edit Task</DialogTitle>
+                    {/* Task Context Header */}
+                    <div className="flex flex-col gap-1.5 pt-1 pb-2 border-b border-gray-200">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                            {task.task_zone && (
+                                <div className="flex items-center gap-1">
+                                    <span className="text-[10px] uppercase tracking-wider text-gray-400">Zone:</span>
+                                    <span className="font-medium text-gray-700">{task.task_zone}</span>
+                                </div>
+                            )}
+                            <div className="flex items-center gap-1">
+                                <span className="text-[10px] uppercase tracking-wider text-gray-400">Category:</span>
+                                <span className="font-medium text-gray-700">{task.design_category}</span>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                            <span className="text-[10px] uppercase tracking-wider text-gray-400">Task:</span>
+                            <span className="text-sm font-medium text-gray-900 truncate">
+                                {task.task_name}
+                            </span>
+                        </div>
+                    </div>
                 </DialogHeader>
-                <div className="grid gap-4 py-4">
+                <div className="grid gap-3 py-3">
                     
                     {/* Task Name */}
                     <div className="space-y-1">
@@ -586,10 +607,17 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
                     </div>
 
                 </div>
-                <DialogFooter>
-                    <DialogClose asChild><Button variant="outline" disabled={isSaving}>Cancel</Button></DialogClose>
-                    <Button onClick={handleSave} disabled={isSaving || !editState.task_name}>
-                        <Save className="h-4 w-4 mr-2" /> Save Changes
+                <DialogFooter className="gap-2 sm:gap-0">
+                    <DialogClose asChild>
+                        <Button variant="outline" size="sm" disabled={isSaving}>Cancel</Button>
+                    </DialogClose>
+                    <Button
+                        size="sm"
+                        onClick={handleSave}
+                        disabled={isSaving || !editState.task_name}
+                        className="bg-red-600 hover:bg-red-700"
+                    >
+                        <Save className="h-3 w-3 mr-1.5" /> Save Changes
                     </Button>
                 </DialogFooter>
             </DialogContent>
