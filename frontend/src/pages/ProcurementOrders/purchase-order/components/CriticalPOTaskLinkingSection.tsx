@@ -1,7 +1,6 @@
 import React from "react";
 import ReactSelect from "react-select";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { TailSpin } from "react-loader-spinner";
 import {
@@ -9,6 +8,7 @@ import {
   Package,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
 } from "lucide-react";
 import { formatDate } from "@/utils/FormatDate";
 import {
@@ -97,18 +97,21 @@ export const CriticalPOTaskLinkingSection: React.FC<CriticalPOTaskLinkingSection
   const {
     isLoading,
     hasCriticalPOSetup,
+    isPoAlreadyLinked,
     categoryOptions,
     filteredTaskOptions,
     selectedCategory,
     selectedTask,
-    selectedStatus,
     setSelectedCategory,
     setSelectedTask,
-    setSelectedStatus,
     selectedTaskDetails,
     linkedPOsToSelectedTask,
     poLinkedToOtherTasks,
   } = linkingState;
+
+  // Determine if task selection is mandatory
+  const isMandatory = hasCriticalPOSetup && !isPoAlreadyLinked;
+  const showValidationError = isMandatory && !selectedTask;
 
   // Extract PO ID (2nd part after /)
   const extractPOId = (fullName: string) => {
@@ -137,16 +140,37 @@ export const CriticalPOTaskLinkingSection: React.FC<CriticalPOTaskLinkingSection
   }
 
   return (
-    <div className="bg-white border border-slate-200 rounded-lg shadow-sm">
+    <div className={`bg-white border rounded-lg shadow-sm transition-all duration-200 ${
+      showValidationError
+        ? "border-red-300 ring-1 ring-red-200"
+        : "border-slate-200"
+    }`}>
       {/* Section Header */}
-      <div className="px-4 py-3 border-b border-slate-100">
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-full bg-amber-500 text-white flex items-center justify-center">
-            <Link2 className="w-3.5 h-3.5" />
+      <div className={`px-4 py-3 border-b ${
+        showValidationError ? "border-red-100 bg-red-50/30" : "border-slate-100"
+      }`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className={`w-6 h-6 rounded-full text-white flex items-center justify-center ${
+              showValidationError ? "bg-red-500" : "bg-amber-500"
+            }`}>
+              <Link2 className="w-3.5 h-3.5" />
+            </div>
+            <span className="text-sm font-semibold text-slate-700">
+              Critical PO Task Linking
+            </span>
           </div>
-          <span className="text-sm font-semibold text-slate-700">
-            Critical PO Task Linking
-          </span>
+          {isMandatory && (
+            <Badge
+              className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 ${
+                selectedTask
+                  ? "bg-emerald-100 text-emerald-700 border-emerald-200"
+                  : "bg-red-100 text-red-700 border-red-200 animate-pulse"
+              }`}
+            >
+              {selectedTask ? "Linked" : "Required"}
+            </Badge>
+          )}
         </div>
       </div>
 
@@ -189,14 +213,31 @@ export const CriticalPOTaskLinkingSection: React.FC<CriticalPOTaskLinkingSection
 
             {/* Task Dropdown */}
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-slate-500">
-                Task
+              <Label className={`text-xs font-medium ${
+                showValidationError ? "text-red-600" : "text-slate-500"
+              }`}>
+                Task {isMandatory && <span className="text-red-500">*</span>}
               </Label>
               <ReactSelect<TaskOption>
                 options={filteredTaskOptions}
                 placeholder="Search task by name or subcategory..."
                 isClearable
-                styles={selectStyles}
+                styles={{
+                  ...selectStyles,
+                  control: (base: any, state: any) => ({
+                    ...selectStyles.control(base, state),
+                    borderColor: showValidationError
+                      ? "#fca5a5"
+                      : state.isFocused
+                      ? "#f59e0b"
+                      : "#e2e8f0",
+                    boxShadow: showValidationError
+                      ? "0 0 0 1px #fca5a5"
+                      : state.isFocused
+                      ? "0 0 0 1px #f59e0b"
+                      : "none",
+                  }),
+                }}
                 menuPosition="fixed"
                 menuShouldBlockScroll={false}
                 value={selectedTask}
@@ -209,6 +250,21 @@ export const CriticalPOTaskLinkingSection: React.FC<CriticalPOTaskLinkingSection
                 }
               />
             </div>
+
+            {/* Validation Error Message */}
+            {showValidationError && (
+              <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-md">
+                <AlertTriangle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-xs font-semibold text-red-700">
+                    Task selection is required
+                  </p>
+                  <p className="text-xs text-red-600 mt-0.5">
+                    Select a Critical PO Task to link this PO before dispatching.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Selected Task Details Card */}
             {selectedTaskDetails && (
@@ -322,46 +378,6 @@ export const CriticalPOTaskLinkingSection: React.FC<CriticalPOTaskLinkingSection
                     </div>
                   </div>
                 )}
-
-                {/* Status Selection */}
-                <div className="pt-2 mt-2 border-t border-emerald-200">
-                  <Label className="text-xs font-medium text-slate-500 mb-2 block">
-                    Update Task Status To <span className="text-red-500">*</span>
-                  </Label>
-                  <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={selectedStatus === "Partially Released" ? "default" : "outline"}
-                      className={`flex-1 text-xs h-8 ${
-                        selectedStatus === "Partially Released"
-                          ? "bg-amber-500 hover:bg-amber-600 border-amber-500"
-                          : "hover:border-amber-500 hover:text-amber-600"
-                      }`}
-                      onClick={() => setSelectedStatus("Partially Released")}
-                    >
-                      Partially Released
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={selectedStatus === "Released" ? "default" : "outline"}
-                      className={`flex-1 text-xs h-8 ${
-                        selectedStatus === "Released"
-                          ? "bg-emerald-500 hover:bg-emerald-600 border-emerald-500"
-                          : "hover:border-emerald-500 hover:text-emerald-600"
-                      }`}
-                      onClick={() => setSelectedStatus("Released")}
-                    >
-                      Released
-                    </Button>
-                  </div>
-                  {selectedTask && !selectedStatus && (
-                    <p className="text-xs text-red-500 mt-1.5">
-                      Please select a status to proceed with linking
-                    </p>
-                  )}
-                </div>
               </div>
             )}
           </>

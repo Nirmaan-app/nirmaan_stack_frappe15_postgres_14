@@ -46,8 +46,9 @@ export interface UseCriticalPOTaskLinkingReturn {
   // Data states
   tasks: CriticalPOTask[];
   isLoading: boolean;
-  error: Error | null;
+  error: unknown;
   hasCriticalPOSetup: boolean;
+  isPoAlreadyLinked: boolean;
 
   // Options for react-select
   categoryOptions: CategoryOption[];
@@ -57,12 +58,10 @@ export interface UseCriticalPOTaskLinkingReturn {
   // Selection state
   selectedCategory: CategoryOption | null;
   selectedTask: TaskOption | null;
-  selectedStatus: "Partially Released" | "Released" | null;
 
   // Selection handlers
   setSelectedCategory: (option: CategoryOption | null) => void;
   setSelectedTask: (option: TaskOption | null) => void;
-  setSelectedStatus: (status: "Partially Released" | "Released" | null) => void;
 
   // Derived data
   selectedTaskDetails: CriticalPOTask | null;
@@ -93,7 +92,6 @@ export const useCriticalPOTaskLinking = ({
   // Selection state
   const [selectedCategory, setSelectedCategoryState] = useState<CategoryOption | null>(null);
   const [selectedTask, setSelectedTaskState] = useState<TaskOption | null>(null);
-  const [selectedStatus, setSelectedStatus] = useState<"Partially Released" | "Released" | null>(null);
   const [isLinking, setIsLinking] = useState(false);
 
   const { updateDoc } = useFrappeUpdateDoc();
@@ -197,12 +195,19 @@ export const useCriticalPOTaskLinking = ({
       }));
   }, [tasks, selectedTaskDetails, poName]);
 
+  // Check if this PO is already linked to ANY task
+  const isPoAlreadyLinked = useMemo<boolean>(() => {
+    return tasks.some((task) => {
+      const pos = parseAssociatedPOs(task.associated_pos);
+      return pos.includes(poName);
+    });
+  }, [tasks, poName]);
+
   // Handler for category selection
   const setSelectedCategory = useCallback((option: CategoryOption | null) => {
     setSelectedCategoryState(option);
     // Clear task selection when category changes
     setSelectedTaskState(null);
-    setSelectedStatus(null);
   }, []);
 
   // Handler for task selection - auto-set category if not already set
@@ -217,24 +222,20 @@ export const useCriticalPOTaskLinking = ({
         setSelectedCategoryState(matchingCategory);
       }
     }
-
-    // Reset status when task changes
-    setSelectedStatus(null);
   }, [selectedCategory, categoryOptions]);
 
   // Reset all selections
   const resetSelection = useCallback(() => {
     setSelectedCategoryState(null);
     setSelectedTaskState(null);
-    setSelectedStatus(null);
   }, []);
 
-  // Link PO to the selected task
+  // Link PO to the selected task (without updating task status)
   const linkPOToTask = useCallback(async (): Promise<boolean> => {
-    if (!selectedTaskDetails || !selectedStatus) {
+    if (!selectedTaskDetails) {
       toast({
-        title: "Incomplete Selection",
-        description: "Please select a task and status before linking.",
+        title: "No Task Selected",
+        description: "Please select a task before linking.",
         variant: "destructive",
       });
       return false;
@@ -246,7 +247,7 @@ export const useCriticalPOTaskLinking = ({
       // Get current linked POs and add this PO
       const currentPOs = linkedPOsToSelectedTask;
 
-      // Check if PO is already linked
+      // Check if PO is already linked to this task
       if (currentPOs.includes(poName)) {
         toast({
           title: "Already Linked",
@@ -259,15 +260,14 @@ export const useCriticalPOTaskLinking = ({
 
       const updatedPOs = [...currentPOs, poName];
 
-      // Update the Critical PO Task
+      // Update the Critical PO Task - only add PO to associated_pos, don't change status
       await updateDoc("Critical PO Tasks", selectedTaskDetails.name, {
         associated_pos: JSON.stringify({ pos: updatedPOs }),
-        status: selectedStatus,
       });
 
       toast({
         title: "Success",
-        description: `PO linked to "${selectedTaskDetails.item_name}" and status updated to "${selectedStatus}".`,
+        description: `PO linked to "${selectedTaskDetails.item_name}".`,
         variant: "success",
       });
 
@@ -284,7 +284,7 @@ export const useCriticalPOTaskLinking = ({
     } finally {
       setIsLinking(false);
     }
-  }, [selectedTaskDetails, selectedStatus, linkedPOsToSelectedTask, poName, updateDoc, mutate]);
+  }, [selectedTaskDetails, linkedPOsToSelectedTask, poName, updateDoc, mutate]);
 
   return {
     // Data states
@@ -292,6 +292,7 @@ export const useCriticalPOTaskLinking = ({
     isLoading,
     error,
     hasCriticalPOSetup,
+    isPoAlreadyLinked,
 
     // Options for react-select
     categoryOptions,
@@ -301,12 +302,10 @@ export const useCriticalPOTaskLinking = ({
     // Selection state
     selectedCategory,
     selectedTask,
-    selectedStatus,
 
     // Selection handlers
     setSelectedCategory,
     setSelectedTask,
-    setSelectedStatus,
 
     // Derived data
     selectedTaskDetails,
