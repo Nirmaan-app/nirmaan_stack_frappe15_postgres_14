@@ -1,4 +1,5 @@
-import { ProjectDesignTracker, DesignTrackerTask, User, AssignedDesignerDetail } from './types';
+import { ProjectDesignTracker, DesignTrackerTask, AssignedDesignerDetail } from './types';
+import { Badge } from "@/components/ui/badge";
 
 
 // Consolidated Status Logic
@@ -59,38 +60,34 @@ export const getTaskSubStatusStyle = (subStatus?: string) => {
     return 'bg-gray-50 text-gray-700 border border-gray-200';
 };
 
-// --- DATE & STYLE HELPERS ---
-const getOrdinalNum = (n: number) => {
-    return n + (n > 0 ? ['th', 'st', 'nd', 'rd'][(n > 3 && n < 21) || n % 10 > 3 ? 0 : n % 10] : '');
-};
-
-const formatDate = (dateString?: string): string => {
-    if (!dateString) return 'N/A';
+// --- DATE HELPER ---
+// Standard date format for the project: dd-MMM-yyyy (e.g., "15-Jan-2026")
+export const formatDeadlineShort = (dateString: string) => {
+    if (!dateString) return '--';
     try {
         const date = new Date(dateString);
-        const day = date.getDate();
-        const month = date.toLocaleString('en-US', { month: 'short' });
-        const year = date.getFullYear();
-        return `${getOrdinalNum(day)} ${month}, ${year}`;
-    } catch (e) {
-        return dateString; // Fallback to raw string if date parsing fails
+        if (isNaN(date.getTime())) return '--';
+        const day = date.toLocaleString('default', { day: '2-digit' });
+        const month = date.toLocaleString('default', { month: 'short' });
+        const year = date.toLocaleString('default', { year: 'numeric' });
+        return `${day}-${month}-${year}`;
+    } catch {
+        return dateString;
     }
-};
-
-export const formatDeadlineShort = (dateString: string) => {
-    if (!dateString) return '...';
-    return formatDate(dateString).replace(/, 20(\d{2})$/, ', $1');
 };
 
 
 export const getAssignedNameForDisplay = (task: DesignTrackerTask): React.ReactNode => {
-        const designerField = task.assigned_designers;
+        const designerField = task.assigned_designers as unknown;
         let designers: AssignedDesignerDetail[] = [];
 
         if (designerField) {
-            // Check if already an object (from useDesignTrackerLogic state)
-            if (designerField && typeof designerField === 'object' && Array.isArray(designerField.list)) {
-                designers = designerField.list;
+            // Check if already an object with list property (from useDesignTrackerLogic state)
+            if (typeof designerField === 'object' && designerField !== null && 'list' in designerField) {
+                const obj = designerField as { list: AssignedDesignerDetail[] };
+                if (Array.isArray(obj.list)) {
+                    designers = obj.list;
+                }
             } else if (Array.isArray(designerField)) {
                 designers = designerField;
             } else if (typeof designerField === 'string' && designerField.trim() !== '') {
@@ -107,22 +104,23 @@ export const getAssignedNameForDisplay = (task: DesignTrackerTask): React.ReactN
 
         if (designers.length > 0) {
             return (
-                <div className="flex justify-start">
-                <ul className="list-disc list-inside text-xs text-center">
+                <div className="flex flex-wrap gap-1 justify-start">
                     {designers.map((d, index) => (
-                        <li key={index}>
+                        <Badge
+                            key={index}
+                            variant="secondary"
+                            className="px-1.5 py-0 text-[9px] font-medium bg-blue-50 text-blue-700 border border-blue-200 rounded-full whitespace-nowrap"
+                        >
                             {d.userName || d.userId}
-                        </li>
+                        </Badge>
                     ))}
-                </ul>
-            </div>
-            )
+                </div>
+            );
         } else {
-            return  <div className="flex justify-start ml-10">
-                <p>--</p>
-            </div>
+            return (
+                <span className="text-gray-400 text-xs">--</span>
+            );
         }
-        // return getDesignerName(undefined);
     };
 
 

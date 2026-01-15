@@ -41,17 +41,25 @@ export interface DesignTrackerTask {
     [key: string]: any; 
 }
 
+// --- Zone Child Table ---
+export interface TrackerZone {
+    tracker_zone: string;
+    name?: string;
+}
+
 // --- Parent DocType: Project Design Tracker ---
 export interface ProjectDesignTracker {
-    name: string; 
-    project: string; 
-    project_name: string; 
-    overall_deadline?: string; 
+    name: string;
+    project: string;
+    project_name: string;
+    overall_deadline?: string;
+    start_date?: string;
     status: 'Draft' | 'In Progress' | 'Completed' | 'On Hold' | 'Archived';
     creation: string;
     modified: string;
     owner: string;
     design_tracker_task: DesignTrackerTask[];
+    zone?: TrackerZone[];
 }
 
 export interface MasterDataResponse {
@@ -69,6 +77,12 @@ export interface TaskTemplate {
 
 // Category with tasks from master data
 export interface CategoryWithTasks {
+    category_name: string;
+    tasks: TaskTemplate[];
+}
+
+// Raw category data from API
+export interface RawCategoryData {
     category_name: string;
     tasks: TaskTemplate[];
 }
