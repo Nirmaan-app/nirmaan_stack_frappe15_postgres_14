@@ -610,22 +610,37 @@ const getClientClearanceStorageKey = (dateString: string) => `project_${projectI
             site_remarks: DraftReport?.site_remarks || "",
           };
         } else {
-          // MODIFIED LOGIC HERE: Use existing draft milestones, OR the inherited list
-          // if no existing draft milestones are present for this header.
-          // const existingDraftMilestonesForTab = DraftReport?.milestones?.filter(
-          //   m => m.work_header === tab.project_work_header_name
-          // ) || [];
+          // MODIFIED LOGIC: Use existing draft milestones if present, OR the inherited list
+          const existingDraftMilestonesForTab = DraftReport?.milestones?.filter(
+            (m: any) => m.work_header === tab.project_work_header_name
+          ) || [];
             
-          const inheritedMilestones = getInheritedMilestones(tab.project_work_header_name);
+          const milestonesToUse = existingDraftMilestonesForTab.length > 0 
+            ? existingDraftMilestonesForTab.map((m: any) => ({
+                name: m.name, // Use the row name/id
+                work_milestone_name: m.work_milestone_name,
+                work_header: m.work_header,
+                status: m.status,
+                progress: m.progress,
+                expected_starting_date: m.expected_starting_date,
+                expected_completion_date: m.expected_completion_date,
+                remarks: m.remarks,
+                is_updated_for_current_report: true, // It's from a draft, so it's "updated"
+                // Parse work plan if needed
+                work_plan_points: m.work_plan ? m.work_plan.split("$#,,,") : [],
+                work_plan_ratio: m.work_plan_ratio || "Plan Not Required",
+                is_editing_work_plan: false
+            }))
+            : getInheritedMilestones(tab.project_work_header_name).map(m => ({
+                ...m,
+                is_updated_for_current_report: m.is_updated_for_current_report ?? false
+            }));
 
           initialData = {
             project: projectId,
             report_date: dateString,
             manpower: [],
-            milestones: inheritedMilestones.map(m => ({
-                ...m,
-                is_updated_for_current_report: m.is_updated_for_current_report ?? false
-            })),
+            milestones: milestonesToUse, // Use the determined milestones
             photos: [],
             report_status: 'Draft',
             report_zone: reportZone,
@@ -672,16 +687,7 @@ const getClientClearanceStorageKey = (dateString: string) => `project_${projectI
     }
 
     // Handle Client / Clearance Issues tab loading
-    if (activeTabValue === "Client / Clearance Issues") {
-      const parsedData: ProjectProgressReportData = storedData ? JSON.parse(storedData) : { drawing_remarks: "", site_remarks: "" };
-      // Parse the drawing and site remarks into arrays
-      const drawingPoints = parseClientClearanceRemarks(parsedData.drawing_remarks);
-      const sitePoints = parseClientClearanceRemarks(parsedData.site_remarks);
-      setDrawingRemarksList(drawingPoints);
-      setSiteRemarksList(sitePoints);
-      setReportsLoading(false);
-      return;
-    }
+    // REMOVED EARLY RETURN: integrated into main flow below to support re-initialization from draft
 
     if (storedData) {
       const parsedData: ProjectProgressReportData = JSON.parse(storedData);
@@ -695,6 +701,12 @@ const getClientClearanceStorageKey = (dateString: string) => `project_${projectI
           count: item.count
         })));
         setDialogRemarks(parsedData.manpower_remarks || "");
+      } else if (activeTabValue === "Client / Clearance Issues") {
+        // Parse the drawing and site remarks into arrays
+        const drawingPoints = parseClientClearanceRemarks(parsedData.drawing_remarks);
+        const sitePoints = parseClientClearanceRemarks(parsedData.site_remarks);
+        setDrawingRemarksList(drawingPoints);
+        setSiteRemarksList(sitePoints);
       }
     } else {
       console.warn(`Local storage key ${storageKey} was unexpectedly empty in loadDailyReport. Re-initializing.`);
@@ -711,8 +723,13 @@ const getClientClearanceStorageKey = (dateString: string) => `project_${projectI
                 count: item.count
               })));
               setDialogRemarks(parsedData.manpower_remarks || "");
-          }
-          if (activeTabValue === "Photos") {
+          } else if (activeTabValue === "Client / Clearance Issues") {
+             // Initialize from the freshly re-read data (which should now have draft content)
+             const drawingPoints = parseClientClearanceRemarks(parsedData.drawing_remarks);
+             const sitePoints = parseClientClearanceRemarks(parsedData.site_remarks);
+             setDrawingRemarksList(drawingPoints);
+             setSiteRemarksList(sitePoints);
+          } else if (activeTabValue === "Photos") {
              setLocalPhotos((parsedData as Pick<ProjectProgressReportData, 'photos'>).photos || []);
           }
       } else {
@@ -791,11 +808,15 @@ const getClientClearanceStorageKey = (dateString: string) => `project_${projectI
   }, [projectId, selectedProject, setSelectedProject]);
 
   useEffect(() => {
+    // Wait for all data to be loaded before initializing
+    const isDraftLoaded = !existingDraftReportName || !lastDraftReportLoading;
+
     if (
       projectId &&
       !latestCompletedReportsListLoading &&
       !lastCompletedReportLoading &&
       !existingDraftReportLoading &&
+      isDraftLoaded &&  // Ensure full draft is loaded if it exists
       allFrappeMilestones &&
       projectData
     ) {
@@ -817,11 +838,13 @@ const getClientClearanceStorageKey = (dateString: string) => `project_${projectI
     latestCompletedReportsListLoading,
     lastCompletedReportLoading,
     existingDraftReportLoading,
+    lastDraftReportLoading, // Added
+    existingDraftReportName, // Added
     allFrappeMilestones,
     projectData,
     existingDraftReport,
     lastCompletedReport,
-    user // ADDED: user dependency for draft_owner logic
+    user
   ]);
 
   // NEW: useEffect for Draft Ownership Check
