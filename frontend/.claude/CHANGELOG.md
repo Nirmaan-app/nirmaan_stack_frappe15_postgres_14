@@ -4,6 +4,58 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-15: Design Tracker V2 UI Overhaul
+
+### Summary
+Redesigned the Project Design Tracker page with compact header, DataTable integration with faceted filters, and enhanced dialogs with enterprise minimal theme.
+
+### Files Modified
+
+- `src/pages/ProjectDesignTracker/project-design-tracker-details.tsx`:
+  - Consolidated 4 header sections into 2 compact rows (~100px vs ~280px)
+  - Added "Design Tracker" eyebrow label for page identification
+  - Integrated zone navigation bar with task counts and action buttons
+  - Redesigned Add Category modal with flat grid layout and selection summary
+  - Redesigned Add Zone modal with 3-section layout (current/add/preview)
+  - Updated Create Task modal to auto-fill zone from active tab
+  - Fixed bug: "Not Applicable" status tasks now visible in table
+
+- `src/pages/ProjectDesignTracker/config/taskTableColumns.tsx` (NEW):
+  - Column definitions for DataTable with faceted filters
+  - Custom filter functions for multi-select and date range filtering
+  - Optimized column widths for 16:9 screens
+
+- `src/pages/ProjectDesignTracker/components/TaskEditModal.tsx`:
+  - Enhanced header with labeled context (Zone, Category, Task name)
+  - Updated button styling to match brand colors (red-600)
+
+- `src/pages/ProjectDesignTracker/utils.tsx`:
+  - Updated `getAssignedNameForDisplay()` to render badges instead of list
+  - Standardized date format to `dd-MMM-yyyy`
+
+- `src/pages/projects/project.tsx`:
+  - Updated import to use `ProjectDesignTrackerDetailV2` component
+
+### UI Patterns Established
+
+**Compact Header Bar:**
+```
+Row 1: [Page Type Label] Project Name | Meta Pills | Action Buttons
+Row 2: Zone Tabs with counts | Create/Export Actions
+```
+
+**Dialog 3-Section Layout (Add Zone):**
+```
+1. Current State (read-only display)
+2. Add New (input + pending items)
+3. Preview (combined result)
+```
+
+**Auto-fill Context Pattern:**
+When opening modal from contextual location (e.g., zone tab), pre-fill relevant fields as read-only.
+
+---
+
 ## 2026-01-14: Project Manager Access & Summary Card Restrictions
 
 ### Summary
