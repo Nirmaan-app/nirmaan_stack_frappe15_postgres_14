@@ -331,21 +331,17 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                         </TableBody>
                     </Table>
                 </div>
-            </div>
-            )}
-
-            {/* Sticky Action Bar */}
-            {cartItems.length > 0 && (
-                <div className="sticky bottom-0 bg-white p-4 border-t border-gray-200 shadow-lg -mx-6 -mb-6 mt-8 flex justify-end">
+                <div className="mt-6 flex justify-end">
                     <Button 
                         size="lg" 
-                        className="w-full bg-[#dc2626] hover:bg-[#b91c1c] text-white font-semibold text-base py-6 shadow-md shadow-red-100 hover:shadow-red-200 transition-all"
+                        className="w-full md:w-auto bg-[#dc2626] hover:bg-[#b91c1c] text-white font-semibold text-base py-6 px-8 shadow-md shadow-red-100 hover:shadow-red-200 transition-all"
                         onClick={handleLogSubmit}
                         disabled={isSubmitting}
                     >
                         {isSubmitting ? "Sending..." : "Send For Approval"}
                     </Button>
                 </div>
+            </div>
             )}
         </div>
     );
