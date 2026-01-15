@@ -31,63 +31,75 @@ export const TDSRepositoryTab: React.FC<TDSRepositoryTabProps> = ({ projectId })
         setIsSubmitting(true);
 
         try {
-            // Helper to upload if file is new
-            const uploadLogo = async (file: File | null) => {
-                if (!file) return null;
-                // If it's already a string (url), return it
-                if (typeof file === 'string') return file;
-
-                try {
-                    // Upload file - linking to doc will happen when we save the doc if we use fetch_from or just storing URL
-                    const uploadResult = await upload(file, null, "Project TDS Setting");
-                     return uploadResult.file_url;
-                } catch (e) {
-                    console.error("Upload failed", e);
-                    return null;
-                }
-            };
-
-            // Upload all logos in parallel
-            const [
-                clientLogoUrl,
-                pmLogoUrl,
-                archLogoUrl,
-                consultantLogoUrl,
-                gcLogoUrl,
-                mepLogoUrl
-            ] = await Promise.all([
-                uploadLogo(rawData.client.logo),
-                uploadLogo(rawData.projectManager.logo),
-                uploadLogo(rawData.architect.logo),
-                uploadLogo(rawData.consultant.logo),
-                uploadLogo(rawData.gcContractor.logo),
-                uploadLogo(rawData.mepContractor.logo)
-            ]);
-
-            const docData = {
+            // 1. Prepare Text Data
+            const textData: any = {
                 tds_project_id: projectId,
                 client_name: rawData.client.name,
-                client_logo: clientLogoUrl,
                 manager_name: rawData.projectManager.name,
-                mananger_logo: pmLogoUrl, // Note backend typo
                 architect_name: rawData.architect.name,
-                architect_logo: archLogoUrl,
-                data_tjxu: rawData.consultant.name, // Consultant Name field
-                consultant_logo: consultantLogoUrl,
+                data_tjxu: rawData.consultant.name,
                 gc_contractor_name: rawData.gcContractor.name,
-                gc_contractor_logo: gcLogoUrl,
                 mep_contractor_name: rawData.mepContractor.name,
-                mep_contractorlogo: mepLogoUrl // Note backend typo
             };
 
-            if (activeSetting) {
-                await updateDoc("Project TDS Setting", activeSetting.name, docData);
-                toast({ title: "Success", description: "Repository updated successfully", variant: "success" });
+            let docName = activeSetting?.name;
+            const finalUpdates: any = {};
+
+            // 2. Create Doc if needed (to get ID for uploads)
+            if (!docName) {
+                const newDoc = await createDoc("Project TDS Setting", textData);
+                docName = newDoc.name;
+                console.log("Created Doc:", docName);
+                // Text data is already saved, so we only need to update files later
             } else {
-                await createDoc("Project TDS Setting", docData);
-                toast({ title: "Success", description: "Repository created successfully", variant: "success" });
+                // For existing doc, we will update text data along with files in the final step
+                Object.assign(finalUpdates, textData);
             }
+
+            if (!docName) throw new Error("Failed to get Document Name");
+
+            // 3. Upload Files (Linked to Doc) & Collect URLs
+            const uploadQueue: Array<{ file: File; field: string }> = [];
             
+            // Safe File check helper
+            const isFile = (f: any) => f instanceof File;
+
+            if (isFile(rawData.client.logo)) uploadQueue.push({ file: rawData.client.logo as File, field: 'client_logo' });
+            if (isFile(rawData.projectManager.logo)) uploadQueue.push({ file: rawData.projectManager.logo as File, field: 'mananger_logo' });
+            if (isFile(rawData.architect.logo)) uploadQueue.push({ file: rawData.architect.logo as File, field: 'architect_logo' });
+            if (isFile(rawData.consultant.logo)) uploadQueue.push({ file: rawData.consultant.logo as File, field: 'consultant_logo' });
+            if (isFile(rawData.gcContractor.logo)) uploadQueue.push({ file: rawData.gcContractor.logo, field: 'gc_contractor_logo' });
+            if (isFile(rawData.mepContractor.logo)) uploadQueue.push({ file: rawData.mepContractor.logo, field: 'mep_contractorlogo' });
+
+            // Execute uploads
+            await Promise.all(uploadQueue.map(async ({ file, field }) => {
+                 try {
+                     console.log(`Uploading ${field}...`);
+                     const res = await upload(file, {
+                         doctype: "Project TDS Setting",
+                         docname: docName,
+                         fieldname: field,
+                         isPrivate: false
+                     });
+                     
+                     const fileUrl = res?.file_url;
+                     if (fileUrl) {
+                         finalUpdates[field] = fileUrl;
+                         console.log(`Got URL for ${field}: ${fileUrl}`);
+                     }
+                 } catch (e) {
+                     console.error(`Failed to upload ${field}`, e);
+                     toast({ title: "Upload Warning", description: `Failed to upload logo for ${field}`, variant: "destructive" });
+                 }
+            }));
+
+            // 4. Final Update (Text + Files for existing; Files only for new)
+            if (Object.keys(finalUpdates).length > 0) {
+                 console.log("Updating doc with combined data:", finalUpdates);
+                 await updateDoc("Project TDS Setting", docName, finalUpdates);
+            }
+
+            toast({ title: "Success", description: "Repository configuration saved", variant: "success" });
             mutate(); // Refresh data
 
         } catch (error: any) {
@@ -107,7 +119,7 @@ export const TDSRepositoryTab: React.FC<TDSRepositoryTabProps> = ({ projectId })
     }
 
     if (!activeSetting) {
-        return <NoTDSRepositoryView onConfirm={handleConfirmSetup} />;
+        return <NoTDSRepositoryView onConfirm={handleConfirmSetup} isLoading={isSubmitting} />;
     }
 
     // Convert backend data to frontend format for the View/Edit
@@ -124,7 +136,7 @@ export const TDSRepositoryTab: React.FC<TDSRepositoryTabProps> = ({ projectId })
         <TDSRepositoryView 
             data={repositoryData} 
             projectId={projectId || ''} 
-            onUpdate={() => {/* Re-open dialog if needed, logic handled inside View */}} 
+            onUpdate={handleConfirmSetup} 
         />
     );
 };

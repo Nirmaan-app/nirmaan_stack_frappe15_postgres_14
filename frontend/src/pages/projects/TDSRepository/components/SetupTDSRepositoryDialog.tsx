@@ -21,6 +21,7 @@ interface SetupTDSRepositoryDialogProps {
     onClose: () => void;
     onConfirm: (data: TDSRepositoryData) => void;
     initialData?: Partial<TDSRepositoryData>;
+    isLoading?: boolean;
 }
 
 export interface TDSRepositoryData {
@@ -34,14 +35,15 @@ export interface TDSRepositoryData {
 
 export interface RoleData {
     name: string;
-    logo: File | null;
+    logo: File | string | null;
 }
 
 export const SetupTDSRepositoryDialog: React.FC<SetupTDSRepositoryDialogProps> = ({
     isOpen,
     onClose,
     onConfirm,
-    initialData
+    initialData,
+    isLoading = false
 }) => {
     const [formData, setFormData] = useState<TDSRepositoryData>({
         client: { name: initialData?.client?.name || '', logo: initialData?.client?.logo || null },
@@ -88,7 +90,7 @@ export const SetupTDSRepositoryDialog: React.FC<SetupTDSRepositoryDialogProps> =
     };
 
     return (
-        <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+        <Dialog open={isOpen} onOpenChange={(open) => !open && !isLoading && onClose()}>
             <DialogContent className="max-w-[1000px] bg-[#F8F9FB] p-0 gap-0 overflow-hidden">
                 {/* Header */}
                 <div className="px-6 py-4 bg-white border-b border-gray-100">
@@ -186,14 +188,15 @@ export const SetupTDSRepositoryDialog: React.FC<SetupTDSRepositoryDialogProps> =
 
                 {/* Footer */}
                 <div className="px-6 py-4 bg-white border-t border-gray-100 flex justify-end gap-3">
-                    <Button variant="outline" onClick={onClose} className="border-gray-300 text-gray-700 hover:bg-gray-50">
+                    <Button variant="outline" onClick={onClose} disabled={isLoading} className="border-gray-300 text-gray-700 hover:bg-gray-50">
                         Cancel
                     </Button>
                     <Button 
                         onClick={handleConfirm}
+                        disabled={isLoading}
                         className="bg-red-600 hover:bg-red-700 text-white min-w-[100px]"
                     >
-                        Confirm
+                        {isLoading ? "Saving..." : "Confirm"}
                     </Button>
                 </div>
             </DialogContent>

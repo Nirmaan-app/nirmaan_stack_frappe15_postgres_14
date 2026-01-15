@@ -10,7 +10,7 @@ interface RoleCardProps {
     icon: React.ReactNode;
     value: string;
     onChange: (value: string) => void;
-    logo: File | null;
+    logo: File | string | null;
     onLogoUpload: (file: File) => void;
     onLogoRemove: () => void;
     error?: string;
@@ -85,15 +85,17 @@ export const RoleCard: React.FC<RoleCardProps> = ({
 
                     {logo ? (
                         <>
-                            <div className="w-10 h-10 rounded-md bg-white border border-gray-100 flex items-center justify-center overflow-hidden shrink-0">
+                            <div className="w-10 h-10 rounded-md bg-gray-100 flex items-center justify-center overflow-hidden shrink-0">
                                 <img 
-                                    src={URL.createObjectURL(logo)} 
+                                    src={typeof logo === 'string' ? logo : URL.createObjectURL(logo)} 
                                     alt="Logo preview" 
                                     className="w-full h-full object-contain p-1"
                                 />
                             </div>
                             <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-slate-700 truncate">{logo.name}</p>
+                                <p className="text-sm font-medium text-slate-700 truncate">
+                                    {typeof logo === 'string' ? logo.split('/').pop() : logo.name}
+                                </p>
                                 <p className="text-xs text-blue-600 font-medium hover:underline">Change Logo</p>
                             </div>
                             <button 
@@ -105,7 +107,7 @@ export const RoleCard: React.FC<RoleCardProps> = ({
                         </>
                     ) : (
                         <>
-                            <div className="w-10 h-10 rounded-md bg-gray-50 border border-gray-100 flex items-center justify-center shrink-0 group-hover:bg-white group-hover:shadow-sm transition-all">
+                            <div className="w-10 h-10 rounded-md bg-gray-100 flex items-center justify-center shrink-0 group-hover:bg-gray-200 transition-all">
                                 <Upload className="w-4 h-4 text-gray-400 group-hover:text-blue-500 transition-colors" />
                             </div>
                             <div className="flex-1">

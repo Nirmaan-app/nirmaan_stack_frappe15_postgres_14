@@ -5,9 +5,10 @@ import { SetupTDSRepositoryDialog, TDSRepositoryData } from './components';
 
 interface NoTDSRepositoryViewProps {
     onConfirm: (data: TDSRepositoryData) => void;
+    isLoading?: boolean;
 }
 
-export const NoTDSRepositoryView: React.FC<NoTDSRepositoryViewProps> = ({ onConfirm }) => {
+export const NoTDSRepositoryView: React.FC<NoTDSRepositoryViewProps> = ({ onConfirm, isLoading = false }) => {
     const [isSetupDialogOpen, setIsSetupDialogOpen] = useState(false);
 
     return (
@@ -31,10 +32,8 @@ export const NoTDSRepositoryView: React.FC<NoTDSRepositoryViewProps> = ({ onConf
                 <SetupTDSRepositoryDialog 
                     isOpen={isSetupDialogOpen}
                     onClose={() => setIsSetupDialogOpen(false)}
-                    onConfirm={(data: TDSRepositoryData) => {
-                        onConfirm(data);
-                        setIsSetupDialogOpen(false);
-                    }}
+                    onConfirm={onConfirm}
+                    isLoading={isLoading}
                 />
             </div>
         </div>

@@ -10,6 +10,7 @@
   "tdsi_project_name",
   "details_section",
   "tds_work_package",
+  "tds_request_id",
   "tds_category",
   "tds_item_id",
   "tds_item_name",
@@ -80,12 +81,17 @@
    "fieldname": "tds_status",
    "fieldtype": "Data",
    "label": "TDS Status"
+  },
+  {
+   "fieldname": "tds_request_id",
+   "fieldtype": "Data",
+   "label": "TDS Request ID"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-15 13:32:59.854987",
+ "modified": "2026-01-15 16:04:04.224715",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project TDS Item List",
