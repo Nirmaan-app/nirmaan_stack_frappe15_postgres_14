@@ -83,7 +83,7 @@ const ProjectSpendsTab = React.lazy(() => import("./ProjectSpendsTab"));
 const ProjectEstimates = React.lazy(() => import("./add-project-estimates"));
 const ProjectPOSummaryTable = React.lazy(() => import("./components/ProjectPOSummaryTable"));
 const ProjectMaterialUsageTab = React.lazy(() => import("./components/ProjectMaterialUsageTab"));
-const ProjectDesignTrackerDetail = React.lazy(() => import("@/pages/ProjectDesignTracker/project-design-tracker-details").then(module => ({ default: module.ProjectDesignTrackerDetail })));
+const ProjectDesignTrackerDetail = React.lazy(() => import("@/pages/ProjectDesignTracker/project-design-tracker-details").then(module => ({ default: module.ProjectDesignTrackerDetailV2 })));
 const NoDesignTrackerView = React.lazy(() => import("@/pages/ProjectDesignTracker/components/NoDesignTrackerView").then(module => ({ default: module.NoDesignTrackerView })));
 const CriticalPOTasksTab = React.lazy(() => import("./CriticalPOTasks/CriticalPOTasksTab").then(module => ({ default: module.CriticalPOTasksTab })));
 import { ProjectExpensesTab } from "./components/ProjectExpenseTab"; // NEW
