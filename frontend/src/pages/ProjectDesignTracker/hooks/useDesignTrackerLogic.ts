@@ -23,25 +23,28 @@ export interface UseDesignTrackerLogicReturn {
     // Data
     trackerDoc: ProjectDesignTracker | undefined;
     groupedTasks: GroupedTasks;
-    
+
     // Status/Loading
     isLoading: boolean;
     error: Error | null;
-    
+
     // Master Data Lookups
     getDesignerName: (userId?: string) => string;
-    
+
     // Actions
     handleTaskSave: (taskId: string, updatedFields: Partial<DesignTrackerTask>) => Promise<void>;
     handleParentDocSave: (updatedFields: Partial<ProjectDesignTracker>) => Promise<void>;
-    handleNewTaskCreation: (newTaskData: Partial<DesignTrackerTask>) => Promise<void>; // <-- NEW ACTION
-    
+    handleNewTaskCreation: (newTaskData: Partial<DesignTrackerTask>) => Promise<void>;
+
     // Edit State (used by the component to trigger the modal)
     editingTask: DesignTrackerTask | null;
     setEditingTask: (task: DesignTrackerTask | null) => void;
-    
+
     // Master Data for Modals
     usersList: User[];
+    categoryData: { category_name: string; tasks: { task_name: string; deadline_offset?: number }[] }[];
+    statusOptions: { label: string; value: string }[];
+    subStatusOptions: { label: string; value: string }[];
 }
 
 export const useDesignTrackerLogic = ({ trackerId }: UseDesignTrackerLogicProps): UseDesignTrackerLogicReturn => {
