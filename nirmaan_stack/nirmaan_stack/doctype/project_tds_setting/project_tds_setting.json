@@ -1,0 +1,154 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-01-15 12:40:18.411856",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "links_section",
+  "tds_project_id",
+  "tds_project_name",
+  "details_section",
+  "client_name",
+  "manager_name",
+  "architect_name",
+  "data_tjxu",
+  "gc_contractor_name",
+  "mep_contractor_name",
+  "attachements_section",
+  "client_logo",
+  "mananger_logo",
+  "architect_logo",
+  "consultant_logo",
+  "gc_contractor_logo",
+  "mep_contractorlogo"
+ ],
+ "fields": [
+  {
+   "fieldname": "links_section",
+   "fieldtype": "Section Break",
+   "label": "Links"
+  },
+  {
+   "fieldname": "tds_project_id",
+   "fieldtype": "Link",
+   "label": "TDS Project ID",
+   "options": "Projects"
+  },
+  {
+   "fetch_from": "project_id.project_name",
+   "fieldname": "tds_project_name",
+   "fieldtype": "Data",
+   "label": "TDS Project Name"
+  },
+  {
+   "fieldname": "details_section",
+   "fieldtype": "Section Break",
+   "label": "Details"
+  },
+  {
+   "fieldname": "client_name",
+   "fieldtype": "Data",
+   "label": "Client Name"
+  },
+  {
+   "fieldname": "manager_name",
+   "fieldtype": "Data",
+   "label": "Manager Name"
+  },
+  {
+   "fieldname": "architect_name",
+   "fieldtype": "Data",
+   "label": "Architect Name"
+  },
+  {
+   "fieldname": "data_tjxu",
+   "fieldtype": "Data",
+   "label": "Consultant Name"
+  },
+  {
+   "fieldname": "gc_contractor_name",
+   "fieldtype": "Data",
+   "label": "GC Contractor Name"
+  },
+  {
+   "fieldname": "mep_contractor_name",
+   "fieldtype": "Data",
+   "label": "MEP Contractor Name"
+  },
+  {
+   "fieldname": "attachements_section",
+   "fieldtype": "Section Break",
+   "label": "Attachements"
+  },
+  {
+   "fieldname": "client_logo",
+   "fieldtype": "Attach",
+   "label": "Client Logo"
+  },
+  {
+   "fieldname": "mananger_logo",
+   "fieldtype": "Attach",
+   "label": "Mananger Logo"
+  },
+  {
+   "fieldname": "architect_logo",
+   "fieldtype": "Attach",
+   "label": "Architect Logo"
+  },
+  {
+   "fieldname": "consultant_logo",
+   "fieldtype": "Attach",
+   "label": "Consultant Logo"
+  },
+  {
+   "fieldname": "gc_contractor_logo",
+   "fieldtype": "Attach",
+   "label": "GC Contractor Logo"
+  },
+  {
+   "fieldname": "mep_contractorlogo",
+   "fieldtype": "Attach",
+   "label": "MEP ContractorLogo"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-01-15 13:33:32.384921",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Project TDS Setting",
+ "owner": "madhubalan1247@gmail.com",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
