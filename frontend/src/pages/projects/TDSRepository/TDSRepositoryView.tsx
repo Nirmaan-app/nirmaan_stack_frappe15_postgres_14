@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Button } from "@/components/ui/button";
-import { SetupTDSRepositoryDialog, TDSRepositoryData, ViewCard } from './components';
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { SetupTDSRepositoryDialog, TDSRepositoryData, ViewCard, TdsCreateForm, TdsHistoryTable } from './components';
 
 interface TDSRepositoryViewProps {
     data: TDSRepositoryData;
@@ -8,9 +9,11 @@ interface TDSRepositoryViewProps {
     onUpdate: (data: TDSRepositoryData) => Promise<void>;
 }
 
-export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, onUpdate }) => {
+export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, projectId, onUpdate }) => {
     const [isSetupDialogOpen, setIsSetupDialogOpen] = useState(false);
     const [isUpdating, setIsUpdating] = useState(false);
+    const [activeTab, setActiveTab] = useState("new");
+    const [refreshKey, setRefreshKey] = useState(0);
 
     const handleUpdateConfirm = async (updatedData: TDSRepositoryData) => {
         setIsUpdating(true);
@@ -19,7 +22,6 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, onUp
             setIsSetupDialogOpen(false);
         } catch (error) {
             console.error("Update failed", error);
-            // Optionally handle error state here, but parent likely handles toast
         } finally {
             setIsUpdating(false);
         }
@@ -52,6 +54,46 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, onUp
                 <ViewCard label="Consultant" name={data.consultant.name} logo={data.consultant.logo} />
                 <ViewCard label="GC Contractor" name={data.gcContractor.name} logo={data.gcContractor.logo} />
                 <ViewCard label="MEP Contractor" name={data.mepContractor.name} logo={data.mepContractor.logo} />
+            </div>
+
+            {/* TDS Item Management Tabs */}
+            <div className="mt-12">
+                <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                    <TabsList className="w-full justify-start h-auto p-0 bg-transparent border-b border-gray-200 rounded-none">
+                        <TabsTrigger 
+                            value="new"
+                            className="rounded-none border-b-2 border-transparent data-[state=active]:border-red-600 data-[state=active]:text-red-700 text-gray-500 pb-3 pt-2 px-1 mr-8 font-medium bg-transparent shadow-none"
+                        >
+                            New Request
+                        </TabsTrigger>
+                        <TabsTrigger 
+                            value="history"
+                            className="rounded-none border-b-2 border-transparent data-[state=active]:border-red-600 data-[state=active]:text-red-700 text-gray-500 pb-3 pt-2 px-1 font-medium bg-transparent shadow-none"
+                        >
+                            TDS History
+                        </TabsTrigger>
+                    </TabsList>
+
+                    <div className="mt-6">
+                        <div className={activeTab === 'new' ? 'block' : 'hidden'}>
+                            <TdsCreateForm 
+                                key={refreshKey}
+                                projectId={projectId} 
+                                onSuccess={() => {
+                                    setActiveTab('history');
+                                    setRefreshKey(prev => prev + 1);
+                                }} 
+                            />
+                        </div>
+                        <div className={activeTab === 'history' ? 'block' : 'hidden'}>
+                            <TdsHistoryTable 
+                                projectId={projectId} 
+                                refreshTrigger={refreshKey}
+                                onDataChange={() => setRefreshKey(prev => prev + 1)}
+                            />
+                        </div>
+                    </div>
+                </Tabs>
             </div>
 
             {/* Edit Dialog */}
