@@ -574,6 +574,8 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
     if (!open && hasChanges) {
       // Auto-save as draft when closing with unsaved changes
       await handleSaveDraft();
+      setIsDialogOpen(false); // Explicitly close after saving
+      setLocalPhotos([]); // Clear photos state
     } else if (!open) {
       // No changes, just close
       setIsDialogOpen(false);
