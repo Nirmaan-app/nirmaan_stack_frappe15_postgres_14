@@ -1,5 +1,6 @@
 {
  "actions": [],
+ "allow_import": 1,
  "allow_rename": 1,
  "creation": "2026-01-08 13:28:02.837893",
  "doctype": "DocType",
@@ -69,7 +70,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-13 21:00:14.757894",
+ "modified": "2026-01-16 09:14:11.433199",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "TDS Repository",
@@ -88,84 +89,84 @@
    "write": 1
   },
   {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
    "role": "Nirmaan Accountant",
+   "share": 1
+  },
+  {
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
-   "share": 1
-  },
-  {
    "role": "Nirmaan Design Executive",
+   "share": 1
+  },
+  {
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
-   "share": 1
-  },
-  {
    "role": "Nirmaan Design Lead",
+   "share": 1
+  },
+  {
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
-   "share": 1
-  },
-  {
    "role": "Nirmaan Estimates Executive",
+   "share": 1
+  },
+  {
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
-   "share": 1
-  },
-  {
    "role": "Nirmaan HR Executive",
+   "share": 1
+  },
+  {
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
-   "share": 1
-  },
-  {
    "role": "Nirmaan PMO Executive",
+   "share": 1
+  },
+  {
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
-   "share": 1
-  },
-  {
    "role": "Nirmaan Procurement Executive",
+   "share": 1
+  },
+  {
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
-   "share": 1
-  },
-  {
    "role": "Nirmaan Project Lead",
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
    "share": 1
   },
   {
-   "role": "Nirmaan Project Manager",
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
+   "role": "Nirmaan Project Manager",
    "share": 1
   }
  ],
@@ -173,5 +174,6 @@
  "rows_threshold_for_grid_search": 20,
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "track_changes": 1
 }
