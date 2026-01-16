@@ -33,6 +33,7 @@ import {
     ASSET_MASTER_DOCTYPE,
     ASSET_CATEGORY_DOCTYPE,
     ASSET_CONDITION_OPTIONS,
+    ASSET_CACHE_KEYS,
 } from '../assets.constants';
 
 interface AddAssetDialogProps {
@@ -67,7 +68,7 @@ export const AddAssetDialog: React.FC<AddAssetDialogProps> = ({
     const { toast } = useToast();
     const { createDoc, loading: isCreating, error: createError } = useFrappeCreateDoc();
 
-    // Fetch categories
+    // Fetch categories - uses shared cache key for cross-component invalidation
     const { data: categoryList, isLoading: categoriesLoading } = useFrappeGetDocList(
         ASSET_CATEGORY_DOCTYPE,
         {
@@ -75,7 +76,7 @@ export const AddAssetDialog: React.FC<AddAssetDialogProps> = ({
             orderBy: { field: 'asset_category', order: 'asc' },
             limit: 0,
         },
-        'asset_categories_for_add_dialog'
+        ASSET_CACHE_KEYS.CATEGORIES_DROPDOWN
     );
 
     const categoryOptions = useMemo(() =>
