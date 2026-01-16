@@ -4,13 +4,19 @@
 
 import React, { useCallback, useMemo, useState } from 'react';
 import { format } from "date-fns";
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { ProjectDesignTracker, DesignTrackerTask, User, AssignedDesignerDetail } from './types';
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { Button } from '@/components/ui/button';
-import { Edit, Download, Plus, Check, Info, X } from 'lucide-react';
+import { Edit, Download, Plus, Check, Info, X, ChevronDown, EyeOff, CheckCircle2 } from 'lucide-react';
+import { ProgressCircle } from '@/components/ui/ProgressCircle';
+import {
+    Collapsible,
+    CollapsibleTrigger,
+    CollapsibleContent,
+} from '@/components/ui/collapsible';
 import { toast } from '@/components/ui/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -20,7 +26,7 @@ import { useDesignTrackerLogic } from './hooks/useDesignTrackerLogic';
 import { TailSpin } from 'react-loader-spinner';
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { formatDeadlineShort, getExistingTaskNames } from './utils';
+import { formatDeadlineShort, getExistingTaskNames, getUnifiedStatusStyle } from './utils';
 import { TaskEditModal } from './components/TaskEditModal';
 import { RenameZoneDialog } from './components/RenameZoneDialog';
 import { useUserData } from "@/hooks/useUserData";
@@ -709,6 +715,7 @@ interface ProjectDesignTrackerDetailProps {
 
 export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailProps> = ({ trackerId: propTrackerId }) => {
     const { role, user_id } = useUserData();
+    const navigate = useNavigate();
     const isDesignExecutive = role === "Nirmaan Design Executive Profile";
     const isProjectManager = role === "Nirmaan Project Manager Profile";
     const hasEditStructureAccess = role === "Nirmaan Design Lead Profile" || role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator";
@@ -749,6 +756,9 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
     const [isAddZoneModalOpen, setIsAddZoneModalOpen] = useState(false);
     const [isProjectOverviewModalOpen, setIsProjectOverviewModalOpen] = useState(false);
 
+    // Mobile summary accordion state (collapsed by default to show more table)
+    const [isMobileSummaryOpen, setIsMobileSummaryOpen] = useState(false);
+
     // Rename Modal State
     const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
     const [zoneToRename, setZoneToRename] = useState("");
@@ -786,6 +796,41 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
         });
         return countMap;
     }, [trackerDoc?.design_tracker_task]);
+
+    // --- Progress Calculations for Header ---
+    // Note: Exclude "Not Applicable" tasks from metrics to match backend calculation
+    const applicableTasks = trackerDoc?.design_tracker_task?.filter(
+        t => t.task_status !== 'Not Applicable'
+    ) || [];
+    const totalTasks = applicableTasks.length;
+    const completedTasks = applicableTasks.filter(
+        t => t.task_status === 'Approved'
+    ).length;
+    const completionPercentage = totalTasks > 0
+        ? Math.round((completedTasks / totalTasks) * 100)
+        : 0;
+
+    // Calculate status counts for breakdown (excluding "Not Applicable")
+    const statusCounts = useMemo(() => {
+        if (!trackerDoc?.design_tracker_task) return {} as Record<string, number>;
+        return trackerDoc.design_tracker_task
+            .filter(t => t.task_status !== 'Not Applicable')
+            .reduce((acc, task) => {
+                const status = task.task_status || 'Unknown';
+                acc[status] = (acc[status] || 0) + 1;
+                return acc;
+            }, {} as Record<string, number>);
+    }, [trackerDoc?.design_tracker_task]);
+
+    // Color based on completion percentage
+    const getProgressColor = (pct: number): string => {
+        if (pct === 100) return 'text-green-600';
+        if (pct >= 76) return 'text-green-600';
+        if (pct >= 26) return 'text-yellow-500';
+        return 'text-red-600';
+    };
+
+    const progressColor = getProgressColor(completionPercentage);
 
     // Set initial active tab when zones load
     React.useEffect(() => {
@@ -1046,15 +1091,167 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
     if (isLoading) return <LoadingFallback />;
     if (error || !trackerDoc) return <AlertDestructive error={error} />;
 
+    // Block direct URL access for non-privileged users to hidden trackers
+    const isDependentUser = isDesignExecutive || isProjectManager;
+    const isHiddenTracker = trackerDoc?.hide_design_tracker === 1;
+
+    if (isDependentUser && isHiddenTracker) {
+        return (
+            <div className="flex-1 flex items-center justify-center p-8">
+                <div className="text-center">
+                    <EyeOff className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+                    <h2 className="text-lg font-semibold text-gray-900 mb-2">Access Restricted</h2>
+                    <p className="text-sm text-gray-500 mb-4">This design tracker is currently hidden.</p>
+                    <Button variant="outline" onClick={() => navigate('/design-tracker')}>
+                        Back to List
+                    </Button>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="flex-1 md:p-4">
             {/* ═══════════════════════════════════════════════════════════════
-                ROW 1: PROJECT CONTEXT BAR - Compact header with meta info
+                HEADER / SUMMARY SECTION - Mobile Collapsible + Desktop Static
             ═══════════════════════════════════════════════════════════════ */}
-            <div className="bg-white border-b border-gray-200 px-4 py-3 md:px-6">
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                    {/* Left: Project name + meta info */}
-                    <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4">
+            <div className="bg-white border-b border-gray-200">
+
+                {/* ─────────────────────────────────────────────────────────────
+                    MOBILE VIEW: Collapsible (< sm breakpoint)
+                ───────────────────────────────────────────────────────────── */}
+                <div className="sm:hidden">
+                    <Collapsible open={isMobileSummaryOpen} onOpenChange={setIsMobileSummaryOpen}>
+                        {/* Always visible: Title + Toggle */}
+                        <div className="px-4 py-3 flex items-center justify-between">
+                            <div className="flex flex-col gap-0.5">
+                                <span className="text-[10px] font-medium uppercase tracking-wider text-gray-400">
+                                    Design Tracker
+                                </span>
+                                <h1 className="text-base font-semibold text-gray-900 truncate max-w-[200px]">
+                                    {trackerDoc.project_name}
+                                </h1>
+                            </div>
+                            <CollapsibleTrigger asChild>
+                                <button className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100 transition-colors">
+                                    <span>Details</span>
+                                    <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isMobileSummaryOpen ? 'rotate-180' : ''}`} />
+                                </button>
+                            </CollapsibleTrigger>
+                        </div>
+
+                        {/* Collapsible content: Meta pills + Actions */}
+                        <CollapsibleContent>
+                            <div className="px-4 pb-3 space-y-3 border-t border-gray-100">
+                                {/* Meta Pills */}
+                                <div className="flex flex-wrap items-center gap-2 pt-3 text-xs">
+                                    {/* Start Date Pill */}
+                                    <div className="flex items-center gap-1.5 px-2 py-1 bg-gray-50 rounded border border-gray-200">
+                                        <span className="text-gray-500">Start:</span>
+                                        <span className="font-medium text-gray-700">{formatDeadlineShort(trackerDoc.start_date || '')}</span>
+                                    </div>
+                                    {/* Deadline Pill */}
+                                    <div className="flex items-center gap-1.5 px-2 py-1 bg-red-50 rounded border border-red-200">
+                                        <span className="text-gray-500">Deadline:</span>
+                                        <span className="font-semibold text-red-700">{formatDeadlineShort(trackerDoc.overall_deadline || '')}</span>
+                                        {!isDesignExecutive && !isProjectManager && (
+                                            <Edit
+                                                className="h-3 w-3 text-red-400 hover:text-red-600 cursor-pointer"
+                                                onClick={() => setIsProjectOverviewModalOpen(true)}
+                                            />
+                                        )}
+                                    </div>
+                                    {/* Zones Count Pill */}
+                                    <div className="flex items-center gap-1.5 px-2 py-1 bg-gray-50 rounded border border-gray-200">
+                                        <span className="text-gray-500">Zones:</span>
+                                        <span className="font-medium text-gray-700">{uniqueZones.length}</span>
+                                    </div>
+                                </div>
+
+                                {/* Mobile Progress Summary */}
+                                {totalTasks > 0 && (
+                                    <div className="pt-3 border-t border-gray-100">
+                                        <div className="flex items-center gap-3">
+                                            <ProgressCircle
+                                                value={completionPercentage}
+                                                className={`size-12 flex-shrink-0 ${progressColor}`}
+                                                textSizeClassName="text-[10px]"
+                                            />
+                                            <div>
+                                                <div className="flex items-center gap-1 mb-0.5">
+                                                    <CheckCircle2 className="h-3 w-3 text-green-600" />
+                                                    <span className="text-[10px] text-gray-500">Approved</span>
+                                                </div>
+                                                <span className={`text-lg font-bold ${progressColor}`}>
+                                                    {completedTasks}/{totalTasks}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {/* Compact status breakdown */}
+                                        <div className="flex flex-wrap gap-1.5 mt-2">
+                                            {Object.entries(statusCounts)
+                                                .filter(([s]) => s !== 'Approved' && s !== 'Not Applicable')
+                                                .filter(([, c]) => c > 0)
+                                                .slice(0, 4) // Limit on mobile
+                                                .map(([status, count]) => (
+                                                    <Badge
+                                                        key={status}
+                                                        variant="outline"
+                                                        className={`text-[10px] px-1.5 py-0.5 ${getUnifiedStatusStyle(status)}`}
+                                                    >
+                                                        {status}: {count}
+                                                    </Badge>
+                                                ))
+                                            }
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Action Buttons */}
+                                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-50">
+                                    {hasEditStructureAccess && !isProjectManager && (
+                                        <>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-7 text-xs gap-1"
+                                                onClick={() => setIsAddCategoryModalOpen(true)}
+                                                disabled={availableNewCategories.length === 0}
+                                            >
+                                                <Plus className="h-3 w-3" /> Category
+                                            </Button>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-7 text-xs gap-1"
+                                                onClick={() => setIsAddZoneModalOpen(true)}
+                                            >
+                                                <Plus className="h-3 w-3" /> Zone
+                                            </Button>
+                                        </>
+                                    )}
+                                    <Button
+                                        variant="default"
+                                        size="sm"
+                                        className="h-7 text-xs gap-1 bg-red-600 hover:bg-red-700 ml-auto"
+                                        onClick={() => handleDownloadReport()}
+                                    >
+                                        <Download className="h-3 w-3" /> Download
+                                    </Button>
+                                </div>
+                            </div>
+                        </CollapsibleContent>
+                    </Collapsible>
+                </div>
+
+                {/* ─────────────────────────────────────────────────────────────
+                    DESKTOP VIEW: Static two-row layout (≥ sm breakpoint)
+                ───────────────────────────────────────────────────────────── */}
+                <div className="hidden sm:block px-4 py-4 md:px-6">
+                    {/* Row 1: Project Identity */}
+                    <div className="flex items-center gap-4">
+                        {/* Title Section */}
                         <div className="flex flex-col gap-0.5">
                             <span className="text-[10px] font-medium uppercase tracking-wider text-gray-400">
                                 Design Tracker
@@ -1063,7 +1260,9 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                                 {trackerDoc.project_name}
                             </h1>
                         </div>
-                        <div className="flex flex-wrap items-center gap-2 md:gap-3 text-xs">
+
+                        {/* Meta Pills - pushed right */}
+                        <div className="flex flex-wrap items-center gap-2 ml-auto text-xs">
                             {/* Start Date Pill */}
                             <div className="flex items-center gap-1.5 px-2 py-1 bg-gray-50 rounded border border-gray-200">
                                 <span className="text-gray-500">Start:</span>
@@ -1088,46 +1287,101 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                         </div>
                     </div>
 
-                    {/* Right: Action buttons */}
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                        {hasEditStructureAccess && !isProjectManager && (
-                            <>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-8 text-xs gap-1"
-                                    onClick={() => setIsAddCategoryModalOpen(true)}
-                                    disabled={availableNewCategories.length === 0}
-                                >
-                                    <Plus className="h-3 w-3" /> Category
-                                </Button>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-8 text-xs gap-1"
-                                    onClick={() => setIsAddZoneModalOpen(true)}
-                                >
-                                    <Plus className="h-3 w-3" /> Zone
-                                </Button>
-                            </>
-                        )}
-                        <TooltipProvider>
-                            <Tooltip delayDuration={200}>
-                                <TooltipTrigger asChild>
+                    {/* Row 2: Progress Summary Section */}
+                    {totalTasks > 0 && (
+                        <div className="flex items-center gap-6 py-4 mt-3 border-t border-gray-100">
+                            {/* Progress Circle + Completion Counter */}
+                            <div className="flex items-center gap-4">
+                                <ProgressCircle
+                                    value={completionPercentage}
+                                    className={`size-16 flex-shrink-0 ${progressColor}`}
+                                    textSizeClassName="text-sm font-semibold"
+                                />
+
+                                {/* Completion Counter */}
+                                <div>
+                                    <div className="flex items-center gap-1.5 mb-1">
+                                        <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                        <span className="text-sm text-gray-500">Drawings Approved</span>
+                                    </div>
+                                    <div className="flex items-baseline gap-1">
+                                        <span className={`text-3xl font-bold tabular-nums ${progressColor}`}>
+                                            {completedTasks}
+                                        </span>
+                                        <span className="text-xl text-gray-400 font-medium">/</span>
+                                        <span className="text-xl text-gray-500 font-semibold tabular-nums">
+                                            {totalTasks}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Status Breakdown */}
+                            <div className="flex-1 flex flex-wrap gap-2 justify-end">
+                                {Object.entries(statusCounts)
+                                    .filter(([status]) => status !== 'Approved' && status !== 'Not Applicable')
+                                    .filter(([, count]) => count > 0)
+                                    .map(([status, count]) => (
+                                        <div
+                                            key={status}
+                                            className={`flex items-center gap-2 px-3 py-1.5 rounded-md ${getUnifiedStatusStyle(status)}`}
+                                        >
+                                            <span className="text-xs font-medium">{status}</span>
+                                            <span className="text-sm font-bold tabular-nums">{count}</span>
+                                        </div>
+                                    ))
+                                }
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Row 3: Actions */}
+                    <div className="flex items-center justify-between gap-3 pt-3 mt-3 border-t border-gray-100">
+                        {/* Left: Structure Buttons */}
+                        <div className="flex items-center gap-2">
+                            {hasEditStructureAccess && !isProjectManager && (
+                                <>
                                     <Button
-                                        variant="default"
+                                        variant="outline"
                                         size="sm"
-                                        className="h-8 text-xs gap-1 bg-red-600 hover:bg-red-700"
-                                        onClick={() => handleDownloadReport()}
+                                        className="h-8 text-xs gap-1"
+                                        onClick={() => setIsAddCategoryModalOpen(true)}
+                                        disabled={availableNewCategories.length === 0}
                                     >
-                                        <Download className="h-3 w-3" /> Download Tracker
+                                        <Plus className="h-3 w-3" /> Category
                                     </Button>
-                                </TooltipTrigger>
-                                <TooltipContent side="bottom" className="text-xs">
-                                    Download Design Tracker for all zones
-                                </TooltipContent>
-                            </Tooltip>
-                        </TooltipProvider>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-8 text-xs gap-1"
+                                        onClick={() => setIsAddZoneModalOpen(true)}
+                                    >
+                                        <Plus className="h-3 w-3" /> Zone
+                                    </Button>
+                                </>
+                            )}
+                        </div>
+
+                        {/* Right: Download Button */}
+                        <div className="flex items-center gap-2 ml-auto">
+                            <TooltipProvider>
+                                <Tooltip delayDuration={200}>
+                                    <TooltipTrigger asChild>
+                                        <Button
+                                            variant="default"
+                                            size="sm"
+                                            className="h-8 text-xs gap-1 bg-red-600 hover:bg-red-700"
+                                            onClick={() => handleDownloadReport()}
+                                        >
+                                            <Download className="h-3 w-3" /> Download Tracker
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="bottom" className="text-xs">
+                                        Download Design Tracker for all zones
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        </div>
                     </div>
                 </div>
             </div>

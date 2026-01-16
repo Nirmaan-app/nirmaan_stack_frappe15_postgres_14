@@ -2,16 +2,20 @@ import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ProgressCircle } from "@/components/ui/ProgressCircle";
-import { ArrowUpRight, CheckCircle2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ArrowUpRight, CheckCircle2, Eye, EyeOff } from "lucide-react";
 import { getUnifiedStatusStyle } from "../utils";
 
 interface ProjectWiseCardProps {
     tracker: any;
     onClick?: () => void;
+    showHiddenBadge?: boolean;
+    onHideToggle?: (trackerId: string, newHiddenState: boolean) => void;
 }
 
-export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onClick }) => {
-
+export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onClick, showHiddenBadge, onHideToggle }) => {
+    const isHidden = tracker.hide_design_tracker === 1;
     const statusCounts = tracker.status_counts || {};
     const totalTasks = tracker.total_tasks || 0;
     const completedTasks = tracker.completed_tasks || 0;
@@ -44,23 +48,36 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
 
     return (
         <Card
-            className="
+            className={`
                 group h-full flex flex-col
-                border border-gray-200 bg-white
+                border bg-white
                 transition-all duration-200
                 hover:shadow-md hover:border-primary/40
                 cursor-pointer
-            "
+                ${isHidden && showHiddenBadge ? 'border-orange-300 bg-orange-50/30' : 'border-gray-200'}
+            `}
             onClick={onClick}
         >
             <CardHeader className="pb-3 space-y-0">
                 <div className="flex items-start justify-between gap-3">
-                    <CardTitle
-                        className="text-base font-semibold text-gray-900 line-clamp-2 leading-snug flex-1"
-                        title={tracker.project_name}
-                    >
-                        {tracker.project_name}
-                    </CardTitle>
+                    <div className="flex-1 flex flex-col gap-1">
+                        {/* Hidden Badge */}
+                        {showHiddenBadge && isHidden && (
+                            <Badge
+                                variant="outline"
+                                className="text-[10px] px-1.5 py-0 w-fit bg-orange-100 text-orange-700 border-orange-300"
+                            >
+                                <EyeOff className="h-2.5 w-2.5 mr-1" />
+                                Hidden
+                            </Badge>
+                        )}
+                        <CardTitle
+                            className="text-base font-semibold text-gray-900 line-clamp-2 leading-snug"
+                            title={tracker.project_name}
+                        >
+                            {tracker.project_name}
+                        </CardTitle>
+                    </div>
 
                     {/* Progress Circle - Single indicator with color-coded progress */}
                     <ProgressCircle
@@ -163,11 +180,41 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
                     </div>
                 )}
 
-                {/* View Details Link */}
+                {/* Footer: Hide Toggle + View Details Link */}
                 <div className="mt-3 pt-3 border-t border-gray-100">
-                    <div className="flex items-center justify-end gap-1 text-primary font-medium text-xs transition-gap group-hover:gap-1.5">
-                        <span>View Details</span>
-                        <ArrowUpRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                    <div className="flex items-center justify-between">
+                        {/* Hide/Unhide Button - Only shown when onHideToggle is provided */}
+                        {onHideToggle ? (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 text-[10px] px-2 gap-1 text-gray-500 hover:text-orange-600"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onHideToggle(tracker.name, !isHidden);
+                                }}
+                            >
+                                {isHidden ? (
+                                    <>
+                                        <Eye className="h-3 w-3" />
+                                        Unhide
+                                    </>
+                                ) : (
+                                    <>
+                                        <EyeOff className="h-3 w-3" />
+                                        Hide
+                                    </>
+                                )}
+                            </Button>
+                        ) : (
+                            <div /> /* Empty div to maintain flex spacing */
+                        )}
+
+                        {/* View Details Link */}
+                        <div className="flex items-center gap-1 text-primary font-medium text-xs transition-gap group-hover:gap-1.5">
+                            <span>View Details</span>
+                            <ArrowUpRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                        </div>
                     </div>
                 </div>
             </CardContent>
