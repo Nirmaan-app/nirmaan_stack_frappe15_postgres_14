@@ -18,6 +18,7 @@ import {
     ASSET_MASTER_DOCTYPE,
     ASSET_MANAGEMENT_DOCTYPE,
 } from '../assets.constants';
+import { useAssetDataRefresh } from '../hooks/useAssetDataRefresh';
 
 interface UnassignAssetDialogProps {
     isOpen: boolean;
@@ -43,6 +44,7 @@ export const UnassignAssetDialog: React.FC<UnassignAssetDialogProps> = ({
     const { toast } = useToast();
     const { updateDoc } = useFrappeUpdateDoc();
     const { deleteDoc } = useFrappeDeleteDoc();
+    const { refreshSummaryCards } = useAssetDataRefresh();
 
     const handleUnassign = async () => {
         setIsSubmitting(true);
@@ -65,6 +67,7 @@ export const UnassignAssetDialog: React.FC<UnassignAssetDialogProps> = ({
             });
 
             onOpenChange(false);
+            refreshSummaryCards(); // Update assigned/unassigned counts
             onUnassigned?.();
         } catch (error: any) {
             console.error('Failed to unassign asset:', error);
