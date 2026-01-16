@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useFrappeCreateDoc, useFrappeUpdateDoc, useFrappeGetDocList, useFrappeFileUpload } from 'frappe-react-sdk';
+import { useFrappeCreateDoc, useFrappeUpdateDoc, useFrappeGetDocList } from 'frappe-react-sdk';
 import ReactSelect from 'react-select';
 import { format } from 'date-fns';
 
@@ -14,13 +14,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
-import { CustomAttachment } from '@/components/helpers/CustomAttachment';
-import { UserPlus, Calendar, FileText } from 'lucide-react';
+import { UserPlus, Calendar, CheckCircle2, Download, FileText } from 'lucide-react';
 
 import {
     ASSET_MASTER_DOCTYPE,
     ASSET_MANAGEMENT_DOCTYPE,
 } from '../assets.constants';
+import { useAssetDataRefresh } from '../hooks/useAssetDataRefresh';
 
 interface AssignAssetDialogProps {
     isOpen: boolean;
@@ -44,13 +44,14 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
 }) => {
     const [selectedUser, setSelectedUser] = useState<string>('');
     const [assignedDate, setAssignedDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
-    const [declarationFile, setDeclarationFile] = useState<File | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [showSuccessDialog, setShowSuccessDialog] = useState(false);
+    const [assignedUserName, setAssignedUserName] = useState<string>('');
 
     const { toast } = useToast();
     const { createDoc } = useFrappeCreateDoc();
     const { updateDoc } = useFrappeUpdateDoc();
-    const { upload } = useFrappeFileUpload();
+    const { refreshSummaryCards } = useAssetDataRefresh();
 
     // Fetch Nirmaan Users
     const { data: usersList } = useFrappeGetDocList<NirmaanUser>(
@@ -74,7 +75,8 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
     const resetForm = () => {
         setSelectedUser('');
         setAssignedDate(format(new Date(), 'yyyy-MM-dd'));
-        setDeclarationFile(null);
+        setShowSuccessDialog(false);
+        setAssignedUserName('');
     };
 
     useEffect(() => {
@@ -96,26 +98,11 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
         setIsSubmitting(true);
 
         try {
-            let fileUrl: string | undefined;
-
-            // Upload declaration file if provided
-            if (declarationFile) {
-                const fileArgs = {
-                    doctype: ASSET_MANAGEMENT_DOCTYPE,
-                    docname: `temp-assignment-${Date.now()}`,
-                    fieldname: 'asset_declaration_attachment',
-                    isPrivate: true,
-                };
-                const uploadedFile = await upload(declarationFile, fileArgs);
-                fileUrl = uploadedFile.file_url;
-            }
-
             // Create Asset Management entry
             await createDoc(ASSET_MANAGEMENT_DOCTYPE, {
                 asset: assetId,
                 asset_assigned_to: selectedUser,
                 asset_assigned_on: assignedDate,
-                asset_declaration_attachment: fileUrl || undefined,
             });
 
             // Update Asset Master with current assignee
@@ -123,14 +110,14 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
                 current_assignee: selectedUser,
             });
 
-            toast({
-                title: 'Asset Assigned',
-                description: `${assetName} has been assigned successfully.`,
-                variant: 'success',
-            });
+            // Get the assigned user's display name
+            const userName = userOptions.find(u => u.value === selectedUser)?.label || selectedUser;
+            setAssignedUserName(userName);
 
-            onOpenChange(false);
-            onAssigned?.();
+            refreshSummaryCards(); // Update assigned/unassigned counts
+
+            // Show success dialog instead of closing immediately
+            setShowSuccessDialog(true);
         } catch (error: any) {
             console.error('Failed to assign asset:', error);
             toast({
@@ -143,6 +130,106 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
         }
     };
 
+    const handleDownloadDeclaration = async () => {
+        try {
+            const params = new URLSearchParams({
+                doctype: 'Asset Master',
+                name: assetId,
+                format: 'Asset Master Form',
+                no_letterhead: '0',
+                _lang: 'en'
+            });
+
+            const response = await fetch(`/api/method/frappe.utils.print_format.download_pdf?${params.toString()}`);
+
+            if (!response.ok) {
+                throw new Error('Failed to generate PDF');
+            }
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `${assetName}_Declaration_Form.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+
+            toast({
+                title: 'Download Started',
+                description: 'Declaration form is being downloaded.',
+                variant: 'success',
+            });
+        } catch (error: any) {
+            console.error('Failed to download declaration:', error);
+            toast({
+                title: 'Download Failed',
+                description: 'Could not download the declaration form. Please try again from the asset overview.',
+                variant: 'destructive',
+            });
+        }
+    };
+
+    const handleCloseSuccessDialog = () => {
+        onOpenChange(false);
+        onAssigned?.();
+    };
+
+    // Render success dialog view
+    if (showSuccessDialog) {
+        return (
+            <Dialog open={isOpen} onOpenChange={handleCloseSuccessDialog}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50">
+                            <CheckCircle2 className="h-6 w-6 text-emerald-600" />
+                        </div>
+                        <DialogTitle className="text-center text-lg font-semibold">
+                            Asset Assigned Successfully
+                        </DialogTitle>
+                        <DialogDescription className="text-center text-sm text-gray-500">
+                            <span className="font-medium text-gray-700">{assetName}</span> has been assigned to{' '}
+                            <span className="font-medium text-gray-700">{assignedUserName}</span>
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="py-4">
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                            <div className="flex items-start gap-3">
+                                <FileText className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                                <div className="text-sm text-amber-800">
+                                    <p className="font-medium mb-1">Declaration Required</p>
+                                    <p className="text-amber-700">
+                                        Please download the declaration form, get it signed by the user,
+                                        and upload it later from the asset overview.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <DialogFooter className="gap-2 sm:gap-0">
+                        <Button
+                            variant="outline"
+                            onClick={handleCloseSuccessDialog}
+                        >
+                            Close
+                        </Button>
+                        <Button
+                            onClick={handleDownloadDeclaration}
+                            className="gap-2 bg-amber-600 hover:bg-amber-700"
+                        >
+                            <Download className="h-4 w-4" />
+                            Download Declaration Form
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        );
+    }
+
+    // Render assignment form view
     return (
         <Dialog open={isOpen} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-md">
@@ -191,32 +278,6 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
                                 className="w-full rounded-md border border-gray-200 bg-white py-2 pl-10 pr-3 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                             />
                         </div>
-                    </div>
-
-                    {/* Declaration Attachment */}
-                    <div className="space-y-1.5">
-                        <Label className="text-sm font-medium text-gray-700">
-                            Declaration Document
-                            <span className="ml-1 text-xs text-gray-400">(optional)</span>
-                        </Label>
-                        <CustomAttachment
-                            selectedFile={declarationFile}
-                            onFileSelect={setDeclarationFile}
-                            acceptedTypes={["image/*", "application/pdf"]}
-                            label="Upload Declaration"
-                            maxFileSize={10 * 1024 * 1024}
-                            onError={(err) => toast({
-                                title: 'File Error',
-                                description: err.message,
-                                variant: 'destructive',
-                            })}
-                        />
-                        {!declarationFile && (
-                            <p className="text-xs text-amber-600 flex items-center gap-1">
-                                <FileText className="h-3 w-3" />
-                                Declaration can be uploaded later from asset overview
-                            </p>
-                        )}
                     </div>
                 </div>
 

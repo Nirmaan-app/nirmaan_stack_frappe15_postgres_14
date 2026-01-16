@@ -78,3 +78,19 @@ export const DECLARATION_STATUS_OPTIONS = [
     { label: "Uploaded", value: "uploaded" },
     { label: "Pending", value: "pending" },
 ];
+
+// Centralized SWR cache keys for consistent cross-component invalidation
+export const ASSET_CACHE_KEYS = {
+    // Summary counts
+    CATEGORIES_COUNT: `${ASSET_CATEGORY_DOCTYPE}_summary`,
+    TOTAL_ASSETS_COUNT: `${ASSET_MASTER_DOCTYPE}_total_summary`,
+    ASSIGNED_ASSETS_COUNT: `${ASSET_MASTER_DOCTYPE}_assigned_summary`,
+    UNASSIGNED_ASSETS_COUNT: `${ASSET_MASTER_DOCTYPE}_unassigned_summary`,
+    PENDING_DECLARATION_COUNT: `${ASSET_MANAGEMENT_DOCTYPE}_pending_summary`,
+
+    // Category dropdowns (shared across all dialogs)
+    CATEGORIES_DROPDOWN: `${ASSET_CATEGORY_DOCTYPE}_dropdown`,
+
+    // Asset Management (for individual asset assignments)
+    assetManagement: (assetId: string) => `${ASSET_MANAGEMENT_DOCTYPE}_${assetId}`,
+} as const;
