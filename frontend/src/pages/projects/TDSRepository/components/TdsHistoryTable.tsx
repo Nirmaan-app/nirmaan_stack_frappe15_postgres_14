@@ -6,7 +6,13 @@ import { useFacetValues } from '@/hooks/useFacetValues';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FileText, Trash2 } from 'lucide-react';
+import { FileText, Trash2, MessageSquare } from 'lucide-react';
+import { 
+    Tooltip, 
+    TooltipContent, 
+    TooltipProvider, 
+    TooltipTrigger 
+} from "@/components/ui/tooltip";
 import { useFrappeDeleteDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { toast } from "@/components/ui/use-toast";
 import {
@@ -37,6 +43,7 @@ interface ProjectTDSItem {
     tds_description: string;
     tds_make: string;
     tds_status: string;
+    tds_rejection_reason?: string;
     tds_attachment?: string;
     creation: string;
     // owner: string; // Removed in favor of dynamic keys
@@ -137,10 +144,31 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
                 else if (status === "Approved") colorClass = "bg-green-100 text-green-800";
                 else if (status === "Rejected") colorClass = "bg-red-100 text-red-800";
 
+                const reason = row.original.tds_rejection_reason;
+                const hasReason = !!reason && reason.trim() !== "";
+
                 return (
-                    <Badge variant="secondary" className={`border ${colorClass}`}>
-                        {status || 'Pending'}
-                    </Badge>
+                    <div className="flex flex-col items-center gap-1.5 min-w-[100px]">
+                        <Badge variant="secondary" className={`border ${colorClass}`}>
+                            {status || 'Pending'}
+                        </Badge>
+                        {status === "Rejected" && (
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <div className="cursor-help">
+                                            <MessageSquare 
+                                                className={`h-3.5 w-3.5 ${hasReason ? "text-red-500 hover:text-red-700" : "text-gray-300 opacity-40"} transition-colors`} 
+                                            />
+                                        </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                        <p>{hasReason ? reason : "No reason provided"}</p>
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        )}
+                    </div>
                 );
             },
             size: 100,

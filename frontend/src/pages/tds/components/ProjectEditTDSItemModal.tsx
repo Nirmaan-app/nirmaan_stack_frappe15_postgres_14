@@ -66,9 +66,7 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
     onSave,
     loading = false,
 }) => {
-    // Hierarchical Selection States
-    const [selectedWP, setSelectedWP] = useState<string | null>(null);
-    const [selectedCat, setSelectedCat] = useState<string | null>(null);
+    // States for selection
     const [selectedItemName, setSelectedItemName] = useState<string | null>(null);
     const [selectedMake, setSelectedMake] = useState<string | null>(null);
     const [description, setDescription] = useState("");
@@ -86,6 +84,7 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
     });
 
     // 2. Fetch Existing Project Items (to avoid duplicates)
+    // We check against all project items except the one we are editing
     const { data: existingProjectItems } = useFrappeGetDocList("Project TDS Item List", {
         fields: ["name", "tds_item_id", "tds_make", "tds_status", "tdsi_project_id"],
         filters: (item && open) ? [["tdsi_project_id", "=", item.tdsi_project_id || ""], ["name", "!=", item.name], ["docstatus", "!=", 2]] : [["name", "=", "NOT_FOUND"]],
@@ -95,80 +94,60 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
     // Initialize states when item changes or modal opens
     useEffect(() => {
         if (item && open) {
-            setSelectedWP(item.tds_work_package || "");
-            setSelectedCat(item.tds_category || "");
             setSelectedItemName(item.tds_item_name || "");
             setSelectedMake(item.tds_make || "");
             setDescription(item.tds_description || "");
         }
     }, [item, open]);
 
-    // --- Options Computation (Hierarchy) ---
+    // 3. Filter repository items to see what is "Available"
+    // An item is available if it's NOT already in the project as Approved/Pending
+    // UNLESS it's the current record being edited (handled by existingProjectItems filters)
+    const availableRepoItems = useMemo(() => {
+        if (!repoItems || !existingProjectItems) return repoItems || [];
 
-    const wpOptions = useMemo(() => {
-        if (!repoItems) return [];
-        const unique = Array.from(new Set(repoItems.map(i => i.work_package).filter(Boolean)));
-        return unique.sort().map(val => ({ label: val, value: val }));
-    }, [repoItems]);
+        // Exclude if Approved or Pending in project
+        const occupiedIds = new Set(
+            existingProjectItems
+                .filter((i: any) => i.tds_status === "Approved" || i.tds_status === "Pending" || !i.tds_status)
+                .map((i: any) => `${i.tds_item_id}-${i.tds_make}`)
+        );
 
-    const catOptions = useMemo(() => {
-        if (!repoItems || !selectedWP) return [];
-        const unique = Array.from(new Set(
-            repoItems
-                .filter(i => i.work_package === selectedWP)
-                .map(i => i.category)
-                .filter(Boolean)
-        ));
-        return unique.sort().map(val => ({ label: val, value: val }));
-    }, [repoItems, selectedWP]);
+        return repoItems.filter(repoItem => {
+            const id = `${repoItem.tds_item_id}-${repoItem.make}`;
+            return !occupiedIds.has(id);
+        });
+    }, [repoItems, existingProjectItems]);
 
+    // 4. Compute Options
     const itemOptions = useMemo(() => {
-        if (!repoItems || !selectedCat) return [];
-        const unique = Array.from(new Set(
-            repoItems
-                .filter(i => i.work_package === selectedWP && i.category === selectedCat)
-                .map(i => i.tds_item_name)
-                .filter(Boolean)
-        ));
-        return unique.sort().map(val => ({ label: val, value: val }));
-    }, [repoItems, selectedWP, selectedCat]);
+        const unique = new Map();
+        availableRepoItems.forEach(i => {
+            if (!unique.has(i.tds_item_name)) {
+                unique.set(i.tds_item_name, { label: i.tds_item_name, value: i.tds_item_name });
+            }
+        });
+        return Array.from(unique.values()).sort((a, b) => a.label.localeCompare(b.label));
+    }, [availableRepoItems]);
 
     const makeOptions = useMemo(() => {
-        if (!repoItems || !selectedItemName) return [];
-        const unique = Array.from(new Set(
-            repoItems
-                .filter(i => i.work_package === selectedWP && i.category === selectedCat && i.tds_item_name === selectedItemName)
-                .map(i => i.make)
-                .filter(Boolean)
-        ));
-        return unique.sort().map(val => ({ label: val, value: val }));
-    }, [repoItems, selectedWP, selectedCat, selectedItemName]);
+        if (!selectedItemName) return [];
+        return availableRepoItems
+            .filter(i => i.tds_item_name === selectedItemName)
+            .map(i => ({ label: i.make, value: i.make }))
+            .sort((a, b) => a.label.localeCompare(b.label));
+    }, [availableRepoItems, selectedItemName]);
 
-    // Find Repo Entry to get ID and description if needed
+    // Identify Selected Repo Entry (for auto-filling WP and Category)
     const selectedRepoEntry = useMemo(() => {
-        if (!repoItems || !selectedWP || !selectedCat || !selectedItemName || !selectedMake) return null;
-        return repoItems.find(i => 
-            i.work_package === selectedWP && 
-            i.category === selectedCat && 
+        if (!selectedItemName || !selectedMake) return null;
+        return availableRepoItems.find(i => 
             i.tds_item_name === selectedItemName && 
             i.make === selectedMake
         );
-    }, [repoItems, selectedWP, selectedCat, selectedItemName, selectedMake]);
+    }, [availableRepoItems, selectedItemName, selectedMake]);
 
     // --- Handlers ---
-
-    const handleWPChange = (val: string | null) => {
-        setSelectedWP(val);
-        setSelectedCat(null);
-        setSelectedItemName(null);
-        setSelectedMake(null);
-    };
-
-    const handleCatChange = (val: string | null) => {
-        setSelectedCat(val);
-        setSelectedItemName(null);
-        setSelectedMake(null);
-    };
 
     const handleItemNameChange = (val: string | null) => {
         setSelectedItemName(val);
@@ -177,38 +156,32 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
 
     const handleSaveAttempt = () => {
         if (!item || !selectedRepoEntry) {
-            toast({ title: "Incomplete Selection", description: "Please ensure all identity fields are selected from the repository.", variant: "destructive" });
+            toast({ title: "Validation Error", description: "Please select a valid item and make from the repository.", variant: "destructive" });
             return;
         }
 
-        // Project Duplicate Check
+        // Project Duplicate Check for "Rejected" entries
+        // Since active ones are filtered out of options, we only need to check for Rejected duplicates
         const duplicate = existingProjectItems?.find(i => 
             i.tds_item_id === selectedRepoEntry.tds_item_id && 
-            i.tds_make === selectedMake
+            i.tds_make === selectedMake &&
+            i.tds_status === "Rejected"
         );
 
         if (duplicate) {
-            if (duplicate.tds_status === "Rejected") {
-                setDuplicateDocName(duplicate.name);
-                setConfirmInput("");
-                setShowConfirmDialog(true);
-                return;
-            } else {
-                toast({
-                    title: "Duplicate Item",
-                    description: `This items already exists in the project with status: ${duplicate.tds_status}.`,
-                    variant: "destructive"
-                });
-                return;
-            }
+            setDuplicateDocName(duplicate.name);
+            setConfirmInput("");
+            setShowConfirmDialog(true);
+            return;
         }
 
         const updates: Partial<TDSItem> = {
-            tds_work_package: selectedWP!,
-            tds_category: selectedCat!,
+            tds_work_package: selectedRepoEntry.work_package,
+            tds_category: selectedRepoEntry.category,
             tds_item_name: selectedItemName!,
             tds_make: selectedMake!,
             tds_item_id: selectedRepoEntry.tds_item_id,
+            tds_attachment: selectedRepoEntry.tds_attachment,
             tds_description: description
         };
 
@@ -218,11 +191,12 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
     const confirmResubmission = () => {
         if (confirmInput === "1" && item && duplicateDocName && selectedRepoEntry) {
             const updates: Partial<TDSItem> = {
-                tds_work_package: selectedWP!,
-                tds_category: selectedCat!,
+                tds_work_package: selectedRepoEntry.work_package,
+                tds_category: selectedRepoEntry.category,
                 tds_item_name: selectedItemName!,
                 tds_make: selectedMake!,
                 tds_item_id: selectedRepoEntry.tds_item_id,
+                tds_attachment: selectedRepoEntry.tds_attachment,
                 tds_description: description
             };
             onSave(item.name, updates, [duplicateDocName]);
@@ -240,41 +214,19 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
                     <DialogHeader>
                         <DialogTitle>Edit TDS Item</DialogTitle>
                         <DialogDescription>
-                            Change any detail. Selection MUST be from the TDS Repository.
+                            Select an item and make. Work Package and Category will auto-fill.
                         </DialogDescription>
                     </DialogHeader>
 
                     <div className="grid gap-4 py-4">
-                        <div className="grid gap-2">
-                            <Label>Work Package <span className="text-red-500">*</span></Label>
-                            <ReactSelect
-                                options={wpOptions}
-                                value={selectedWP ? { label: selectedWP, value: selectedWP } : null}
-                                onChange={(opt) => handleWPChange(opt?.value || null)}
-                                placeholder="Select Work Package"
-                                isLoading={!repoItems}
-                            />
-                        </div>
-
-                        <div className="grid gap-2">
-                            <Label>Category <span className="text-red-500">*</span></Label>
-                            <ReactSelect
-                                options={catOptions}
-                                value={selectedCat ? { label: selectedCat, value: selectedCat } : null}
-                                onChange={(opt) => handleCatChange(opt?.value || null)}
-                                placeholder={selectedWP ? "Select Category" : "NA"}
-                                isDisabled={!selectedWP}
-                            />
-                        </div>
-
                         <div className="grid gap-2">
                             <Label>Item Name <span className="text-red-500">*</span></Label>
                             <ReactSelect
                                 options={itemOptions}
                                 value={selectedItemName ? { label: selectedItemName, value: selectedItemName } : null}
                                 onChange={(opt) => handleItemNameChange(opt?.value || null)}
-                                placeholder={selectedCat ? "Select Item Name" : "NA"}
-                                isDisabled={!selectedCat}
+                                placeholder="Select Item Name"
+                                isLoading={!repoItems}
                             />
                         </div>
 
@@ -284,13 +236,33 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
                                 options={makeOptions}
                                 value={selectedMake ? { label: selectedMake, value: selectedMake } : null}
                                 onChange={(opt) => setSelectedMake(opt?.value || null)}
-                                placeholder={selectedItemName ? "Select Make" : "NA"}
+                                placeholder={selectedItemName ? "Select Make" : "Select an item first"}
                                 isDisabled={!selectedItemName}
                             />
                         </div>
 
                         <div className="grid gap-2">
-                            <Label htmlFor="description">Description</Label>
+                            <Label>Work Package (Auto-fill)</Label>
+                            <ReactSelect
+                                isDisabled
+                                value={selectedRepoEntry ? { label: selectedRepoEntry.work_package, value: selectedRepoEntry.work_package } : null}
+                                placeholder="Auto-populated"
+                                styles={{ control: (base) => ({ ...base, backgroundColor: '#f9fafb' }) }}
+                            />
+                        </div>
+
+                        <div className="grid gap-2">
+                            <Label>Category (Auto-fill)</Label>
+                            <ReactSelect
+                                isDisabled
+                                value={selectedRepoEntry ? { label: selectedRepoEntry.category, value: selectedRepoEntry.category } : null}
+                                placeholder="Auto-populated"
+                                styles={{ control: (base) => ({ ...base, backgroundColor: '#f9fafb' }) }}
+                            />
+                        </div>
+
+                        <div className="grid gap-2">
+                            <Label htmlFor="description">Description (Input Edit)</Label>
                             <Textarea
                                 id="description"
                                 rows={3}
@@ -318,7 +290,7 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
                     <AlertDialogHeader>
                         <AlertDialogTitle>Resubmit Rejected Item?</AlertDialogTitle>
                         <AlertDialogDescription>
-                            This item-make combination already exists as a <strong>Rejected</strong> entry. 
+                            This item-make combination already exists as a <strong>Rejected</strong> entry in the project. 
                             To replace it and continue, please enter <strong>"1"</strong> below.
                         </AlertDialogDescription>
                     </AlertDialogHeader>

@@ -17,7 +17,8 @@
   "tds_make",
   "tds_description",
   "tds_attachment",
-  "tds_status"
+  "tds_status",
+  "tds_rejection_reason"
  ],
  "fields": [
   {
@@ -86,12 +87,17 @@
    "fieldname": "tds_request_id",
    "fieldtype": "Data",
    "label": "TDS Request ID"
+  },
+  {
+   "fieldname": "tds_rejection_reason",
+   "fieldtype": "Data",
+   "label": "TDS Rejection Reason"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-15 16:04:04.224715",
+ "modified": "2026-01-16 13:56:30.781305",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project TDS Item List",

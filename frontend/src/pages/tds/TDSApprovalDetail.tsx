@@ -1,7 +1,13 @@
 import React, { useMemo, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, CheckCircle2, XCircle, FileText, Pencil } from "lucide-react";
+import { ArrowLeft, CheckCircle2, XCircle, FileText, Pencil, MessageSquare } from "lucide-react";
+import { 
+    Tooltip, 
+    TooltipContent, 
+    TooltipProvider, 
+    TooltipTrigger 
+} from "@/components/ui/tooltip";
 import { useFrappeGetDocList, useFrappeUpdateDoc, useFrappeDeleteDoc } from "frappe-react-sdk";
 import { 
     useReactTable, 
@@ -48,6 +54,7 @@ interface TDSItem {
     tds_make: string;
     tds_attachment?: string;
     tds_status: string;
+    tds_rejection_reason?: string;
     owner: string;
     creation: string;
 }
@@ -411,6 +418,91 @@ export const TDSApprovalDetail: React.FC = () => {
         },
     ], []);
 
+    // Rejected items columns (includes Reject Reason)
+    const rejectedColumns = useMemo<ColumnDef<TDSItem>[]>(() => [
+        {
+            accessorKey: "tds_work_package",
+            header: "Work Package",
+            size: 150,
+        },
+        {
+            accessorKey: "tds_category",
+            header: "Category",
+            size: 180,
+        },
+        {
+            accessorKey: "tds_item_name",
+            header: "Item Name",
+            size: 180,
+        },
+        {
+            accessorKey: "tds_description",
+            header: "Description",
+            cell: ({ row }) => (
+                <div 
+                    className="truncate max-w-[150px] text-gray-500" 
+                    title={row.original.tds_description}
+                >
+                    {row.original.tds_description || "--"}
+                </div>
+            ),
+            size: 150,
+        },
+        {
+            accessorKey: "tds_make",
+            header: "Make",
+            cell: ({ row }) => <MakePill make={row.original.tds_make} />,
+            size: 100,
+        },
+        {
+            accessorKey: "tds_rejection_reason",
+            header: "Reason",
+            cell: ({ row }) => {
+                const reason = row.original.tds_rejection_reason;
+                const hasReason = !!reason && reason.trim() !== "";
+                
+                return (
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <div className="flex justify-start items-center cursor-help">
+                                    <MessageSquare 
+                                        className={`h-4 w-4 ${hasReason ? "text-red-500 hover:text-red-700" : "text-gray-300 opacity-40"} transition-colors`} 
+                                    />
+                                </div>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p>{hasReason ? reason : "No reason provided"}</p>
+                            </TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
+                );
+            },
+            size: 60,
+        },
+        {
+            id: "doc",
+            header: "Doc.",
+            cell: ({ row }) => (
+                row.original.tds_attachment ? (
+                    <Button 
+                        variant="ghost" 
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => window.open(row.original.tds_attachment, '_blank')}
+                    >
+                        <FileText className="h-4 w-4 text-gray-500" />
+                    </Button>
+                ) : (
+                    <Button variant="ghost" size="icon" className="h-8 w-8" disabled>
+                        <FileText className="h-4 w-4 text-gray-300" />
+                    </Button>
+                )
+            ),
+            size: 60,
+        },
+    ], []);
+
     const handleApprove = async () => {
         const selectedItems = pendingItems.filter((_, index) => rowSelection[index.toString()]);
 
@@ -453,7 +545,7 @@ export const TDSApprovalDetail: React.FC = () => {
         Promise.all(selectedItems.map(doc => 
             updateDoc("Project TDS Item List", doc.name, { 
                 tds_status: "Rejected",
-                remarks: remarks
+                tds_rejection_reason: remarks
             })
         )).then(() => {
             toast({ title: "Rejected", description: `${selectedItems.length} items rejected`, variant: "success" });
@@ -653,7 +745,7 @@ export const TDSApprovalDetail: React.FC = () => {
                             <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
                                 <ItemsTable 
                                     data={rejectedItems} 
-                                    columns={readOnlyColumns}
+                                    columns={rejectedColumns}
                                     emptyMessage="No rejected items"
                                 />
                             </div>
