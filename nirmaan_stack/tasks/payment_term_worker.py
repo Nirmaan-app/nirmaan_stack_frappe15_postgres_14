@@ -34,11 +34,11 @@ def update_payment_term_status():
         payments_to_update = frappe.get_all(
             "PO Payment Terms",
             filters={
-                "status": "Created",
-                "payment_type": "Credit", # Only target credit terms
-                "due_date": ["<=", today_date], # Find terms due today or in the past
+                "term_status": "Created",  # Use new field name (migrated from 'status')
+                "payment_type": "Credit",  # Only target credit terms
+                "due_date": ["<=", today_date],  # Find terms due today or in the past
             },
-            fields=["name", "parent"] # 'parent' gives the PO ID for logging
+            fields=["name", "parent"]  # 'parent' gives the PO ID for logging
         )
 
         if not payments_to_update:
@@ -48,14 +48,14 @@ def update_payment_term_status():
         updated_count = 0
         frappe.logger("payment_term_worker").info(f"Found {len(payments_to_update)} payment term(s) to process.")
         
-        for payment in payments_to_update: 
+        for payment in payments_to_update:
             try:
                 # frappe.db.set_value is the most efficient way to update a single field
                 # without triggering all document hooks (like on_update).
                 frappe.db.set_value(
                     "PO Payment Terms",
                     payment.name,
-                    "status",
+                    "term_status",  # Use new field name (migrated from 'status')
                     "Scheduled"
                 )
                 updated_count += 1
