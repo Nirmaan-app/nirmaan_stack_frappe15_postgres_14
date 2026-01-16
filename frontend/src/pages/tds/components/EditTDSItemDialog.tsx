@@ -363,7 +363,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                 render={({ field }) => (
                                     <FormItem>
                                         <FormLabel className="text-sm font-semibold flex items-center">
-                                            Item Description<span className="text-red-500 ml-0.5">*</span>
+                                            Item Description <span className="text-gray-400 font-normal ml-1">(Optional)</span>
                                         </FormLabel>
                                         <FormControl>
                                             <Input placeholder="Type Description" {...field} className="bg-white border-gray-200 focus:ring-1 focus:ring-gray-300 h-10" />
@@ -503,7 +503,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                                 <UploadCloud className="h-6 w-6 text-blue-500" />
                                             </div>
                                             <p className="text-sm font-medium text-gray-900 mb-1">Click to upload replacement</p>
-                                            <p className="text-xs text-gray-500">Images, XLSX, PDF up to 10MB</p>
+                                            <p className="text-xs text-gray-500">PDF only, up to 10MB</p>
                                         </div>
                                     </div>
                                 ) : (
@@ -516,7 +516,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                             <UploadCloud className="h-5 w-5 text-blue-500" />
                                         </div>
                                         <p className="text-sm font-medium text-gray-900 mb-0.5">Click to upload or drag and drop</p>
-                                        <p className="text-xs text-gray-500">Images, XLSX, PDF up to 10MB</p>
+                                        <p className="text-xs text-gray-500">PDF only, up to 10MB</p>
                                         
                                     </div>
                                 )}
@@ -525,7 +525,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                     type="file" 
                                     id="edit-tds-file-upload" 
                                     className="hidden" 
-                                    accept="image/*,.xlsx,.pdf"
+                                    accept=".pdf,application/pdf"
                                     onChange={handleNewFileSelected}
                                 />
                             </div>
