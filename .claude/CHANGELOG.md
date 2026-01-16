@@ -4,6 +4,32 @@ Changes made by Claude Code sessions.
 
 ---
 
+### 2026-01-16: Design Tracker UI Harmonization with Progress Visualization
+
+**Summary:** Enhanced Design Tracker list and detail pages with progress visualization, summary statistics, and hide/unhide functionality.
+
+**Files Modified:**
+- `frontend/src/pages/ProjectDesignTracker/components/ProjectWiseCard.tsx` - Added progress circle and task breakdown display
+- `frontend/src/pages/ProjectDesignTracker/design-tracker-list.tsx` - Added structured header with summary stats, hide/unhide functionality
+- `frontend/src/pages/ProjectDesignTracker/project-design-tracker-details.tsx` - Added ProgressCircle, completion counter, status breakdown
+- `frontend/src/pages/ProjectDesignTracker/types/index.ts` - Added `hide_design_tracker` field to types
+- `nirmaan_stack/api/design_tracker/get_task_wise_list.py` - Updated metrics calculation
+- `nirmaan_stack/api/design_tracker/get_tracker_list.py` - Added hide_design_tracker field and role-based visibility filtering
+- `nirmaan_stack/nirmaan_stack/doctype/project_design_tracker/project_design_tracker.json` - Added hide_design_tracker field
+
+**Features:**
+- List page summary header showing project count, completion stats, hidden trackers count
+- Hide/unhide functionality with collapsible section for hidden trackers
+- Progress circle visualization on detail page header (desktop and mobile)
+- Status breakdown showing task counts by status (excluding Not Applicable)
+- Metrics exclude "Not Applicable" tasks to match backend calculation
+
+**Access Control:**
+- Hidden trackers visible only to: Admin, PMO Executive, Design Lead
+- Design Executives and Project Managers cannot see hidden trackers
+
+---
+
 ### 2026-01-14: PO Details Section Redesign
 
 **Summary:** Reorganized PO Details card into logical sections with enterprise-minimal design, added PO Amount Delivered field.
