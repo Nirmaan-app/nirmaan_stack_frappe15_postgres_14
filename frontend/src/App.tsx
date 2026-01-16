@@ -11,6 +11,7 @@ import { ThemeProvider } from "./components/ui/theme-provider";
 import { messaging } from "./firebase/firebaseConfig";
 import { UserProvider } from "./utils/auth/UserProvider";
 import { SocketInitializer } from "./config/SocketInitializer";
+import { CsrfErrorHandler } from "./config/CsrfErrorHandler";
 
 
 // --- Router Creation ---
@@ -70,16 +71,18 @@ const App: FC = () => {
       siteName={getSiteName()}
       // enableSocket={false}
     >
-      <UserProvider>
-        <SocketInitializer />
-        <SidebarProvider>
-          {/* <QueryClientProvider client={queryClient}> */}
-          <ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
-            <RouterProvider router={router} />
-          </ThemeProvider>
-          {/* </QueryClientProvider> */}
-        </SidebarProvider>
-      </UserProvider>
+      <CsrfErrorHandler>
+        <UserProvider>
+          <SocketInitializer />
+          <SidebarProvider>
+            {/* <QueryClientProvider client={queryClient}> */}
+            <ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
+              <RouterProvider router={router} />
+            </ThemeProvider>
+            {/* </QueryClientProvider> */}
+          </SidebarProvider>
+        </UserProvider>
+      </CsrfErrorHandler>
     </FrappeProvider>
   );
 };

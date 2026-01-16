@@ -58,7 +58,7 @@ def get_facet_values_impl(
                 for token in search_term.split():
                     processed_filters.append([doctype, target_search_field, "like", f"%{token}%"])
         
-        limit_int = min(cint(limit), 200)
+        limit_int = min(cint(limit), 500)
         cache_key_params = {"v_api": "facet_5.2", "doctype": doctype, "field": field, "filters": json.dumps(processed_filters), "limit": limit_int}
         cache_key = f"facet_values_{hashlib.sha1(json.dumps(cache_key_params, sort_keys=True, default=str).encode()).hexdigest()}"
         
