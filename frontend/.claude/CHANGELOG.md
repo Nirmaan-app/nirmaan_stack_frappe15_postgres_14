@@ -4,6 +4,51 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-16: CSRF Token Stale Recovery System
+
+### Summary
+Added automatic CSRF token refresh mechanism to handle stale tokens in production. When the token set at page load expires after session timeout, the system catches 403 CSRF errors globally, refreshes the token, and prompts the user to retry their action.
+
+### Root Cause
+In production, `window.csrf_token` is set at page load via Jinja template. After session timeout/inactivity, Frappe generates a new token but the frontend keeps using the old one, causing 403 CSRF errors on POST requests. Dev mode masks this issue with `ignore_csrf: true`.
+
+### Files Created
+
+- `src/config/CsrfErrorHandler.tsx` - React component that:
+  - Wraps app to catch unhandled promise rejections
+  - Detects 403 CSRF errors via utility functions
+  - Attempts token refresh, prompts user to retry on success
+  - Redirects to login if refresh fails (session fully expired)
+
+- `src/utils/csrfTokenRefresh.ts` - Utility functions:
+  - `refreshCsrfToken()` - GET request to backend for fresh token
+  - `isCsrfError(error)` - Checks error message for CSRF-related text
+  - `is403Error(error)` - Checks various status code locations for 403
+
+- `nirmaan_stack/api/auth.py` - Backend endpoint:
+  - `get_csrf_token()` - Returns fresh token via GET (no CSRF required)
+
+### Files Modified
+
+- `src/App.tsx` - Added `CsrfErrorHandler` wrapper inside FrappeProvider
+- `nirmaan_stack/api/data_table/facets.py` - Increased facet limit from 200 to 500
+
+### Pattern: Global CSRF Error Recovery
+
+```typescript
+// Catch unhandled rejections globally
+window.addEventListener("unhandledrejection", async (event) => {
+  if (is403Error(event.reason) && isCsrfError(event.reason)) {
+    event.preventDefault();
+    const newToken = await refreshCsrfToken();
+    if (newToken) toast({ title: "Session Refreshed" });
+    else logout();
+  }
+});
+```
+
+---
+
 ## 2026-01-15: Dispatch PO - Mandatory Critical Task Linking
 
 ### Summary
