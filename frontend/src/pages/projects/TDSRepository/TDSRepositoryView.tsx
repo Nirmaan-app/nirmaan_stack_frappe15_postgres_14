@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Download } from 'lucide-react';
-import { useFrappeGetDocList } from 'frappe-react-sdk';
+import { useFrappeGetDocList, useFrappeGetDoc } from 'frappe-react-sdk';
 import { format } from 'date-fns';
 import { toast } from "@/components/ui/use-toast";
 import { SetupTDSRepositoryDialog, TDSRepositoryData, ViewCard, TdsCreateForm, TdsHistoryTable, TdsExportDialog } from './components';
@@ -27,6 +27,9 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
         filters: [["tdsi_project_id", "=", projectId]],
         limit: 0  // Fetch all records
     });
+
+    const { data: projectData } = useFrappeGetDoc("Projects", projectId);
+    const projectName = projectData?.project_name || projectId;
 
 
     const handleUpdateConfirm = async (updatedData: TDSRepositoryData) => {
@@ -59,30 +62,37 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                 description: "Please wait while we prepare your report." 
             });
 
-            // Prepare combined data object (settings + selected history items)
-            const combinedData = {
-                settings: {
-                    client: { name: data.client.name, logo: typeof data.client.logo === 'string' ? data.client.logo : null },
-                    projectManager: { name: data.projectManager.name, logo: typeof data.projectManager.logo === 'string' ? data.projectManager.logo : null },
-                    architect: { name: data.architect.name, logo: typeof data.architect.logo === 'string' ? data.architect.logo : null },
-                    consultant: { name: data.consultant.name, logo: typeof data.consultant.logo === 'string' ? data.consultant.logo : null },
-                    gcContractor: { name: data.gcContractor.name, logo: typeof data.gcContractor.logo === 'string' ? data.gcContractor.logo : null },
-                    mepContractor: { name: data.mepContractor.name, logo: typeof data.mepContractor.logo === 'string' ? data.mepContractor.logo : null },
-                },
-                history: selectedItems
+            // Prepare settings object
+            const settings = {
+                client: { name: data.client.name, logo: typeof data.client.logo === 'string' ? data.client.logo : null },
+                projectManager: { name: data.projectManager.name, logo: typeof data.projectManager.logo === 'string' ? data.projectManager.logo : null },
+                architect: { name: data.architect.name, logo: typeof data.architect.logo === 'string' ? data.architect.logo : null },
+                consultant: { name: data.consultant.name, logo: typeof data.consultant.logo === 'string' ? data.consultant.logo : null },
+                gcContractor: { name: data.gcContractor.name, logo: typeof data.gcContractor.logo === 'string' ? data.gcContractor.logo : null },
+                mepContractor: { name: data.mepContractor.name, logo: typeof data.mepContractor.logo === 'string' ? data.mepContractor.logo : null },
             };
 
-            // URL-encode the data and pass to print format
-            const encodedData = encodeURIComponent(JSON.stringify(combinedData));
-            const printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Project%20TDS%20Setting&name=${projectId}&format=Project%20TDS%20Report&no_letterhead=0&data=${encodedData}`;
+            // Call custom API that merges attachments interleaved
+            const response = await fetch('/api/method/nirmaan_stack.api.tds.tds_report.export_tds_report', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Frappe-CSRF-Token': (window as any).csrf_token || ''
+                },
+                body: JSON.stringify({
+                    settings_json: JSON.stringify(settings),
+                    items_json: JSON.stringify(selectedItems),
+                    project_name: projectName
+                })
+            });
 
-            const response = await fetch(printUrl);
             if (!response.ok) throw new Error("Failed to generate PDF");
             const blob = await response.blob();
 
-            // Generate filename with project ID and date
+            // Generate filename with project Name and date
             const dateStr = format(new Date(), "dd-MMM-yyyy");
-            const fileName = `TDS_Report_${projectId}_${dateStr}.pdf`;
+            const cleanProjectName = (projectName || projectId).replace(/[^a-zA-Z0-9-_]/g, '_');
+            const fileName = `TDS_Report_${cleanProjectName}_${dateStr}.pdf`;
 
             // Download the file
             const url = window.URL.createObjectURL(blob);
