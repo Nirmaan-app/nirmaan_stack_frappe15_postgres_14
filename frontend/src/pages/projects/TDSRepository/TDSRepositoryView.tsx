@@ -1,7 +1,11 @@
 import React, { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { SetupTDSRepositoryDialog, TDSRepositoryData, ViewCard, TdsCreateForm, TdsHistoryTable } from './components';
+import { Download } from 'lucide-react';
+import { useFrappeGetDocList } from 'frappe-react-sdk';
+import { format } from 'date-fns';
+import { toast } from "@/components/ui/use-toast";
+import { SetupTDSRepositoryDialog, TDSRepositoryData, ViewCard, TdsCreateForm, TdsHistoryTable, TdsExportDialog } from './components';
 
 interface TDSRepositoryViewProps {
     data: TDSRepositoryData;
@@ -11,9 +15,19 @@ interface TDSRepositoryViewProps {
 
 export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, projectId, onUpdate }) => {
     const [isSetupDialogOpen, setIsSetupDialogOpen] = useState(false);
+    const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
     const [isUpdating, setIsUpdating] = useState(false);
     const [activeTab, setActiveTab] = useState("new");
     const [refreshKey, setRefreshKey] = useState(0);
+    const [isExporting, setIsExporting] = useState(false);
+
+    // Fetch TDS history data directly for export
+    const { data: historyData } = useFrappeGetDocList("Project TDS Item List", {
+        fields: ["*"],
+        filters: [["tdsi_project_id", "=", projectId]],
+        limit: 0  // Fetch all records
+    });
+
 
     const handleUpdateConfirm = async (updatedData: TDSRepositoryData) => {
         setIsUpdating(true);
@@ -27,6 +41,77 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
         }
     };
 
+    // Export handler - processes selected items from export dialog
+    const handleExportWithItems = async (selectedItems: any[]) => {
+        if (!selectedItems || selectedItems.length === 0) {
+            toast({ 
+                title: "No Items Selected", 
+                description: "Please select at least one item to export.", 
+                variant: "destructive" 
+            });
+            return;
+        }
+
+        setIsExporting(true);
+        try {
+            toast({ 
+                title: "Generating PDF...", 
+                description: "Please wait while we prepare your report." 
+            });
+
+            // Prepare combined data object (settings + selected history items)
+            const combinedData = {
+                settings: {
+                    client: { name: data.client.name, logo: typeof data.client.logo === 'string' ? data.client.logo : null },
+                    projectManager: { name: data.projectManager.name, logo: typeof data.projectManager.logo === 'string' ? data.projectManager.logo : null },
+                    architect: { name: data.architect.name, logo: typeof data.architect.logo === 'string' ? data.architect.logo : null },
+                    consultant: { name: data.consultant.name, logo: typeof data.consultant.logo === 'string' ? data.consultant.logo : null },
+                    gcContractor: { name: data.gcContractor.name, logo: typeof data.gcContractor.logo === 'string' ? data.gcContractor.logo : null },
+                    mepContractor: { name: data.mepContractor.name, logo: typeof data.mepContractor.logo === 'string' ? data.mepContractor.logo : null },
+                },
+                history: selectedItems
+            };
+
+            // URL-encode the data and pass to print format
+            const encodedData = encodeURIComponent(JSON.stringify(combinedData));
+            const printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Project%20TDS%20Setting&name=${projectId}&format=Project%20TDS%20Report&no_letterhead=0&data=${encodedData}`;
+
+            const response = await fetch(printUrl);
+            if (!response.ok) throw new Error("Failed to generate PDF");
+            const blob = await response.blob();
+
+            // Generate filename with project ID and date
+            const dateStr = format(new Date(), "dd-MMM-yyyy");
+            const fileName = `TDS_Report_${projectId}_${dateStr}.pdf`;
+
+            // Download the file
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', fileName);
+            document.body.appendChild(link);
+            link.click();
+
+            link.remove();
+            window.URL.revokeObjectURL(url);
+
+            setIsExportDialogOpen(false);
+            toast({ 
+                title: "Success", 
+                description: "Report downloaded successfully." 
+            });
+        } catch (error) {
+            console.error("Export failed", error);
+            toast({ 
+                title: "Error", 
+                description: "Failed to download report.", 
+                variant: "destructive" 
+            });
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
     return (
         <div className="p-8 bg-white min-h-full">
             {/* Header */}
@@ -37,13 +122,24 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                         These details will appear for all TDS submissions for this project
                     </p>
                  </div>
-                 <Button 
-                    onClick={() => setIsSetupDialogOpen(true)} 
-                    variant="outline"
-                    className="bg-white border-gray-300 text-gray-900 hover:bg-gray-50 font-medium px-4 shadow-sm"
-                 >
-                    Edit Details
-                 </Button>
+                 <div className="flex gap-2">
+                    <Button 
+                        onClick={() => setIsExportDialogOpen(true)}
+                        variant="outline"
+                        disabled={isExporting || !historyData || historyData.length === 0}
+                        className="bg-white border-gray-300 text-gray-900 hover:bg-gray-50 font-medium px-4 shadow-sm"
+                    >
+                        <Download className="w-4 h-4 mr-2" />
+                        {isExporting ? 'Exporting...' : 'Export'}
+                    </Button>
+                    <Button 
+                        onClick={() => setIsSetupDialogOpen(true)} 
+                        variant="outline"
+                        className="bg-white border-gray-300 text-gray-900 hover:bg-gray-50 font-medium px-4 shadow-sm"
+                    >
+                        Edit Details
+                    </Button>
+                 </div>
             </div>
 
             {/* Read-Only Summary Grid */}
@@ -103,6 +199,16 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                 onConfirm={handleUpdateConfirm}
                 initialData={data} 
                 isLoading={isUpdating}
+            />
+
+            {/* Export Dialog */}
+            <TdsExportDialog
+                isOpen={isExportDialogOpen}
+                onClose={() => setIsExportDialogOpen(false)}
+                onExport={handleExportWithItems}
+                settings={data}
+                historyData={historyData || []}
+                isExporting={isExporting}
             />
         </div>
     );
