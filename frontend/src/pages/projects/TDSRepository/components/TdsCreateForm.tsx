@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import ReactSelect from "react-select"; // Assuming react-select is used based on other files
 import { Trash2, FileText } from 'lucide-react';
-import { useFrappeGetDocList, useFrappeCreateDoc } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeDeleteDoc } from "frappe-react-sdk";
 import { toast } from "@/components/ui/use-toast";
 import {
     Table,
@@ -13,6 +13,17 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
 
 interface TdsCreateFormProps {
     projectId: string;
@@ -31,7 +42,7 @@ interface TDSRepositoryDoc {
 }
 
 interface CartItem extends TDSRepositoryDoc {
-    // We use the full doc as the cart item
+    previousDocName?: string;
 }
 
 export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSuccess }) => {
@@ -41,6 +52,12 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const { createDoc } = useFrappeCreateDoc();
+    const { deleteDoc } = useFrappeDeleteDoc();
+
+    // Dialog State
+    const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+    const [confirmInput, setConfirmInput] = useState("");
+    const [pendingItemToAdd, setPendingItemToAdd] = useState<CartItem | null>(null);
 
     // 1. Fetch Master Data
     const { data: repoItems } = useFrappeGetDocList<TDSRepositoryDoc>("TDS Repository", {
@@ -48,21 +65,28 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
         limit: 1000
     });
 
-    // 2. Fetch Existing Project Items (to prevent duplicates)
+    // 2. Fetch Existing Project Items (to prevent duplicates, but allow re-entry of rejected)
     const { data: existingProjectItems } = useFrappeGetDocList("Project TDS Item List", {
-        fields: ["tds_item_id", "tds_make", "tds_request_id"], 
-        filters: [["tdsi_project_id", "=", projectId]],
+        fields: ["name", "tds_item_id", "tds_make", "tds_request_id", "tds_status"], 
+        filters: [["tdsi_project_id", "=", projectId], ["docstatus", "!=", 2]],
         limit: 1000
     });
 
-    // Filter repo items to exclude those already in the project
+    // Filter repo items to exclude those already in the project (unless Rejected)
     const availableRepoItems = useMemo(() => {
         if (!repoItems || !existingProjectItems) return repoItems || [];
-        const existingIds = new Set(existingProjectItems.map((i: any) => `${i.tds_item_id}-${i.tds_make}`));
+        
+        // Exclude if Approved or Pending
+        const activeIds = new Set(
+            existingProjectItems
+                .filter((i: any) => i.tds_status === "Approved" || i.tds_status === "Pending" || !i.tds_status)
+                .map((i: any) => `${i.tds_item_id}-${i.tds_make}`)
+        );
+
         // Also exclude items currently in the cart
         const cartIds = new Set(cartItems.map(i => `${i.tds_item_id}-${i.make}`));
         
-        return repoItems.filter(item => !existingIds.has(`${item.tds_item_id}-${item.make}`) && !cartIds.has(`${item.tds_item_id}-${item.make}`));
+        return repoItems.filter(item => !activeIds.has(`${item.tds_item_id}-${item.make}`) && !cartIds.has(`${item.tds_item_id}-${item.make}`));
     }, [repoItems, existingProjectItems, cartItems]);
 
     // 3. Compute Options
@@ -118,21 +142,36 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                 return;
             }
 
-            // Check duplicates in Existing Project List
-            // We match based on tds_item_id and tds_make
-            if (existingProjectItems?.some((i: any) => i.tds_item_id === selectedDoc.tds_item_id && i.tds_make === selectedDoc.make)) {
-                toast({
-                    title: "Item Previously Added",
-                    description: "This item and make combination is already in the project TDS list.",
-                    variant: "destructive"
-                });
+            // Check if it exists as Rejected
+            const rejectedEntry = existingProjectItems?.find((i: any) => 
+                i.tds_item_id === selectedDoc.tds_item_id && 
+                i.tds_make === selectedDoc.make && 
+                i.tds_status === "Rejected"
+            );
+
+            if (rejectedEntry) {
+                setPendingItemToAdd({ ...selectedDoc, previousDocName: rejectedEntry.name });
+                setConfirmInput("");
+                setShowConfirmDialog(true);
                 return;
             }
 
             setCartItems([...cartItems, selectedDoc]);
-            // Reset selection? User might want to add another make of same item.
-            // Let's clear Make.
+            setSelectedItemName(null);
             setSelectedMake(null);
+        }
+    };
+
+    const confirmResubmission = () => {
+        if (confirmInput === "1" && pendingItemToAdd) {
+            setCartItems([...cartItems, pendingItemToAdd]);
+            setPendingItemToAdd(null);
+            setShowConfirmDialog(false);
+            setSelectedItemName(null);
+            setSelectedMake(null);
+            toast({ title: "Item Added", description: "Previous rejected entry will be replaced upon submission." });
+        } else {
+            toast({ title: "Invalid Input", description: "Please enter '1' to continue.", variant: "destructive" });
         }
     };
 
@@ -170,7 +209,13 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
         const uniqueReqId = `RQ-${nextSeq.toString().padStart(2, '0')}`;
 
         try {
-            // Process sequentially to avoid race conditions or limits, or use Promise.all
+            // 1. Delete previous rejected records
+            const itemsToDelete = cartItems.filter(item => item.previousDocName).map(item => item.previousDocName!);
+            if (itemsToDelete.length > 0) {
+                await Promise.all(itemsToDelete.map(name => deleteDoc("Project TDS Item List", name)));
+            }
+
+            // 2. Create new requests
             await Promise.all(cartItems.map(item => 
                  createDoc("Project TDS Item List", {
                     tdsi_project_id: projectId,
@@ -343,6 +388,39 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                 </div>
             </div>
             )}
+
+            {/* Confirmation Dialog */}
+            <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Resubmit Rejected Item?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This item was previously rejected. To continue and replace the old entry, please enter <strong>"1"</strong> below.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <div className="py-4">
+                        <Input 
+                            value={confirmInput}
+                            onChange={(e) => setConfirmInput(e.target.value)}
+                            placeholder="Enter 1 to confirm"
+                            className="text-center text-lg font-bold"
+                        />
+                    </div>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setShowConfirmDialog(false)}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction 
+                            onClick={(e) => {
+                                e.preventDefault();
+                                confirmResubmission();
+                            }}
+                            className="bg-red-600 hover:bg-red-700"
+                            disabled={confirmInput !== "1"}
+                        >
+                            Confirm
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 };
