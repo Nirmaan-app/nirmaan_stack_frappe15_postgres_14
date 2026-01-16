@@ -72,3 +72,5 @@ nirmaan_stack.patches.v2_8.remove_accountant_project_assignments
 nirmaan_stack.patches.v2_8.add_missing_nirmaan_role_permissions
 nirmaan_stack.patches.v2_8.update_attach_type_for_progress_reports
 
+
+nirmaan_stack.patches.v2_8.fix_credit_payment_term_status
