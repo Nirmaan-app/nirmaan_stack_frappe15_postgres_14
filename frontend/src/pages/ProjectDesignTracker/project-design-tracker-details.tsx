@@ -10,7 +10,7 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { Button } from '@/components/ui/button';
-import { Edit, Download, Plus, Check, Info, X, ChevronDown, EyeOff, CheckCircle2 } from 'lucide-react';
+import { Edit, Download, Plus, Check, Info, X, ChevronDown, EyeOff, CheckCircle2, User as UserIcon } from 'lucide-react';
 import { ProgressCircle } from '@/components/ui/ProgressCircle';
 import {
     Collapsible,
@@ -769,6 +769,9 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
     // --- DataTable State ---
     const [searchTerm, setSearchTerm] = useState("");
     const [selectedSearchField, setSelectedSearchField] = useState("task_name");
+
+    // "My Tasks" filter state - only relevant for designers
+    const [showMyTasksOnly, setShowMyTasksOnly] = useState(false);
     const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
     const [sorting, setSorting] = useState<SortingState>([{ id: 'deadline', desc: false }]);
     const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 50 });
@@ -796,6 +799,19 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
         });
         return countMap;
     }, [trackerDoc?.design_tracker_task]);
+
+    // Count tasks assigned to current user (respects active zone)
+    const myTasksCount = useMemo(() => {
+        if (!trackerDoc?.design_tracker_task) return 0;
+        let tasks = trackerDoc.design_tracker_task;
+
+        // Respect zone filter if active
+        if (activeTab) {
+            tasks = tasks.filter(t => t.task_zone === activeTab);
+        }
+
+        return tasks.filter(task => checkIfUserAssigned(task)).length;
+    }, [trackerDoc?.design_tracker_task, activeTab, checkIfUserAssigned]);
 
     // --- Progress Calculations for Header ---
     // Note: Exclude "Not Applicable" tasks from metrics to match backend calculation
@@ -839,7 +855,7 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
         }
     }, [uniqueZones, activeTab]);
 
-    // Flatten tasks from tracker document (filter by active zone tab)
+    // Flatten tasks from tracker document (filter by active zone tab and "My Tasks")
     const flattenedTasks = useMemo(() => {
         if (!trackerDoc?.design_tracker_task) return [];
         let tasks = [...trackerDoc.design_tracker_task];
@@ -849,8 +865,13 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
             tasks = tasks.filter(t => t.task_zone === activeTab);
         }
 
+        // Filter by "My Tasks" if enabled
+        if (showMyTasksOnly) {
+            tasks = tasks.filter(task => checkIfUserAssigned(task));
+        }
+
         return tasks;
-    }, [trackerDoc?.design_tracker_task, activeTab]);
+    }, [trackerDoc?.design_tracker_task, activeTab, showMyTasksOnly, checkIfUserAssigned]);
 
     // Active categories in tracker
     const activeCategoriesInTracker = useMemo(() => {
@@ -1437,8 +1458,38 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                             </div>
                         </div>
 
-                        {/* Right: Create Task + Export Zone */}
+                        {/* Right: My Tasks Toggle + Create Task + Export Zone */}
                         <div className="flex items-center gap-2">
+                            {/* My Tasks Toggle - Only for Design Executive and Design Lead */}
+                            {(isDesignExecutive || role === "Nirmaan Design Lead Profile") && (
+                                <button
+                                    onClick={() => setShowMyTasksOnly(!showMyTasksOnly)}
+                                    className={`
+                                        flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium
+                                        transition-all duration-150
+                                        ${showMyTasksOnly
+                                            ? 'bg-blue-600 text-white shadow-sm'
+                                            : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                                        }
+                                    `}
+                                >
+                                    <UserIcon className="h-3.5 w-3.5" />
+                                    <span>My Tasks</span>
+                                    <Badge
+                                        variant="secondary"
+                                        className={`
+                                            px-1.5 py-0 text-[10px] min-w-[20px] justify-center rounded-full
+                                            ${showMyTasksOnly
+                                                ? 'bg-white/25 text-white'
+                                                : 'bg-blue-100 text-blue-700'
+                                            }
+                                        `}
+                                    >
+                                        {myTasksCount}
+                                    </Badge>
+                                </button>
+                            )}
+
                             {!isDesignExecutive && !isProjectManager && (
                                 <Button
                                     variant="outline"
@@ -1480,6 +1531,38 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                             )}
                         </div>
                     </div>
+                </div>
+            )}
+
+            {/* My Tasks filter when no zones exist */}
+            {uniqueZones.length === 0 && (isDesignExecutive || role === "Nirmaan Design Lead Profile") && (
+                <div className="flex justify-end px-4 md:px-6 pb-2">
+                    <button
+                        onClick={() => setShowMyTasksOnly(!showMyTasksOnly)}
+                        className={`
+                            flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium
+                            transition-all duration-150
+                            ${showMyTasksOnly
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                            }
+                        `}
+                    >
+                        <UserIcon className="h-3.5 w-3.5" />
+                        <span>My Tasks</span>
+                        <Badge
+                            variant="secondary"
+                            className={`
+                                px-1.5 py-0 text-[10px] min-w-[20px] justify-center rounded-full
+                                ${showMyTasksOnly
+                                    ? 'bg-white/25 text-white'
+                                    : 'bg-blue-100 text-blue-700'
+                                }
+                            `}
+                        >
+                            {myTasksCount}
+                        </Badge>
+                    </button>
                 </div>
             )}
 

@@ -1,10 +1,10 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ProgressCircle } from "@/components/ui/ProgressCircle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowUpRight, CheckCircle2, Eye, EyeOff } from "lucide-react";
+import { ArrowUpRight, CheckCircle2, Eye, EyeOff, User } from "lucide-react";
 import { getUnifiedStatusStyle } from "../utils";
 
 interface ProjectWiseCardProps {
@@ -12,9 +12,12 @@ interface ProjectWiseCardProps {
     onClick?: () => void;
     showHiddenBadge?: boolean;
     onHideToggle?: (trackerId: string, newHiddenState: boolean) => void;
+    // For "assigned to me" feature
+    currentUserId?: string;
+    isDesigner?: boolean;
 }
 
-export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onClick, showHiddenBadge, onHideToggle }) => {
+export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onClick, showHiddenBadge, onHideToggle, currentUserId, isDesigner }) => {
     const isHidden = tracker.hide_design_tracker === 1;
     const statusCounts = tracker.status_counts || {};
     const totalTasks = tracker.total_tasks || 0;
@@ -45,6 +48,36 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
     // All status entries for data mismatch fallback
     const allStatusEntries = Object.entries(statusCounts)
         .filter(([, count]) => (count as number) > 0);
+
+    // Calculate tasks assigned to current user (only for designers)
+    const myAssignedTasksCount = useMemo(() => {
+        if (!isDesigner || !currentUserId || !tracker.design_tracker_task) return 0;
+
+        return tracker.design_tracker_task.filter((task: any) => {
+            const designerField = task.assigned_designers;
+            if (!designerField) return false;
+
+            let designers: { userId: string }[] = [];
+
+            // Parse assigned_designers (same logic as utils.tsx)
+            if (typeof designerField === 'object' && designerField !== null && 'list' in designerField) {
+                designers = designerField.list;
+            } else if (Array.isArray(designerField)) {
+                designers = designerField;
+            } else if (typeof designerField === 'string' && designerField.trim() !== '') {
+                try {
+                    const parsed = JSON.parse(designerField);
+                    if (parsed && Array.isArray(parsed.list)) {
+                        designers = parsed.list;
+                    } else if (Array.isArray(parsed)) {
+                        designers = parsed;
+                    }
+                } catch (e) { /* silent */ }
+            }
+
+            return designers.some(d => d.userId === currentUserId);
+        }).length;
+    }, [tracker.design_tracker_task, currentUserId, isDesigner]);
 
     return (
         <Card
@@ -105,6 +138,16 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
                         </span>
                     </div>
                 </div>
+
+                {/* My Assigned Tasks - Only for designers with assigned tasks */}
+                {isDesigner && myAssignedTasksCount > 0 && (
+                    <div className="flex items-center gap-1.5 mb-3 px-2 py-1.5 bg-blue-50 rounded-md border border-blue-100">
+                        <User className="h-3 w-3 text-blue-600" />
+                        <span className="text-xs text-blue-700 font-medium">
+                            {myAssignedTasksCount} {myAssignedTasksCount === 1 ? 'task' : 'tasks'} assigned to you
+                        </span>
+                    </div>
+                )}
 
                 {/* Status Breakdown */}
                 {totalTasks > 0 ? (
