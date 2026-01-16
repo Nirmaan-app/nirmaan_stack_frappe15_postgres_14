@@ -18,7 +18,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { FileText, UploadCloud, X, Download, AlertTriangle } from "lucide-react";
-import { useFrappeGetDocList, useFrappeFileUpload, useFrappeUpdateDoc, useFrappeDeleteDoc } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappeFileUpload, useFrappeUpdateDoc } from "frappe-react-sdk";
 import RSelect from "react-select";
 import { toast } from "@/components/ui/use-toast";
 import { TDSItem, TDSItemValues, tdsItemSchema } from "./types";
@@ -26,7 +26,6 @@ import { TDSItem, TDSItemValues, tdsItemSchema } from "./types";
 interface EditTDSItemDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    item: TDSItem | null;
     item: TDSItem | null;
     onSuccess: () => void;
 }
@@ -48,7 +47,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
     
     const { updateDoc, loading: updating } = useFrappeUpdateDoc();
     const { upload: uploadFile, loading: uploading } = useFrappeFileUpload();
-    const { deleteDoc } = useFrappeDeleteDoc();
+
 
     // Fetch Options for Form
     const { data: wpList } = useFrappeGetDocList("Procurement Packages", { fields: ["name", "work_package_name"], limit: 1000 });
@@ -91,23 +90,11 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
         limit: 1
     }, debouncedFilters ? undefined : null);
 
-    // Reactive File Document Lookup
-    const { data: fileDocList } = useFrappeGetDocList("File", {
-        filters: [["file_url", "=", existingAttachmentUrl || ""]],
-        fields: ["name"],
-        limit: 1
-    }, existingAttachmentUrl ? undefined : null);
+
 
     // Reset form when item changes
     useEffect(() => {
         if (item) {
-            form.reset({
-                work_package: item.work_package,
-                category: item.category,
-                tds_item_id: item.tds_item_id || "", 
-                item_description: item.description,
-                make: item.make,
-            });
             form.reset({
                 work_package: item.work_package,
                 category: item.category,
@@ -199,24 +186,15 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                 make: values.make,
             };
 
-            if (attachmentAction === "remove" || (attachmentAction === "replace" && existingAttachmentUrl)) {
-                // If removing or replacing, unlink first AND delete the actual File document to prevent orphans
-                if (existingAttachmentUrl && fileDocList && fileDocList.length > 0) {
-                    try {
-                        // Delete the File document found by the hook
-                        await deleteDoc("File", fileDocList[0].name);
-                    } catch (err) {
-                        console.warn("Failed to cleanup old file:", err);
-                    }
-                }
-                
-                if (attachmentAction === "remove") {
-                    updatePayload.tds_attachment = null;
-                }
+            // Handle attachment changes - DON'T delete actual files, just update URL
+            if (attachmentAction === "remove") {
+                // Just clear the URL field, don't delete the file
+                updatePayload.tds_attachment = "";
             }
 
             await updateDoc("TDS Repository", item.name, updatePayload);
 
+            // If replacing with a new file, upload and update URL
             if (attachmentAction === "replace" && selectedFile) {
                 const uploadResp = await uploadFile(selectedFile, {
                     doctype: "TDS Repository",
