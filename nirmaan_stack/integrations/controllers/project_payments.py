@@ -191,19 +191,37 @@ def on_trash(doc, method):
     # Determine the correct status to revert to.
     reverted_status = "Created"
     try:
-        term_details = frappe.db.get_value("PO Payment Terms", {"project_payment": doc.name}, ["due_date", "payment_type"], as_dict=True)
-        if term_details and term_details.get('payment_type') == 'Credit' and term_details.get('due_date'):
-            due_date = frappe.utils.getdate(term_details.get('due_date'))
-            today = frappe.utils.getdate(nowdate())
+        term_details = frappe.db.get_value(
+            "PO Payment Terms",
+            {"project_payment": doc.name},
+            ["due_date", "payment_type", "name"],
+            as_dict=True
+        )
 
-            # If due date is today or in the past, set to "Scheduled" (ready to request)
-            # If due date is in the future, set to "Created" (not ready yet)
-            if due_date <= today:
-                reverted_status = "Scheduled"
-            else:
-                reverted_status = "Created"
-    except Exception:
-        pass # Ignore if lookup fails, default to "Created"
+        if term_details:
+            if term_details.get('payment_type') == 'Credit' and term_details.get('due_date'):
+                due_date = frappe.utils.getdate(term_details.get('due_date'))
+                today = frappe.utils.getdate(nowdate())
+
+                # If due date is today or in the past, set to "Scheduled" (ready to request)
+                # If due date is in the future, set to "Created" (not ready yet)
+                if due_date <= today:
+                    reverted_status = "Scheduled"
+                else:
+                    reverted_status = "Created"
+        else:
+            # Log when we can't find the linked term - this indicates a data integrity issue
+            frappe.log_error(
+                f"Could not find PO Payment Term linked to payment {doc.name}. "
+                f"This may indicate the payment was created without proper term linking.",
+                "Payment Deletion Warning"
+            )
+    except Exception as e:
+        # Log the actual error instead of silently ignoring
+        frappe.log_error(
+            f"Error looking up PO term for payment {doc.name}: {str(e)}",
+            "Payment Deletion Error"
+        )
 
     # Call the helper to find the term and reset it.
     _find_and_update_po_term(doc, reverted_status, clear_link=True)
