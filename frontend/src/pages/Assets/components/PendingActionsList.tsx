@@ -19,14 +19,17 @@ import {
 } from '@/components/ui/dialog';
 import { CustomAttachment } from '@/components/helpers/CustomAttachment';
 import { useToast } from '@/components/ui/use-toast';
-import { Hash, User, Upload, AlertTriangle, FileText } from 'lucide-react';
+import { Hash, User, Upload, AlertTriangle, FileText, Download } from 'lucide-react';
+import { TailSpin } from 'react-loader-spinner';
 
 import {
     ASSET_MANAGEMENT_DOCTYPE,
     ASSET_MANAGEMENT_FIELDS,
     ASSET_MANAGEMENT_SEARCHABLE_FIELDS,
     ASSET_MANAGEMENT_DATE_COLUMNS,
+    ASSET_MASTER_DOCTYPE,
 } from '../assets.constants';
+import { useAssetDataRefresh } from '../hooks/useAssetDataRefresh';
 
 interface AssetManagement {
     name: string;
@@ -58,9 +61,53 @@ export const PendingActionsList: React.FC<PendingActionsListProps> = ({ onUpload
     const [selectedAssignment, setSelectedAssignment] = useState<AssetManagement | null>(null);
     const [declarationFile, setDeclarationFile] = useState<File | null>(null);
     const [isUploading, setIsUploading] = useState(false);
+    const [downloadingAssetId, setDownloadingAssetId] = useState<string | null>(null);
 
     const { updateDoc } = useFrappeUpdateDoc();
     const { upload } = useFrappeFileUpload();
+    const { refreshSummaryCards } = useAssetDataRefresh();
+
+    // Handle download declaration form PDF
+    const handleDownloadDeclaration = async (assetId: string, assetName: string) => {
+        setDownloadingAssetId(assetId);
+        try {
+            const params = new URLSearchParams({
+                doctype: ASSET_MASTER_DOCTYPE,
+                name: assetId,
+                format: 'Asset Master Form',
+                no_letterhead: '0',
+                _lang: 'en'
+            });
+
+            const response = await fetch(`/api/method/frappe.utils.print_format.download_pdf?${params.toString()}`);
+            if (!response.ok) throw new Error('PDF generation failed');
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `${assetName || assetId}_Declaration_Form.pdf`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+
+            toast({
+                title: "Downloaded",
+                description: "Declaration form downloaded successfully.",
+                variant: "success",
+            });
+        } catch (error) {
+            console.error('Download Error:', error);
+            toast({
+                title: "Failed",
+                description: "Failed to download declaration form.",
+                variant: "destructive",
+            });
+        } finally {
+            setDownloadingAssetId(null);
+        }
+    };
 
     // Fetch asset details
     const { data: assetsList } = useFrappeGetDocList<AssetMaster>(
@@ -132,6 +179,7 @@ export const PendingActionsList: React.FC<PendingActionsListProps> = ({ onUpload
 
             setUploadDialogOpen(false);
             refetchTable();
+            refreshSummaryCards(); // Update pending declaration count in summary cards
             onUploaded?.();
         } catch (error: any) {
             console.error('Failed to upload declaration:', error);
@@ -230,20 +278,42 @@ export const PendingActionsList: React.FC<PendingActionsListProps> = ({ onUpload
         {
             id: 'actions',
             header: () => <span className="sr-only">Actions</span>,
-            cell: ({ row }) => (
-                <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 gap-1.5"
-                    onClick={() => handleUploadClick(row.original)}
-                >
-                    <Upload className="h-3.5 w-3.5" />
-                    Upload
-                </Button>
-            ),
-            size: 100,
+            cell: ({ row }) => {
+                const assetId = row.original.asset;
+                const assetData = assetsMap[assetId];
+                const isDownloading = downloadingAssetId === assetId;
+
+                return (
+                    <div className="flex items-center gap-1.5">
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 gap-1.5 text-amber-600 border-amber-200 hover:bg-amber-50 hover:text-amber-700"
+                            onClick={() => handleDownloadDeclaration(assetId, assetData?.asset_name || assetId)}
+                            disabled={isDownloading}
+                        >
+                            {isDownloading ? (
+                                <TailSpin height={14} width={14} color="#d97706" />
+                            ) : (
+                                <Download className="h-3.5 w-3.5" />
+                            )}
+                            <span className="hidden lg:inline">Download</span>
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 gap-1.5"
+                            onClick={() => handleUploadClick(row.original)}
+                        >
+                            <Upload className="h-3.5 w-3.5" />
+                            <span className="hidden lg:inline">Upload</span>
+                        </Button>
+                    </div>
+                );
+            },
+            size: 180,
         },
-    ], [assetsMap, usersMap]);
+    ], [assetsMap, usersMap, downloadingAssetId, handleDownloadDeclaration]);
 
     const {
         table,
