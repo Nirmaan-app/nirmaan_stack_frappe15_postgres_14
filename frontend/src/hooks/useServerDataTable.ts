@@ -25,6 +25,7 @@ import { convertTanstackFiltersToFrappe } from '@/lib/frappeTypeUtils';
 import { SearchFieldOption } from '@/components/data-table/new-data-table';
 import { fuzzyFilter } from '@/components/data-table/data-table-models';
 import { toast } from '@/components/ui/use-toast';
+import { isCsrfError } from '@/utils/csrfUtils';
 
 // --- Configuration ---
 const DEBOUNCE_DELAY = 500;
@@ -669,6 +670,17 @@ export function useServerDataTable<TData extends { name: string }>({
             }
         } catch (err: any) {
             console.error("Error fetching data via custom backend adapter:", err);
+
+            // Check if this is a CSRF error and show user-friendly message
+            if (isCsrfError(err)) {
+                toast({
+                    title: "Session Expired",
+                    description: "Please refresh the page to continue.",
+                    variant: "destructive",
+                    duration: 10000, // Show longer so user notices
+                });
+            }
+
             const errorMessage = err.message || (err._server_messages ? JSON.parse(err._server_messages)[0].message : 'An unknown error occurred');
             setError(err instanceof Error ? err : new Error(errorMessage));
             setData([]); setTotalCount(0);
