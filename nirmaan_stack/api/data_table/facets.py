@@ -58,8 +58,9 @@ def get_facet_values_impl(
                 for token in search_term.split():
                     processed_filters.append([doctype, target_search_field, "like", f"%{token}%"])
         
-        limit_int = min(cint(limit), 200)
-        cache_key_params = {"v_api": "facet_5.2", "doctype": doctype, "field": field, "filters": json.dumps(processed_filters), "limit": limit_int}
+        # limit=0 means no limit, otherwise use the requested limit (no artificial cap)
+        limit_int = cint(limit) if cint(limit) > 0 else None
+        cache_key_params = {"v_api": "facet_5.3", "doctype": doctype, "field": field, "filters": json.dumps(processed_filters), "limit": limit_int}
         cache_key = f"facet_values_{hashlib.sha1(json.dumps(cache_key_params, sort_keys=True, default=str).encode()).hexdigest()}"
         
         cached_result = frappe.cache().get_value(cache_key)
@@ -79,26 +80,31 @@ def get_facet_values_impl(
         is_json_field = field_meta.fieldtype == 'JSON' if field_meta else False
         
         if child_doctype:
-             sql = f"""
-                SELECT `tab{child_doctype}`.`{field}` as value, COUNT(*) as count 
-                FROM `tab{child_doctype}` 
-                WHERE `tab{child_doctype}`.parent IN %(names)s 
+            limit_clause = "LIMIT %(limit)s" if limit_int else ""
+            sql = f"""
+                SELECT `tab{child_doctype}`.`{field}` as value, COUNT(*) as count
+                FROM `tab{child_doctype}`
+                WHERE `tab{child_doctype}`.parent IN %(names)s
                   AND `tab{child_doctype}`.parenttype = %(parent_doctype)s
-                  AND `tab{child_doctype}`.`{field}` IS NOT NULL 
-                  AND `tab{child_doctype}`.`{field}` != '' 
-                GROUP BY `tab{child_doctype}`.`{field}` 
-                ORDER BY count DESC, `tab{child_doctype}`.`{field}` ASC 
-                LIMIT %(limit)s
+                  AND `tab{child_doctype}`.`{field}` IS NOT NULL
+                  AND `tab{child_doctype}`.`{field}` != ''
+                GROUP BY `tab{child_doctype}`.`{field}`
+                ORDER BY count DESC, `tab{child_doctype}`.`{field}` ASC
+                {limit_clause}
             """
-             results = frappe.db.sql(sql, {"names": tuple(matching_names), "parent_doctype": doctype, "limit": limit_int}, as_dict=True)
+            params = {"names": tuple(matching_names), "parent_doctype": doctype}
+            if limit_int:
+                params["limit"] = limit_int
+            results = frappe.db.sql(sql, params, as_dict=True)
         elif is_json_field:
             # Special handling for JSON fields.
             # Handles both top-level arrays and objects with a 'categories' key (standard in this app)
+            limit_clause = "LIMIT %(limit)s" if limit_int else ""
             sql = f"""
                 SELECT value, COUNT(*) as count
                 FROM (
                     SELECT jsonb_array_elements_text(
-                        CASE 
+                        CASE
                             WHEN jsonb_typeof("{field}"::jsonb) = 'array' THEN "{field}"::jsonb
                             ELSE COALESCE("{field}"::jsonb->'categories', '[]'::jsonb)
                         END
@@ -109,12 +115,19 @@ def get_facet_values_impl(
                 ) as unnested
                 GROUP BY value
                 ORDER BY count DESC, value ASC
-                LIMIT %(limit)s
+                {limit_clause}
             """
-            results = frappe.db.sql(sql, {"names": tuple(matching_names), "limit": limit_int}, as_dict=True)
+            params = {"names": tuple(matching_names)}
+            if limit_int:
+                params["limit"] = limit_int
+            results = frappe.db.sql(sql, params, as_dict=True)
         else:
-            sql = f"SELECT `{field}` as value, COUNT(*) as count FROM `tab{doctype}` WHERE name IN %(names)s AND `{field}` IS NOT NULL AND `{field}` != '' GROUP BY `{field}` ORDER BY count DESC, `{field}` ASC LIMIT %(limit)s"
-            results = frappe.db.sql(sql, {"names": tuple(matching_names), "limit": limit_int}, as_dict=True)
+            limit_clause = "LIMIT %(limit)s" if limit_int else ""
+            sql = f"SELECT `{field}` as value, COUNT(*) as count FROM `tab{doctype}` WHERE name IN %(names)s AND `{field}` IS NOT NULL AND `{field}` != '' GROUP BY `{field}` ORDER BY count DESC, `{field}` ASC {limit_clause}"
+            params = {"names": tuple(matching_names)}
+            if limit_int:
+                params["limit"] = limit_int
+            results = frappe.db.sql(sql, params, as_dict=True)
         
         for row in results:
             value = row.get("value")

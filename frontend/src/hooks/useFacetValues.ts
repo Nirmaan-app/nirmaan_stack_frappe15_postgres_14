@@ -48,7 +48,7 @@ export function useFacetValues({
     selectedSearchField,
     additionalFilters = [],
     enabled = true,
-    limit = 100
+    limit = 0  // 0 means no limit - return all facet values
 }: UseFacetValuesConfig): UseFacetValuesReturn {
 
     const [facetValues, setFacetValues] = useState<FacetValue[]>([]);
