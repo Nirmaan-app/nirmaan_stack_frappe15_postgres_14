@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, CheckCircle2, XCircle, FileText, Pencil } from "lucide-react";
-import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappeUpdateDoc, useFrappeDeleteDoc } from "frappe-react-sdk";
 import { 
     useReactTable, 
     getCoreRowModel, 
@@ -10,7 +10,7 @@ import {
     ColumnDef,
 } from "@tanstack/react-table";
 import { RejectTDSModal } from "./components/RejectTDSModal";
-import { EditTDSItemModal } from "./components/EditTDSItemModal";
+import { ProjectEditTDSItemModal } from "./components/ProjectEditTDSItemModal";
 import { toast } from "@/components/ui/use-toast";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
@@ -222,6 +222,7 @@ export const TDSApprovalDetail: React.FC = () => {
     [allItems]);
 
     const { updateDoc } = useFrappeUpdateDoc();
+    const { deleteDoc } = useFrappeDeleteDoc();
 
     // Derived Header Info
     const headerInfo = useMemo(() => {
@@ -480,9 +481,14 @@ export const TDSApprovalDetail: React.FC = () => {
         setIsRejectModalOpen(true);
     };
 
-    const handleEditSave = async (itemName: string, updates: Partial<TDSItem>) => {
+    const handleEditSave = async (itemName: string, updates: Partial<TDSItem>, itemsToDelete?: string[]) => {
         setProcessing(true);
         try {
+            // Check if there are items to delete (resubmission logic)
+            if (itemsToDelete && itemsToDelete.length > 0) {
+                await Promise.all(itemsToDelete.map(name => deleteDoc("Project TDS Item List", name)));
+            }
+
             await updateDoc("Project TDS Item List", itemName, updates);
             toast({ title: "Updated", description: "Item updated successfully", variant: "success" });
             setIsEditModalOpen(false);
@@ -668,7 +674,7 @@ export const TDSApprovalDetail: React.FC = () => {
                 loading={processing}
             />
             
-            <EditTDSItemModal
+            <ProjectEditTDSItemModal
                 open={isEditModalOpen}
                 onOpenChange={setIsEditModalOpen}
                 item={editingItem}
