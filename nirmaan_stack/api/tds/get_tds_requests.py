@@ -35,15 +35,21 @@ def get_tds_request_list(
         values['search'] = f"%{search_term}%"
 
     # Tab Logic
-    pending_expr = "SUM(CASE WHEN tds_status = 'Pending' THEN 1 ELSE 0 END)"
+    # Treat NULL/empty tds_status as 'Pending'
+    pending_expr = "SUM(CASE WHEN tds_status = 'Pending' OR tds_status IS NULL OR tds_status = '' THEN 1 ELSE 0 END)"
     rejected_expr = "SUM(CASE WHEN tds_status = 'Rejected' THEN 1 ELSE 0 END)"
+    approved_expr = "SUM(CASE WHEN tds_status = 'Approved' THEN 1 ELSE 0 END)"
+    total_expr = "COUNT(name)"
     
     having_clause = ""
     if tab == "Pending Approval":
+        # Show requests that have ANY pending items
         having_clause = f"HAVING {pending_expr} > 0"
     elif tab == "Approved":
-        having_clause = f"HAVING {pending_expr} = 0 AND {rejected_expr} = 0"
+        # Show requests where ALL items are approved (no pending, no rejected)
+        having_clause = f"HAVING {approved_expr} > 0"
     elif tab == "Rejected":
+        # Show requests that have ANY rejected items
         having_clause = f"HAVING {rejected_expr} > 0"  
     
     where_clause = " AND ".join(conditions)
@@ -57,7 +63,7 @@ def get_tds_request_list(
             MIN(creation) as creation,
             COUNT(name) as total_items,
             MAX(owner) as created_by,
-            SUM(CASE WHEN tds_status = 'Pending' THEN 1 ELSE 0 END) as pending_count,
+            SUM(CASE WHEN tds_status = 'Pending' OR tds_status IS NULL OR tds_status = '' THEN 1 ELSE 0 END) as pending_count,
             SUM(CASE WHEN tds_status = 'Rejected' THEN 1 ELSE 0 END) as rejected_count,
             SUM(CASE WHEN tds_status = 'Approved' THEN 1 ELSE 0 END) as approved_count
         FROM `tabProject TDS Item List`
@@ -89,8 +95,10 @@ def get_tds_request_list(
     count_sql = f"""
         SELECT COUNT(*) as total FROM (
             SELECT tds_request_id,
-            SUM(CASE WHEN tds_status = 'Pending' THEN 1 ELSE 0 END) as pending_count,
-            SUM(CASE WHEN tds_status = 'Rejected' THEN 1 ELSE 0 END) as rejected_count
+            SUM(CASE WHEN tds_status = 'Pending' OR tds_status IS NULL OR tds_status = '' THEN 1 ELSE 0 END) as pending_count,
+            SUM(CASE WHEN tds_status = 'Rejected' THEN 1 ELSE 0 END) as rejected_count,
+            SUM(CASE WHEN tds_status = 'Approved' THEN 1 ELSE 0 END) as approved_count,
+            COUNT(name) as total_count
             FROM `tabProject TDS Item List`
             {where_clause}
             {'AND' if where_clause else 'WHERE'} docstatus != 2
@@ -100,7 +108,35 @@ def get_tds_request_list(
     """
     total_count = frappe.db.sql(count_sql, values)[0][0]
     
+    # Tab counts for badges (ignores current tab filter)
+    tab_counts_sql = """
+        SELECT 
+            COUNT(DISTINCT CASE WHEN pending_count > 0 THEN tds_request_id END) as pending,
+            COUNT(DISTINCT CASE WHEN approved_count > 0 THEN tds_request_id END) as approved,
+            COUNT(DISTINCT CASE WHEN rejected_count > 0 THEN tds_request_id END) as rejected,
+            COUNT(DISTINCT tds_request_id) as all_count
+        FROM (
+            SELECT 
+                tds_request_id,
+                SUM(CASE WHEN tds_status = 'Pending' OR tds_status IS NULL OR tds_status = '' THEN 1 ELSE 0 END) as pending_count,
+                SUM(CASE WHEN tds_status = 'Rejected' THEN 1 ELSE 0 END) as rejected_count,
+                SUM(CASE WHEN tds_status = 'Approved' THEN 1 ELSE 0 END) as approved_count,
+                COUNT(name) as total_count
+            FROM `tabProject TDS Item List`
+            WHERE docstatus != 2
+            GROUP BY tds_request_id
+        ) as sub
+    """
+    tab_counts_result = frappe.db.sql(tab_counts_sql, as_dict=True)[0]
+    
     return {
         "data": data,
-        "total_count": total_count
+        "total_count": total_count,
+        "tab_counts": {
+            "pending": tab_counts_result.get("pending", 0),
+            "approved": tab_counts_result.get("approved", 0),
+            "rejected": tab_counts_result.get("rejected", 0),
+            "all": tab_counts_result.get("all_count", 0)
+        }
     }
+
