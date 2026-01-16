@@ -26,7 +26,6 @@ import {
   useFrappeUpdateDoc,
 } from "frappe-react-sdk";
 import {
-  AlertTriangle,
   CheckCheck,
   ChevronDown,
   ChevronRight,
@@ -189,7 +188,6 @@ export const PODetails: React.FC<PODetailsProps> = ({
   // Critical PO Task Linking states
   const [contactSectionExpanded, setContactSectionExpanded] = useState(false);
   const [dispatchConfirmDialog, setDispatchConfirmDialog] = useState(false);
-  const [skipLinkingDialog, setSkipLinkingDialog] = useState(false);
 
   // Critical PO Task Linking hook
   const criticalPOLinking = useCriticalPOTaskLinking({
@@ -210,7 +208,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
   const handleDispatchPO = async (linkCriticalTask: boolean = false) => {
     try {
       // If linking to critical task, do that first
-      if (linkCriticalTask && criticalPOLinking.selectedTask && criticalPOLinking.selectedStatus) {
+      if (linkCriticalTask && criticalPOLinking.selectedTask) {
         const linkSuccess = await criticalPOLinking.linkPOToTask();
         if (!linkSuccess) {
           // Linking failed, don't proceed with dispatch
@@ -247,7 +245,6 @@ export const PODetails: React.FC<PODetailsProps> = ({
       // Reset critical PO linking state
       criticalPOLinking.resetSelection();
       setDispatchConfirmDialog(false);
-      setSkipLinkingDialog(false);
       toggleDispatchPODialog();
 
       navigate(
@@ -267,20 +264,10 @@ export const PODetails: React.FC<PODetailsProps> = ({
   };
 
   // Handle the "Mark as Dispatched" button click
+  // Note: Button is disabled when task selection is mandatory but not selected
   const handleMarkAsDispatchedClick = useCallback(() => {
-    const { hasCriticalPOSetup, selectedTask, selectedStatus } = criticalPOLinking;
-
-    if (selectedTask && selectedStatus) {
-      // Task selected with status - show linking confirmation
-      setDispatchConfirmDialog(true);
-    } else if (hasCriticalPOSetup && !selectedTask) {
-      // Setup exists but no task selected - show skip warning
-      setSkipLinkingDialog(true);
-    } else {
-      // No setup exists - proceed directly with dispatch confirmation
-      setDispatchConfirmDialog(true);
-    }
-  }, [criticalPOLinking]);
+    setDispatchConfirmDialog(true);
+  }, []);
 
   const handleRevertPO = async () => {
     try {
@@ -485,55 +472,56 @@ export const PODetails: React.FC<PODetailsProps> = ({
 
         <CardContent className="pt-0 space-y-4">
           {/* ═══════════════════════════════════════════════════════════════════
-              SECTION 2: INFO - Vendor, Package, Status, Approved By, Critical PO Tag
+              SECTION 2: INFO - Vendor, Package, Status
           ═══════════════════════════════════════════════════════════════════ */}
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-3 pb-3 border-b border-gray-100">
-            {/* Vendor */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Vendor</span>
-              <VendorHoverCard vendor_id={po?.vendor} />
-              {hasVendorIssues && (
-                <ValidationIndicator
-                  error={errors.find((e) => e.code === "INCOMPLETE_VENDOR")}
-                />
-              )}
+          <div className="pb-3 border-b border-gray-100 space-y-3">
+            {/* Row 1: Vendor, Package, Status */}
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+              {/* Vendor */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Vendor</span>
+                <VendorHoverCard vendor_id={po?.vendor} />
+                {hasVendorIssues && (
+                  <ValidationIndicator
+                    error={errors.find((e) => e.code === "INCOMPLETE_VENDOR")}
+                  />
+                )}
+              </div>
+
+              <Separator orientation="vertical" className="h-5 hidden sm:block" />
+
+              {/* Package */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Package</span>
+                <span className="text-sm font-medium">{pr?.work_package || "Custom"}</span>
+              </div>
+
+              <Separator orientation="vertical" className="h-5 hidden sm:block" />
+
+              {/* Status */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Status</span>
+                <Badge
+                  variant={
+                    po?.status === "PO Approved"
+                      ? "default"
+                      : po?.status === "Dispatched"
+                        ? "orange"
+                        : po?.status === "Inactive" ? "red" : "green"
+                  }
+                >
+                  {po?.status}
+                </Badge>
+              </div>
             </div>
 
-            <Separator orientation="vertical" className="h-5 hidden sm:block" />
-
-            {/* Package */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Package</span>
-              <span className="text-sm font-medium">{pr?.work_package || "Custom"}</span>
-            </div>
-
-            <Separator orientation="vertical" className="h-5 hidden sm:block" />
-
-            {/* Status */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Status</span>
-              <Badge
-                variant={
-                  po?.status === "PO Approved"
-                    ? "default"
-                    : po?.status === "Dispatched"
-                      ? "orange"
-                      : po?.status === "Inactive" ? "red" : "green"
-                }
-              >
-                {po?.status}
-              </Badge>
-            </div>
-
-            {/* Critical PO Tag - on new line if present */}
-            <div className="w-full sm:w-auto">
-              <LinkedCriticalPOTag
-                poName={po?.name || ""}
-                projectId={po?.project || ""}
-                onUpdate={poMutate}
-                canEdit={["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role)}
-              />
-            </div>
+            {/* Row 2: Critical PO Tag - below vendor info */}
+            <LinkedCriticalPOTag
+              poName={po?.name || ""}
+              projectId={po?.project || ""}
+              onUpdate={poMutate}
+              canEdit={["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role)}
+            />
           </div>
 
           {/* ═══════════════════════════════════════════════════════════════════
@@ -1108,6 +1096,17 @@ export const PODetails: React.FC<PODetailsProps> = ({
 
             {/* Footer - Sticky Actions */}
             <div className="px-5 py-4 border-t border-slate-200 bg-white">
+              {/* Disabled State Warning */}
+              {criticalPOLinking.hasCriticalPOSetup &&
+                !criticalPOLinking.selectedTask &&
+                !criticalPOLinking.isPoAlreadyLinked && (
+                <div className="mb-3 flex items-center justify-center gap-2 p-2 bg-red-50 border border-red-200 rounded-md">
+                  <TriangleAlert className="w-3.5 h-3.5 text-red-500" />
+                  <span className="text-xs font-medium text-red-600">
+                    Select a Critical PO Task above to enable dispatch
+                  </span>
+                </div>
+              )}
               <div className="flex items-center justify-between gap-3">
                 <Button variant="outline" size="sm" className="h-9" onClick={togglePoPdfSheet}>
                   <FileText className="w-4 h-4 mr-1.5" />
@@ -1115,9 +1114,19 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 </Button>
                 <Button
                   size="sm"
-                  className="h-9 bg-amber-500 hover:bg-amber-600 text-white shadow-sm"
+                  className={`h-9 shadow-sm ${
+                    criticalPOLinking.hasCriticalPOSetup &&
+                    !criticalPOLinking.selectedTask &&
+                    !criticalPOLinking.isPoAlreadyLinked
+                      ? "bg-slate-300 text-slate-500 cursor-not-allowed"
+                      : "bg-amber-500 hover:bg-amber-600 text-white"
+                  }`}
                   onClick={handleMarkAsDispatchedClick}
-                  disabled={criticalPOLinking.selectedTask && !criticalPOLinking.selectedStatus}
+                  disabled={
+                    criticalPOLinking.hasCriticalPOSetup &&
+                    !criticalPOLinking.selectedTask &&
+                    !criticalPOLinking.isPoAlreadyLinked
+                  }
                 >
                   <Send className="w-4 h-4 mr-1.5" />
                   Mark as Dispatched
@@ -1155,13 +1164,10 @@ export const PODetails: React.FC<PODetailsProps> = ({
             {/* Selected Task Details (if linking) */}
             {criticalPOLinking.selectedTaskDetails && (
               <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-md">
-                <div className="flex items-center justify-between mb-2">
+                <div className="mb-2">
                   <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">
                     Linking To Task
                   </span>
-                  <Badge className="bg-emerald-500 text-xs">
-                    {criticalPOLinking.selectedStatus}
-                  </Badge>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div>
@@ -1211,43 +1217,6 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 >
                   <CheckCheck className="h-4 w-4 mr-1" />
                   {criticalPOLinking.selectedTask ? "Link & Dispatch" : "Dispatch"}
-                </Button>
-              </DialogFooter>
-            )}
-          </DialogContent>
-        </Dialog>
-
-        {/* Skip Linking Warning Dialog */}
-        <Dialog open={skipLinkingDialog} onOpenChange={setSkipLinkingDialog}>
-          <DialogContent className="sm:max-w-[400px]">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-amber-600">
-                <AlertTriangle className="w-5 h-5" />
-                No Critical PO Task Selected
-              </DialogTitle>
-              <DialogDescription>
-                You haven't linked this PO to any Critical PO Task. Are you sure you want to dispatch without linking?
-              </DialogDescription>
-            </DialogHeader>
-
-            {update_loading ? (
-              <div className="flex items-center justify-center py-4">
-                <TailSpin width={40} height={40} color="#f59e0b" />
-              </div>
-            ) : (
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  onClick={() => setSkipLinkingDialog(false)}
-                >
-                  Go Back
-                </Button>
-                <Button
-                  onClick={() => handleDispatchPO(false)}
-                  className="bg-amber-500 hover:bg-amber-600"
-                >
-                  <Send className="h-4 w-4 mr-1" />
-                  Dispatch Without Linking
                 </Button>
               </DialogFooter>
             )}

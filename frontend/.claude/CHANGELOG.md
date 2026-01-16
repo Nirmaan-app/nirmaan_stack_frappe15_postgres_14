@@ -4,6 +4,101 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-15: Dispatch PO - Mandatory Critical Task Linking
+
+### Summary
+Made Critical PO Task selection mandatory during PO dispatch when the PO is not already linked to any task. Removed status selection from the flow and enhanced UI with clear validation feedback.
+
+### Files Modified
+
+- `src/pages/ProcurementOrders/purchase-order/hooks/useCriticalPOTaskLinking.ts`:
+  - Added `isPoAlreadyLinked` computed value to check if PO is linked to any task
+  - Removed `selectedStatus` and `setSelectedStatus` (status no longer updated on link)
+  - Updated `linkPOToTask()` to only associate PO without changing task status
+
+- `src/pages/ProcurementOrders/purchase-order/components/CriticalPOTaskLinkingSection.tsx`:
+  - Added "REQUIRED" badge (pulsing red) when task selection is mandatory
+  - Badge changes to "LINKED" (emerald) once task is selected
+  - Red border/ring highlight when validation fails
+  - Task dropdown styled with red border and asterisk when mandatory
+  - Added validation error message box when no task selected
+  - Removed status selection buttons (no longer needed)
+
+- `src/pages/ProcurementOrders/purchase-order/components/PODetails.tsx`:
+  - Updated button disabled condition: `hasCriticalPOSetup && !selectedTask && !isPoAlreadyLinked`
+  - Added footer warning banner explaining why dispatch is disabled
+  - Disabled button styled with gray background for clarity
+  - Removed skip linking warning dialog (no longer applicable)
+  - Moved Critical PO Tag to new row below Vendor/Package/Status info
+
+### Validation Logic
+
+| Condition | Dispatch Button |
+|-----------|-----------------|
+| No critical PO setup | ✅ Enabled |
+| Setup exists + task selected | ✅ Enabled |
+| Setup exists + PO already linked | ✅ Enabled |
+| Setup exists + PO NOT linked + no task | ❌ Disabled |
+
+### Key Decisions
+
+- **No status update on link**: Previously linking updated the task's status. Now it only associates the PO to preserve manual status control.
+- **Skip dialog removed**: Since task selection is now enforced via disabled button, the "dispatch without linking" option is removed.
+
+---
+
+## 2026-01-15: Design Tracker V2 UI Overhaul
+
+### Summary
+Redesigned the Project Design Tracker page with compact header, DataTable integration with faceted filters, and enhanced dialogs with enterprise minimal theme.
+
+### Files Modified
+
+- `src/pages/ProjectDesignTracker/project-design-tracker-details.tsx`:
+  - Consolidated 4 header sections into 2 compact rows (~100px vs ~280px)
+  - Added "Design Tracker" eyebrow label for page identification
+  - Integrated zone navigation bar with task counts and action buttons
+  - Redesigned Add Category modal with flat grid layout and selection summary
+  - Redesigned Add Zone modal with 3-section layout (current/add/preview)
+  - Updated Create Task modal to auto-fill zone from active tab
+  - Fixed bug: "Not Applicable" status tasks now visible in table
+
+- `src/pages/ProjectDesignTracker/config/taskTableColumns.tsx` (NEW):
+  - Column definitions for DataTable with faceted filters
+  - Custom filter functions for multi-select and date range filtering
+  - Optimized column widths for 16:9 screens
+
+- `src/pages/ProjectDesignTracker/components/TaskEditModal.tsx`:
+  - Enhanced header with labeled context (Zone, Category, Task name)
+  - Updated button styling to match brand colors (red-600)
+
+- `src/pages/ProjectDesignTracker/utils.tsx`:
+  - Updated `getAssignedNameForDisplay()` to render badges instead of list
+  - Standardized date format to `dd-MMM-yyyy`
+
+- `src/pages/projects/project.tsx`:
+  - Updated import to use `ProjectDesignTrackerDetailV2` component
+
+### UI Patterns Established
+
+**Compact Header Bar:**
+```
+Row 1: [Page Type Label] Project Name | Meta Pills | Action Buttons
+Row 2: Zone Tabs with counts | Create/Export Actions
+```
+
+**Dialog 3-Section Layout (Add Zone):**
+```
+1. Current State (read-only display)
+2. Add New (input + pending items)
+3. Preview (combined result)
+```
+
+**Auto-fill Context Pattern:**
+When opening modal from contextual location (e.g., zone tab), pre-fill relevant fields as read-only.
+
+---
+
 ## 2026-01-14: Project Manager Access & Summary Card Restrictions
 
 ### Summary
