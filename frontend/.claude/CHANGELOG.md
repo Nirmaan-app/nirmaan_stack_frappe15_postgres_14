@@ -4,6 +4,37 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-16: WebSocket Documentation Added
+
+### Summary
+Created comprehensive context documentation for Socket.IO real-time integration between Frappe backend and React frontend.
+
+### Files Modified
+
+- `.claude/context/websocket.md` - **NEW**
+  - Architecture overview diagram
+  - Key files reference table
+  - Development proxy setup details
+  - Complete event naming convention table (20+ events)
+  - Backend event publishing pattern with commit-before-publish rule
+  - Frontend event handling flow (SocketInitializer -> socketListeners -> eventListeners)
+  - Notification store structure and methods
+  - Step-by-step guide for adding new event types
+  - Debugging tips and common issues
+
+- `.claude/context/_index.md`
+  - Added websocket.md to Available Context Files table
+  - Updated Directory Structure to include websocket.md
+
+### Key Patterns Documented
+
+1. **Event naming**: `{doctype}:{action}` (e.g., `pr:new`, `po:amended`)
+2. **Critical rule**: Always `frappe.db.commit()` BEFORE `publish_realtime()` to avoid race conditions
+3. **Event flow**: Backend publishes -> Socket.IO -> Frontend listeners -> Fetch notification doc -> Update Zustand store
+4. **Deduplication**: Notification store checks for existing notifications by `name` before adding
+
+---
+
 ## 2026-01-15: Dispatch PO - Mandatory Critical Task Linking
 
 ### Summary

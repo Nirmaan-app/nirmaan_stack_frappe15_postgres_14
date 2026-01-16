@@ -10,6 +10,7 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 |------|--------|--------------|
 | [role-access.md](./role-access.md) | Access Control | Role checks, sidebar visibility, page permissions |
 | [testing.md](./testing.md) | Feature Testing | After implementing forms, dialogs, persistence, multi-step workflows |
+| [websocket.md](./websocket.md) | Real-time | Socket.IO events, notifications, publish_realtime, proxy config |
 | [domain/invoices.md](./domain/invoices.md) | Invoices | PO/SR invoices, 2B reconciliation, date filters |
 | [domain/milestones.md](./domain/milestones.md) | Milestones | Daily progress reports, zone tracking, work headers |
 
@@ -61,6 +62,7 @@ const { role, user_id } = useUserData();
     ├── _index.md         # This file
     ├── role-access.md    # Role-based access control reference
     ├── testing.md        # Playwright browser testing guide
+    ├── websocket.md      # Socket.IO real-time events & notifications
     └── domain/
         ├── invoices.md   # Invoice management & 2B reconciliation
         └── milestones.md # Daily progress reports & zone tracking
