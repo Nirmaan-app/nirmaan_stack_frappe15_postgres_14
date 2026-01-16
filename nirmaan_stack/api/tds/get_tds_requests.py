@@ -82,10 +82,22 @@ def get_tds_request_list(
     
     # derived status for UI
     for row in data:
-        if row.rejected_count > 0:
-            row.status = "Rejected"
-        elif row.pending_count > 0:
+        p = (row.pending_count or 0) > 0
+        a = (row.approved_count or 0) > 0
+        r = (row.rejected_count or 0) > 0
+        
+        if p and a and r:
+            row.status = "PAR"
+        elif p and a:
+            row.status = "PA"
+        elif p and r:
+            row.status = "PR"
+        elif a and r:
+            row.status = "AR"
+        elif p:
             row.status = "Pending"
+        elif r:
+            row.status = "Rejected"
         else:
             row.status = "Approved"
             

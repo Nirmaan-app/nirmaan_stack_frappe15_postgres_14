@@ -16,6 +16,7 @@ import { useFrappePostCall } from "frappe-react-sdk";
 import { format } from "date-fns";
 import Cookies from "js-cookie";
 import { toast } from "@/components/ui/use-toast";
+import { useTDSStore } from "@/zustand/useTDSStore";
 
 // Design tokens from screenshots
 const COLORS = {
@@ -28,6 +29,14 @@ const COLORS = {
     rejectedText: "#B42318",
     pillBorder: "#E5E7EB",
     tableHeaderBg: "#F5F6FA",
+    paBg: "#E0F2FE",
+    paText: "#0369A1",
+    prBg: "#FFEDD5",
+    prText: "#C2410C",
+    arBg: "#F3E8FF",
+    arText: "#7E22CE",
+    parBg: "#F1F5F9",
+    parText: "#334155",
 };
 
 interface TDSRequest {
@@ -75,29 +84,32 @@ export const TDSApprovalList: React.FC = () => {
     const [searchParams, setSearchParams] = useSearchParams();
     const user_id = Cookies.get("user_id") ?? "";
     
-    // Initialize activeTab from URL or default
-    const [activeTab, setActiveTab] = useState<TabType>(() => {
-        const tabParam = searchParams.get("tab");
-        if (tabParam && ["Pending Approval", "Approved", "Rejected", "All TDS"].includes(tabParam)) {
-            return tabParam as TabType;
-        }
-        return "Pending Approval";
-    });
-    
+    const { activeTab, setActiveTab, tabCounts, setTabCounts } = useTDSStore();
+
     const [searchTerm, setSearchTerm] = useState("");
     const [selectedSearchField, setSelectedSearchField] = useState("project");
     const [data, setData] = useState<TDSRequest[]>([]);
     const [totalCount, setTotalCount] = useState(0);
-    const [tabCounts, setTabCounts] = useState<TabCounts>({ pending: 0, approved: 0, rejected: 0, all: 0 });
     const [isLoading, setIsLoading] = useState(false);
     const [sorting, setSorting] = useState<SortingState>([]);
     const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
     const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 50 });
 
+    // Sync store with URL on mount or URL change
+    useEffect(() => {
+        const tabParam = searchParams.get("tab");
+        if (tabParam && ["Pending Approval", "Approved", "Rejected", "All TDS"].includes(tabParam)) {
+            if (tabParam !== activeTab) {
+                setActiveTab(tabParam as TabType);
+            }
+        }
+    }, [searchParams, activeTab, setActiveTab]);
+
     // Update URL when tab changes
     const handleTabChange = (tab: TabType) => {
+        if (tab === activeTab) return;
+        setSearchParams({ tab }, { replace: true });
         setActiveTab(tab);
-        setSearchParams({ tab });
         setPagination(prev => ({ ...prev, pageIndex: 0 }));
     };
 
@@ -128,7 +140,7 @@ export const TDSApprovalList: React.FC = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [call, activeTab, searchTerm, pagination, user_id]);
+    }, [call, activeTab, searchTerm, pagination, user_id, setTabCounts]);
 
     useEffect(() => {
         fetchData();
@@ -145,6 +157,18 @@ export const TDSApprovalList: React.FC = () => {
         } else if (status === "Rejected") {
             bgColor = COLORS.rejectedBg;
             textColor = COLORS.rejectedText;
+        } else if (status === "PA") {
+            bgColor = COLORS.paBg;
+            textColor = COLORS.paText;
+        } else if (status === "PR") {
+            bgColor = COLORS.prBg;
+            textColor = COLORS.prText;
+        } else if (status === "AR") {
+            bgColor = COLORS.arBg;
+            textColor = COLORS.arText;
+        } else if (status === "PAR") {
+            bgColor = COLORS.parBg;
+            textColor = COLORS.parText;
         }
         
         return (
@@ -188,6 +212,7 @@ export const TDSApprovalList: React.FC = () => {
                         {row.getValue("request_id")}
                     </div>
                 ),
+                size: 120,
                 filterFn: (row, id, filterValue) => {
                     if (!filterValue || filterValue.length === 0) return true;
                     return filterValue.includes(row.getValue(id));
@@ -196,6 +221,7 @@ export const TDSApprovalList: React.FC = () => {
             {
                 accessorKey: "project",
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Project" />,
+                size: 200,
                 filterFn: (row, id, filterValue) => {
                     if (!filterValue || filterValue.length === 0) return true;
                     return filterValue.includes(row.getValue(id));
@@ -205,6 +231,7 @@ export const TDSApprovalList: React.FC = () => {
                 accessorKey: "creation",
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Created On" />,
                 cell: ({ row }) => formatDateOrdinal(row.getValue("creation")),
+                size: 180,
                 filterFn: (row, id, filterValue) => {
                     if (!filterValue) return true;
                     const rowDate = new Date(row.getValue(id) as string);
@@ -242,10 +269,12 @@ export const TDSApprovalList: React.FC = () => {
                     else if (activeTab === "Approved") count = row.original.approved_count;
                     return <ItemsPill count={count} />;
                 },
+                size: 120,
             },
             {
                 accessorKey: "created_by",
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Created By" />,
+                size: 200,
                 filterFn: (row, id, filterValue) => {
                     if (!filterValue || filterValue.length === 0) return true;
                     return filterValue.includes(row.getValue(id));
@@ -259,6 +288,7 @@ export const TDSApprovalList: React.FC = () => {
                 accessorKey: "status",
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
                 cell: ({ row }) => <StatusBadge status={row.getValue("status")} />,
+                size: 120,
             });
         }
 
@@ -316,9 +346,10 @@ export const TDSApprovalList: React.FC = () => {
                 TDS Approval
             </h1>
             
-            {/* Segmented Tab Control */}
-            <div className="flex items-center gap-0 rounded-lg border border-gray-200 bg-white p-1 w-fit">
-                {TAB_CONFIG.map((tab) => (
+            {/* Refined Grouped Calm Segmented Tab Control */}
+            <div className="flex items-center gap-4">
+                {/* Standalone Pending Approval Tab */}
+                {TAB_CONFIG.filter(t => t.key === "Pending Approval").map((tab) => (
                     <button
                         key={tab.key}
                         onClick={() => handleTabChange(tab.key)}
@@ -326,7 +357,7 @@ export const TDSApprovalList: React.FC = () => {
                             px-4 py-2 rounded-md text-sm font-medium transition-all
                             ${activeTab === tab.key 
                                 ? "text-white shadow-sm" 
-                                : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                                : "text-muted-foreground bg-white border border-gray-200 hover:text-gray-900 hover:bg-gray-50"
                             }
                         `}
                         style={activeTab === tab.key ? { backgroundColor: COLORS.primaryRed } : {}}
@@ -334,6 +365,26 @@ export const TDSApprovalList: React.FC = () => {
                         {tab.label} {tabCounts[tab.countKey]}
                     </button>
                 ))}
+
+                {/* Grouped Tabs: Approved, Rejected, All TDS */}
+                <div className="flex items-center rounded-lg border border-gray-200 bg-white">
+                    {TAB_CONFIG.filter(t => t.key !== "Pending Approval").map((tab) => (
+                        <button
+                            key={tab.key}
+                            onClick={() => handleTabChange(tab.key)}
+                            className={`
+                                px-4 py-2 rounded-md text-sm font-medium transition-all
+                                ${activeTab === tab.key 
+                                    ? "text-white shadow-sm" 
+                                    : "text-muted-foreground hover:text-gray-900 hover:bg-gray-50"
+                                }
+                            `}
+                            style={activeTab === tab.key ? { backgroundColor: COLORS.primaryRed } : {}}
+                        >
+                            {tab.label} {tabCounts[tab.countKey]}
+                        </button>
+                    ))}
+                </div>
             </div>
 
             {/* Data Table with built-in search and export */}

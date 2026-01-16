@@ -6,11 +6,8 @@ import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { 
     useReactTable, 
     getCoreRowModel, 
-    getFilteredRowModel, 
-    getPaginationRowModel,
     getSortedRowModel,
     ColumnDef,
-    Row
 } from "@tanstack/react-table";
 import { RejectTDSModal } from "./components/RejectTDSModal";
 import { EditTDSItemModal } from "./components/EditTDSItemModal";
@@ -30,6 +27,14 @@ const COLORS = {
     inProgressBg: "#FFF4CC",
     inProgressText: "#9A6700",
     pillBorder: "#E5E7EB",
+    paBg: "#E0F2FE",
+    paText: "#0369A1",
+    prBg: "#FFEDD5",
+    prText: "#C2410C",
+    arBg: "#F3E8FF",
+    arText: "#7E22CE",
+    parBg: "#F1F5F9",
+    parText: "#334155",
 };
 
 interface TDSItem {
@@ -72,7 +77,19 @@ const StatusBadge = ({ status }: { status: string }) => {
         bgColor = COLORS.rejectedBg;
         textColor = COLORS.rejectedText;
     } else if (status === "Pending") {
-        label = "In Progress";
+        label = "Pending";
+    } else if (status === "PA") {
+        bgColor = COLORS.paBg;
+        textColor = COLORS.paText;
+    } else if (status === "PR") {
+        bgColor = COLORS.prBg;
+        textColor = COLORS.prText;
+    } else if (status === "AR") {
+        bgColor = COLORS.arBg;
+        textColor = COLORS.arText;
+    } else if (status === "PAR") {
+        bgColor = COLORS.parBg;
+        textColor = COLORS.parText;
     }
     
     return (
@@ -211,15 +228,19 @@ export const TDSApprovalDetail: React.FC = () => {
         if (!allItems || allItems.length === 0) return null;
         const first = allItems[0];
         
-        // Determine overall status
+        // Determine overall status based on combinations
         let overallStatus = "Pending";
-        if (pendingItems.length === 0 && rejectedItems.length === 0 && approvedItems.length > 0) {
-            overallStatus = "Approved";
-        } else if (pendingItems.length === 0 && rejectedItems.length > 0) {
-            overallStatus = "Rejected";
-        } else if (pendingItems.length > 0) {
-            overallStatus = "Pending";
-        }
+        const p = pendingItems.length > 0;
+        const a = approvedItems.length > 0;
+        const r = rejectedItems.length > 0;
+
+        if (p && a && r) overallStatus = "PAR";
+        else if (p && a) overallStatus = "PA";
+        else if (p && r) overallStatus = "PR";
+        else if (a && r) overallStatus = "AR";
+        else if (p) overallStatus = "Pending";
+        else if (r) overallStatus = "Rejected";
+        else if (a) overallStatus = "Approved";
 
         return {
             request_id: first.tds_request_id,
@@ -397,14 +418,21 @@ export const TDSApprovalDetail: React.FC = () => {
             return;
         }
 
+        const willBeEmpty = selectedItems.length === pendingItems.length;
+
         setProcessing(true);
         try {
             await Promise.all(selectedItems.map(doc => 
                 updateDoc("Project TDS Item List", doc.name, { tds_status: "Approved" })
             ));
             toast({ title: "Approved", description: `${selectedItems.length} items approved`, variant: "success" });
-            setRowSelection({});
-            mutate();
+            
+            if (willBeEmpty) {
+                navigate("/tds-approval");
+            } else {
+                setRowSelection({});
+                mutate();
+            }
         } catch (e) {
             console.error(e);
             toast({ title: "Error", description: "Failed to approve items", variant: "destructive" });
@@ -418,6 +446,8 @@ export const TDSApprovalDetail: React.FC = () => {
          
         if (selectedItems.length === 0) return;
 
+        const willBeEmpty = selectedItems.length === pendingItems.length;
+
         setProcessing(true);
         Promise.all(selectedItems.map(doc => 
             updateDoc("Project TDS Item List", doc.name, { 
@@ -426,9 +456,14 @@ export const TDSApprovalDetail: React.FC = () => {
             })
         )).then(() => {
             toast({ title: "Rejected", description: `${selectedItems.length} items rejected`, variant: "success" });
-            setRowSelection({});
-            mutate();
-            setIsRejectModalOpen(false);
+            
+            if (willBeEmpty) {
+                navigate("/tds-approval");
+            } else {
+                setRowSelection({});
+                mutate();
+                setIsRejectModalOpen(false);
+            }
         }).catch((e) => {
             console.error(e);
             toast({ title: "Error", description: "Failed to reject items", variant: "destructive" });
@@ -482,21 +517,23 @@ export const TDSApprovalDetail: React.FC = () => {
             {/* Header Card */}
             {headerInfo && (
                 <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
-                    {/* Top Row: Project Name + Status */}
-                    <div className="flex items-center gap-3 mb-4">
+                    {/* Top Row: Project Name */}
+                    <div className="mb-4">
                         <h1 
                             className="text-xl font-semibold"
                             style={{ color: COLORS.primaryRed }}
                         >
                             {headerInfo.project}
                         </h1>
-                        <StatusBadge status={headerInfo.status} />
                     </div>
 
-                    {/* TDS ID */}
-                    <p className="text-sm text-gray-500 mb-3">
-                        TDS ID: {headerInfo.request_id}
-                    </p>
+                    {/* TDS ID + Status */}
+                    <div className="flex items-center gap-3 mb-3">
+                        <p className="text-sm text-gray-500">
+                            TDS ID: {headerInfo.request_id}
+                        </p>
+                        <StatusBadge status={headerInfo.status} />
+                    </div>
 
                     {/* Metadata Row */}
                     <div className="flex items-center gap-8 text-sm">
