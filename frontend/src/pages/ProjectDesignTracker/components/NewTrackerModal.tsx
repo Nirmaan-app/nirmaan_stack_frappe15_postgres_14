@@ -19,7 +19,6 @@ import { toast } from "@/components/ui/use-toast";
 import ReactSelect from 'react-select';
 import { DesignTrackerTask, TaskTemplate } from "../types";
 import { Copy, Plus, X, PenTool, MapPin, Grid3X3 } from "lucide-react";
-import type { MenuPosition } from 'react-select';
 
 const DOCTYPE = 'Project Design Tracker';
 
@@ -267,8 +266,20 @@ export const NewTrackerModal: React.FC<NewTrackerModalProps> = ({
                                 value={projectOptions.find((p: any) => p.value === selectedProjectId) || null}
                                 onChange={(option: any) => setSelectedProjectId(option ? option.value : null)}
                                 classNamePrefix="react-select"
-                                menuPosition={'fixed' as MenuPosition}
+                                menuPortalTarget={document.body}
+                                menuPosition="fixed"
                                 placeholder="Search Project..."
+                                styles={{
+                                    menuPortal: (base) => ({
+                                        ...base,
+                                        zIndex: 9999,
+                                        pointerEvents: 'auto'
+                                    }),
+                                    menu: (base) => ({
+                                        ...base,
+                                        pointerEvents: 'auto'
+                                    })
+                                }}
                             />
                         </div>
                     )}
