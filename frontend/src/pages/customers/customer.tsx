@@ -1,10 +1,10 @@
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { OverviewSkeleton, Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Customers } from "@/types/NirmaanStack/Customers";
-import { ConfigProvider, Menu, MenuProps } from "antd";
 import { useFrappeDocumentEventListener, useFrappeGetDoc } from "frappe-react-sdk";
-import { FilePenLine } from "lucide-react";
-import React, { Suspense, useCallback, useMemo, useState } from "react";
+import { FilePenLine, LayoutDashboard, Receipt } from "lucide-react";
+import React, { Suspense, useCallback, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useParams } from "react-router-dom";
 import EditCustomer from "./edit-customer";
@@ -62,36 +62,21 @@ export const Customer : React.FC = () => {
   //     window.history.pushState({}, '', url);
   //   }, []);
 
-  type MenuItem = Required<MenuProps>["items"][number];
-    
-  const mainTabs: MenuItem[] = useMemo(() => [
-    {
-      label: "Overview",
-      key: "overview"
+  const handleMainTabChange = useCallback(
+    (value: string) => {
+      if (mainTab === value) return;
+      setMainTab(value, ["tab"]);
     },
-    {
-      label: "Financials",
-      key: "financials"
+    [mainTab, setMainTab]
+  );
+
+  const handleSubTabChange = useCallback(
+    (value: string) => {
+      if (tab === value) return;
+      setTab(value);
     },
-  ], [])
-
-    const mainTabClick: MenuProps['onClick'] = useCallback(
-        (e) => {
-          if (mainTab === e.key) return;
-          
-          const newTab = e.key;
-          // setTab(subTab);
-          setMainTab(newTab, ["tab"]);
-          // updateURL({ main: newTab, tab: subTab });
-        }, [mainTab]);
-
-  const onClick = useCallback(
-      (value : string) => {
-        if (tab === value) return;
-        setTab(value);
-        // updateURL({ tab: value });
-      }
-      , [tab]);
+    [tab, setTab]
+  );
 
 
   if (error)
@@ -105,9 +90,16 @@ export const Customer : React.FC = () => {
         {isLoading ? (
           <Skeleton className="h-10 w-1/3 bg-gray-300" />
         ) : (
-          <h2 className="text-xl md:text-3xl font-bold tracking-tight ml-2">
-            {data?.company_name}
-          </h2>
+          <div className="flex items-baseline gap-2 ml-2">
+            <h2 className="text-xl md:text-3xl font-bold tracking-tight text-primary">
+              {data?.customer_nickname || data?.company_name}
+            </h2>
+            {data?.customer_nickname && (
+              <span className="text-sm md:text-base text-muted-foreground">
+                ({data?.company_name})
+              </span>
+            )}
+          </div>
         )}
         <Sheet open={editSheetOpen} onOpenChange={toggleEditSheet}>
           <SheetTrigger>
@@ -119,40 +111,41 @@ export const Customer : React.FC = () => {
         </Sheet>
       </div>
 
-       <div className="w-full">
-                <ConfigProvider
-                  theme={{
-                    components: {
-                      Menu: {
-                        horizontalItemSelectedColor: "#D03B45",
-                        itemSelectedBg: "#FFD3CC",
-                        itemSelectedColor: "#D03B45",
-                      },
-                    },
-                  }}
-                >
-                  <Menu
-                    selectedKeys={[mainTab]}
-                    onClick={mainTabClick}
-                    mode="horizontal"
-                    items={mainTabs}
-                  />
-                </ConfigProvider>
-          </div>
+      <Tabs value={mainTab} onValueChange={handleMainTabChange} className="w-full">
+        <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsTrigger value="overview" className="gap-2">
+            <LayoutDashboard className="h-4 w-4" />
+            <span>Overview</span>
+          </TabsTrigger>
+          <TabsTrigger value="financials" className="gap-2">
+            <Receipt className="h-4 w-4" />
+            <span>Financials</span>
+          </TabsTrigger>
+        </TabsList>
 
-         <Suspense fallback={<div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /> </div>}>
-                {mainTab === "overview" && (
-                   isLoading ? (
-                        <OverviewSkeleton />
-                      ) : (
-                      <CustomerOverview data={data} customerId={customerId} tab={tab} onClick={onClick} />
-                      )
-                )}
-    
-                {mainTab === "financials" && (
-                  <CustomerFinancials tab={tab} customerId={customerId} onClick={onClick} />
-                )}
-          </Suspense>
+        <Suspense fallback={<div className="flex items-center h-[90vh] w-full justify-center"><TailSpin color={"red"} /></div>}>
+          <TabsContent value="overview">
+            {isLoading ? (
+              <OverviewSkeleton />
+            ) : (
+              <CustomerOverview
+                data={data}
+                customerId={customerId}
+                tab={tab}
+                onClick={handleSubTabChange}
+              />
+            )}
+          </TabsContent>
+
+          <TabsContent value="financials">
+            <CustomerFinancials
+              tab={tab}
+              customerId={customerId}
+              onClick={handleSubTabChange}
+            />
+          </TabsContent>
+        </Suspense>
+      </Tabs>
 
     </div>
   );
