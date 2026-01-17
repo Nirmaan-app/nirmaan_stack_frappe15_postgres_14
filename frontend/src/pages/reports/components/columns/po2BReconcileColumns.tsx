@@ -2,7 +2,7 @@ import { ColumnDef } from "@tanstack/react-table";
 import { PO2BReconcileRowData } from "../../hooks/usePO2BReconcileData";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { formatDate } from "@/utils/FormatDate";
-import { Info, Check, X, FileText } from "lucide-react";
+import { Info, CircleCheck, CircleDashed, FileText } from "lucide-react";
 import { Link } from "react-router-dom";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
@@ -13,7 +13,7 @@ import SITEURL from "@/constants/siteURL";
 export const po2BReconcileColumns: ColumnDef<PO2BReconcileRowData>[] = [
     {
         accessorKey: "invoiceDate",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice Date" />,
+        header: ({ column }) => <DataTableColumnHeader column={column} title={<span className="whitespace-normal leading-tight">Invoice Date</span>} />,
         cell: ({ row }) => {
             const dateValue = row.original.invoiceDate?.slice(0, 10);
             return <div className="font-medium">{dateValue ? formatDate(dateValue) : '-'}</div>;
@@ -63,8 +63,20 @@ export const po2BReconcileColumns: ColumnDef<PO2BReconcileRowData>[] = [
         },
     },
     {
+        id: "updatedByName",
+        accessorFn: (row) => row.updatedByName,
+        header: ({ column }) => <DataTableColumnHeader column={column} title={<span className="whitespace-normal leading-tight">Invoice Uploaded By</span>} />,
+        cell: ({ row }) => <div className="font-medium">{row.original.updatedByName}</div>,
+        filterFn: facetedFilterFn,
+        size: 150,
+        meta: {
+            exportHeaderName: "Invoice Uploaded By",
+            exportValue: (row: PO2BReconcileRowData) => row.updatedByName,
+        },
+    },
+    {
         accessorKey: "invoiceAmount",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" />,
+        header: ({ column }) => <DataTableColumnHeader column={column} title={<span className="whitespace-normal leading-tight">Invoice Amount</span>} />,
         cell: ({ row }) => (
             <div className="font-medium text-green-600 tabular-nums">
                 {formatToRoundedIndianRupee(row.original.invoiceAmount)}
@@ -72,8 +84,43 @@ export const po2BReconcileColumns: ColumnDef<PO2BReconcileRowData>[] = [
         ),
         size: 120,
         meta: {
-            exportHeaderName: "Amount",
+            exportHeaderName: "Invoice Amount",
             exportValue: (row: PO2BReconcileRowData) => row.invoiceAmount,
+            isNumeric: true,
+        },
+    },
+    {
+        accessorKey: "reconciledAmount",
+        header: ({ column }) => (
+            <DataTableColumnHeader
+                column={column}
+                title={<span className="whitespace-normal leading-tight">Reconciled Amount</span>}
+            />
+        ),
+        cell: ({ row }) => {
+            const reconciledAmount = row.original.reconciledAmount ?? 0;
+            const invoiceAmount = row.original.invoiceAmount;
+
+            // Determine color based on comparison
+            let colorClass = "";
+            if (reconciledAmount === 0) {
+                colorClass = "text-red-600";  // Not reconciled
+            } else if (reconciledAmount !== invoiceAmount) {
+                colorClass = "text-yellow-600";  // Partial
+            } else {
+                colorClass = "text-green-600";  // Full
+            }
+
+            return (
+                <div className={`font-medium tabular-nums ${colorClass}`}>
+                    {formatToRoundedIndianRupee(reconciledAmount)}
+                </div>
+            );
+        },
+        size: 130,
+        meta: {
+            exportHeaderName: "Reconciled Amount",
+            exportValue: (row: PO2BReconcileRowData) => row.reconciledAmount ?? 0,
             isNumeric: true,
         },
     },
@@ -166,34 +213,77 @@ export const po2BReconcileColumns: ColumnDef<PO2BReconcileRowData>[] = [
     },
     {
         id: "is2bActivated",
-        accessorFn: (row) => row.is2bActivated ? "Reconciled" : "Pending",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="2B Status" />,
+        accessorFn: (row) => {
+            // Map reconciliationStatus to display values for filtering
+            switch (row.reconciliationStatus) {
+                case "full": return "Full";
+                case "partial": return "Partial";
+                default: return "None";
+            }
+        },
+        header: ({ column }) => <DataTableColumnHeader column={column} title={<span className="whitespace-normal leading-tight">Reconciled Status</span>} />,
         cell: ({ row }) => {
-            const is2bActivated = row.original.is2bActivated;
-            return (
-                <div className="flex items-center">
-                    {is2bActivated ? (
-                        <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
-                            <Check className="w-3 h-3 mr-1" /> Reconciled
-                        </Badge>
-                    ) : (
-                        <Badge variant="outline" className="text-amber-600 border-amber-300">
-                            <X className="w-3 h-3 mr-1" /> Pending
-                        </Badge>
-                    )}
-                </div>
-            );
+            const reconciliationStatus = row.original.reconciliationStatus || "";
+
+            const getStatusBadge = () => {
+                switch (reconciliationStatus) {
+                    case "full":
+                        return (
+                            <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
+                                <CircleCheck className="w-3 h-3 mr-1" /> Full
+                            </Badge>
+                        );
+                    case "partial":
+                        return (
+                            <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">
+                                <CircleDashed className="w-3 h-3 mr-1" /> Partial
+                            </Badge>
+                        );
+                    default:
+                        return (
+                            <Badge variant="outline" className="text-gray-500">
+                                None
+                            </Badge>
+                        );
+                }
+            };
+
+            return <div className="flex items-center">{getStatusBadge()}</div>;
         },
         filterFn: facetedFilterFn,
         size: 140,
         meta: {
-            exportHeaderName: "2B Status",
-            exportValue: (row: PO2BReconcileRowData) => row.is2bActivated ? "Reconciled" : "Pending",
+            exportHeaderName: "Reconciled Status",
+            exportValue: (row: PO2BReconcileRowData) => {
+                switch (row.reconciliationStatus) {
+                    case "full": return "Full";
+                    case "partial": return "Partial";
+                    default: return "None";
+                }
+            },
+        },
+    },
+    {
+        id: "reconciledByName",
+        accessorFn: (row) => row.reconciledByName,
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Reconciled By" />,
+        cell: ({ row }) => {
+            const reconciledByName = row.original.reconciledByName;
+            if (!reconciledByName) {
+                return <span className="text-gray-400">-</span>;
+            }
+            return <div className="font-medium">{reconciledByName}</div>;
+        },
+        filterFn: facetedFilterFn,
+        size: 150,
+        meta: {
+            exportHeaderName: "Reconciled By",
+            exportValue: (row: PO2BReconcileRowData) => row.reconciledByName || '-',
         },
     },
     {
         accessorKey: "reconciledDate",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Reconciled Date" />,
+        header: ({ column }) => <DataTableColumnHeader column={column} title={<span className="whitespace-normal leading-tight">Reconciled Date</span>} />,
         cell: ({ row }) => {
             const reconciledDate = row.original.reconciledDate;
             if (!reconciledDate) {
@@ -213,50 +303,74 @@ export const po2BReconcileColumns: ColumnDef<PO2BReconcileRowData>[] = [
         },
     },
     {
-        id: "updatedByName",
-        accessorFn: (row) => row.updatedByName,
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Updated By" />,
-        cell: ({ row }) => <div className="font-medium">{row.original.updatedByName}</div>,
-        filterFn: facetedFilterFn,
-        size: 150,
-        meta: {
-            exportHeaderName: "Updated By",
-            exportValue: (row: PO2BReconcileRowData) => row.updatedByName,
-        },
-    },
-    {
-        id: "attachment",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Attachment" />,
+        id: "attachments",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Attachments" />,
         cell: ({ row }) => {
-            const { attachmentUrl, invoiceNo } = row.original;
-            if (!attachmentUrl) {
+            const { attachmentUrl, proofAttachmentUrl, invoiceNo } = row.original;
+            const hasInvoice = !!attachmentUrl;
+            const hasProof = !!proofAttachmentUrl;
+
+            if (!hasInvoice && !hasProof) {
                 return <span className="text-gray-400">-</span>;
             }
+
             return (
-                <HoverCard>
-                    <HoverCardTrigger asChild>
-                        <button
-                            onClick={() => window.open(SITEURL + attachmentUrl, "_blank")}
-                            className="text-blue-500 hover:text-blue-700 cursor-pointer"
-                        >
-                            <FileText className="w-5 h-5" />
-                        </button>
-                    </HoverCardTrigger>
-                    <HoverCardContent className="w-auto rounded-md shadow-lg">
-                        <img
-                            src={`${SITEURL}${attachmentUrl}`}
-                            alt={`Invoice ${invoiceNo}`}
-                            className="max-w-xs max-h-64 object-contain rounded-md shadow-md"
-                        />
-                    </HoverCardContent>
-                </HoverCard>
+                <div className="flex items-center gap-2">
+                    {hasInvoice && (
+                        <HoverCard>
+                            <HoverCardTrigger asChild>
+                                <button
+                                    onClick={() => window.open(SITEURL + attachmentUrl, "_blank")}
+                                    className="text-blue-500 hover:text-blue-700 cursor-pointer flex items-center gap-0.5"
+                                    title="Invoice"
+                                >
+                                    <FileText className="w-4 h-4" />
+                                    <span className="text-[10px]">Inv</span>
+                                </button>
+                            </HoverCardTrigger>
+                            <HoverCardContent className="w-auto rounded-md shadow-lg">
+                                <img
+                                    src={`${SITEURL}${attachmentUrl}`}
+                                    alt={`Invoice ${invoiceNo}`}
+                                    className="max-w-xs max-h-64 object-contain rounded-md shadow-md"
+                                />
+                            </HoverCardContent>
+                        </HoverCard>
+                    )}
+                    {hasProof && (
+                        <HoverCard>
+                            <HoverCardTrigger asChild>
+                                <button
+                                    onClick={() => window.open(SITEURL + proofAttachmentUrl, "_blank")}
+                                    className="text-green-500 hover:text-green-700 cursor-pointer flex items-center gap-0.5"
+                                    title="Reconciliation Proof"
+                                >
+                                    <FileText className="w-4 h-4" />
+                                    <span className="text-[10px]">Proof</span>
+                                </button>
+                            </HoverCardTrigger>
+                            <HoverCardContent className="w-auto rounded-md shadow-lg">
+                                <img
+                                    src={`${SITEURL}${proofAttachmentUrl}`}
+                                    alt={`Proof for ${invoiceNo}`}
+                                    className="max-w-xs max-h-64 object-contain rounded-md shadow-md"
+                                />
+                            </HoverCardContent>
+                        </HoverCard>
+                    )}
+                </div>
             );
         },
         enableSorting: false,
-        size: 100,
+        size: 120,
         meta: {
-            exportHeaderName: "Has Attachment",
-            exportValue: (row: PO2BReconcileRowData) => row.attachmentUrl ? "Yes" : "No",
+            exportHeaderName: "Has Attachments",
+            exportValue: (row: PO2BReconcileRowData) => {
+                const parts = [];
+                if (row.attachmentUrl) parts.push("Invoice");
+                if (row.proofAttachmentUrl) parts.push("Proof");
+                return parts.length > 0 ? parts.join(", ") : "No";
+            },
         },
     },
 ];

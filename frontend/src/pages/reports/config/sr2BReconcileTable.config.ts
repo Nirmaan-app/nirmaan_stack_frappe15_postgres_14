@@ -10,6 +10,7 @@ export const SR_2B_RECONCILE_SEARCHABLE_FIELDS: SearchFieldOption[] = [
 export const SR_2B_RECONCILE_DATE_COLUMNS: string[] = ["invoiceDate", "reconciledDate"];
 
 export const SR_2B_STATUS_OPTIONS = [
-    { label: "Reconciled", value: "Reconciled" },
-    { label: "Pending", value: "Pending" },
+    { label: "Full", value: "Full" },
+    { label: "Partial", value: "Partial" },
+    { label: "None", value: "None" },
 ];

@@ -5,10 +5,14 @@ import { Vendors } from '@/types/NirmaanStack/Vendors';
 import { NirmaanUsers } from '@/types/NirmaanStack/NirmaanUsers';
 import { NirmaanAttachment } from '@/types/NirmaanStack/NirmaanAttachment';
 
+// Reconciliation status type (matches invoices tab)
+type ReconciliationStatus = "" | "partial" | "full";
+
 // Interface for individual invoice item from API
 interface InvoiceItem {
     name: string;
     amount: number;
+    reconciled_amount: number;
     invoice_no: string;
     date: string;
     updated_by: string;
@@ -17,9 +21,13 @@ interface InvoiceItem {
     project?: string;
     vendor: string;
     vendor_name: string;
-    is_2b_activated?: boolean;
+    // New reconciliation fields (replaces is_2b_activated)
+    reconciliation_status?: ReconciliationStatus;
     reconciled_date?: string | null;
     reconciled_by?: string | null;
+    reconciliation_proof_attachment_id?: string | null;
+    // Legacy field (deprecated - use reconciliation_status)
+    is_2b_activated?: boolean;
 }
 
 // API response structure
@@ -29,6 +37,16 @@ interface AllInvoicesDataCallResponse {
             invoice_entries: InvoiceItem[];
             total_invoices: number;
             total_amount: number;
+            // New reconciliation metrics
+            total_fully_reconciled: number;
+            total_partially_reconciled: number;
+            pending_reconciliation: number;
+            total_reconciled_amount: number;
+            total_fully_reconciled_amount: number;
+            total_partially_reconciled_amount: number;
+            total_not_reconciled_amount: number;
+            pending_reconciliation_amount: number;
+            // Legacy fields (deprecated)
             total_2b_activated: number;
             pending_2b_activation: number;
         };
@@ -47,9 +65,16 @@ export interface SR2BReconcileRowData {
     invoiceNo: string;
     invoiceDate: string;
     invoiceAmount: number;
+    // New reconciliation fields
+    reconciledAmount: number;
+    reconciliationStatus: ReconciliationStatus;  // "", "partial", "full"
+    proofAttachmentId: string | null;
+    proofAttachmentUrl: string | null;
+    // Legacy field (deprecated - use reconciliationStatus)
     is2bActivated: boolean;
     reconciledDate: string | null;
     reconciledBy: string | null;
+    reconciledByName: string | null;
     invoiceAttachmentId: string;
     updatedBy: string;
     updatedByName: string;
@@ -146,9 +171,18 @@ export const useSR2BReconcileData = (): UseSR2BReconcileDataResult => {
             invoiceNo: entry.invoice_no,
             invoiceDate: entry.date,
             invoiceAmount: entry.amount,
-            is2bActivated: entry.is_2b_activated || false,
+            // New reconciliation fields
+            reconciledAmount: entry.reconciled_amount ?? 0,
+            reconciliationStatus: entry.reconciliation_status ?? "",
+            proofAttachmentId: entry.reconciliation_proof_attachment_id || null,
+            proofAttachmentUrl: entry.reconciliation_proof_attachment_id
+                ? (attachmentMap[entry.reconciliation_proof_attachment_id] || null)
+                : null,
+            // Legacy field (for backwards compatibility)
+            is2bActivated: entry.reconciliation_status === "full" || entry.is_2b_activated || false,
             reconciledDate: entry.reconciled_date || null,
             reconciledBy: entry.reconciled_by || null,
+            reconciledByName: entry.reconciled_by ? (userMap[entry.reconciled_by] || entry.reconciled_by) : null,
             invoiceAttachmentId: entry.invoice_attachment_id,
             updatedBy: entry.updated_by,
             updatedByName: userMap[entry.updated_by] || entry.updated_by,
