@@ -64,6 +64,7 @@ interface ProjectProgressAttachment {
   image_link: string; // The uploaded file_url (MATCHES Frappe field)
   location: string | null; // The combined location string (MATCHES Frappe field)
   remarks: string; // General remarks for the photo (MATCHES Frappe field)
+  attach_type?: 'Work' | 'Site' | 'Drawing'; // NEW FIELD
 }
 
 interface ProjectData {
@@ -414,6 +415,7 @@ const [drawingRemarksList, setDrawingRemarksList] = useState<string[]>([]);
 const [siteRemarksList, setSiteRemarksList] = useState<string[]>([]);
 const [newDrawingRemark, setNewDrawingRemark] = useState<string>("");
 const [newSiteRemark, setNewSiteRemark] = useState<string>("");
+const [currentCaptureType, setCurrentCaptureType] = useState<'Work' | 'Site' | 'Drawing'>('Work'); // NEW STATE
 const getClientClearanceStorageKey = (dateString: string) => `project_${projectId}_date_${dateString}_zone_${reportZone}_tab_Client_Clearance_Issues`;
 // --- END STATE FOR CLIENT/CLEARANCE ISSUES TAB ---
 
@@ -593,15 +595,30 @@ const getClientClearanceStorageKey = (dateString: string) => `project_${projectI
             draft_last_updated: existingDraftLastUpdated
           };
         } else if (tab.project_work_header_name === "Photos") {
-          initialData = { photos: existingDraftReport?.[0]?.photos || [] };
+          const backendPhotos = DraftReport?.photos || [];
+          // Ensure local_id exists for frontend state (it's stripped on save)
+          const photosWithLocalIds = backendPhotos.map((p: any) => ({
+            ...p,
+            local_id: p.name || `server_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            attach_type: p.attach_type || 'Work'
+          }));
+          initialData = { photos: photosWithLocalIds };
         } else if (tab.project_work_header_name === "Client / Clearance Issues") {
           // Initialize Client/Clearance Issues tab with drawing/site remarks from draft
+          const backendPhotos = DraftReport?.photos || [];
+          // Ensure local_id exists for frontend state (it's stripped on save)
+          const photosWithLocalIds = backendPhotos.map((p: any) => ({
+            ...p,
+            local_id: p.name || `server_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            attach_type: p.attach_type || 'Work'
+          }));
+
           initialData = {
             project: projectId,
             report_date: dateString,
             manpower: [],
             milestones: [],
-            photos: [],
+            photos: photosWithLocalIds, // Store photos in this tab's storage
             report_status: 'Draft',
             report_zone: reportZone,
             draft_owner: existingDraftOwner,
@@ -707,6 +724,9 @@ const getClientClearanceStorageKey = (dateString: string) => `project_${projectI
         const sitePoints = parseClientClearanceRemarks(parsedData.site_remarks);
         setDrawingRemarksList(drawingPoints);
         setSiteRemarksList(sitePoints);
+          
+        // Load photos directly from this tab's storage
+        setLocalPhotos(parsedData.photos || []);
       }
     } else {
       console.warn(`Local storage key ${storageKey} was unexpectedly empty in loadDailyReport. Re-initializing.`);
@@ -729,6 +749,8 @@ const getClientClearanceStorageKey = (dateString: string) => `project_${projectI
              const sitePoints = parseClientClearanceRemarks(parsedData.site_remarks);
              setDrawingRemarksList(drawingPoints);
              setSiteRemarksList(sitePoints);
+             // Load photos from this tab's storage
+             setLocalPhotos(parsedData.photos || []);
           } else if (activeTabValue === "Photos") {
              setLocalPhotos((parsedData as Pick<ProjectProgressReportData, 'photos'>).photos || []);
           }
@@ -759,12 +781,26 @@ const getClientClearanceStorageKey = (dateString: string) => `project_${projectI
 
     const handlePhotoCaptureSuccess = (photoData: ProjectProgressAttachment) => {
         console.log("photoData received from CameraCapture:", photoData);
-        const newPhotos = [...localPhotos, photoData];
+        // Inject the current capture type
+        const newPhotoWithType = { ...photoData, attach_type: currentCaptureType };
+        
+        const newPhotos = [...localPhotos, newPhotoWithType];
         setLocalPhotos(newPhotos);
         
         const dateString = formatDate(summaryWorkDate);
-        const storageKey = getPhotosStorageKey(dateString);
-        sessionStorage.setItem(storageKey, JSON.stringify({ photos: newPhotos }));
+        // Determine the correct storage key based on active tab
+        const storageKey = activeTabValue === "Client / Clearance Issues" 
+            ? `project_${projectId}_date_${dateString}_zone_${zoneKey}_tab_Client / Clearance Issues`
+            : getPhotosStorageKey(dateString);
+        
+        // For Clearance tab, we need to preserve remarks and save full payload
+        if (activeTabValue === "Client / Clearance Issues") {
+            const existingData = sessionStorage.getItem(storageKey);
+            const parsedData = existingData ? JSON.parse(existingData) : {};
+            sessionStorage.setItem(storageKey, JSON.stringify({ ...parsedData, photos: newPhotos }));
+        } else {
+            sessionStorage.setItem(storageKey, JSON.stringify({ photos: newPhotos }));
+        }
 
         setIsCaptureDialogOpen(false);
         toast({
@@ -780,8 +816,18 @@ const getClientClearanceStorageKey = (dateString: string) => `project_${projectI
         );
         setLocalPhotos(updatedPhotos);
         const dateString = formatDate(summaryWorkDate);
-        const storageKey = getPhotosStorageKey(dateString);
-        sessionStorage.setItem(storageKey, JSON.stringify({ photos: updatedPhotos }));
+        // Determine the correct storage key based on active tab
+        const storageKey = activeTabValue === "Client / Clearance Issues" 
+            ? `project_${projectId}_date_${dateString}_zone_${zoneKey}_tab_Client / Clearance Issues`
+            : getPhotosStorageKey(dateString);
+        
+        if (activeTabValue === "Client / Clearance Issues") {
+            const existingData = sessionStorage.getItem(storageKey);
+            const parsedData = existingData ? JSON.parse(existingData) : {};
+            sessionStorage.setItem(storageKey, JSON.stringify({ ...parsedData, photos: updatedPhotos }));
+        } else {
+            sessionStorage.setItem(storageKey, JSON.stringify({ photos: updatedPhotos }));
+        }
     };
 
     const handleRemovePhoto = (local_id: string) => {
@@ -789,8 +835,18 @@ const getClientClearanceStorageKey = (dateString: string) => `project_${projectI
         setLocalPhotos(updatedPhotos);
         
         const dateString = formatDate(summaryWorkDate);
-        const storageKey = getPhotosStorageKey(dateString);
-        sessionStorage.setItem(storageKey, JSON.stringify({ photos: updatedPhotos }));
+        // Determine the correct storage key based on active tab
+        const storageKey = activeTabValue === "Client / Clearance Issues" 
+            ? `project_${projectId}_date_${dateString}_zone_${zoneKey}_tab_Client / Clearance Issues`
+            : getPhotosStorageKey(dateString);
+        
+        if (activeTabValue === "Client / Clearance Issues") {
+            const existingData = sessionStorage.getItem(storageKey);
+            const parsedData = existingData ? JSON.parse(existingData) : {};
+            sessionStorage.setItem(storageKey, JSON.stringify({ ...parsedData, photos: updatedPhotos }));
+        } else {
+            sessionStorage.setItem(storageKey, JSON.stringify({ photos: updatedPhotos }));
+        }
         
         toast({
             title: "Photo Removed",
@@ -809,7 +865,8 @@ const getClientClearanceStorageKey = (dateString: string) => `project_${projectI
 
   useEffect(() => {
     // Wait for all data to be loaded before initializing
-    const isDraftLoaded = !existingDraftReportName || !lastDraftReportLoading;
+    // FIXED: Also check that DraftReport data is actually available when existingDraftReportName exists
+    const isDraftLoaded = !existingDraftReportName || (!lastDraftReportLoading && DraftReport !== undefined);
 
     if (
       projectId &&
@@ -840,6 +897,7 @@ const getClientClearanceStorageKey = (dateString: string) => `project_${projectI
     existingDraftReportLoading,
     lastDraftReportLoading, // Added
     existingDraftReportName, // Added
+    DraftReport, // ADDED: Ensure we re-run when DraftReport data arrives
     allFrappeMilestones,
     projectData,
     existingDraftReport,
@@ -1065,7 +1123,7 @@ console.log(user)
         report_date: dateString,
         manpower: [],
         milestones: [],
-        photos: [],
+        photos: localPhotos, // Save photos directly to this tab's storage
         report_status: 'Draft',
         report_zone: reportZone,
         draft_owner: currentDraftOwner,
@@ -1161,6 +1219,7 @@ console.log(user)
         image_link: photo.image_link,
         location: photo.location,
         remarks: photo.remarks,
+        attach_type: photo.attach_type || 'Work',
     }));
 
     const finalPayload: FrappeProjectProgressReportPayload = {
@@ -1171,7 +1230,7 @@ console.log(user)
       milestones: cleanedMilestones,
       attachments: cleanedAttachments,
       report_status: status,
-      report_zone: reportZone, // <-- NEW: Add the zone to the payload
+      report_zone: reportZone || undefined, // Ensure undefined if null
       drawing_remarks: clientClearanceDrawingRemarks, // NEW: Client/Clearance Issues
       site_remarks: clientClearanceSiteRemarks, // NEW: Client/Clearance Issues
     };
@@ -1240,11 +1299,13 @@ console.log(user)
       docNameForFrappeOperation = currentFrappeReportName;
 
       const payloadToCheckPhotos = collectAllTabData('Draft');
-      if (!payloadToCheckPhotos.attachments || payloadToCheckPhotos.attachments.length < 3) {
+      const workPhotosCount = (payloadToCheckPhotos.attachments || []).filter(p => !p.attach_type || p.attach_type === 'Work').length;
+      
+      if (workPhotosCount < 3) {
         setIsLocalSaving(false);
         toast({
           title: "Submission Validation Error 🚫",
-          description: "Please upload at least Three photos before final submission.",
+          description: "Please upload at least Three WORK photos before final submission.",
           variant: "destructive",
         });
         return;
@@ -1785,7 +1846,10 @@ console.log(user)
       
       <div className="flex-1 mt-1">
         <div className="px-1 bg-white">
-          <Tabs value={activeTabValue} className="w-full" onValueChange={setActiveTabValue}>
+          <Tabs value={activeTabValue} className="w-full" onValueChange={(val) => {
+            saveCurrentTabData();
+            setActiveTabValue(val);
+          }}>
             <TabsList
               className="flex w-full justify-evenly p-1 bg-gray-100 rounded-md "
             >
@@ -2017,6 +2081,51 @@ console.log(user)
                     ) : (
                       <p className="text-sm text-gray-400 text-center py-3">No drawing remarks added yet.</p>
                     )}
+                 
+                 {/* Drawing Photos Section */}
+                    <div className="mt-4">
+                        <div className="flex justify-between items-center mb-2">
+                             <h4 className="text-sm font-semibold text-gray-700">Drawing Attachments</h4>
+                              <PhotoPermissionChecker
+                                    isBlockedByDraftOwnership={isBlockedByDraftOwnership}
+                                    onAddPhotosClick={() => {
+                                        setCurrentCaptureType('Drawing');
+                                        setIsCaptureDialogOpen(true);
+                                    }}
+                                    GEO_API={apiData?.api_key}
+                                     triggerLabel="Add Drawing Photo"
+                                  />
+                        </div>
+                       
+                        {localPhotos.filter(p => p.attach_type === 'Drawing').length > 0 ? (
+                            <div className="grid grid-cols-2 gap-2">
+                                {localPhotos.filter(p => p.attach_type === 'Drawing').map((photo) => (
+                                    <div key={photo.local_id} className="relative group">
+                                         <div className="aspect-video rounded-md overflow-hidden border border-gray-200">
+                                            <img
+                                                src={photo.image_link}
+                                                alt="Drawing Attachment"
+                                                className="w-full h-full object-cover"
+                                            />
+                                         </div>
+                                         <Button
+                                            variant="destructive"
+                                            size="icon"
+                                            className="absolute top-1 right-1 h-6 w-6 rounded-full opacity-90 hover:opacity-100"
+                                            onClick={() => handleRemovePhoto(photo.local_id)}
+                                            disabled={isBlockedByDraftOwnership}
+                                        >
+                                            <X className="h-3 w-3" />
+                                        </Button>
+                                         <p className="text-xs text-gray-500 mt-1 truncate">{photo.remarks || 'No remarks'}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        ): (
+                            <p className="text-xs text-gray-400 italic">No drawing photos attached.</p>
+                        )}
+                    </div>
+
                   </CardContent>
                 </Card>
 
@@ -2091,6 +2200,50 @@ console.log(user)
                     ) : (
                       <p className="text-sm text-gray-400 text-center py-3">No site remarks added yet.</p>
                     )}
+                    
+                      {/* Site Photos Section */}
+                    <div className="mt-4">
+                        <div className="flex justify-between items-center mb-2">
+                             <h4 className="text-sm font-semibold text-gray-700">Site Attachments</h4>
+                              <PhotoPermissionChecker
+                                    isBlockedByDraftOwnership={isBlockedByDraftOwnership}
+                                    onAddPhotosClick={() => {
+                                        setCurrentCaptureType('Site');
+                                        setIsCaptureDialogOpen(true);
+                                    }}
+                                    GEO_API={apiData?.api_key}
+                                    triggerLabel="Add Site Photo"
+                                  />
+                        </div>
+
+                        {localPhotos.filter(p => p.attach_type === 'Site').length > 0 ? (
+                            <div className="grid grid-cols-2 gap-2">
+                                {localPhotos.filter(p => p.attach_type === 'Site').map((photo) => (
+                                    <div key={photo.local_id} className="relative group">
+                                        <div className="aspect-video rounded-md overflow-hidden border border-gray-200">
+                                            <img
+                                                src={photo.image_link}
+                                                alt="Site Attachment"
+                                                className="w-full h-full object-cover"
+                                            />
+                                        </div>
+                                         <Button
+                                            variant="destructive"
+                                            size="icon"
+                                            className="absolute top-1 right-1 h-6 w-6 rounded-full opacity-90 hover:opacity-100"
+                                            onClick={() => handleRemovePhoto(photo.local_id)}
+                                            disabled={isBlockedByDraftOwnership}
+                                        >
+                                            <X className="h-3 w-3" />
+                                        </Button>
+                                         <p className="text-xs text-gray-500 mt-1 truncate">{photo.remarks || 'No remarks'}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        ): (
+                             <p className="text-xs text-gray-400 italic">No site photos attached.</p>
+                        )}
+                    </div>
                   </CardContent>
                 </Card>
               </div>
@@ -2110,14 +2263,17 @@ console.log(user)
           </Button> */}
            <PhotoPermissionChecker
             isBlockedByDraftOwnership={isBlockedByDraftOwnership}
-            onAddPhotosClick={() => setIsCaptureDialogOpen(true)}
+            onAddPhotosClick={() => {
+                setCurrentCaptureType('Work');
+                setIsCaptureDialogOpen(true);
+            }}
             GEO_API={apiData?.api_key}
           />
         </CardHeader>
         <CardContent className="pt-0">
-          {localPhotos.length > 0 ? (
+          {localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').length > 0 ? (
             <div className="space-y-4">
-              {localPhotos.map((photo) => (
+              {localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').map((photo) => (
                 <div 
                   key={photo.local_id} 
                   className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-3 bg-white rounded-md shadow-sm border  border-gray-400"
