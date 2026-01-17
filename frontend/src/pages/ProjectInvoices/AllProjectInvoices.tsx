@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   getProjectInvoiceColumns,
+  getProjectInvoiceStaticFilters,
   DOCTYPE,
   PROJECT_INVOICE_FIELDS_TO_FETCH,
   PROJECT_INVOICE_SEARCHABLE_FIELDS,
@@ -49,7 +50,7 @@ import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 export const AllProjectInvoices: React.FC<{
   projectId?: string;
   customerId?: string;
-}> = ({ projectId }) => {
+}> = ({ projectId, customerId }) => {
   // =================================================================================
   // 1. STATE & ROLE MANAGEMENT
   // =================================================================================
@@ -175,9 +176,10 @@ export const AllProjectInvoices: React.FC<{
         isAdmin,
         getProjectName,
         getCustomerName,
-        getUserName, // --- (4) NEW: Pass the user name resolver ---
+        getUserName,
         onDelete: handleOpenDeleteDialog,
-        onEdit: handleOpenEditDialog, // --- (Indicator) Pass onEdit handler ---
+        onEdit: handleOpenEditDialog,
+        hideCustomerColumn: !!customerId, // Hide customer column when viewing from customer page
       }),
     [
       isAdmin,
@@ -186,7 +188,14 @@ export const AllProjectInvoices: React.FC<{
       getUserName,
       handleOpenDeleteDialog,
       handleOpenEditDialog,
-    ] // Add handleOpenEditDialog to dependencies
+      customerId,
+    ]
+  );
+
+  // Build static filters based on context (project or customer)
+  const staticFilters = useMemo(
+    () => getProjectInvoiceStaticFilters(customerId, projectId),
+    [customerId, projectId]
   );
 
   const {
@@ -206,10 +215,10 @@ export const AllProjectInvoices: React.FC<{
   } = useServerDataTable<ProjectInvoice>({
     doctype: DOCTYPE,
     columns: tableColumns,
-    additionalFilters: projectId ? [["project", "=", projectId]] : [],
+    additionalFilters: staticFilters,
     fetchFields: PROJECT_INVOICE_FIELDS_TO_FETCH,
     searchableFields: PROJECT_INVOICE_SEARCHABLE_FIELDS,
-    urlSyncKey: `project_invoices_${projectId || "all"}`,
+    urlSyncKey: `project_invoices_${customerId || projectId || "all"}`,
     defaultSort: "invoice_date desc",
     aggregatesConfig: PROJECT_INVOICE_AGGREGATES_CONFIG,
   });
@@ -322,6 +331,7 @@ export const AllProjectInvoices: React.FC<{
               columnFilters={columnFilters}
               searchTerm={searchTerm}
               projectName={projectId ? getProjectName(projectId) : undefined}
+              customerName={customerId ? getCustomerName(customerId) : undefined}
             />
           }
         />

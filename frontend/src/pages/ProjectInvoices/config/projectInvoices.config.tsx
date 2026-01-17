@@ -33,6 +33,21 @@ export const PROJECT_INVOICE_AGGREGATES_CONFIG: AggregationConfig[] = [
     { field: 'amount', function: 'sum' }
 ];
 
+// Static filter helper function (follows inflowPaymentsTable.config.ts pattern)
+export const getProjectInvoiceStaticFilters = (
+    customerId?: string,
+    projectId?: string
+): Array<[string, string, string]> => {
+    const filters: Array<[string, string, string]> = [];
+    if (projectId) {
+        filters.push(["project", "=", projectId]);
+    }
+    if (customerId) {
+        filters.push(["customer", "=", customerId]);
+    }
+    return filters;
+};
+
 // =================================================================================
 // 2. TYPES & INTERFACES FOR COLUMN GENERATION
 // =================================================================================
@@ -44,9 +59,10 @@ interface ColumnGeneratorOptions {
     isAdmin: boolean;
     getProjectName: ProjectNameResolver;
     getCustomerName: CustomerNameResolver;
-    getUserName: UserNameResolver; // --- (2) NEW: Add to the options interface ---
+    getUserName: UserNameResolver;
     onDelete: (invoice: ProjectInvoice) => void;
-    onEdit: (invoice: ProjectInvoice) => void; // --- (Indicator) NEW: onEdit callback ---
+    onEdit: (invoice: ProjectInvoice) => void;
+    hideCustomerColumn?: boolean; // Hide customer column when viewing from customer page
 }
 
 // =================================================================================
@@ -56,7 +72,7 @@ export const getProjectInvoiceColumns = (
     options: ColumnGeneratorOptions
 ): ColumnDef<ProjectInvoice>[] => {
 
-    const { isAdmin, getProjectName, getCustomerName, getUserName, onDelete, onEdit } = options; // Destructure onEdit
+    const { isAdmin, getProjectName, getCustomerName, getUserName, onDelete, onEdit, hideCustomerColumn } = options;
 
     const columns: ColumnDef<ProjectInvoice>[] = [
         {
@@ -88,25 +104,30 @@ export const getProjectInvoiceColumns = (
                 facetTitle: "Project"
             }
         },
-        {
-            accessorKey: "customer",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Customer" />,
-            cell: ({ row }) => {
-                const customerName = getCustomerName(row.original.customer)
-                return (
-                    <Link to={`/customers/${row.original.customer}`} className="text-blue-600 hover:underline">
-                        {customerName || row.original.customer}
-                    </Link>
-                );
-            },
-            filterFn: facetedFilterFn,
-            meta: {
-                exportHeaderName: "Customer",
-                exportValue: (row: ProjectInvoice) => getCustomerName(row.customer),
-                enableFacet: true,
-                facetTitle: "Customer"
-            }
-        },
+        // Conditionally include customer column
+        ...(!hideCustomerColumn
+            ? [
+                  {
+                      accessorKey: "customer",
+                      header: ({ column }) => <DataTableColumnHeader column={column} title="Customer" />,
+                      cell: ({ row }) => {
+                          const customerName = getCustomerName(row.original.customer);
+                          return (
+                              <Link to={`/customers/${row.original.customer}`} className="text-blue-600 hover:underline">
+                                  {customerName || row.original.customer}
+                              </Link>
+                          );
+                      },
+                      filterFn: facetedFilterFn,
+                      meta: {
+                          exportHeaderName: "Customer",
+                          exportValue: (row: ProjectInvoice) => getCustomerName(row.customer),
+                          enableFacet: true,
+                          facetTitle: "Customer",
+                      },
+                  } as ColumnDef<ProjectInvoice>,
+              ]
+            : []),
         {
             accessorKey: "amount",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Amount(Incl. GST)" />,
