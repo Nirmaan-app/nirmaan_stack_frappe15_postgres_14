@@ -2,7 +2,7 @@ import frappe
 from frappe import _
 
 @frappe.whitelist()
-def generate_all_sr_invoice_data():
+def generate_all_sr_invoice_data(start_date=None, end_date=None):
     """
     Generate consolidated invoice data for all APPROVED invoices in Service Requests.
 
@@ -80,6 +80,17 @@ def generate_all_sr_invoice_data():
                 status = invoice_item.get("status", "Pending")
                 if status != "Approved":
                     continue
+
+                # Date filtering (if provided)
+                if start_date or end_date:
+                    try:
+                        invoice_date = frappe.utils.getdate(date_str)
+                        if start_date and invoice_date < frappe.utils.getdate(start_date):
+                            continue
+                        if end_date and invoice_date > frappe.utils.getdate(end_date):
+                            continue
+                    except Exception:
+                        continue  # Skip entries with invalid dates
 
                 # Get reconciliation_status (new field) or derive from is_2b_activated (legacy)
                 reconciliation_status = invoice_item.get("reconciliation_status")
