@@ -30,6 +30,16 @@ const CustomerFormSchema = z.object({
     .min(3, {
       message: "Must be at least 3 characters.",
     }),
+  customer_nickname: z
+    .string({
+      required_error: "Customer Nickname is Required",
+    })
+    .min(2, {
+      message: "Nickname must be at least 2 characters.",
+    })
+    .max(30, {
+      message: "Nickname must be at most 30 characters.",
+    }),
   company_email: z.string().email().optional().or(z.literal("")),
   company_phone: z
     .string()
@@ -129,6 +139,7 @@ const EditCustomer = ({ toggleEditSheet }) => {
     resolver: zodResolver(CustomerFormSchema),
     defaultValues: {
       company_name: data?.company_name,
+      customer_nickname: data?.customer_nickname,
       company_email: data?.company_email,
       company_phone: data?.company_phone,
       company_contact_person: data?.company_contact_person,
@@ -144,6 +155,7 @@ const EditCustomer = ({ toggleEditSheet }) => {
     if (data && addressData) {
       form.reset({
         company_name: data?.company_name,
+        customer_nickname: data?.customer_nickname,
         company_email: data?.company_email,
         company_phone: data?.company_phone,
         company_contact_person: data?.company_contact_person,
@@ -161,6 +173,7 @@ const EditCustomer = ({ toggleEditSheet }) => {
     const values = form.getValues();
     const originalValues = {
       company_name: data?.company_name,
+      customer_nickname: data?.customer_nickname,
       company_email: data?.company_email,
       company_phone: data?.company_phone,
       company_contact_person: data?.company_contact_person,
@@ -175,6 +188,7 @@ const EditCustomer = ({ toggleEditSheet }) => {
   const updateCustomerDetails = async (values: CustomerFormValues) => {
     const hasCustomerChanged =
       data?.company_name !== values.company_name ||
+      data?.customer_nickname !== values.customer_nickname ||
       data?.company_email !== values.company_email ||
       data?.company_phone !== values.company_phone ||
       data?.company_contact_person !== values.company_contact_person ||
@@ -183,6 +197,7 @@ const EditCustomer = ({ toggleEditSheet }) => {
     if (hasCustomerChanged) {
       await updateDoc("Customers", id, {
         company_name: values.company_name,
+        customer_nickname: values.customer_nickname,
         company_email: values.company_email,
         company_phone: values.company_phone,
         company_contact_person: values.company_contact_person,
@@ -278,6 +293,21 @@ const EditCustomer = ({ toggleEditSheet }) => {
                 </FormLabel>
                 <FormControl>
                   <Input {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="customer_nickname"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>
+                  Nickname<sup className="text-sm text-red-600">*</sup>
+                </FormLabel>
+                <FormControl>
+                  <Input placeholder="Short, memorable name" {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
