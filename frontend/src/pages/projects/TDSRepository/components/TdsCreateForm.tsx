@@ -62,14 +62,15 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
     // 1. Fetch Master Data
     const { data: repoItems } = useFrappeGetDocList<TDSRepositoryDoc>("TDS Repository", {
         fields: ["name", "tds_item_id", "tds_item_name", "make", "description", "work_package", "category", "tds_attachment"],
-        limit: 1000
+        limit: 0
     });
 
     // 2. Fetch Existing Project Items (to prevent duplicates, but allow re-entry of rejected)
     const { data: existingProjectItems } = useFrappeGetDocList("Project TDS Item List", {
         fields: ["name", "tds_item_id", "tds_make", "tds_request_id", "tds_status"], 
         filters: [["tdsi_project_id", "=", projectId], ["docstatus", "!=", 2]],
-        limit: 1000
+        limit: 0,
+        orderBy: { field: "creation", order: "desc" }
     });
 
     // Filter repo items to exclude those already in the project (unless Rejected)
@@ -191,22 +192,25 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
         setIsSubmitting(true);
         
         let nextSeq = 1;
+        const projectSuffix = projectId.slice(-3);
+        
         if (existingProjectItems) {
+            const prefix = `RQ-${projectSuffix}-`;
             const reqIds = existingProjectItems
                 .map((i: any) => i.tds_request_id)
-                .filter((id: string) => id && id.startsWith("RQ-"));
+                .filter((id: string) => id && id.startsWith(prefix));
             
             if (reqIds.length > 0) {
                  const maxId = Math.max(...reqIds.map((id: string) => {
                     const parts = id.split("-");
-                    return parts.length > 1 ? parseInt(parts[1]) : 0;
+                    return parseInt(parts[parts.length - 1]) || 0;
                  }));
                  if (!isNaN(maxId)) {
                      nextSeq = maxId + 1;
                  }
             }
         }
-        const uniqueReqId = `RQ-${nextSeq.toString().padStart(2, '0')}`;
+        const uniqueReqId = `RQ-${projectSuffix}-${nextSeq.toString().padStart(2, '0')}`;
 
         try {
             // 1. Delete previous rejected records

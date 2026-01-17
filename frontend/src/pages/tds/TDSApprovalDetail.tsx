@@ -212,7 +212,7 @@ export const TDSApprovalDetail: React.FC = () => {
     const { data: allItems, isLoading, mutate } = useFrappeGetDocList<TDSItem>("Project TDS Item List", {
         fields: ["*"],
         filters: [["tds_request_id", "=", requestId ?? ""]], 
-        limit: 1000
+        limit: 0
     });
     
     // Split items by status

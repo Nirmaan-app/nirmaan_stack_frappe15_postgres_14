@@ -61,7 +61,7 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
     // Moved to top so it can be used in columns
     const { data: nirmaanUsers } = useFrappeGetDocList("Nirmaan Users", {
         fields: ["name", "full_name"],
-        limit: 1000
+        limit: 0
     });
 
     // Create User Map: email -> full_name

@@ -79,7 +79,7 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
     // 1. Fetch Master Data
     const { data: repoItems } = useFrappeGetDocList<TDSRepositoryDoc>("TDS Repository", {
         fields: ["name", "tds_item_id", "tds_item_name", "make", "description", "work_package", "category", "tds_attachment"],
-        limit: 1000,
+        limit: 0,
         enabled: open
     });
 
@@ -88,7 +88,7 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
     const { data: existingProjectItems } = useFrappeGetDocList("Project TDS Item List", {
         fields: ["name", "tds_item_id", "tds_make", "tds_status", "tdsi_project_id"],
         filters: (item && open) ? [["tdsi_project_id", "=", item.tdsi_project_id || ""], ["name", "!=", item.name], ["docstatus", "!=", 2]] : [["name", "=", "NOT_FOUND"]],
-        limit: 1000
+        limit: 0
     });
 
     // Initialize states when item changes or modal opens
