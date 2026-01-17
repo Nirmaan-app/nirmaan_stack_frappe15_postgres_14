@@ -137,11 +137,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
 
   // Date Logic
   const today = new Date();
-  const yesterday = new Date();
-  yesterday.setDate(today.getDate() - 1);
-
   const todayStr = formatDateForInput(today);
-  const yesterdayStr = formatDateForInput(yesterday);
 
   const { createDoc } = useFrappeCreateDoc();
   const { updateDoc } = useFrappeUpdateDoc();
@@ -157,27 +153,29 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
     limit: 1
   }, selectedProject && selectedZone ? undefined : null);
 
-  const { data: yesterdayReportList } = useFrappeGetDocList("Project Progress Reports", {
-    fields: ["name", "report_status"],
+  const { data: previousReportList } = useFrappeGetDocList("Project Progress Reports", {
+    fields: ["name", "report_status", "report_date"],
     filters: [
       ["project", "=", selectedProject],
       ["report_zone", "=", selectedZone],
-      ["report_date", "=", yesterdayStr],
+      ["report_date", "<", todayStr],
       ["report_status", "=", "Completed"]
     ],
-    limit: 1
+    limit: 1,
+    orderBy: { field: "report_date", order: "desc" }
   }, selectedProject && selectedZone ? undefined : null);
 
-  const yesterdayReportName = yesterdayReportList?.[0]?.name;
+  const previousReportName = previousReportList?.[0]?.name;
+  const previousReportDate = previousReportList?.[0]?.report_date;
   const hasTodayReport = todayReportList && todayReportList.length > 0;
-  const canCopy = !hasTodayReport && !!yesterdayReportName;
+  const canCopy = !hasTodayReport && !!previousReportName;
 
   const { workHeaderOrderMap } = useWorkHeaderOrder();
 
-  const { data: fullYesterdayReport, isLoading: isLoadingReport } = useFrappeGetDoc(
+  const { data: fullPreviousReport, isLoading: isLoadingReport } = useFrappeGetDoc(
     "Project Progress Reports",
-    yesterdayReportName,
-    yesterdayReportName ? undefined : null  // ← FIXED: Fetch as soon as report name is available (not waiting for dialog)
+    previousReportName,
+    previousReportName ? undefined : null  // ← FIXED: Fetch as soon as report name is available (not waiting for dialog)
   );
 
   // --- 5. CALCULATE TODAY'S APPLICABLE MILESTONES ---
@@ -201,25 +199,25 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
 
   // --- 6. CHECK IF NEW MILESTONES WERE ADDED ---
   useEffect(() => {
-    if (fullYesterdayReport?.milestones && todaysApplicableMilestones.length > 0) {
-      const yesterdayCount = fullYesterdayReport.milestones.length;
+    if (fullPreviousReport?.milestones && todaysApplicableMilestones.length > 0) {
+      const previousCount = fullPreviousReport.milestones.length;
       const todayCount = todaysApplicableMilestones.length;
 
-      if (todayCount > yesterdayCount) {
-        const diff = todayCount - yesterdayCount;
+      if (todayCount > previousCount) {
+        const diff = todayCount - previousCount;
         setNewMilestoneCount(diff);
       } else {
         setNewMilestoneCount(0);
       }
     }
-  }, [fullYesterdayReport, todaysApplicableMilestones]);
+  }, [fullPreviousReport, todaysApplicableMilestones]);
 
   // --- 7. INITIALIZE EDITABLE DATA WHEN DIALOG OPENS ---
   useEffect(() => {
-    if (isDialogOpen && fullYesterdayReport) {
-      // Initialize editable milestones from yesterday's report
+    if (isDialogOpen && fullPreviousReport) {
+      // Initialize editable milestones from previous report
       setEditableMilestones(
-        fullYesterdayReport.milestones?.map((m: any) => ({
+        fullPreviousReport.milestones?.map((m: any) => ({
           work_milestone_name: m.work_milestone_name,
           work_header: m.work_header,
           status: m.status,
@@ -238,22 +236,22 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
 
       // Initialize editable manpower from yesterday's report
       setEditableManpower(
-        fullYesterdayReport.manpower?.map((m: any) => ({
+        fullPreviousReport.manpower?.map((m: any) => ({
           label: m.label,
           count: m.count,
         })) || []
       );
 
       // Initialize remarks
-      setEditableManpowerRemarks(fullYesterdayReport.manpower_remarks || "");
+      setEditableManpowerRemarks(fullPreviousReport.manpower_remarks || "");
       
       const parseRemarks = (remarkStr: string | null | undefined): string[] => {
         if (!remarkStr || remarkStr.trim() === '') return [];
         return remarkStr.split(REMARKS_DELIMITER).filter(r => r.trim() !== '');
       };
       
-      setDrawingRemarkPoints(parseRemarks(fullYesterdayReport.drawing_remarks));
-      setSiteRemarkPoints(parseRemarks(fullYesterdayReport.site_remarks));
+      setDrawingRemarkPoints(parseRemarks(fullPreviousReport.drawing_remarks));
+      setSiteRemarkPoints(parseRemarks(fullPreviousReport.site_remarks));
 
       // Reset new remark inputs
       setNewDrawingRemark("");
@@ -267,7 +265,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
       setHasChanges(false);
       setLocalPhotos([]);
     }
-  }, [isDialogOpen, fullYesterdayReport, REMARKS_DELIMITER]);
+  }, [isDialogOpen, fullPreviousReport, REMARKS_DELIMITER]);
 
   // Group editable milestones for display
   const groupedMilestones = useMemo(() => {
@@ -414,20 +412,24 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
           return updatedMilestone;
         }
         
-        // Handle progress changes
         if (field === 'progress') {
-          const newProgress = parseInt(value) || 0;
-          let updatedMilestone = { ...m, progress: newProgress };
+          // Allow empty string for clearing input
+          if (value === "") {
+             let updatedMilestone = { ...m, progress: "" };
+             return updatedMilestone;
+          }
+
+          let newProgress = parseInt(value);
+          if (isNaN(newProgress)) newProgress = 0;
+
+          let updatedMilestone = { ...m };
           
-          // If progress is 100, auto-set status to Completed
-          if (newProgress >= 100) {
-            updatedMilestone.status = 'Completed';
-            updatedMilestone.progress = 100;
-          }
-          // If progress > 0 and status is Not Started, switch to WIP
-          else if (newProgress > 0 && m.status === 'Not Started') {
-            updatedMilestone.status = 'WIP';
-          }
+          // Enforce Max 99 for WIP, but allow lower values for typing (validate on submit)
+          if (updatedMilestone.status === 'WIP') {
+             if (newProgress > 99) newProgress = 99;
+             // removed lower bound clamp to allow typing (e.g. backspace to empty)
+             updatedMilestone.progress = newProgress;
+          } 
           
           return updatedMilestone;
         }
@@ -570,16 +572,12 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
   };
 
   // --- 15. DIALOG CLOSE HANDLER ---
+  // --- 15. DIALOG CLOSE HANDLER ---
   const handleDialogClose = async (open: boolean) => {
-    if (!open && hasChanges) {
-      // Auto-save as draft when closing with unsaved changes
-      await handleSaveDraft();
-      setIsDialogOpen(false); // Explicitly close after saving
-      setLocalPhotos([]); // Clear photos state
-    } else if (!open) {
-      // No changes, just close
+    if (!open) {
+      // Just close, do not auto-save.
       setIsDialogOpen(false);
-      setLocalPhotos([]);
+      // User requested NOT to clear photos here
     } else {
       setIsDialogOpen(open);
     }
@@ -588,6 +586,44 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
   // --- 16. SUBMIT FINAL REPORT ---
   const handleConfirmCopy = async () => {
     if (editableMilestones.length === 0) return;
+
+    // --- VALIDATION START ---
+    for (const m of editableMilestones) {
+      // 1. Check Not Started -> Expected Start Date Mandatory
+      if (m.status === 'Not Started' && !m.expected_starting_date) {
+        toast({
+          title: "Missing Date 📅",
+          description: `Please set Expected Start Date for "${m.work_milestone_name}"`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // 2. Check WIP > 75% -> Expected Completion Date Mandatory
+      if (m.status === 'WIP' && m.progress > 75 && !m.expected_completion_date) {
+         toast({
+          title: "Missing Date 📅",
+          description: `Please set Expected Completion Date for "${m.work_milestone_name}" (Progress > 75%)`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // 3. Check WIP Progress Range (1-99)
+      if (m.status === 'WIP') {
+         const prog = parseInt(m.progress);
+         if (isNaN(prog) || prog < 1 || prog > 99) {
+           toast({
+            title: "Invalid Progress ⚠️",
+            description: `Progress for "${m.work_milestone_name}" must be between 1% and 99% for WIP status.`,
+            variant: "destructive",
+          });
+          return;
+         }
+      }
+    }
+    // --- VALIDATION END ---
+
     setIsCopying(true);
 
     try {
@@ -684,7 +720,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
         ) : (
           <>
             <Copy className="w-4 h-4" />
-            Copy Yesterday's Report
+            Copy Previous Report
           </>
         )}
       </Button>
@@ -700,11 +736,11 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
             <DialogDescription className="pt-4">
               <div className="space-y-3">
                 <p className="text-sm text-gray-700">
-                  <strong>{newMilestoneCount}</strong> new milestone{newMilestoneCount !== 1 ? 's have' : ' has'} been added to the project since yesterday's report.
+                  <strong>{newMilestoneCount}</strong> new milestone{newMilestoneCount !== 1 ? 's have' : ' has'} been added to the project since the previous report.
                 </p>
                 <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3">
                   <p className="text-xs text-yellow-800">
-                    <strong>Note:</strong> Copy Yesterday's Report is not available when new milestones are added.
+                    <strong>Note:</strong> Copy Previous Report is not available when new milestones are added.
                     Please create a new report to include all current milestones.
                   </p>
                 </div>
@@ -734,7 +770,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
           
           <DialogHeader className="px-6 py-4 border-b flex-shrink-0">
             <DialogTitle className="flex items-center gap-2 text-blue-600">
-              <Copy className="w-5 h-5" /> Copy Yesterday's Report
+              <Copy className="w-5 h-5" /> Copy Previous Report ({previousReportDate ? formatDate(new Date(previousReportDate)) : 'Unknown Date'})
               {hasChanges && <Badge variant="outline" className="ml-2 text-orange-600 border-orange-300">Unsaved Changes</Badge>}
             </DialogTitle>
             <DialogDescription className="mt-1.5">
@@ -754,7 +790,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                   <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
                   <span>
                     Creating report for <strong>{formatDate(today)}</strong>. 
-                    All data is editable. Yesterday's photos are not copied.
+                    All data is editable. Previous report's photos are not copied.
                   </span>
                 </div>
 
@@ -1038,18 +1074,21 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                                 </div>
                                 
                                 {/* Progress Bar - Only editable for WIP status */}
+                                {/* Progress Input - Only editable for WIP status, or triggers status change */}
                                 <div className="flex items-center gap-3">
                                   <span className="text-gray-500">Progress:</span>
-                                  <input
-                                    type="range"
-                                    min="0"
-                                    max="100"
-                                    value={m.progress}
-                                    onChange={(e) => handleMilestoneChange(m.work_milestone_name, 'progress', parseInt(e.target.value))}
-                                    className="flex-1"
-                                    disabled={m.status === 'Completed' || m.status === 'Not Started' || m.status === 'Not Applicable'}
-                                  />
-                                  <span className="font-bold w-10 text-right">{m.progress}%</span>
+                                  <div className="flex items-center gap-1 flex-1">
+                                      <input
+                                        type="number"
+                                        min="1"
+                                        max="99"
+                                        value={m.progress}
+                                        onChange={(e) => handleMilestoneChange(m.work_milestone_name, 'progress', e.target.value)}
+                                        className="w-full text-xs border rounded px-2 py-1"
+                                        disabled={m.status !== 'WIP'} 
+                                      />
+                                      <span className="text-gray-500 text-xs font-medium">%</span>
+                                  </div>
                                 </div>
                                 
                                 {/* Date Fields based on Status */}
