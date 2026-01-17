@@ -70,3 +70,5 @@ nirmaan_stack.patches.v2_8.recalculate_critical_po_deadlines #2
 nirmaan_stack.patches.v2_8.remove_accountant_project_assignments
 
 nirmaan_stack.patches.v2_8.add_missing_nirmaan_role_permissions
+nirmaan_stack.patches.v2_8.update_attach_type_for_progress_reports
+
