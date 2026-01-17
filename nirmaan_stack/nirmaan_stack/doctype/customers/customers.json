@@ -8,6 +8,7 @@
  "field_order": [
   "customer_details_section",
   "company_name",
+  "customer_nickname",
   "company_address_section",
   "company_address",
   "contact_details_section",
@@ -29,6 +30,14 @@
    "in_list_view": 1,
    "label": "Company Name",
    "reqd": 1
+  },
+  {
+   "fieldname": "customer_nickname",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Customer Nickname",
+   "reqd": 1,
+   "description": "Short, memorable name for quick identification"
   },
   {
    "fieldname": "company_address_section",

@@ -12,6 +12,8 @@ export interface Customers{
 	idx?: number
 	/**	Company Name : Data	*/
 	company_name: string
+	/**	Customer Nickname : Data	*/
+	customer_nickname: string
 	/**	Company Address : Link - Address	*/
 	company_address: string
 	/**	Company Contact Person : Data	*/
