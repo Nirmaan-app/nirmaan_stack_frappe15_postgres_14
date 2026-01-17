@@ -4,6 +4,105 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-17: Customer Page UI Revamp & Nickname Feature
+
+### Summary
+Complete redesign of the Customer detail page with enterprise-grade components, migration from Ant Design to shadcn Tabs, addition of customer filtering for Project Invoices, and new customer_nickname field across the system.
+
+### Files Modified
+
+**Customer Page UI (Phase 1-2):**
+- `src/pages/customers/customer.tsx`:
+  - Replaced Ant Design `ConfigProvider/Menu` with shadcn `Tabs` component
+  - Added lucide icons (LayoutDashboard, Receipt) for tab visual enhancement
+  - Simplified handlers: `mainTabClick` → `handleMainTabChange`
+  - Display customer nickname alongside company name in header
+
+- `src/pages/customers/CustomerOverview.tsx`:
+  - Complete redesign following `UserOverviewTab.tsx` patterns
+  - Added `StatCard` component with hover effects and gradient overlays
+  - Added `InfoItem` component following icon + label + value pattern
+  - Created gradient header card with overlapping Building2 icon
+  - Display customer stats: Total Projects, Active Projects, Days as Customer
+  - Replaced Ant Radio.Group with shadcn Tabs for sub-navigation
+  - Added new "Invoices" tab for customer-scoped project invoices
+
+**Project Invoices Customer Filtering (Phase 3):**
+- `src/pages/ProjectInvoices/config/projectInvoices.config.tsx`:
+  - Added `getProjectInvoiceStaticFilters()` helper function
+  - Added `hideCustomerColumn` option to column generator
+  - Conditionally hide customer column when viewing from customer context
+
+- `src/pages/ProjectInvoices/AllProjectInvoices.tsx`:
+  - Destructured and wired up `customerId` prop
+  - Used static filters helper for `additionalFilters`
+  - Pass `customerName` to summary card for context display
+
+**Customer Nickname Feature:**
+- `nirmaan_stack/doctype/customers/customers.json`:
+  - Added `customer_nickname` field (Data, required, in_list_view)
+
+- `src/types/NirmaanStack/Customers.ts`:
+  - Added `customer_nickname: string` to interface
+
+- `src/pages/customers/add-new-customer.tsx`:
+  - Added nickname field with validation (2-30 chars)
+  - Fixed validation message typo: "Employee Name" → "Company Name"
+
+- `src/pages/customers/edit-customer.tsx`:
+  - Added nickname field with change detection
+
+- `src/pages/customers/customers.constants.ts`:
+  - Added nickname to `CUSTOMER_LIST_FIELDS_TO_FETCH`
+  - Added nickname to `CUSTOMER_SEARCHABLE_FIELDS`
+
+- `src/pages/customers/customers.tsx`:
+  - Added Nickname column to customers list table
+
+**Customer Statistics API:**
+- `nirmaan_stack/api/customers/customer_stats.py` (NEW):
+  - Added `get_customer_stats()` whitelisted API
+  - Returns total, by_state breakdown, with/without projects, recent_30_days
+
+- `src/pages/customers/components/CustomersSummaryCard.tsx`:
+  - Complete redesign with state-based color pills
+  - Integrated with customer_stats API
+  - Added expandable dropdown for state breakdown
+
+**Documentation:**
+- `.claude/context/_index.md` - Added customers domain reference
+- `.claude/context/domain/customers.md` (NEW) - Customer management docs
+
+### Design Patterns Established
+
+**Enterprise Minimalist Info Cards:**
+```tsx
+<InfoItem
+  icon={<Building2 className="h-4 w-4" />}
+  label="Company Name"
+  value={data?.company_name}
+/>
+```
+
+**Stat Cards with Hover Effects:**
+```tsx
+<StatCard
+  icon={<FolderKanban className="h-5 w-5" />}
+  label="Total Projects"
+  value={totalProjectCount ?? 0}
+  colorClass="text-blue-600"
+/>
+```
+
+**Conditional Column Hiding:**
+```typescript
+getProjectInvoiceColumns({
+  hideCustomerColumn: !!customerId, // Hide when in customer context
+})
+```
+
+---
+
 ## 2026-01-16: WebSocket Documentation Added
 
 ### Summary
