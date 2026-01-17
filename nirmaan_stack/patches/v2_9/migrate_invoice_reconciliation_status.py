@@ -40,11 +40,20 @@ def migrate_doctype_invoices(doctype: str) -> int:
     Returns:
         Number of documents updated
     """
-    # Get all documents with invoice_data
+    # Get all documents - filter invoice_data in Python for database compatibility
+    # JSON fields have different comparison semantics in PostgreSQL vs MariaDB
     docs = frappe.get_all(
         doctype,
         filters=[["invoice_data", "is", "set"]],
-        fields=["name", "invoice_data"]
+        fields=["name", "invoice_data"],
+        limit=0  # No limit - get all
+    ) if frappe.db.db_type == "mariadb" else frappe.db.sql(
+        f"""
+        SELECT name, invoice_data
+        FROM "tab{doctype}"
+        WHERE invoice_data IS NOT NULL
+        """,
+        as_dict=True
     )
 
     updated_count = 0
