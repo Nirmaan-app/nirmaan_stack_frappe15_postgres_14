@@ -17,7 +17,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea"; // For photo remarks
 import { toast } from "@/components/ui/use-toast";
-import { Copy, Loader2, AlertCircle, Users, ListTodo, X, Camera, AlertTriangle, Pencil, Plus } from "lucide-react";
+import { Copy, Loader2, AlertCircle, Users, ListTodo, X, Camera, AlertTriangle, Pencil, Plus, FileText, MapPin } from "lucide-react";
 import { formatDate } from "@/utils/FormatDate";
 
 // --- NEW IMPORTS FOR CAMERA FEATURE ---
@@ -499,6 +499,11 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
     setHasChanges(true);
   };
 
+  const handleRemoveDrawingRemark = (index: number) => {
+    setDrawingRemarkPoints(prev => prev.filter((_, i) => i !== index));
+    setHasChanges(true);
+  };
+
   // --- 14. SAVE AS DRAFT ---
   const handleSaveDraft = async () => {
     if (!hasChanges && localPhotos.length === 0) {
@@ -901,203 +906,188 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                 <Separator />
 
                 {/* --- CLIENT/CLEARANCE ISSUES SECTION --- */}
-                <div>
+                <div className="mb-4">
                   <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2 mb-3">
                     <AlertTriangle className="w-4 h-4 text-orange-600" /> Client / Clearance Issues
                   </h3>
-                  <div className="space-y-4">
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     
-                    {/* Drawing Remarks */}
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <label className="text-xs font-medium text-gray-600">Drawing Remarks</label>
+                    {/* Drawing Issues Card */}
+                    <div className="bg-white rounded-xl shadow-sm border border-orange-200 overflow-hidden flex flex-col h-full">
+                      <div className="bg-gradient-to-r from-orange-50 to-orange-100 px-3 py-2 border-b border-orange-200 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <div className="p-1 bg-orange-500 rounded-md shadow-sm"><FileText className="w-3 h-3 text-white"/></div>
+                            <h4 className="font-semibold text-orange-900 text-sm">Drawing Remarks</h4>
+                        </div>
                         <Button 
                           variant="ghost" 
                           size="sm" 
-                          onClick={() => setEditingDrawingRemarks(!editingDrawingRemarks)}
-                          className="h-6 px-2 text-xs text-orange-600"
+                          onClick={() => setEditingDrawingRemarks(!editingDrawingRemarks)} 
+                          className={`h-6 px-2 text-xs transition-colors ${editingDrawingRemarks ? 'bg-orange-200 text-orange-900' : 'text-orange-700 hover:bg-orange-100'}`}
                         >
-                          <Pencil className="w-3 h-3 mr-1" /> {editingDrawingRemarks ? 'Done' : 'Edit'}
+                             <Pencil className="w-3 h-3 mr-1" /> {editingDrawingRemarks ? 'Done' : 'Edit'}
                         </Button>
                       </div>
-                      
-                      {drawingRemarkPoints.length > 0 ? (
-                        <div className="space-y-2">
-                          {drawingRemarkPoints.map((point, idx) => (
-                            <div key={idx} className="flex items-start gap-2 p-2 bg-orange-50 rounded border border-orange-200">
-                              <span className="text-orange-400 text-xs">•</span>
-                              {editingDrawingRemarks ? (
-                                <>
-                                  <input
-                                    type="text"
-                                    value={point}
-                                    onChange={(e) => handleEditDrawingRemark(idx, e.target.value)}
-                                    className="flex-1 text-xs bg-white border rounded px-2 py-1"
-                                  />
-                                  <Button 
-                                    variant="ghost" 
-                                    size="icon" 
-                                    className="h-6 w-6 text-red-500"
-                                    onClick={() => handleRemoveDrawingRemark(idx)}
-                                  >
-                                    <X className="w-3 h-3" />
-                                  </Button>
-                                </>
+
+                      <div className="p-3 flex-1 flex flex-col gap-3">
+                          {/* Remarks List */}
+                          <div className="flex-1 space-y-2">
+                              {drawingRemarkPoints.length > 0 ? (
+                                  drawingRemarkPoints.map((point, idx) => (
+                                      <div key={idx} className="flex items-start gap-2 text-sm text-gray-700 bg-orange-50/50 p-2 rounded-md border border-orange-100 transition-all hover:bg-orange-50">
+                                          <span className="flex-shrink-0 w-5 h-5 bg-orange-200 text-orange-800 text-xs font-bold rounded-full flex items-center justify-center mt-0.5 shadow-sm">{idx + 1}</span>
+                                           {editingDrawingRemarks ? (
+                                              <div className="flex-1 flex gap-2 animate-in fade-in zoom-in-95 duration-200">
+                                                <input 
+                                                  type="text" 
+                                                  value={point} 
+                                                  onChange={(e) => handleEditDrawingRemark(idx, e.target.value)} 
+                                                  className="flex-1 text-xs border border-orange-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-orange-400 bg-white" 
+                                                />
+                                                <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => handleRemoveDrawingRemark(idx)}><X className="w-3 h-3"/></Button>
+                                              </div>
+                                           ) : (
+                                              <span className="break-words flex-1 text-xs">{point}</span>
+                                           )}
+                                      </div>
+                                  ))
                               ) : (
-                                <span className="flex-1 text-xs text-gray-700">{point}</span>
+                                <div className="text-center py-6 px-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                                  <p className="text-xs text-gray-400 italic">No drawing remarks</p>
+                                </div>
                               )}
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-gray-400 italic">No drawing remarks.</p>
-                      )}
-                      
-                      {editingDrawingRemarks && (
-                        <div className="flex items-center gap-2 mt-2">
-                          <input
-                            type="text"
-                            value={newDrawingRemark}
-                            onChange={(e) => setNewDrawingRemark(e.target.value)}
-                            placeholder="Add drawing remark..."
-                            className="flex-1 text-xs border rounded px-2 py-1"
-                            onKeyDown={(e) => e.key === 'Enter' && handleAddDrawingRemark()}
-                          />
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className="h-7 px-2 text-xs"
-                            onClick={handleAddDrawingRemark}
-                          >
-                            <Plus className="w-3 h-3 mr-1" /> Add
-                          </Button>
-                        </div>
-                      )}
-                      
-                      {/* Drawing Photos */}
-                      <div className="mt-3">
-                        <label className="text-xs font-medium text-orange-700 block mb-2">Drawing Photos</label>
-                        <PhotoPermissionChecker
-                          isBlockedByDraftOwnership={false}
-                          onAddPhotosClick={() => {
-                            setCurrentCaptureType('Drawing');
-                            setIsCaptureDialogOpen(true);
-                          }}
-                        />
-                        {localPhotos.filter(p => p.attach_type === 'Drawing').length > 0 && (
-                          <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
-                            {localPhotos.filter(p => p.attach_type === 'Drawing').map((photo) => (
-                              <div key={photo.local_id} className="relative rounded-md overflow-hidden border border-orange-300 aspect-square">
-                                <img src={photo.image_link} alt="Drawing" className="w-full h-full object-cover" />
-                                <Button
-                                  variant="destructive"
-                                  size="icon"
-                                  className="absolute top-1 right-1 h-5 w-5 rounded-full"
-                                  onClick={() => handleRemovePhoto(photo.local_id)}
-                                >
-                                  <X className="h-2.5 w-2.5" />
-                                </Button>
-                              </div>
-                            ))}
                           </div>
-                        )}
+                          
+                          {/* Add New Remark */}
+                          {editingDrawingRemarks && (
+                             <div className="flex items-center gap-2 animate-in slide-in-from-top-2 duration-200">
+                                 <input 
+                                   type="text" 
+                                   value={newDrawingRemark} 
+                                   onChange={(e) => setNewDrawingRemark(e.target.value)} 
+                                   placeholder="Add new remark..." 
+                                   className="flex-1 text-xs border border-orange-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent" 
+                                   onKeyDown={(e) => e.key === 'Enter' && handleAddDrawingRemark()} 
+                                 />
+                                 <Button variant="outline" size="sm" onClick={handleAddDrawingRemark} className="h-7 px-3 text-xs border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100"><Plus className="w-3 h-3 mr-1"/> Add</Button>
+                             </div>
+                          )}
+
+                          {/* Photos */}
+                           <div className="pt-3 mt-auto border-t border-orange-100">
+                              <div className="flex flex-col gap-2 mb-2">
+                                  <p className="text-[10px] font-bold text-orange-400 uppercase tracking-wider">Attached Photos</p>
+                                  <div className="w-full">
+                                    <PhotoPermissionChecker 
+                                      isBlockedByDraftOwnership={false} 
+                                      onAddPhotosClick={() => { setCurrentCaptureType('Drawing'); setIsCaptureDialogOpen(true); }} 
+                                      triggerLabel="Add" 
+                                    />
+                                  </div>
+                              </div>
+                              {localPhotos.filter(p => p.attach_type === 'Drawing').length > 0 ? (
+                                   <div className="grid grid-cols-4 gap-2">
+                                      {localPhotos.filter(p => p.attach_type === 'Drawing').map(photo => (
+                                          <div key={photo.local_id} className="relative aspect-square rounded-md overflow-hidden border border-orange-200 group shadow-sm hover:shadow-md transition-all">
+                                              <img src={photo.image_link} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-300"/>
+                                              <Button variant="destructive" size="icon" className="absolute top-1 right-1 h-5 w-5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemovePhoto(photo.local_id)}><X className="h-3 w-3"/></Button>
+                                          </div>
+                                      ))}
+                                   </div>
+                              ) : (
+                                <p className="text-[10px] text-gray-400 italic">No photos attached</p>
+                              )}
+                           </div>
                       </div>
                     </div>
-                    
-                    {/* Site Remarks */}
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <label className="text-xs font-medium text-gray-600">Site Remarks</label>
+
+                    {/* Site Issues Card */}
+                    <div className="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden flex flex-col h-full">
+                      <div className="bg-gradient-to-r from-red-50 to-red-100 px-3 py-2 border-b border-red-200 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <div className="p-1 bg-red-500 rounded-md shadow-sm"><MapPin className="w-3 h-3 text-white"/></div>
+                            <h4 className="font-semibold text-red-900 text-sm">Site Remarks</h4>
+                        </div>
                         <Button 
                           variant="ghost" 
                           size="sm" 
-                          onClick={() => setEditingSiteRemarks(!editingSiteRemarks)}
-                          className="h-6 px-2 text-xs text-red-600"
+                          onClick={() => setEditingSiteRemarks(!editingSiteRemarks)} 
+                          className={`h-6 px-2 text-xs transition-colors ${editingSiteRemarks ? 'bg-red-200 text-red-900' : 'text-red-700 hover:bg-red-100'}`}
                         >
-                          <Pencil className="w-3 h-3 mr-1" /> {editingSiteRemarks ? 'Done' : 'Edit'}
+                             <Pencil className="w-3 h-3 mr-1" /> {editingSiteRemarks ? 'Done' : 'Edit'}
                         </Button>
                       </div>
-                      
-                      {siteRemarkPoints.length > 0 ? (
-                        <div className="space-y-2">
-                          {siteRemarkPoints.map((point, idx) => (
-                            <div key={idx} className="flex items-start gap-2 p-2 bg-red-50 rounded border border-red-200">
-                              <span className="text-red-400 text-xs">•</span>
-                              {editingSiteRemarks ? (
-                                <>
-                                  <input
-                                    type="text"
-                                    value={point}
-                                    onChange={(e) => handleEditSiteRemark(idx, e.target.value)}
-                                    className="flex-1 text-xs bg-white border rounded px-2 py-1"
-                                  />
-                                  <Button 
-                                    variant="ghost" 
-                                    size="icon" 
-                                    className="h-6 w-6 text-red-500"
-                                    onClick={() => handleRemoveSiteRemark(idx)}
-                                  >
-                                    <X className="w-3 h-3" />
-                                  </Button>
-                                </>
+
+                      <div className="p-3 flex-1 flex flex-col gap-3">
+                          {/* Remarks List */}
+                          <div className="flex-1 space-y-2">
+                              {siteRemarkPoints.length > 0 ? (
+                                  siteRemarkPoints.map((point, idx) => (
+                                      <div key={idx} className="flex items-start gap-2 text-sm text-gray-700 bg-red-50/50 p-2 rounded-md border border-red-100 transition-all hover:bg-red-50">
+                                          <span className="flex-shrink-0 w-5 h-5 bg-red-200 text-red-800 text-xs font-bold rounded-full flex items-center justify-center mt-0.5 shadow-sm">{idx + 1}</span>
+                                           {editingSiteRemarks ? (
+                                              <div className="flex-1 flex gap-2 animate-in fade-in zoom-in-95 duration-200">
+                                                <input 
+                                                  type="text" 
+                                                  value={point} 
+                                                  onChange={(e) => handleEditSiteRemark(idx, e.target.value)} 
+                                                  className="flex-1 text-xs border border-red-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-red-400 bg-white" 
+                                                />
+                                                <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => handleRemoveSiteRemark(idx)}><X className="w-3 h-3"/></Button>
+                                              </div>
+                                           ) : (
+                                              <span className="break-words flex-1 text-xs">{point}</span>
+                                           )}
+                                      </div>
+                                  ))
                               ) : (
-                                <span className="flex-1 text-xs text-gray-700">{point}</span>
+                                <div className="text-center py-6 px-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                                  <p className="text-xs text-gray-400 italic">No site remarks</p>
+                                </div>
                               )}
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-gray-400 italic">No site remarks.</p>
-                      )}
-                      
-                      {editingSiteRemarks && (
-                        <div className="flex items-center gap-2 mt-2">
-                          <input
-                            type="text"
-                            value={newSiteRemark}
-                            onChange={(e) => setNewSiteRemark(e.target.value)}
-                            placeholder="Add site remark..."
-                            className="flex-1 text-xs border rounded px-2 py-1"
-                            onKeyDown={(e) => e.key === 'Enter' && handleAddSiteRemark()}
-                          />
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className="h-7 px-2 text-xs"
-                            onClick={handleAddSiteRemark}
-                          >
-                            <Plus className="w-3 h-3 mr-1" /> Add
-                          </Button>
-                        </div>
-                      )}
-                      
-                      {/* Site Photos */}
-                      <div className="mt-3">
-                        <label className="text-xs font-medium text-red-700 block mb-2">Site Photos</label>
-                        <PhotoPermissionChecker
-                          isBlockedByDraftOwnership={false}
-                          onAddPhotosClick={() => {
-                            setCurrentCaptureType('Site');
-                            setIsCaptureDialogOpen(true);
-                          }}
-                        />
-                        {localPhotos.filter(p => p.attach_type === 'Site').length > 0 && (
-                          <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
-                            {localPhotos.filter(p => p.attach_type === 'Site').map((photo) => (
-                              <div key={photo.local_id} className="relative rounded-md overflow-hidden border border-red-300 aspect-square">
-                                <img src={photo.image_link} alt="Site" className="w-full h-full object-cover" />
-                                <Button
-                                  variant="destructive"
-                                  size="icon"
-                                  className="absolute top-1 right-1 h-5 w-5 rounded-full"
-                                  onClick={() => handleRemovePhoto(photo.local_id)}
-                                >
-                                  <X className="h-2.5 w-2.5" />
-                                </Button>
-                              </div>
-                            ))}
                           </div>
-                        )}
+                          
+                          {/* Add New Remark */}
+                          {editingSiteRemarks && (
+                             <div className="flex items-center gap-2 animate-in slide-in-from-top-2 duration-200">
+                                 <input 
+                                   type="text" 
+                                   value={newSiteRemark} 
+                                   onChange={(e) => setNewSiteRemark(e.target.value)} 
+                                   placeholder="Add new remark..." 
+                                   className="flex-1 text-xs border border-red-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-red-400 focus:border-transparent" 
+                                   onKeyDown={(e) => e.key === 'Enter' && handleAddSiteRemark()} 
+                                 />
+                                 <Button variant="outline" size="sm" onClick={handleAddSiteRemark} className="h-7 px-3 text-xs border-red-200 bg-red-50 text-red-700 hover:bg-red-100"><Plus className="w-3 h-3 mr-1"/> Add</Button>
+                             </div>
+                          )}
+
+                          {/* Photos */}
+                           <div className="pt-3 mt-auto border-t border-red-100">
+                              <div className="flex flex-col gap-2 mb-2">
+                                  <p className="text-[10px] font-bold text-red-400 uppercase tracking-wider">Attached Photos</p>
+                                  <div className="w-full">
+                                    <PhotoPermissionChecker 
+                                      isBlockedByDraftOwnership={false} 
+                                      onAddPhotosClick={() => { setCurrentCaptureType('Site'); setIsCaptureDialogOpen(true); }} 
+                                      triggerLabel="Add" 
+                                    />
+                                  </div>
+                              </div>
+                              {localPhotos.filter(p => p.attach_type === 'Site').length > 0 ? (
+                                   <div className="grid grid-cols-4 gap-2">
+                                      {localPhotos.filter(p => p.attach_type === 'Site').map(photo => (
+                                          <div key={photo.local_id} className="relative aspect-square rounded-md overflow-hidden border border-red-200 group shadow-sm hover:shadow-md transition-all">
+                                              <img src={photo.image_link} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-300"/>
+                                              <Button variant="destructive" size="icon" className="absolute top-1 right-1 h-5 w-5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemovePhoto(photo.local_id)}><X className="h-3 w-3"/></Button>
+                                          </div>
+                                      ))}
+                                   </div>
+                              ) : (
+                                <p className="text-[10px] text-gray-400 italic">No photos attached</p>
+                              )}
+                           </div>
                       </div>
                     </div>
                   </div>

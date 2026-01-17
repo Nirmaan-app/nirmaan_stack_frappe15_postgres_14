@@ -4,7 +4,7 @@ import { formatDate } from '@/utils/FormatDate';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Download, Truck, Info, Eye, EyeOff } from 'lucide-react';
+import { Download, Truck, Info, Eye, EyeOff, FileText, MapPin } from 'lucide-react';
 import logo from "@/assets/logo-svg.svg";
 import { MilestoneProgress } from '../MilestonesSummary';
 import { useFrappeGetDoc, useFrappeGetDocList } from 'frappe-react-sdk';
@@ -21,11 +21,12 @@ interface MilestoneSnapshot {
   remarks: string;
 }
 interface ManpowerSnapshot { label: string; count: number; }
-interface ProjectProgressAttachment { image_link: string; location: string | null; remarks: string; }
+interface ProjectProgressAttachment { image_link: string; location: string | null; remarks: string; attach_type?: string; }
 interface ReportDoc {
   name: string; report_date: string; milestones: MilestoneSnapshot[]; manpower: ManpowerSnapshot[];
   total_completed_works: number; number_of_work_headers: number; total_manpower_used_till_date: number;
   attachments?: ProjectProgressAttachment[]; owner?: string;
+  drawing_remarks?: string; site_remarks?: string;
 }
 interface OverallMilestonesReportPDFProps {
   latestReport: ReportDoc | null; report7DaysAgo: ReportDoc | null; report14DaysAgo: ReportDoc | null; projectData: any; selectedZone: string | null;
@@ -362,6 +363,109 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
             </div>
           )}
 
+          {/* Client / Clearance Issues Section (Latest Report) */}
+          {(latestReport?.drawing_remarks || latestReport?.site_remarks || (latestReport?.attachments?.some(a => a.attach_type && ['Site', 'Drawing'].includes(a.attach_type)))) && (
+            <div className="mb-6 avoid-page-break-inside">
+              <h2 className="text-xl font-bold mb-4 mt-4 flex items-center gap-2">
+                Client / Clearance Issues
+              </h2>
+              
+              <div className="flex flex-col gap-4">
+                {/* Drawing Issues Card */}
+                <div className="bg-white rounded-xl border border-orange-200 overflow-hidden flex flex-col h-full">
+                  <div className="bg-orange-50 px-4 py-2 border-b border-orange-200 flex items-center gap-2">
+                    <div className="p-1 bg-orange-500 rounded-lg">
+                      <FileText className="h-3 w-3 text-white" />
+                    </div>
+                    <h4 className="font-semibold text-orange-900 text-sm">Drawing remarks</h4>
+                  </div>
+                  
+                  <div className="p-4 flex-1 flex flex-col gap-4">
+                    {/* Remarks */}
+                    <div className="flex-1">
+                      {latestReport.drawing_remarks && latestReport.drawing_remarks.trim() !== "" ? (
+                        <ul className="space-y-2">
+                          {latestReport.drawing_remarks.split("$#,,,").filter((item: string) => item.trim() !== "").map((remark: string, idx: number) => (
+                            <li key={`drawing-${idx}`} className="flex items-start gap-2 text-xs text-gray-700 bg-orange-50/50 p-2 rounded-md border border-orange-100">
+                              <span className="flex-shrink-0 w-4 h-4 bg-orange-200 text-orange-800 text-[10px] font-bold rounded-full flex items-center justify-center mt-0.5">
+                                {idx + 1}
+                              </span>
+                              <span className="break-words">{remark.trim()}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div className="text-center py-4 px-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                          <p className="text-xs text-gray-400 italic">No drawing issues reported</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Photos */}
+                    {latestReport.attachments?.filter((a: any) => a.attach_type === 'Drawing').length > 0 && (
+                      <div className="mt-auto pt-3 border-t border-orange-100">
+                        <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Attached Photos</p>
+                        <PDFImageGrid
+                          images={(latestReport?.attachments || [])
+                            .filter((a: any) => a.attach_type === 'Drawing')
+                            .map((a: any) => ({ ...a, location: a.location || undefined }))
+                          }
+                          maxImagesPerPage={4}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Site Issues Card */}
+                <div className="bg-white rounded-xl border border-red-200 overflow-hidden flex flex-col h-full">
+                  <div className="bg-red-50 px-4 py-2 border-b border-red-200 flex items-center gap-2">
+                    <div className="p-1 bg-red-500 rounded-lg">
+                      <MapPin className="h-3 w-3 text-white" />
+                    </div>
+                    <h4 className="font-semibold text-red-900 text-sm">Site Remarks</h4>
+                  </div>
+                  
+                  <div className="p-4 flex-1 flex flex-col gap-4">
+                    {/* Remarks */}
+                    <div className="flex-1">
+                      {latestReport.site_remarks && latestReport.site_remarks.trim() !== "" ? (
+                        <ul className="space-y-2">
+                          {latestReport.site_remarks.split("$#,,,").filter((item: string) => item.trim() !== "").map((remark: string, idx: number) => (
+                            <li key={`site-${idx}`} className="flex items-start gap-2 text-xs text-gray-700 bg-red-50/50 p-2 rounded-md border border-red-100">
+                              <span className="flex-shrink-0 w-4 h-4 bg-red-200 text-red-800 text-[10px] font-bold rounded-full flex items-center justify-center mt-0.5">
+                                {idx + 1}
+                              </span>
+                              <span className="break-words">{remark.trim()}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div className="text-center py-4 px-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                          <p className="text-xs text-gray-400 italic">No site issues reported</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Photos */}
+                    {latestReport.attachments?.filter((a: any) => a.attach_type === 'Site').length > 0 && (
+                      <div className="mt-auto pt-3 border-t border-red-100">
+                        <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Attached Photos</p>
+                        <PDFImageGrid
+                          images={(latestReport?.attachments || [])
+                            .filter((a: any) => a.attach_type === 'Site')
+                            .map((a: any) => ({ ...a, location: a.location || undefined }))
+                          }
+                          maxImagesPerPage={4}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
 
           {/* Work Progress Comparison Section */}
           {Object.entries(groupedMilestones).length > 0 && (
@@ -526,7 +630,10 @@ const OverallMilestonesReportPDF: React.FC<OverallMilestonesReportPDFProps> = ({
               />
               <h3 className="text-2xl font-bold mb-3 text-gray-800">Most Recent WORK IMAGES</h3>
               <PDFImageGrid
-                images={latestReport.attachments}
+                images={(latestReport?.attachments || [])
+                  ?.filter((a: any) => a.attach_type === 'Work')
+                  .map((a: any) => ({ ...a, location: a.location || undefined }))
+                }
                 maxImagesPerPage={4}
               />
             </div>
