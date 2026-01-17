@@ -43,7 +43,7 @@ export const RoleCard: React.FC<RoleCardProps> = ({
     };
 
     return (
-        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex flex-col gap-4 h-full transition-all hover:shadow-md">
+        <div className="bg-[#f8f9fB] rounded-xl border border-gray-100 shadow-sm p-5 flex flex-col gap-4 h-full transition-all hover:shadow-md">
             {/* Header */}
             <div className="flex items-center gap-2 text-gray-700">
                 {icon}
@@ -59,7 +59,7 @@ export const RoleCard: React.FC<RoleCardProps> = ({
                     onChange={(e) => onChange(e.target.value)}
                     placeholder={placeholder}
                     className={cn(
-                        "h-10 border-gray-200 focus:border-blue-500 focus:ring-blue-500/20 transition-all",
+                        "h-10 bg-white border-gray-200 focus:border-blue-500 focus:ring-blue-500/20 transition-all",
                         error && "border-red-500 focus:border-red-500 focus:ring-red-500/20"
                     )}
                 />

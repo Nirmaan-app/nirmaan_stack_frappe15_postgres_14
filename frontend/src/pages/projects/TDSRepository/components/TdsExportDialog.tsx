@@ -9,7 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Ban, FileDown, ExternalLink } from 'lucide-react';
+import { Ban, FileDown, ExternalLink, Loader2 } from 'lucide-react';
 import { TDSRepositoryData } from './SetupTDSRepositoryDialog';
 
 interface TdsExportItem {
@@ -111,6 +111,16 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
                     <DialogTitle className="text-lg font-semibold">Confirm TDS Export</DialogTitle>
                     <p className="text-sm text-gray-500">Review TDS setup details and select items to include in the export PDF.</p>
                 </DialogHeader>
+
+                {isExporting && (
+                    <div className="absolute inset-0 bg-white/90 flex flex-col items-center justify-center z-50 backdrop-blur-sm">
+                        <Loader2 className="w-16 h-16 text-red-600 animate-spin mb-4" />
+                        <h3 className="text-xl font-semibold text-gray-900 mb-2">Generating PDF Report</h3>
+                        <p className="text-gray-500 text-center max-w-sm">
+                            Please wait while we merge attachments and compile your document. This may take a moment.
+                        </p>
+                    </div>
+                )}
 
                 <div className="flex-1 overflow-y-auto">
                     {/* TDS Setup Section */}
@@ -227,8 +237,17 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
                         disabled={selectedIds.size === 0 || isExporting}
                         className="bg-red-600 hover:bg-red-700 text-white"
                     >
-                        <FileDown className="w-4 h-4 mr-2" />
-                        {isExporting ? 'Exporting...' : 'Export PDF'}
+                        {isExporting ? (
+                            <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                Exporting...
+                            </>
+                        ) : (
+                            <>
+                                <FileDown className="w-4 h-4 mr-2" />
+                                Export PDF
+                            </>
+                        )}
                     </Button>
                 </DialogFooter>
             </DialogContent>

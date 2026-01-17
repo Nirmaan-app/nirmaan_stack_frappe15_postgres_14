@@ -91,9 +91,9 @@ export const SetupTDSRepositoryDialog: React.FC<SetupTDSRepositoryDialogProps> =
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && !isLoading && onClose()}>
-            <DialogContent className="max-w-[1000px] bg-[#F8F9FB] p-0 gap-0 overflow-hidden">
+            <DialogContent className="max-w-[1000px]  p-0 gap-0 overflow-hidden">
                 {/* Header */}
-                <div className="px-6 py-4 bg-white border-b border-gray-100">
+                <div className="px-6 py-4 bg-gray-100 border-b border-gray-300">
                     <div className="flex items-start gap-4">
                         <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
                             <Settings2 className="w-6 h-6" />
@@ -187,7 +187,7 @@ export const SetupTDSRepositoryDialog: React.FC<SetupTDSRepositoryDialogProps> =
                 </div>
 
                 {/* Footer */}
-                <div className="px-6 py-4 bg-white border-t border-gray-100 flex justify-end gap-3">
+                <div className="px-6 py-4  border-t bg-gray-100 border-gray-300 flex justify-end gap-3">
                     <Button variant="outline" onClick={onClose} disabled={isLoading} className="border-gray-300 text-gray-700 hover:bg-gray-50">
                         Cancel
                     </Button>

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Download } from 'lucide-react';
 import { useFrappeGetDocList, useFrappeGetDoc } from 'frappe-react-sdk';
@@ -124,57 +125,61 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
 
     return (
         <div className="p-8 bg-white min-h-full">
-            {/* Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
-                 <div>
-                    <h2 className="text-xl font-semibold text-gray-900">Set up TDS Repository</h2>
-                    <p className="text-sm text-gray-500 mt-1">
-                        These details will appear for all TDS submissions for this project
-                    </p>
-                 </div>
-                 <div className="flex gap-2">
-                    <Button 
-                        onClick={() => setIsExportDialogOpen(true)}
-                        variant="outline"
-                        disabled={isExporting || !historyData || historyData.length === 0}
-                        className="bg-white border-gray-300 text-gray-900 hover:bg-gray-50 font-medium px-4 shadow-sm"
-                    >
-                        <Download className="w-4 h-4 mr-2" />
-                        {isExporting ? 'Exporting...' : 'Export'}
-                    </Button>
-                    <Button 
-                        onClick={() => setIsSetupDialogOpen(true)} 
-                        variant="outline"
-                        className="bg-white border-gray-300 text-gray-900 hover:bg-gray-50 font-medium px-4 shadow-sm"
-                    >
-                        Edit Details
-                    </Button>
-                 </div>
-            </div>
+            <Card className="mb-8">
+                <CardContent className="p-4">
+                    {/* Header */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-8">
+                         <div>
+                            <h2 className="text-xl font-semibold text-gray-900">Set up TDS Repository</h2>
+                            <p className="text-sm text-gray-500 mt-1">
+                                These details will appear for all TDS submissions for this project
+                            </p>
+                         </div>
+                         <div className="flex gap-2">
+                            <Button 
+                                onClick={() => setIsExportDialogOpen(true)}
+                                variant="outline"
+                                disabled={isExporting || !historyData || historyData.length === 0}
+                                className="bg-white border-red-500 text-red-700 hover:bg-red-50 font-medium px-4 shadow-sm"
+                            >
+                                <Download className="w-4 h-4 mr-2" />
+                                {isExporting ? 'Exporting...' : 'Export With TDS History'}
+                            </Button>
+                            <Button 
+                                onClick={() => setIsSetupDialogOpen(true)} 
+                                variant="outline"
+                                className="bg-white border-gray-300 text-gray-900 hover:bg-gray-50 font-medium px-4 shadow-sm"
+                            >
+                                Edit Details
+                            </Button>
+                         </div>
+                    </div>
 
-            {/* Read-Only Summary Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                <ViewCard label="Client" name={data.client.name} logo={data.client.logo} />
-                <ViewCard label="Project Manager" name={data.projectManager.name} logo={data.projectManager.logo} />
-                <ViewCard label="Architect" name={data.architect.name} logo={data.architect.logo} />
-                <ViewCard label="Consultant" name={data.consultant.name} logo={data.consultant.logo} />
-                <ViewCard label="GC Contractor" name={data.gcContractor.name} logo={data.gcContractor.logo} />
-                <ViewCard label="MEP Contractor" name={data.mepContractor.name} logo={data.mepContractor.logo} />
-            </div>
+                    {/* Read-Only Summary Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                        <ViewCard label="Client" name={data.client.name} logo={data.client.logo} />
+                        <ViewCard label="Project Manager" name={data.projectManager.name} logo={data.projectManager.logo} />
+                        <ViewCard label="Architect" name={data.architect.name} logo={data.architect.logo} />
+                        <ViewCard label="Consultant" name={data.consultant.name} logo={data.consultant.logo} />
+                        <ViewCard label="GC Contractor" name={data.gcContractor.name} logo={data.gcContractor.logo} />
+                        <ViewCard label="MEP Contractor" name={data.mepContractor.name} logo={data.mepContractor.logo} />
+                    </div>
+                </CardContent>
+            </Card>
 
             {/* TDS Item Management Tabs */}
             <div className="mt-12">
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                    <TabsList className="w-full justify-start h-auto p-0 bg-transparent border-b border-gray-200 rounded-none">
+                    <TabsList className="inline-flex p-0 bg-white border border-gray-200 rounded-md overflow-hidden mb-6">
                         <TabsTrigger 
                             value="new"
-                            className="rounded-none border-b-2 border-transparent data-[state=active]:border-red-600 data-[state=active]:text-red-700 text-gray-500 pb-3 pt-2 px-1 mr-8 font-medium bg-transparent shadow-none"
+                            className="rounded-none px-6 py-2 text-sm font-medium data-[state=active]:bg-red-600 data-[state=active]:text-white bg-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-900 shadow-none border-r border-gray-100 last:border-r-0 transition-colors"
                         >
                             New Request
                         </TabsTrigger>
                         <TabsTrigger 
                             value="history"
-                            className="rounded-none border-b-2 border-transparent data-[state=active]:border-red-600 data-[state=active]:text-red-700 text-gray-500 pb-3 pt-2 px-1 font-medium bg-transparent shadow-none"
+                            className="rounded-none px-6 py-2 text-sm font-medium data-[state=active]:bg-red-600 data-[state=active]:text-white bg-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-900 shadow-none border-r border-gray-100 last:border-r-0 transition-colors"
                         >
                             TDS History
                         </TabsTrigger>
