@@ -53,6 +53,7 @@ interface ProjectProgressAttachment {
   image_link: string;
   location: string | null;
   remarks: string;
+  attach_type?: 'Work' | 'Site' | 'Drawing'; // NEW: Photo category type
 }
 
 // --- Helper Functions & Styles ---
@@ -85,6 +86,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
   // --- 1. STATE FOR CAMERA ---
   const [isCaptureDialogOpen, setIsCaptureDialogOpen] = useState(false);
   const [localPhotos, setLocalPhotos] = useState<ProjectProgressAttachment[]>([]);
+  const [currentCaptureType, setCurrentCaptureType] = useState<'Work' | 'Site' | 'Drawing'>('Work'); // NEW: Track photo type
 
   // --- 2. STATE FOR MILESTONE CHECK ---
   const [isNewMilestonesWarningOpen, setIsNewMilestonesWarningOpen] = useState(false);
@@ -308,12 +310,14 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
 
   // --- 10. CAMERA HANDLERS ---
   const handlePhotoCaptureSuccess = (photoData: ProjectProgressAttachment) => {
-    setLocalPhotos((prev) => [...prev, photoData]);
+    // Inject current capture type
+    const newPhotoWithType = { ...photoData, attach_type: currentCaptureType };
+    setLocalPhotos((prev) => [...prev, newPhotoWithType]);
     setIsCaptureDialogOpen(false);
     setHasChanges(true); // Mark as changed
     toast({
         title: "Photo Added",
-        description: "New photo ready for today's report.",
+        description: `${currentCaptureType} photo added to the report.`,
         variant: "default",
     });
   };
@@ -508,7 +512,8 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
       const attachmentsPayload = localPhotos.map(p => ({
         image_link: p.image_link,
         location: p.location,
-        remarks: p.remarks
+        remarks: p.remarks,
+        attach_type: p.attach_type || 'Work' // Include photo type
       }));
 
       const serializeMilestones = (milestones: any[]) => {
@@ -627,11 +632,12 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
     setIsCopying(true);
 
     try {
-      // Validate photos
-      if (localPhotos.length < 3) {
+      // Validate photos - require at least 3 Work type photos
+      const workPhotosCount = localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').length;
+      if (workPhotosCount < 3) {
         toast({
-          title: "Photos Required 📷",
-          description: `You have added ${localPhotos.length} photos. Please add at least 3 photos to proceed.`,
+          title: "Work Photos Required 📷",
+          description: `You have added ${workPhotosCount} work photos. Please add at least 3 work photos to proceed.`,
           variant: "destructive",
         });
         setIsCopying(false);
@@ -641,7 +647,8 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
       const attachmentsPayload = localPhotos.map(p => ({
         image_link: p.image_link,
         location: p.location,
-        remarks: p.remarks
+        remarks: p.remarks,
+        attach_type: p.attach_type || 'Work' // Include photo type
       }));
 
       const serializeMilestones = (milestones: any[]) => {
@@ -794,7 +801,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                   </span>
                 </div>
 
-                {/* --- PHOTOS SECTION --- */}
+                {/* --- WORK PHOTOS SECTION --- */}
                 <div>
                     <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2 mb-3">
                       <Camera className="w-4 h-4" /> Work Images (Required: 3+)
@@ -803,13 +810,16 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                     <div className="mb-4">
                         <PhotoPermissionChecker
                             isBlockedByDraftOwnership={false}
-                            onAddPhotosClick={() => setIsCaptureDialogOpen(true)}
+                            onAddPhotosClick={() => {
+                                setCurrentCaptureType('Work');
+                                setIsCaptureDialogOpen(true);
+                            }}
                         />
                     </div>
 
-                    {localPhotos.length > 0 ? (
+                    {localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').length > 0 ? (
                          <div className="space-y-4">
-                         {localPhotos.map((photo) => (
+                         {localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').map((photo) => (
                            <div 
                              key={photo.local_id} 
                              className="flex flex-col sm:flex-row sm:items-center gap-3 p-2 bg-gray-50 rounded-md border border-gray-200"
@@ -843,7 +853,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                        </div>
                     ) : (
                         <div className="text-center py-6 border-2 border-dashed border-gray-300 rounded-lg bg-gray-50">
-                            <p className="text-xs text-gray-500">No photos added for today yet. Add at least 3 photos.</p>
+                            <p className="text-xs text-gray-500">No work photos added for today yet. Add at least 3 photos.</p>
                         </div>
                     )}
                 </div>
@@ -963,6 +973,35 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                           </Button>
                         </div>
                       )}
+                      
+                      {/* Drawing Photos */}
+                      <div className="mt-3">
+                        <label className="text-xs font-medium text-orange-700 block mb-2">Drawing Photos</label>
+                        <PhotoPermissionChecker
+                          isBlockedByDraftOwnership={false}
+                          onAddPhotosClick={() => {
+                            setCurrentCaptureType('Drawing');
+                            setIsCaptureDialogOpen(true);
+                          }}
+                        />
+                        {localPhotos.filter(p => p.attach_type === 'Drawing').length > 0 && (
+                          <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            {localPhotos.filter(p => p.attach_type === 'Drawing').map((photo) => (
+                              <div key={photo.local_id} className="relative rounded-md overflow-hidden border border-orange-300 aspect-square">
+                                <img src={photo.image_link} alt="Drawing" className="w-full h-full object-cover" />
+                                <Button
+                                  variant="destructive"
+                                  size="icon"
+                                  className="absolute top-1 right-1 h-5 w-5 rounded-full"
+                                  onClick={() => handleRemovePhoto(photo.local_id)}
+                                >
+                                  <X className="h-2.5 w-2.5" />
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                     
                     {/* Site Remarks */}
@@ -1031,6 +1070,35 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                           </Button>
                         </div>
                       )}
+                      
+                      {/* Site Photos */}
+                      <div className="mt-3">
+                        <label className="text-xs font-medium text-red-700 block mb-2">Site Photos</label>
+                        <PhotoPermissionChecker
+                          isBlockedByDraftOwnership={false}
+                          onAddPhotosClick={() => {
+                            setCurrentCaptureType('Site');
+                            setIsCaptureDialogOpen(true);
+                          }}
+                        />
+                        {localPhotos.filter(p => p.attach_type === 'Site').length > 0 && (
+                          <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            {localPhotos.filter(p => p.attach_type === 'Site').map((photo) => (
+                              <div key={photo.local_id} className="relative rounded-md overflow-hidden border border-red-300 aspect-square">
+                                <img src={photo.image_link} alt="Site" className="w-full h-full object-cover" />
+                                <Button
+                                  variant="destructive"
+                                  size="icon"
+                                  className="absolute top-1 right-1 h-5 w-5 rounded-full"
+                                  onClick={() => handleRemovePhoto(photo.local_id)}
+                                >
+                                  <X className="h-2.5 w-2.5" />
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
