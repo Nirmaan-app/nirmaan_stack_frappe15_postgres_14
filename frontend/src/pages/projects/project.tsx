@@ -1164,9 +1164,9 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       case PROJECT_PAGE_TABS.PR_SUMMARY:
         return <ProjectPRSummaryTable projectId={projectId} />;
       case PROJECT_PAGE_TABS.SR_SUMMARY:
-        return <ProjectSRSummaryTable projectId={projectId} hideSummaryCard={isProjectManager} />;
+        return <ProjectSRSummaryTable projectId={projectId} hideSummaryCard={isProjectManager} hideFinancialColumns={isProjectManager} />;
       case PROJECT_PAGE_TABS.PO_SUMMARY:
-        return <ProjectPOSummaryTable projectId={projectId} hideSummaryCard={isProjectManager} />;
+        return <ProjectPOSummaryTable projectId={projectId} hideSummaryCard={isProjectManager} hideFinancialColumns={isProjectManager} />;
       case PROJECT_PAGE_TABS.FINANCIALS:
         return <ProjectFinancialsTab projectData={data} projectCustomer={projectCustomer}
           totalPOAmountWithGST={totalPOAmountWithGST} getTotalAmountPaid={getTotalAmountPaid} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getAllPODeliveredAmount={totalPoDeliveredAmount}

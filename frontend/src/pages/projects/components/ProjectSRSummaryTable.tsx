@@ -96,6 +96,7 @@ const DOCTYPE = "Service Requests"; // Main Doctype for the list
 interface ProjectSRSummaryTableProps {
   projectId: string | undefined;
   hideSummaryCard?: boolean;
+  hideFinancialColumns?: boolean;
 }
 
 interface SRAggregates {
@@ -108,6 +109,7 @@ interface SRAggregates {
 export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
   projectId,
   hideSummaryCard = false,
+  hideFinancialColumns = false,
 }) => {
   const { toast } = useToast();
 
@@ -305,71 +307,76 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
         enableColumnFilter: true,
         size: 120,
       },
-      {
-        accessorKey: "total_amount",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Total SR Value" />
-        ),
-        cell: ({ row }) => (
-          <div className="font-medium pr-2">
-            {formatToRoundedIndianRupee(row.original.total_amount)}
-          </div>
-        ), // Example badge
-        enableColumnFilter: true,
-        size: 120,
-      },
-      {
-        accessorKey: "gst",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Incl. GST" />
-        ),
-        cell: ({ row }) => (
-          <Badge variant={row.original.gst === "true" ? "green" : "outline"}>
-            {row.original.gst === "true" ? "Yes" : "No"}
-          </Badge>
-        ), // Example badge
-        enableColumnFilter: true,
-        size: 120,
-      },
-      {
-        accessorKey: "amount_paid",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Amt. Paid" />
-        ),
-        cell: ({ row }) => (
-          <div className="font-medium pr-2">
-            {formatToRoundedIndianRupee(row.original.amount_paid)}
-          </div>
-        ), // Example badge
-        enableColumnFilter: true,
-        size: 120,
-      },
-      {
-        id: "amount_payable",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Amt payable" />
-        ),
-        cell: ({ row }) => (
-          <div className="font-medium pr-2">
-            {formatToRoundedIndianRupee(
-              parseNumber(row.original.total_amount) -
-                parseNumber(row.original.amount_paid)
-            )}
-          </div>
-        ), // Example badge
-        enableColumnFilter: true,
-        size: 120,
-        meta: {
-          exportHeaderName: "Amt payable",
-          exportValue: (row: ServiceRequests) => {
-            return formatToRoundedIndianRupee(
-              parseNumber(row.total_amount) - parseNumber(row.amount_paid)
-            );
-          },
-        },
-      },
+      // Financial columns - conditionally included based on hideFinancialColumns prop
+      ...(!hideFinancialColumns
+        ? [
+            {
+              accessorKey: "total_amount",
+              header: ({ column }) => (
+                <DataTableColumnHeader column={column} title="Total SR Value" />
+              ),
+              cell: ({ row }) => (
+                <div className="font-medium pr-2">
+                  {formatToRoundedIndianRupee(row.original.total_amount)}
+                </div>
+              ),
+              enableColumnFilter: true,
+              size: 120,
+            } as ColumnDef<ServiceRequests>,
+            {
+              accessorKey: "gst",
+              header: ({ column }) => (
+                <DataTableColumnHeader column={column} title="Incl. GST" />
+              ),
+              cell: ({ row }) => (
+                <Badge variant={row.original.gst === "true" ? "green" : "outline"}>
+                  {row.original.gst === "true" ? "Yes" : "No"}
+                </Badge>
+              ),
+              enableColumnFilter: true,
+              size: 120,
+            } as ColumnDef<ServiceRequests>,
+            {
+              accessorKey: "amount_paid",
+              header: ({ column }) => (
+                <DataTableColumnHeader column={column} title="Amt. Paid" />
+              ),
+              cell: ({ row }) => (
+                <div className="font-medium pr-2">
+                  {formatToRoundedIndianRupee(row.original.amount_paid)}
+                </div>
+              ),
+              enableColumnFilter: true,
+              size: 120,
+            } as ColumnDef<ServiceRequests>,
+            {
+              id: "amount_payable",
+              header: ({ column }) => (
+                <DataTableColumnHeader column={column} title="Amt payable" />
+              ),
+              cell: ({ row }) => (
+                <div className="font-medium pr-2">
+                  {formatToRoundedIndianRupee(
+                    parseNumber(row.original.total_amount) -
+                      parseNumber(row.original.amount_paid)
+                  )}
+                </div>
+              ),
+              enableColumnFilter: true,
+              size: 120,
+              meta: {
+                exportHeaderName: "Amt payable",
+                exportValue: (row: ServiceRequests) => {
+                  return formatToRoundedIndianRupee(
+                    parseNumber(row.total_amount) - parseNumber(row.amount_paid)
+                  );
+                },
+              },
+            } as ColumnDef<ServiceRequests>,
+          ]
+        : []),
     ],
-    [projectId, getProjectName, getVendorName]
+    [projectId, getProjectName, getVendorName, hideFinancialColumns]
   ); //,getSRRowTotal, getTotalAmountPaidForSR]);
 
   // --- useServerDataTable Hook for the paginated SR list ---
