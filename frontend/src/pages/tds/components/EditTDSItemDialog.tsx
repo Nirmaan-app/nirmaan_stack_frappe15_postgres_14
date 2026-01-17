@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect,useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -18,10 +18,11 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { FileText, UploadCloud, X, Download, AlertTriangle } from "lucide-react";
-import { useFrappeGetDocList, useFrappeFileUpload, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeFileUpload, useFrappeUpdateDoc } from "frappe-react-sdk";
 import RSelect from "react-select";
 import { toast } from "@/components/ui/use-toast";
 import { TDSItem, TDSItemValues, tdsItemSchema } from "./types";
+import { useTDSItemOptions } from "../hooks/useTDSItemOptions";
 
 interface EditTDSItemDialogProps {
     open: boolean;
@@ -40,14 +41,6 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
     const { updateDoc, loading: updating } = useFrappeUpdateDoc();
     const { upload: uploadFile, loading: uploading } = useFrappeFileUpload();
 
-
-    // Fetch Options for Form
-    const { data: wpList } = useFrappeGetDocList("Procurement Packages", { fields: ["name", "work_package_name"], limit: 0 });
-    const { data: catList } = useFrappeGetDocList("Category", { fields: ["name", "category_name", "work_package"], limit: 0 });
-    const { data: itemList } = useFrappeGetDocList("Items", { fields: ["name", "item_name", "category"], limit: 0 });
-    const { data: makeList } = useFrappeGetDocList("Makelist", { fields: ["name", "make_name"], limit: 0 });
-    const { data: catMakeList } = useFrappeGetDocList("Category Makelist", { fields: ["category", "make"], limit: 0 });
-
     const form = useForm<TDSItemValues>({
         resolver: zodResolver(tdsItemSchema),
         defaultValues: {
@@ -62,113 +55,20 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
     // Reactively fetch existing entries for the selected category to filter items and options
     const selectedCategory = form.watch("category");
     const watchedTdsItemId = form.watch("tds_item_id");
-    
-    // Fetch all entries for this category
-    const { data: categoryEntries } = useFrappeGetDocList("TDS Repository", {
-        filters: selectedCategory ? [["category", "=", selectedCategory]] : undefined,
-        fields: ["tds_item_id", "make"],
-        limit: 0
-    }, selectedCategory ? undefined : null);
-
-    // Watch form values for dependent filtering
     const selectedWP = form.watch("work_package");
 
-    // Memoize options
-    const wpOptions = useMemo(() => wpList?.map(d => ({ label: d.work_package_name, value: d.name })) || [], [wpList]);
-
-    const catOptions = useMemo(() => {
-        if (!selectedWP) return [];
-        return catList
-            ?.filter(d => d.work_package === selectedWP)
-            .map(d => ({ label: d.category_name, value: d.name })) || [];
-    }, [catList, selectedWP]);
-
-    const itemOptions = useMemo(() => {
-        if (!selectedCategory) return [];
-        
-        // Get valid makes for the category
-        const validMakesForCategory = new Set(
-            catMakeList
-                ?.filter(cm => cm.category === selectedCategory)
-                .map(cm => cm.make) || []
-        );
-
-        // Map of ItemID -> Set of TakenMakes
-        const itemTakenMakes = new Map<string, Set<string>>();
-        if (categoryEntries) {
-            categoryEntries.forEach(d => {
-                if (!itemTakenMakes.has(d.tds_item_id)) {
-                    itemTakenMakes.set(d.tds_item_id, new Set());
-                }
-                itemTakenMakes.get(d.tds_item_id)!.add(d.make);
-            });
-        }
-
-        return itemList
-            ?.filter(d => d.category === selectedCategory)
-            .filter(d => {
-                // If this is the current item being edited (and matches category), KEEP IT visible
-                if (item && d.name === item.tds_item_id) return true;
-
-                if (validMakesForCategory.size === 0) return true;
-
-                const taken = itemTakenMakes.get(d.name);
-                if (!taken) return true;
-
-                let takenCount = 0;
-                validMakesForCategory.forEach(vm => {
-                    if (taken.has(vm)) takenCount++;
-                });
-
-                return takenCount < validMakesForCategory.size;
-            })
-            .map(d => ({ label: d.item_name, value: d.name })) || [];
-    }, [itemList, selectedCategory, categoryEntries, catMakeList, item]);
-
-    const makeOptions = useMemo(() => {
-        if (!selectedCategory || !catMakeList || !makeList) return [];
-        
-        // Create a set of already taken makes for this item
-        // EXCLUDE the current item's original make so it doesn't disappear from the list
-        const currentItemOriginalMake = item?.make;
-        
-        const takenMakes = new Set(
-            categoryEntries
-                ?.filter(d => d.tds_item_id === watchedTdsItemId)
-                ?.filter(entry => {
-                    // Only exclude if it's strictly the current record's make
-                    // BUT: categoryEntries doesn't have 'name' (docname), only item_id and make.
-                    // However, we know for a fact that ONE of these entries IS the current doc.
-                    // We also know that we want to show 'currentItemOriginalMake' as available 
-                    // ONLY if we are currently editing THAT item.
-                    
-                    // Logic: If 'watchedTdsItemId' matches 'item.tds_item_id' (we are editing the same item),
-                    // then we should effectively pretend our own Make is NOT taken.
-                    if (item && watchedTdsItemId === item.tds_item_id && entry.make === currentItemOriginalMake) {
-                        return false;
-                    }
-                    return true;
-                })
-                .map(d => d.make) || []
-        );
-
-        const validMakesForCategory = new Set(
-            catMakeList
-                .filter(cm => cm.category === selectedCategory)
-                .map(cm => cm.make)
-        );
-
-        let availableMakes = makeList;
-
-        if (validMakesForCategory.size > 0) {
-            availableMakes = availableMakes.filter(m => validMakesForCategory.has(m.name));
-        }
-
-        return availableMakes
-            .filter(d => !takenMakes.has(d.name)) // Filter out taken makes
-            .map(d => ({ label: d.make_name, value: d.name }));
-            
-    }, [makeList, catMakeList, selectedCategory, categoryEntries, item, watchedTdsItemId]);
+    // Use shared hook for options and filtering logic
+    const { 
+        wpOptions, 
+        catOptions, 
+        itemOptions, 
+        makeOptions 
+    } = useTDSItemOptions({
+        selectedWP,
+        selectedCategory,
+        watchedTdsItemId,
+        currentItem: item
+    });
 
     // Use a ref to track the previous item ID to detect actual changes
     const previousItemIdRef = useRef<string | null>(null);
@@ -308,7 +208,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                         <FormControl>
                                             <RSelect
                                                 options={wpOptions}
-                                                value={wpOptions.find(opt => opt.value === field.value)}
+                                                value={wpOptions.find(opt => opt.value === field.value) || null}
                                                 onChange={(opt) => field.onChange(opt?.value)}
                                                 placeholder="Select Work Package"
                                                 className="react-select-container"
@@ -333,7 +233,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                         <FormControl>
                                             <RSelect
                                                 options={catOptions}
-                                                value={catOptions.find(opt => opt.value === field.value)}
+                                                value={catOptions.find(opt => opt.value === field.value) || null}
                                                 onChange={(opt) => field.onChange(opt?.value)}
                                                 placeholder="Select product category"
                                                 className="react-select-container"
@@ -358,7 +258,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                         <FormControl>
                                             <RSelect
                                                 options={itemOptions}
-                                                value={itemOptions.find(opt => opt.value === field.value)}
+                                                value={itemOptions.find(opt => opt.value === field.value) || null}
                                                 onChange={(opt) => field.onChange(opt?.value)}
                                                 placeholder="Select Item"
                                                 className="react-select-container"
@@ -384,7 +284,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                         <FormControl>
                                             <RSelect
                                                 options={makeOptions}
-                                                value={makeOptions.find(opt => opt.value === field.value)}
+                                                value={makeOptions.find(opt => opt.value === field.value) || null}
                                                 onChange={(opt) => field.onChange(opt?.value)}
                                                 placeholder="Select Make"
                                                 className="react-select-container"
