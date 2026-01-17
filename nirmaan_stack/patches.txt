@@ -74,3 +74,6 @@ nirmaan_stack.patches.v2_8.update_attach_type_for_progress_reports
 
 
 nirmaan_stack.patches.v2_8.fix_credit_payment_term_status
+
+nirmaan_stack.patches.v2_9.migrate_invoice_reconciliation_status
+nirmaan_stack.patches.v2_9.add_reconciled_amount_field
