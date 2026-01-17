@@ -1,6 +1,11 @@
 import frappe
 from frappe import _
 import json
+from typing import Optional
+
+
+# Valid reconciliation status values
+RECONCILIATION_STATUS_VALUES = ("", "partial", "full")
 
 
 @frappe.whitelist()
@@ -8,20 +13,30 @@ def update_invoice_reconciliation(
     doctype: str,
     docname: str,
     date_key: str,
-    is_2b_activated: bool,
-    reconciled_date: str = None
+    reconciliation_status: str = "",
+    reconciled_date: Optional[str] = None,
+    reconciliation_proof_url: Optional[str] = None,
+    reconciled_amount: Optional[float] = None
 ):
     """
-    Updates the 2B activation status and reconciliation date for an approved invoice.
+    Updates the reconciliation status and proof attachment for an approved invoice.
     Only Accountants and Admins can perform this action.
 
     Args:
         doctype (str): "Procurement Orders" or "Service Requests"
         docname (str): The PO/SR document ID
         date_key (str): The invoice date key (e.g., "2025-02-28")
-        is_2b_activated (bool): Whether the invoice is 2B activated
+        reconciliation_status (str): Reconciliation status - "" (not reconciled),
+                                     "partial" (partially reconciled), or "full" (fully reconciled)
         reconciled_date (str, optional): The reconciliation date (YYYY-MM-DD).
-                                         Defaults to today if is_2b_activated is True and not provided.
+                                         Defaults to today if status is "partial" or "full".
+        reconciliation_proof_url (str, optional): URL of the uploaded proof attachment.
+                                                  Required when initially setting status to "partial" or "full".
+                                                  Optional when updating an already reconciled invoice (keeps existing proof).
+        reconciled_amount (float, optional): The reconciled amount.
+                                             Required when status is "partial".
+                                             Auto-set to invoice amount when status is "full".
+                                             Auto-set to 0 when status is "".
 
     Returns:
         dict: Success or error message with status code.
@@ -36,9 +51,18 @@ def update_invoice_reconciliation(
     if not date_key:
         frappe.throw(_("Invoice date key is required."))
 
-    # Convert string boolean to actual boolean if needed
-    if isinstance(is_2b_activated, str):
-        is_2b_activated = is_2b_activated.lower() in ("true", "1", "yes")
+    # Validate reconciliation_status
+    if reconciliation_status not in RECONCILIATION_STATUS_VALUES:
+        frappe.throw(_("Invalid reconciliation status. Must be one of: '', 'partial', 'full'."))
+
+    is_reconciled = reconciliation_status in ("partial", "full")
+
+    # Note: Proof validation is deferred until we can check if there's existing proof
+    # (see validation after fetching invoice data below)
+
+    # Validate reconciled_amount for partial status
+    if reconciliation_status == "partial" and reconciled_amount is None:
+        frappe.throw(_("Reconciled amount is required for partial reconciliation."))
 
     # --- Permission Check ---
     current_user = frappe.session.user
@@ -62,7 +86,14 @@ def update_invoice_reconciliation(
 
     try:
         # 1. Get the current invoice_data directly from database
-        invoice_data_raw = frappe.db.get_value(doctype, docname, "invoice_data")
+        doc_fields = frappe.db.get_value(doctype, docname, ["invoice_data", "project", "vendor"], as_dict=True)
+
+        if not doc_fields:
+            frappe.throw(_("Document {0} not found.").format(docname))
+
+        invoice_data_raw = doc_fields.get("invoice_data")
+        project = doc_fields.get("project")
+        vendor = doc_fields.get("vendor")
 
         if not invoice_data_raw:
             frappe.throw(_("Invoice data is missing in {0}.").format(docname))
@@ -93,22 +124,89 @@ def update_invoice_reconciliation(
                 invoice_entry.get("status", "Unknown")
             ))
 
-        # 3. Update the Invoice Entry with Reconciliation Fields
-        invoice_data_dict[date_key]["is_2b_activated"] = is_2b_activated
+        # 2a. Validate proof attachment requirement (deferred validation)
+        # Check current reconciliation status and existing proof
+        current_status = invoice_entry.get("reconciliation_status", "")
+        existing_proof_attachment_id = invoice_entry.get("reconciliation_proof_attachment_id")
 
-        # Handle reconciled_date
-        if is_2b_activated:
-            # If activated and no date provided, use today
+        # Proof is required ONLY when:
+        # 1. Setting a NEW reconciliation status (changing from "" to "partial"/"full")
+        # 2. AND there's no existing proof
+        # If status is already partial/full and unchanged, proof is optional (keeps existing)
+        status_changing_to_reconciled = is_reconciled and current_status not in ("partial", "full")
+
+        if status_changing_to_reconciled and not reconciliation_proof_url and not existing_proof_attachment_id:
+            frappe.throw(_("Reconciliation proof attachment is required when initially setting reconciliation status."))
+
+        # 3. Handle existing proof attachment deletion if clearing status
+        new_proof_attachment_id = None
+
+        if not is_reconciled and existing_proof_attachment_id:
+            # Delete existing proof attachment when clearing status
+            try:
+                frappe.delete_doc("Nirmaan Attachments", existing_proof_attachment_id, ignore_permissions=True, force=True)
+            except frappe.DoesNotExistError:
+                frappe.log_error(
+                    title="Reconciliation Proof Deletion Warning",
+                    message=f"Attachment {existing_proof_attachment_id} not found when clearing reconciliation for {docname}"
+                )
+
+        # 4. Create new proof attachment if provided
+        if is_reconciled and reconciliation_proof_url:
+            attachment = create_reconciliation_proof_attachment(
+                doctype=doctype,
+                docname=docname,
+                project=project,
+                vendor=vendor,
+                file_url=reconciliation_proof_url
+            )
+            new_proof_attachment_id = attachment.name
+
+            # Delete old attachment if we're replacing it
+            if existing_proof_attachment_id and existing_proof_attachment_id != new_proof_attachment_id:
+                try:
+                    frappe.delete_doc("Nirmaan Attachments", existing_proof_attachment_id, ignore_permissions=True, force=True)
+                except frappe.DoesNotExistError:
+                    pass  # Old attachment already gone
+
+        # 5. Update the Invoice Entry with Reconciliation Fields
+        invoice_data_dict[date_key]["reconciliation_status"] = reconciliation_status
+
+        # Remove deprecated is_2b_activated field if present
+        if "is_2b_activated" in invoice_data_dict[date_key]:
+            del invoice_data_dict[date_key]["is_2b_activated"]
+
+        # 5a. Set reconciled_amount based on status
+        invoice_amount = invoice_entry.get("amount", 0)
+        if reconciliation_status == "full":
+            # Auto-set to invoice amount when fully reconciled
+            final_reconciled_amount = invoice_amount
+        elif reconciliation_status == "partial":
+            # Use the user-provided value (already validated as required)
+            final_reconciled_amount = float(reconciled_amount)
+        else:
+            # Not reconciled = 0
+            final_reconciled_amount = 0
+
+        invoice_data_dict[date_key]["reconciled_amount"] = final_reconciled_amount
+
+        # Handle reconciled_date and reconciled_by
+        if is_reconciled:
+            # If reconciled and no date provided, use today
             if not reconciled_date:
                 reconciled_date = frappe.utils.today()
             invoice_data_dict[date_key]["reconciled_date"] = reconciled_date
             invoice_data_dict[date_key]["reconciled_by"] = reconciled_by
+            # Keep existing proof if no new one provided (allows updating amount without re-uploading)
+            final_proof_attachment_id = new_proof_attachment_id if new_proof_attachment_id else existing_proof_attachment_id
+            invoice_data_dict[date_key]["reconciliation_proof_attachment_id"] = final_proof_attachment_id
         else:
-            # If deactivating, clear the reconciliation fields
+            # If clearing status, clear all reconciliation fields
             invoice_data_dict[date_key]["reconciled_date"] = None
             invoice_data_dict[date_key]["reconciled_by"] = None
+            invoice_data_dict[date_key]["reconciliation_proof_attachment_id"] = None
 
-        # 4. Save using db.set_value for reliable JSON update
+        # 6. Save using db.set_value for reliable JSON update
         updated_invoice_data = {"data": invoice_data_dict}
         frappe.db.set_value(
             doctype,
@@ -128,9 +226,11 @@ def update_invoice_reconciliation(
                 "doctype": doctype,
                 "docname": docname,
                 "date_key": date_key,
-                "is_2b_activated": is_2b_activated,
-                "reconciled_date": reconciled_date if is_2b_activated else None,
-                "reconciled_by": reconciled_by if is_2b_activated else None
+                "reconciliation_status": reconciliation_status,
+                "reconciled_date": reconciled_date if is_reconciled else None,
+                "reconciled_by": reconciled_by if is_reconciled else None,
+                "reconciliation_proof_attachment_id": final_proof_attachment_id if is_reconciled else None,
+                "reconciled_amount": final_reconciled_amount
             }
         }
 
@@ -148,3 +248,39 @@ def update_invoice_reconciliation(
             "message": _("Failed to update invoice reconciliation status: {0}").format(str(e)),
             "error": str(e)
         }
+
+
+def create_reconciliation_proof_attachment(
+    doctype: str,
+    docname: str,
+    project: Optional[str],
+    vendor: Optional[str],
+    file_url: str
+):
+    """
+    Creates a Nirmaan Attachments document for the reconciliation proof.
+
+    Args:
+        doctype: "Procurement Orders" or "Service Requests"
+        docname: The document name
+        project: Project ID (optional)
+        vendor: Vendor ID (optional)
+        file_url: URL of the uploaded file
+
+    Returns:
+        The created attachment document
+    """
+    attachment_type = "po reconciliation proof" if doctype == "Procurement Orders" else "sr reconciliation proof"
+
+    attachment = frappe.new_doc("Nirmaan Attachments")
+    attachment.update({
+        "project": project,
+        "attachment": file_url,
+        "attachment_type": attachment_type,
+        "associated_doctype": doctype,
+        "associated_docname": docname,
+        "attachment_link_doctype": "Vendors" if vendor else None,
+        "attachment_link_docname": vendor if vendor else None
+    })
+    attachment.insert(ignore_permissions=True)
+    return attachment

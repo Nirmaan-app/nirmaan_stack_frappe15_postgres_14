@@ -12,14 +12,20 @@ def generate_all_sr_invoice_data():
                     "invoice_entries": List[InvoiceEntry],
                     "total_invoices": number,
                     "total_amount": number,
-                    "total_2b_activated": number,
-                    "pending_2b_activation": number
+                    "total_fully_reconciled": number,
+                    "total_partially_reconciled": number,
+                    "pending_reconciliation": number,
+                    "total_reconciled_amount": number,
+                    "total_fully_reconciled_amount": number,
+                    "total_partially_reconciled_amount": number,
+                    "total_not_reconciled_amount": number
                  },
                  "status": 200
               }
         where InvoiceEntry includes:
             - invoice_no (str)
             - amount (number)
+            - reconciled_amount (number)
             - invoice_attachment_id (str, optional)
             - updated_by (str)
             - date (str)  (The key from each invoice_data object)
@@ -27,9 +33,10 @@ def generate_all_sr_invoice_data():
             - project (str, optional) (Project ID, if available on SR)
             - vendor (str) (Vendor ID)
             - vendor_name (str) (Vendor Name)
-            - is_2b_activated (bool, optional)
+            - reconciliation_status (str): "" | "partial" | "full"
             - reconciled_date (str, optional)
             - reconciled_by (str, optional)
+            - reconciliation_proof_attachment_id (str, optional)
 
     Raises:
         Exception: For unexpected errors.
@@ -43,7 +50,13 @@ def generate_all_sr_invoice_data():
         )
 
         invoice_entries = []
-        total_2b_activated = 0
+        total_fully_reconciled = 0
+        total_partially_reconciled = 0
+        # Amount tracking
+        total_reconciled_amount = 0  # SUM of reconciled_amount field
+        total_fully_reconciled_amount = 0  # invoice_amount where status = "full"
+        total_partially_reconciled_amount = 0  # invoice_amount where status = "partial"
+        total_not_reconciled_amount = 0  # invoice_amount where status = ""
 
         # Loop through each service request and extract invoice data.
         for sr in service_requests:
@@ -68,35 +81,70 @@ def generate_all_sr_invoice_data():
                 if status != "Approved":
                     continue
 
-                is_2b_activated = invoice_item.get("is_2b_activated", False)
+                # Get reconciliation_status (new field) or derive from is_2b_activated (legacy)
+                reconciliation_status = invoice_item.get("reconciliation_status")
+                if reconciliation_status is None:
+                    # Legacy migration: convert is_2b_activated to reconciliation_status
+                    is_2b_activated = invoice_item.get("is_2b_activated", False)
+                    reconciliation_status = "full" if is_2b_activated else ""
 
-                # Count 2B activated invoices
-                if is_2b_activated:
-                    total_2b_activated += 1
+                # Get invoice amount and reconciled_amount
+                invoice_amount = invoice_item.get("amount", 0)
+                # Get reconciled_amount, defaulting based on status for legacy data
+                reconciled_amount = invoice_item.get("reconciled_amount")
+                if reconciled_amount is None:
+                    # Legacy data: derive from status
+                    if reconciliation_status == "full":
+                        reconciled_amount = invoice_amount
+                    else:
+                        reconciled_amount = 0
+
+                # Track amounts and counts by reconciliation status
+                total_reconciled_amount += reconciled_amount
+                if reconciliation_status == "full":
+                    total_fully_reconciled += 1
+                    total_fully_reconciled_amount += invoice_amount
+                elif reconciliation_status == "partial":
+                    total_partially_reconciled += 1
+                    total_partially_reconciled_amount += invoice_amount
+                else:
+                    total_not_reconciled_amount += invoice_amount
 
                 entry = {
                     "date": date_str,
                     "invoice_no": invoice_item["invoice_no"],
-                    "amount": invoice_item["amount"],
+                    "amount": invoice_amount,
+                    "reconciled_amount": reconciled_amount,
                     "updated_by": invoice_item["updated_by"],
                     "invoice_attachment_id": invoice_item.get("invoice_attachment_id"),
                     "service_request": sr.name,
                     "project": sr.project,
                     "vendor": sr.vendor,
                     "vendor_name": sr.vendor_name,
-                    "is_2b_activated": is_2b_activated,
+                    "reconciliation_status": reconciliation_status,
                     "reconciled_date": invoice_item.get("reconciled_date"),
-                    "reconciled_by": invoice_item.get("reconciled_by")
+                    "reconciled_by": invoice_item.get("reconciled_by"),
+                    "reconciliation_proof_attachment_id": invoice_item.get("reconciliation_proof_attachment_id")
                 }
                 invoice_entries.append(entry)
 
         total_invoices = len(invoice_entries)
+        pending_reconciliation = total_invoices - total_fully_reconciled - total_partially_reconciled
+        pending_reconciliation_amount = total_partially_reconciled_amount + total_not_reconciled_amount
+
         formatted_invoice_entries = {
             "invoice_entries": invoice_entries,
             "total_invoices": total_invoices,
             "total_amount": sum(entry["amount"] for entry in invoice_entries),
-            "total_2b_activated": total_2b_activated,
-            "pending_2b_activation": total_invoices - total_2b_activated
+            "total_fully_reconciled": total_fully_reconciled,
+            "total_partially_reconciled": total_partially_reconciled,
+            "pending_reconciliation": pending_reconciliation,
+            # New amount metrics
+            "total_reconciled_amount": total_reconciled_amount,
+            "total_fully_reconciled_amount": total_fully_reconciled_amount,
+            "total_partially_reconciled_amount": total_partially_reconciled_amount,
+            "total_not_reconciled_amount": total_not_reconciled_amount,
+            "pending_reconciliation_amount": pending_reconciliation_amount
         }
 
         return {"message": formatted_invoice_entries, "status": 200}
