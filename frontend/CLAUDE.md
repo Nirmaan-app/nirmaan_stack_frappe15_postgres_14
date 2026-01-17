@@ -338,6 +338,30 @@ The system uses 10 role profiles for access control. Role checks use `useUserDat
 
 ---
 
+## Coding Standards
+
+### Date Format
+**All dates displayed to users must use `dd-MMM-yyyy` format** (e.g., "15-Jan-2026").
+
+- Use `formatDate()` from `src/utils/FormatDate.ts` for standard date formatting
+- Use `formatDeadlineShort()` from page-specific utils if available
+- For date-fns operations, use format pattern `dd-MMM-yyyy`
+- Never use formats like `MM/dd/yyyy`, `yyyy-MM-dd`, or ordinal formats ("15th Jan") for display
+
+```typescript
+// Correct - dd-MMM-yyyy format
+import { formatDate } from "@/utils/FormatDate";
+formatDate(dateString); // Returns "15-Jan-2026"
+
+// For manual formatting
+const day = date.toLocaleString('default', { day: '2-digit' });
+const month = date.toLocaleString('default', { month: 'short' });
+const year = date.toLocaleString('default', { year: 'numeric' });
+return `${day}-${month}-${year}`; // "15-Jan-2026"
+```
+
+---
+
 ## Important Notes
 
 - **Frappe Backend Required**: This frontend cannot run standalone; it requires a Frappe backend (see `../CLAUDE.md` for backend documentation)

@@ -1,3 +1,7 @@
+// frontend/src/pages/ProjectDesignTracker/project-design-tracker-details.tsx
+// Uses unified DataTable with faceted filters and zone tabs
+// Original accordion-based version available in: project-design-tracker-details-original.tsx
+
 import React, { useCallback, useMemo, useState } from 'react';
 import { format } from "date-fns";
 import { useParams } from 'react-router-dom';
@@ -5,43 +9,44 @@ import { ProjectDesignTracker, DesignTrackerTask, User, AssignedDesignerDetail }
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Edit, Save, Link as LinkIcon, MessageCircle, ChevronUp, ChevronDown, Download, Plus } from 'lucide-react';
+import { Edit, Download, Plus, Check, Info, X } from 'lucide-react';
 import { toast } from '@/components/ui/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import ReactSelect from 'react-select';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { useDesignTrackerLogic } from './hooks/useDesignTrackerLogic';
 import { TailSpin } from 'react-loader-spinner';
+import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { SUB_STATUS_MAP } from './hooks/useDesignMasters';
-import { getStatusBadgeStyle, getTaskStatusStyle, getTaskSubStatusStyle, formatDeadlineShort ,getAssignedNameForDisplay,getExistingTaskNames} from './utils';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { formatDeadlineShort, getExistingTaskNames } from './utils';
 import { TaskEditModal } from './components/TaskEditModal';
 import { RenameZoneDialog } from './components/RenameZoneDialog';
 import { useUserData } from "@/hooks/useUserData";
 
+// DataTable imports
+import { DataTable } from "@/components/data-table/new-data-table";
+import {
+    useReactTable,
+    getCoreRowModel,
+    getFilteredRowModel,
+    getPaginationRowModel,
+    getSortedRowModel,
+    getFacetedRowModel,
+    getFacetedUniqueValues,
+    ColumnFiltersState,
+    SortingState,
+    PaginationState,
+} from "@tanstack/react-table";
+import { getTaskTableColumns, TASK_DATE_COLUMNS } from './config/taskTableColumns';
 
 const DOCTYPE = 'Project Design Tracker';
 
-const PROJECT_STATUS_OPTIONS = [
-    { value: 'Draft', label: 'Draft' },
-    { value: 'Assign Pending', label: 'Assign Pending' },
-    { value: 'In Progress', label: 'In Progress' },
-    { value: 'Completed', label: 'Completed' },
-    { value: 'On Hold', label: 'On Hold' },
-    // { value: 'Archived', label: 'Archived' },
-];
 // --- TYPE DEFINITION for Category Items ---
 interface CategoryItem {
     category_name: string;
     tasks: { task_name: string; deadline_offset?: number }[];
-    // Add other fields if needed, but keeping it minimal for UI/Task generation
 }
 
 // --- Project Overview Edit Modal ---
@@ -53,15 +58,13 @@ interface ProjectOverviewEditModalProps {
 }
 
 const ProjectOverviewEditModal: React.FC<ProjectOverviewEditModalProps> = ({ isOpen, onOpenChange, currentDoc, onSave }) => {
-    const [editState, setEditState] = useState<{ status: string; overall_deadline?: string }>({
-        status: currentDoc.status,
+    const [editState, setEditState] = useState<{ overall_deadline?: string }>({
         overall_deadline: currentDoc.overall_deadline,
     });
     const [isSaving, setIsSaving] = useState(false);
 
     React.useEffect(() => {
         setEditState({
-            status: currentDoc.status,
             overall_deadline: currentDoc.overall_deadline,
         });
     }, [isOpen, currentDoc]);
@@ -69,7 +72,7 @@ const ProjectOverviewEditModal: React.FC<ProjectOverviewEditModalProps> = ({ isO
     const handleSave = async () => {
         setIsSaving(true);
         try {
-            await onSave(editState);
+            await onSave({ overall_deadline: editState.overall_deadline });
             toast({ title: "Success", description: "Project details updated." });
             onOpenChange(false);
         } catch (e) {
@@ -86,17 +89,6 @@ const ProjectOverviewEditModal: React.FC<ProjectOverviewEditModalProps> = ({ isO
                     <DialogTitle>Edit Project Overview</DialogTitle>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
-                    {/* <div className="space-y-1">
-                        <Label htmlFor="status">Project Status</Label>
-                        <ReactSelect
-                            options={PROJECT_STATUS_OPTIONS}
-                            value={PROJECT_STATUS_OPTIONS.find(opt => opt.value === editState.status) || null}
-                            onChange={(option) => setEditState(prev => ({ ...prev, status: option?.value || '' }))}
-                            placeholder="Select Status"
-                            classNamePrefix="react-select"
-                            menuPosition="fixed" 
-                        />
-                    </div> */}
                     <div className="space-y-1">
                         <Label htmlFor="deadline">Overall Deadline</Label>
                         <Input
@@ -116,39 +108,28 @@ const ProjectOverviewEditModal: React.FC<ProjectOverviewEditModalProps> = ({ isO
             </DialogContent>
         </Dialog>
     );
-}
+};
 
-
-// --- Task Edit Modal Components (Master Definition) ---
+// --- Designer Option Interface ---
 interface DesignerOption {
-    value: string; // userId
-    label: string; // fullName
+    value: string;
+    label: string;
     email: string;
 }
 
-interface TaskEditModalProps {
-    task: DesignTrackerTask;
-    onSave: (updatedTask: { [key: string]: any }) => Promise<void>;
-    usersList: User[];
-    isOpen: boolean;
-    onOpenChange: (open: boolean) => void;
-    statusOptions: { label: string; value: string }[];
-    subStatusOptions: { label: string; value: string }[];
-}
-
-
+// --- New Task Modal ---
 interface NewTaskModalProps {
     isOpen: boolean;
     onOpenChange: (open: boolean) => void;
     onAdd: (newTask: Partial<DesignTrackerTask>) => Promise<void>;
     usersList: User[];
-    categories: any[]; // Now using the filtered list,
+    categories: any[];
     existingTaskNames: string[];
     statusOptions: { label: string; value: string }[];
-    existingZones: string[]; // NEW PROP
+    activeZone: string; // Pre-filled from active tab
 }
 
-const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onAdd, usersList, categories, statusOptions,existingTaskNames, existingZones }) => {
+const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onAdd, usersList, categories, statusOptions: _statusOptions, existingTaskNames, activeZone }) => {
     const initialCategoryName = categories[0]?.category_name || '';
 
     const [taskState, setTaskState] = useState<Partial<DesignTrackerTask>>({
@@ -158,7 +139,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onAdd
         task_status: 'Not Started',
         file_link: '',
         comments: '',
-        task_zone:'' // Default to first zone
+        task_zone: activeZone
     });
     const [selectedDesigners, setSelectedDesigners] = useState<DesignerOption[]>([]);
     const [isSaving, setIsSaving] = useState(false);
@@ -167,28 +148,30 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onAdd
         usersList.map(u => ({ label: u.full_name || u.name, value: u.name, email: u.email || '' }))
         , [usersList]);
 
+    // Update task_zone when activeZone changes or modal opens
     React.useEffect(() => {
         if (!isOpen) {
-            // Reset state upon close
             setTaskState({
                 task_name: '',
                 design_category: initialCategoryName,
                 deadline: '',
                 task_status: 'Not Started',
+                task_zone: activeZone,
             });
             setSelectedDesigners([]);
         } else {
-            // Reset category selection if the initial one disappears (or update based on new filtered list)
-            if (!taskState.design_category || !categories.some(c => c.category_name === taskState.design_category)) {
-                setTaskState(prev => ({ ...prev, design_category: initialCategoryName }));
-            }
+            // Set zone from activeZone prop when modal opens
+            setTaskState(prev => ({
+                ...prev,
+                task_zone: activeZone,
+                design_category: prev.design_category || initialCategoryName
+            }));
         }
-    }, [isOpen, categories, initialCategoryName]);
-
+    }, [isOpen, activeZone, categories, initialCategoryName]);
 
     const handleSave = async () => {
-        if (!taskState.task_name || !taskState.design_category || !taskState.task_zone) {
-            toast({ title: "Error", description: "Task Name, Category, and Zone are required.", variant: "destructive" });
+        if (!taskState.task_name || !taskState.design_category) {
+            toast({ title: "Error", description: "Task Name and Category are required.", variant: "destructive" });
             return;
         }
         const normalizedCurrentName = taskState.task_name.toLowerCase().trim();
@@ -199,10 +182,10 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onAdd
         });
 
         if (isDuplicate) {
-            toast({ 
-                title: "Duplicate Task Name", 
-                description: `The task name "${taskState.task_name}" is already used by another task in this project.`, 
-                variant: "destructive" 
+            toast({
+                title: "Duplicate Task Name",
+                description: `The task name "${taskState.task_name}" is already used by another task in this project.`,
+                variant: "destructive"
             });
             return;
         }
@@ -215,12 +198,12 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onAdd
             userEmail: d.email,
         }));
 
-        // Serialize designers list into the required JSON string format
         const structuredDataForServer = { list: assignedDesignerDetails };
         const assigned_designers_string = JSON.stringify(structuredDataForServer);
 
         const newTaskPayload: Partial<DesignTrackerTask> = {
             ...taskState,
+            task_zone: activeZone, // Ensure zone is set from prop
             assigned_designers: assigned_designers_string,
         };
 
@@ -237,65 +220,51 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onAdd
 
     return (
         <Dialog open={isOpen} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-xl">
+            <DialogContent className="sm:max-w-lg">
                 <DialogHeader>
-                    <DialogTitle>Create Custom Task</DialogTitle>
+                    <DialogTitle className="text-base font-semibold">Create Task</DialogTitle>
                 </DialogHeader>
-                <div className="grid gap-4 py-4">
-                    {/* Category */}
 
-                    {/* <div className="space-y-1">
-                        <Label htmlFor="category">Design Category *</Label>
-                        <Select
-                            value={taskState.design_category || ''}
-                            onValueChange={(val) => setTaskState(prev => ({ ...prev, design_category: val }))}
-                        >
-                            <SelectTrigger>
-                                <SelectValue placeholder="Select Category" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {categories.map(cat => (
-                                    <SelectItem key={cat.category_name} value={cat.category_name}>
-                                        {cat.category_name}
-                                    </SelectItem>
-                                ))}
-                                
-                            </SelectContent>
-                        </Select>
-                    </div> */}
-                    {/* Zone Selection (NEW) */}
-                    <div className="space-y-1">
-                        <Label htmlFor="zone">Zone *</Label>
-                        <ReactSelect
-                            options={existingZones.map(z => ({ label: z, value: z }))}
-                            value={existingZones.map(z => ({ label: z, value: z })).find(opt => opt.value === taskState.task_zone) || null}
-                            onChange={(option) => setTaskState(prev => ({ ...prev, task_zone: option?.value || '' }))}
-                            placeholder="Select Zone"
-                            classNamePrefix="react-select"
-                        />
+                <div className="space-y-3 py-2">
+                    {/* Zone Display (Read-only) */}
+                    <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-md border border-gray-200">
+                        <span className="text-xs text-gray-500">Creating task in zone:</span>
+                        <Badge className="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 border border-blue-200">
+                            {activeZone}
+                        </Badge>
                     </div>
 
+                    {/* Category */}
                     <div className="space-y-1">
-                        <Label htmlFor="category">Design Category *</Label>
+                        <Label htmlFor="category" className="text-xs font-medium">Category *</Label>
                         <ReactSelect
                             options={categories}
                             value={categories.find((c: any) => c.value === taskState.design_category) || null}
                             onChange={(option: any) => setTaskState(prev => ({ ...prev, design_category: option ? option.value : '' }))}
                             classNamePrefix="react-select"
-                           
+                            styles={{
+                                control: (base) => ({ ...base, minHeight: '36px', fontSize: '14px' }),
+                                option: (base) => ({ ...base, fontSize: '14px' })
+                            }}
                         />
                     </div>
 
                     {/* Task Name */}
                     <div className="space-y-1">
-                        <Label htmlFor="task_name">Task Name *</Label>
-                        <Input id="task_name" value={taskState.task_name} onChange={(e) => setTaskState(prev => ({ ...prev, task_name: e.target.value }))} required />
+                        <Label htmlFor="task_name" className="text-xs font-medium">Task Name *</Label>
+                        <Input
+                            id="task_name"
+                            value={taskState.task_name}
+                            onChange={(e) => setTaskState(prev => ({ ...prev, task_name: e.target.value }))}
+                            placeholder="Enter task name..."
+                            className="h-9"
+                            required
+                        />
                     </div>
 
-
-                    {/* Assigned Designer (Multi-Select) */}
+                    {/* Assign Designers */}
                     <div className="space-y-1">
-                        <Label htmlFor="designer">Assign Designer(s)</Label>
+                        <Label htmlFor="designer" className="text-xs font-medium">Assign Designer(s)</Label>
                         <ReactSelect
                             isMulti
                             value={selectedDesigners}
@@ -303,66 +272,62 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onAdd
                             onChange={(newValue) => setSelectedDesigners(newValue as DesignerOption[])}
                             placeholder="Select designers..."
                             classNamePrefix="react-select"
+                            styles={{
+                                control: (base) => ({ ...base, minHeight: '36px', fontSize: '14px' }),
+                                option: (base) => ({ ...base, fontSize: '14px' })
+                            }}
                         />
                     </div>
 
-                    {/* Deadline */}
-                    <div className="space-y-1">
-                        <Label htmlFor="deadline">Deadline</Label>
-                        <Input id="deadline" type="date" value={taskState.deadline || ''} onChange={(e) => setTaskState(prev => ({ ...prev, deadline: e.target.value }))} />
+                    {/* Deadline & File Link in 2 columns */}
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                            <Label htmlFor="deadline" className="text-xs font-medium">Deadline</Label>
+                            <Input
+                                id="deadline"
+                                type="date"
+                                value={taskState.deadline || ''}
+                                onChange={(e) => setTaskState(prev => ({ ...prev, deadline: e.target.value }))}
+                                className="h-9"
+                            />
+                        </div>
+                        <div className="space-y-1">
+                            <Label htmlFor="file_link" className="text-xs font-medium">File Link</Label>
+                            <Input
+                                id="file_link"
+                                type="url"
+                                value={taskState.file_link || ''}
+                                onChange={(e) => setTaskState(prev => ({ ...prev, file_link: e.target.value }))}
+                                placeholder="https://..."
+                                className="h-9"
+                            />
+                        </div>
                     </div>
-
-                    {/* Status (Default to Not Applicable) */}
-                    {/* <div className="space-y-1">
-                        <Label htmlFor="status">Status</Label>
-                        <Select
-                            value={taskState.task_status || 'Not Applicable'}
-                            onValueChange={(val) => setTaskState(prev => ({ ...prev, task_status: val as any }))}
-                        >
-                            <SelectTrigger>
-                                <SelectValue placeholder="Select Status" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {statusOptions.map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}
-                            </SelectContent>
-                        </Select>
-                    </div> */}
-
-                    {/* <div className="space-y-1">
-                        <Label htmlFor="category">Status</Label>
-                        <ReactSelect
-                            options={statusOptions}
-                            value={statusOptions.find((c: any) => c.value === taskState.task_status) || null}
-                            onChange={(option: any) => setTaskState(prev => ({ ...prev, design_category: option ? option.value : '' }))}
-                            classNamePrefix="react-select"
-                           
-                        />
-                    </div> */}
-
-
-                    {/* File Link */}
-                    <div className="space-y-1">
-                        <Label htmlFor="file_link">Design File Link</Label>
-                        <Input id="file_link" type="url" value={taskState.file_link || ''} onChange={(e) => setTaskState(prev => ({ ...prev, file_link: e.target.value }))} placeholder="https://figma.com/..." />
-                    </div>
-
                 </div>
-                <DialogFooter>
-                    <DialogClose asChild><Button variant="outline" disabled={isSaving}>Cancel</Button></DialogClose>
-                    <Button onClick={handleSave} disabled={isSaving || !taskState.task_name || !taskState.design_category}>
-                        <Save className="h-4 w-4 mr-2" /> Create Task
+
+                <DialogFooter className="gap-2 sm:gap-0">
+                    <DialogClose asChild>
+                        <Button variant="outline" size="sm" disabled={isSaving}>Cancel</Button>
+                    </DialogClose>
+                    <Button
+                        size="sm"
+                        onClick={handleSave}
+                        disabled={isSaving || !taskState.task_name || !taskState.design_category}
+                        className="bg-red-600 hover:bg-red-700"
+                    >
+                        {isSaving ? <TailSpin width={16} height={16} color="white" /> : 'Create Task'}
                     </Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>
     );
-}
+};
 
-// --- NEW: Add Category Modal Component ---
+// --- Add Category Modal ---
 interface AddCategoryModalProps {
     isOpen: boolean;
     onOpenChange: (open: boolean) => void;
-    availableCategories: CategoryItem[]; // Categories NOT currently in the tracker
+    availableCategories: CategoryItem[];
     onAdd: (newTasks: Partial<DesignTrackerTask>[]) => Promise<void>;
 }
 
@@ -371,11 +336,9 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
 }) => {
     const [selectedCategories, setSelectedCategories] = useState<CategoryItem[]>([]);
     const [isSaving, setIsSaving] = useState(false);
-    
-    // START: Access tracker document to get existing zones
+
     const { id: trackerId } = useParams<{ id: string }>();
-    const { trackerDoc } = useDesignTrackerLogic({ trackerId: trackerId! }); // Re-use connection to source of truth
-    // END: Access tracker document
+    const { trackerDoc } = useDesignTrackerLogic({ trackerId: trackerId! });
 
     React.useEffect(() => {
         if (!isOpen) {
@@ -400,29 +363,16 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
         setIsSaving(true);
 
         const tasksToGenerate: Partial<DesignTrackerTask>[] = [];
-        
-        // Use existing zones from the tracker. If none (old data), fallback to a single pass (undefined zone).
-        const existingZones = trackerDoc?.zone && trackerDoc.zone.length > 0 
-            ? trackerDoc.zone.map(z => z.tracker_zone) 
-            : [undefined]; // Loop at least once with no zone if no zones exist
+        const existingZones = trackerDoc?.zone && trackerDoc.zone.length > 0
+            ? trackerDoc.zone.map(z => z.tracker_zone)
+            : [undefined];
 
-        // Loop through Categories
         selectedCategories.forEach(cat => {
             const taskItems = cat.tasks;
-
-            if (taskItems.length === 0) {
-                 // Warning toast, but continue with other categories
-                 // toast({ title: "Category Skipped", description: `Category ${cat.category_name} has no default tasks defined.`, variant: "warning" });
-            }
-
-            // Loop through Zones (Outer or Inner loop matters less, but tasks grouped by zone is usually better for reading)
-            // Let's loop Zones inside Category to keep Cat grouping structure if needed, or simply flatten.
-            
             existingZones.forEach(zoneName => {
                 taskItems.forEach(taskDef => {
                     let calculatedDeadline: string | undefined = undefined;
                     if (taskDef.deadline_offset !== undefined && taskDef.deadline_offset !== null) {
-                        // Use tracker start_date if available, otherwise fallback to today
                         const baseDate = trackerDoc?.start_date ? new Date(trackerDoc.start_date) : new Date();
                         const d = new Date(baseDate);
                         d.setDate(baseDate.getDate() + Number(taskDef.deadline_offset));
@@ -434,16 +384,14 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
                         design_category: cat.category_name,
                         task_status: 'Not Started',
                         deadline: calculatedDeadline,
-                        task_zone: zoneName, // Assign the Zone
-                        // deadline_offset: taskDef.deadline_offset
+                        task_zone: zoneName,
                     });
                 });
             });
         });
 
         try {
-            await onAdd(tasksToGenerate); 
-
+            await onAdd(tasksToGenerate);
             toast({ title: "Success", description: `${selectedCategories.length} categories added.`, variant: "success" });
             onOpenChange(false);
         } catch (error) {
@@ -453,45 +401,94 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
         }
     };
 
+    // Calculate total tasks that will be created
+    const existingZonesCount = trackerDoc?.zone?.length || 1;
+    const totalTasksToCreate = selectedCategories.reduce(
+        (sum, cat) => sum + (cat.tasks?.length || 0), 0
+    ) * existingZonesCount;
 
     return (
         <Dialog open={isOpen} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-lg">
+            <DialogContent className="sm:max-w-md">
                 <DialogHeader>
-                    <DialogTitle>Select New Categories to Add</DialogTitle>
-                    <div className="text-sm text-gray-500">
-                        Choose categories not currently tracked for this project. Default tasks will be generated for all active zones.
-                    </div>
+                    <DialogTitle className="text-base font-semibold">Add Categories</DialogTitle>
+                    <p className="text-xs text-gray-500">
+                        Select categories to add. Tasks will be generated for all {existingZonesCount} zone{existingZonesCount !== 1 ? 's' : ''}.
+                    </p>
                 </DialogHeader>
 
-                <div className="space-y-4 py-4">
-                    <div className="grid grid-cols-3 gap-3 max-h-80 overflow-y-auto p-2 border rounded-lg">
+                <div className="space-y-3 py-2">
+                    {/* Section Header */}
+                    <div className="flex items-center justify-between">
+                        <span className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">
+                            Available Categories
+                        </span>
+                        <span className="text-[10px] text-gray-400">
+                            {availableCategories.length} available
+                        </span>
+                    </div>
+
+                    {/* Category Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-64 overflow-y-auto p-1">
                         {availableCategories.length === 0 ? (
-                            <p className="col-span-3 text-center text-gray-500 py-4">
-                                All available master categories are already active.
+                            <p className="col-span-3 text-center text-gray-500 py-4 text-xs">
+                                All categories are already active.
                             </p>
                         ) : (
-                            availableCategories.map(cat => (
-                                <Button
-                                    key={cat.category_name}
-                                    variant={selectedCategories.find(c => c.category_name === cat.category_name) ? "default" : "outline"}
-                                    onClick={() => handleCategoryToggle(cat)}
-                                    disabled={isSaving}
-                                >
-                                    {cat.category_name}
-                                </Button>
-                            ))
+                            availableCategories.map(cat => {
+                                const isSelected = selectedCategories.some(c => c.category_name === cat.category_name);
+                                const taskCount = cat.tasks?.length || 0;
+                                return (
+                                    <Button
+                                        key={cat.category_name}
+                                        type="button"
+                                        variant={isSelected ? "default" : "outline"}
+                                        onClick={() => handleCategoryToggle(cat)}
+                                        disabled={isSaving}
+                                        size="sm"
+                                        className={`h-auto py-2 px-2.5 text-xs whitespace-normal min-h-[44px] justify-start text-left relative ${
+                                            isSelected ? 'bg-red-600 hover:bg-red-700' : ''
+                                        }`}
+                                    >
+                                        <div className="flex flex-col gap-0.5 w-full">
+                                            <span className="truncate font-medium">{cat.category_name}</span>
+                                            <span className={`text-[10px] ${isSelected ? 'text-red-100' : 'text-gray-400'}`}>
+                                                ({taskCount} task{taskCount !== 1 ? 's' : ''})
+                                            </span>
+                                        </div>
+                                        {isSelected && (
+                                            <Check className="absolute top-1 right-1 h-3 w-3 text-white" />
+                                        )}
+                                    </Button>
+                                );
+                            })
                         )}
                     </div>
+
+                    {/* Selection Summary */}
+                    {selectedCategories.length > 0 && (
+                        <div className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-md border border-gray-200">
+                            <span className="text-xs text-gray-600">
+                                <span className="font-medium text-gray-900">{selectedCategories.length}</span> categor{selectedCategories.length !== 1 ? 'ies' : 'y'} selected
+                            </span>
+                            <span className="text-xs text-gray-500">
+                                {totalTasksToCreate} task{totalTasksToCreate !== 1 ? 's' : ''} will be created
+                            </span>
+                        </div>
+                    )}
                 </div>
 
-                <DialogFooter>
-                    <DialogClose asChild><Button variant="outline" disabled={isSaving}>Cancel</Button></DialogClose>
+                <DialogFooter className="gap-2 sm:gap-0">
+                    <DialogClose asChild>
+                        <Button variant="outline" size="sm" disabled={isSaving}>Cancel</Button>
+                    </DialogClose>
                     <Button
+                        size="sm"
                         onClick={handleConfirm}
                         disabled={selectedCategories.length === 0 || isSaving}
+                        className="bg-red-600 hover:bg-red-700"
                     >
-                        {isSaving ? <TailSpin width={20} height={20} color="white" /> : `Add ${selectedCategories.length} Categories`}
+                        {isSaving ? <TailSpin width={16} height={16} color="white" /> : 'Add Categories'}
                     </Button>
                 </DialogFooter>
             </DialogContent>
@@ -499,9 +496,7 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
     );
 };
 
-
-
-// --- NEW: Add Zone Modal Component ---
+// --- Add Zone Modal ---
 interface AddZoneModalProps {
     isOpen: boolean;
     onOpenChange: (open: boolean) => void;
@@ -578,39 +573,128 @@ const AddZoneModal: React.FC<AddZoneModalProps> = ({ isOpen, onOpenChange, onAdd
         <Dialog open={isOpen} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
-                    <DialogTitle>Add New Zones</DialogTitle>
-                    <div className="text-sm text-center text-gray-500">
-                        Add new zones to this tracker. Tasks for all currently active
-                        categories will be generated for these new zones.
-                    </div>
+                    <DialogTitle className="text-base font-semibold">Add Zones</DialogTitle>
                 </DialogHeader>
-                <div className="py-4 space-y-4">
-                    <div className="flex gap-2">
-                        <Input
-                            placeholder="Type zone name (e.g. Tower C) and press Enter"
-                            value={zoneInput}
-                            onChange={(e) => setZoneInput(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                        />
-                         <Button type="button" onClick={addZone} variant="secondary">Add</Button>
+
+                <div className="space-y-4 py-2">
+                    {/* Section 1: Current Zones */}
+                    <div className="space-y-2">
+                        <span className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">
+                            Current Zones
+                        </span>
+                        <div className="flex flex-wrap gap-1.5 p-2 bg-gray-50 rounded-md border border-gray-200 min-h-[36px]">
+                            {existingZones.length === 0 ? (
+                                <span className="text-xs text-gray-400">No zones yet</span>
+                            ) : (
+                                existingZones.map(zone => (
+                                    <Badge
+                                        key={zone}
+                                        variant="secondary"
+                                        className="px-2 py-0.5 text-[11px] bg-gray-100 text-gray-600 border border-gray-200"
+                                    >
+                                        {zone}
+                                    </Badge>
+                                ))
+                            )}
+                        </div>
                     </div>
-                    
-                    <div className="flex flex-wrap gap-2 min-h-[60px] p-2 border rounded-md bg-slate-50">
-                        {zones.length === 0 && <span className="text-gray-400 text-sm p-1">No zones added yet.</span>}
-                        {zones.map((zone) => (
-                            <Badge key={zone} variant="secondary" className="px-3 py-1 text-sm bg-white border shadow-sm">
-                                {zone}
-                                <button onClick={() => removeZone(zone)} className="ml-2 text-gray-400 hover:text-red-500">
-                                    ×
-                                </button>
-                            </Badge>
-                        ))}
+
+                    {/* Section 2: Add New Zones */}
+                    <div className="space-y-2">
+                        <span className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">
+                            Add New Zones
+                        </span>
+                        <div className="flex gap-2">
+                            <Input
+                                placeholder="Enter zone name..."
+                                value={zoneInput}
+                                onChange={(e) => setZoneInput(e.target.value)}
+                                onKeyDown={handleKeyDown}
+                                className="h-8 text-sm"
+                            />
+                            <Button
+                                type="button"
+                                onClick={addZone}
+                                variant="outline"
+                                size="sm"
+                                className="h-8 px-3"
+                            >
+                                <Plus className="h-3 w-3 mr-1" /> Add
+                            </Button>
+                        </div>
+                        {zones.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                                <span className="text-[10px] text-gray-400 mr-1">Pending:</span>
+                                {zones.map(zone => (
+                                    <Badge
+                                        key={zone}
+                                        variant="secondary"
+                                        className="px-2 py-0.5 text-[11px] bg-blue-50 text-blue-700 border border-blue-200 gap-1"
+                                    >
+                                        {zone}
+                                        <X
+                                            className="h-3 w-3 cursor-pointer hover:text-red-500"
+                                            onClick={() => removeZone(zone)}
+                                        />
+                                    </Badge>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Section 3: Preview */}
+                    {zones.length > 0 && (
+                        <div className="space-y-2">
+                            <span className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">
+                                Preview
+                            </span>
+                            <div className="p-2 bg-gray-50 rounded-md border border-gray-200">
+                                <p className="text-[10px] text-gray-500 mb-2">Zone layout after adding:</p>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {existingZones.map(zone => (
+                                        <Badge
+                                            key={zone}
+                                            variant="secondary"
+                                            className="px-2 py-0.5 text-[11px] bg-gray-100 text-gray-600 border border-gray-200"
+                                        >
+                                            {zone}
+                                        </Badge>
+                                    ))}
+                                    {zones.map(zone => (
+                                        <Badge
+                                            key={zone}
+                                            variant="secondary"
+                                            className="px-2 py-0.5 text-[11px] bg-blue-100 text-blue-700 border border-blue-300 font-medium"
+                                        >
+                                            {zone}
+                                            <span className="text-[9px] ml-0.5 text-blue-500">new</span>
+                                        </Badge>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Info Note */}
+                    <div className="flex items-start gap-2 px-2 py-1.5 bg-blue-50/50 rounded border border-blue-100">
+                        <Info className="h-3.5 w-3.5 text-blue-500 mt-0.5 flex-shrink-0" />
+                        <p className="text-[11px] text-blue-700">
+                            Tasks for all active categories will be generated for each new zone.
+                        </p>
                     </div>
                 </div>
-                <DialogFooter>
-                    <DialogClose asChild><Button variant="outline" disabled={isSaving}>Cancel</Button></DialogClose>
-                    <Button onClick={handleConfirm} disabled={isSaving || zones.length === 0}>
-                        {isSaving ? <TailSpin width={20} height={20} color="white" /> : "Confirm Add Zones"}
+
+                <DialogFooter className="gap-2 sm:gap-0">
+                    <DialogClose asChild>
+                        <Button variant="outline" size="sm" disabled={isSaving}>Cancel</Button>
+                    </DialogClose>
+                    <Button
+                        size="sm"
+                        onClick={handleConfirm}
+                        disabled={isSaving || zones.length === 0}
+                        className="bg-red-600 hover:bg-red-700"
+                    >
+                        {isSaving ? <TailSpin width={16} height={16} color="white" /> : `Add ${zones.length} Zone${zones.length !== 1 ? 's' : ''}`}
                     </Button>
                 </DialogFooter>
             </DialogContent>
@@ -618,27 +702,26 @@ const AddZoneModal: React.FC<AddZoneModalProps> = ({ isOpen, onOpenChange, onAdd
     );
 };
 
-
 // --- Main Detail Component ---
 interface ProjectDesignTrackerDetailProps {
     trackerId?: string;
 }
 
-export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProps> = ({ trackerId: propTrackerId }) => {
+export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailProps> = ({ trackerId: propTrackerId }) => {
     const { role, user_id } = useUserData();
     const isDesignExecutive = role === "Nirmaan Design Executive Profile";
     const isProjectManager = role === "Nirmaan Project Manager Profile";
     const hasEditStructureAccess = role === "Nirmaan Design Lead Profile" || role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator";
 
-    const checkIfUserAssigned = (task: DesignTrackerTask) => {
+    const checkIfUserAssigned = useCallback((task: DesignTrackerTask) => {
         const designerField = task.assigned_designers;
         if (!designerField) return false;
-        
+
         let designers: AssignedDesignerDetail[] = [];
-         if (designerField && typeof designerField === 'object' && Array.isArray(designerField.list)) {
-            designers = designerField.list;
+        if (designerField && typeof designerField === 'object' && Array.isArray((designerField as any).list)) {
+            designers = (designerField as any).list;
         } else if (Array.isArray(designerField)) {
-            designers = designerField;
+            designers = designerField as any;
         } else if (typeof designerField === 'string' && designerField.trim() !== '') {
             try {
                 const parsed = JSON.parse(designerField);
@@ -647,42 +730,44 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                 } else if (Array.isArray(parsed)) {
                     designers = parsed;
                 }
-            } catch (e) {
-                // JSON parsing failed
-            }
+            } catch (e) { }
         }
         return designers.some(d => d.userId === user_id);
-    };
+    }, [user_id]);
 
     const { id: paramTrackerId } = useParams<{ id: string }>();
     const trackerId = propTrackerId || paramTrackerId;
 
     const {
-        trackerDoc, groupedTasks, categoryData, isLoading, error, getDesignerName, handleTaskSave, editingTask, setEditingTask, usersList, handleParentDocSave, statusOptions,
+        trackerDoc, categoryData, isLoading, error, handleTaskSave, editingTask, setEditingTask, usersList, handleParentDocSave, statusOptions,
         subStatusOptions,
         handleNewTaskCreation
     } = useDesignTrackerLogic({ trackerId: trackerId! });
 
-    const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
-    const [overallDeadline, setOverallDeadline] = useState(trackerDoc?.overall_deadline || '');
     const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState(false);
-    const [isAddCategoryModalOpen, setIsAddCategoryModalOpen] = useState(false); // Can likely remove now
-    const [isAddZoneModalOpen, setIsAddZoneModalOpen] = useState(false); // NEW STATE
+    const [isAddCategoryModalOpen, setIsAddCategoryModalOpen] = useState(false);
+    const [isAddZoneModalOpen, setIsAddZoneModalOpen] = useState(false);
     const [isProjectOverviewModalOpen, setIsProjectOverviewModalOpen] = useState(false);
-    const [activeTab, setActiveTab] = useState("");
 
     // Rename Modal State
     const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
     const [zoneToRename, setZoneToRename] = useState("");
 
-    // --- Master Category Calculation ---
+    // Zone Tab State
+    const [activeTab, setActiveTab] = useState<string>("");
+
+    // --- DataTable State ---
+    const [searchTerm, setSearchTerm] = useState("");
+    const [selectedSearchField, setSelectedSearchField] = useState("task_name");
+    const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+    const [sorting, setSorting] = useState<SortingState>([{ id: 'deadline', desc: false }]);
+    const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 50 });
 
     // Extract Unique Zones from Tracker Doc
     const uniqueZones = useMemo(() => {
         if (trackerDoc?.zone && trackerDoc.zone.length > 0) {
             return trackerDoc.zone.map(z => z.tracker_zone);
         }
-        // Fallback: Check tasks for zones if child table is empty
         if (trackerDoc?.design_tracker_task) {
             const zonesFromTasks = new Set(trackerDoc.design_tracker_task.map(t => t.task_zone).filter(Boolean));
             return Array.from(zonesFromTasks);
@@ -690,9 +775,39 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
         return [];
     }, [trackerDoc]);
 
+    // Task count per zone (includes all tasks)
+    const taskCountByZone = useMemo(() => {
+        if (!trackerDoc?.design_tracker_task) return new Map<string, number>();
 
-    // 1. Categories currently active in this tracker + 'Others' fallback
-   // 1. Categories currently active in this tracker + 'Others' fallback
+        const countMap = new Map<string, number>();
+        trackerDoc.design_tracker_task.forEach(task => {
+            const zone = task.task_zone || '';
+            countMap.set(zone, (countMap.get(zone) || 0) + 1);
+        });
+        return countMap;
+    }, [trackerDoc?.design_tracker_task]);
+
+    // Set initial active tab when zones load
+    React.useEffect(() => {
+        if (uniqueZones.length > 0 && !activeTab) {
+            setActiveTab(uniqueZones[0] || "");
+        }
+    }, [uniqueZones, activeTab]);
+
+    // Flatten tasks from tracker document (filter by active zone tab)
+    const flattenedTasks = useMemo(() => {
+        if (!trackerDoc?.design_tracker_task) return [];
+        let tasks = [...trackerDoc.design_tracker_task];
+
+        // Filter by active zone tab
+        if (activeTab) {
+            tasks = tasks.filter(t => t.task_zone === activeTab);
+        }
+
+        return tasks;
+    }, [trackerDoc?.design_tracker_task, activeTab]);
+
+    // Active categories in tracker
     const activeCategoriesInTracker = useMemo(() => {
         if (!trackerDoc?.design_tracker_task || !categoryData) return [];
 
@@ -700,7 +815,6 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
             trackerDoc.design_tracker_task.map(t => t.design_category)
         );
 
-        // Filter master categories to include only those currently active in the tracker
         const filteredCategories = categoryData.filter(masterCat =>
             uniqueCategoryNames.has(masterCat.category_name)
         );
@@ -712,22 +826,18 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
 
         let resultList = filteredCategories;
 
-        // If 'Others' category is not already in the list, append it
         if (!uniqueCategoryNames.has("Others")) {
             resultList = [...filteredCategories, othersCategory];
         }
 
-        // Map to Label/Value format for React Select
         return resultList.map(cat => ({
             label: cat.category_name,
             value: cat.category_name,
-            ...cat // Keep original fields (tasks, category_name)
+            ...cat
         }));
-
     }, [trackerDoc?.design_tracker_task, categoryData]);
-    console.log("Active Categories in Tracker:", activeCategoriesInTracker);
 
-    // 2. Categories available to be ADDED (Master list minus categories already in tracker)
+    // Categories available to be ADDED
     const availableNewCategories: CategoryItem[] = useMemo(() => {
         if (!trackerDoc?.design_tracker_task || !categoryData) return [];
 
@@ -735,61 +845,96 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
             trackerDoc.design_tracker_task.map(t => t.design_category)
         );
 
-        // Filter master list:
-        // 1. Not currently in the tracker
-        // 2. Not "Others"
-        // 3. Must have at least one task defined
         return categoryData.filter(masterCat =>
-            !activeCategoryNames.has(masterCat.category_name) && 
+            !activeCategoryNames.has(masterCat.category_name) &&
             masterCat.category_name !== "Others" &&
-            Array.isArray(masterCat.tasks) && 
+            Array.isArray(masterCat.tasks) &&
             masterCat.tasks.length > 0
         );
-
     }, [trackerDoc?.design_tracker_task, categoryData]);
 
-    // --- Action: Handle adding NEW categories (batch task creation) ---
-    // This action appends the newly generated tasks to the existing document array.
+    // --- Faceted Filter Options (Zone is handled by tabs, not filter) ---
+    const facetFilterOptions = useMemo(() => ({
+        design_category: {
+            title: "Category",
+            options: activeCategoriesInTracker.map(c => ({ label: c.category_name, value: c.category_name })),
+        },
+        task_status: {
+            title: "Status",
+            options: statusOptions || [],
+        },
+        task_sub_status: {
+            title: "Sub-Status",
+            options: subStatusOptions || [],
+        },
+    }), [activeCategoriesInTracker, statusOptions, subStatusOptions]);
+
+    // Search field options
+    const searchFieldOptions = [
+        { value: "task_name", label: "Task Name", default: true },
+        { value: "design_category", label: "Category" },
+    ];
+
+    // Column definitions
+    const columns = useMemo(
+        () => getTaskTableColumns(setEditingTask, isDesignExecutive, isProjectManager, checkIfUserAssigned),
+        [isDesignExecutive, isProjectManager, checkIfUserAssigned]
+    );
+
+    // Client-side TanStack Table instance
+    const table = useReactTable({
+        data: flattenedTasks,
+        columns,
+        state: {
+            columnFilters,
+            sorting,
+            pagination,
+            globalFilter: searchTerm,
+        },
+        onColumnFiltersChange: setColumnFilters,
+        onSortingChange: setSorting,
+        onPaginationChange: setPagination,
+        onGlobalFilterChange: setSearchTerm,
+        getCoreRowModel: getCoreRowModel(),
+        getFilteredRowModel: getFilteredRowModel(),
+        getSortedRowModel: getSortedRowModel(),
+        getPaginationRowModel: getPaginationRowModel(),
+        getFacetedRowModel: getFacetedRowModel(),
+        getFacetedUniqueValues: getFacetedUniqueValues(),
+        globalFilterFn: (row, _columnId, filterValue) => {
+            const searchValue = filterValue.toLowerCase();
+            const fieldValue = row.getValue(selectedSearchField);
+            if (typeof fieldValue === 'string') {
+                return fieldValue.toLowerCase().includes(searchValue);
+            }
+            return false;
+        },
+    });
+
+    // --- Action Handlers ---
     const handleAddCategories = async (newTasks: Partial<DesignTrackerTask>[]) => {
         if (!trackerDoc) return;
-
-        // Append new tasks to the existing array and save the whole doc
-        const updatedTasks = [...(trackerDoc.design_tracker_task || []), ...newTasks];
-
-        // We use handleParentDocSave which safely calls updateDoc and refetches the tracker
+        const updatedTasks = [...(trackerDoc.design_tracker_task || []), ...newTasks as DesignTrackerTask[]];
         await handleParentDocSave({ design_tracker_task: updatedTasks });
-    }
+    };
 
     const handleAddZone = async ({ zones }: { zones: string[] }) => {
         if (!trackerDoc) return;
 
-        // 1. Identify Active Categories (we already have activeCategoriesInTracker)
-        // activeCategoriesInTracker contains the master configurations for active cats
-        // The `activeCategoriesInTracker` memo above returns categories that are *already* in the tracker.
-        // For adding zones, we want categories that are *defined* in the master list and *have tasks*.
-        // Let's use `categoryData` and filter for those that are actually active in the tracker.
         const activeCategoryNamesInTracker = new Set(trackerDoc.design_tracker_task?.map(t => t.design_category) || []);
-        const catsToPopulate = categoryData.filter(cat => 
-            activeCategoryNamesInTracker.has(cat.category_name) && 
-            Array.isArray(cat.tasks) && 
+        const catsToPopulate = categoryData.filter(cat =>
+            activeCategoryNamesInTracker.has(cat.category_name) &&
+            Array.isArray(cat.tasks) &&
             cat.tasks.length > 0
         );
 
-        if (catsToPopulate.length === 0) {
-             toast({ title: "Warning", description: "No active categories found to populate tasks for.", variant: "warning" });
-             // We still might want to add the zone even if no tasks are created? Yes.
-        }
-
         const newTasks: Partial<DesignTrackerTask>[] = [];
 
-        // 2. Generate Tasks: New Zones x Active Categories
         zones.forEach(zoneName => {
             catsToPopulate.forEach(cat => {
-                 cat.tasks.forEach(taskDef => { // taskDef comes from master data in activeCategoriesInTracker
+                cat.tasks.forEach(taskDef => {
                     let calculatedDeadline: string | undefined = undefined;
                     if (taskDef.deadline_offset !== undefined && taskDef.deadline_offset !== null) {
-                         // Calculate based on today or project start? Usually creation date or today.
-                         // Use tracker start_date if available, otherwise fallback to today
                         const baseDate = trackerDoc?.start_date ? new Date(trackerDoc.start_date) : new Date();
                         const d = new Date(baseDate);
                         d.setDate(baseDate.getDate() + Number(taskDef.deadline_offset));
@@ -801,167 +946,44 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                         design_category: cat.category_name,
                         task_status: 'Not Started',
                         deadline: calculatedDeadline,
-                        task_zone: zoneName, 
-                        // deadline_offset: taskDef.deadline_offset
-                        // assigned_designers? default empty
+                        task_zone: zoneName,
                     });
-                 });
+                });
             });
         });
 
-        // 3. Prepare Child Table Updates using handleParentDocSave logic or similar
-        // We need to update: 'zone' child table AND 'design_tracker_task' child table.
-        // handleNewTaskCreation only appends tasks. handleParentDocSave updates specific fields.
-        // We probably need to manually construct the update payload for both tables.
-        
-        // Construct new Zone rows
         const existingZoneRows = trackerDoc.zone || [];
         const newZoneRows = zones.map(z => ({ tracker_zone: z }));
         const updatedZoneTable = [...existingZoneRows, ...newZoneRows];
-
-        // Construct new Task rows (append to existing)
         const currentTasks = trackerDoc.design_tracker_task || [];
-        const updatedTaskTable = [...currentTasks, ...newTasks];
-
+        const updatedTaskTable = [...currentTasks, ...newTasks as DesignTrackerTask[]];
 
         try {
-            // Using handleParentDocSave might replace the whole table? 
-            // The hook's handleParentDocSave is: onSave(updatedFields). 
-            // Let's check `useDesignTrackerLogic` implementation via context or Assumption.
-            // Assumption: onSave merges top-level fields but for child tables we must send the whole list if we want to update it.
-            
             await handleParentDocSave({
                 zone: updatedZoneTable,
                 design_tracker_task: updatedTaskTable
             });
-
-             // Force refresh or optimistic update is handled by the hook/SWR usually.
-             toast({ title: "Success", description: `${zones.length} new zone(s) added.`, variant: "success" });
-             setIsAddZoneModalOpen(false);
+            toast({ title: "Success", description: `${zones.length} new zone(s) added.`, variant: "success" });
+            setIsAddZoneModalOpen(false);
         } catch (e) {
             console.error(e);
             toast({ title: "Error", description: "Failed to add zone(s).", variant: "destructive" });
-            throw e; // Re-throw for Modal to catch
+            throw e;
         }
     };
 
-
-    React.useEffect(() => {
-        if (trackerDoc?.overall_deadline) {
-            setOverallDeadline(trackerDoc.overall_deadline);
-        }
-    }, [trackerDoc?.overall_deadline]);
-
-    // Set Default Tab to first Zone when zones are loaded
-    React.useEffect(() => {
-        if (uniqueZones.length > 0 && (activeTab === "" || activeTab === "all")) {
-            setActiveTab(uniqueZones[0]!);
-        }
-    }, [uniqueZones, activeTab]);
-
-
-    const toggleCategory = useCallback((categoryName: string) => {
-        setExpandedCategories(prev => ({
-            ...prev,
-            [categoryName]: !prev[categoryName],
-        }));
-    }, []);
-
-    if (isLoading) return <LoadingFallback />;
-    if (error || !trackerDoc) return <AlertDestructive error={error} />;
-
-    // --- PARENT DOC UPDATE HANDLER ---
-    const handleDeadlineUpdate = async (newDate: string) => {
-        if (newDate === trackerDoc.overall_deadline) return;
-
-        try {
-            await handleParentDocSave({ overall_deadline: newDate });
-            toast({ title: "Success", description: "Overall deadline updated." });
-        } catch (e) {
-            toast({ title: "Error", description: "Failed to save deadline.", variant: "destructive" });
-        }
-    };
-
-    // --- INLINE SAVE HANDLER (TASK SERIALIZATION) ---
-    const inlineTaskSaveHandler = async (updatedFields: { [key: string]: any }) => {
-        if (!editingTask) return;
-
-        let fieldsToSend: { [key: string]: any } = { ...updatedFields };
-
-        // 1. SERIALIZE assigned_designers array into the specific JSON format: {"list": [...] }
-        if (Array.isArray(updatedFields.assigned_designers)) {
-            const structuredDataForServer = {
-                list: updatedFields.assigned_designers
-            };
-            fieldsToSend.assigned_designers = JSON.stringify(structuredDataForServer);
-        }
-
-        await handleTaskSave(editingTask.name, fieldsToSend);
-    };
-
-    // Helper function to render designer name from the complex field (for table display)
-    // const getAssignedNameForDisplay = (task: DesignTrackerTask): React.ReactNode => {
-    //     const designerField = task.assigned_designers;
-    //     let designers: AssignedDesignerDetail[] = [];
-
-    //     if (designerField) {
-    //         // Check if already an object (from useDesignTrackerLogic state)
-    //         if (designerField && typeof designerField === 'object' && Array.isArray(designerField.list)) {
-    //             designers = designerField.list;
-    //         } else if (Array.isArray(designerField)) {
-    //             designers = designerField;
-    //         } else if (typeof designerField === 'string' && designerField.trim() !== '') {
-    //             try {
-    //                 const parsed = JSON.parse(designerField);
-    //                 if (parsed && typeof parsed === 'object' && Array.isArray(parsed.list)) {
-    //                     designers = parsed.list;
-    //                 } else if (Array.isArray(parsed)) {
-    //                     designers = parsed;
-    //                 }
-    //             } catch (e) { /* silent fail */ }
-    //         }
-    //     }
-
-    //     if (designers.length > 0) {
-    //         return (
-    //             <p className="text-center">
-    //                 {/* <ul className="list-disc ml-0 p-0 m-0 space-y-0.5 text-xs"> */}
-    //                 {designers.map((d, index) => (
-    //                     <span className="text-xs block text-center" key={index}>
-    //                         {d.userName || d.userId}
-    //                     </span>
-    //                 ))}
-    //                 {/* </ul> */}
-    //             </p>
-    //         )
-    //     } else {
-    //         return <p className="text-xs text-center text-gray-500">--</p>;
-    //     }
-    //     return getDesignerName(undefined);
-    // };
-
-  
-     
-
-    // --- RENAME ZONE HANDLER ---
-    // Opens the modal dialogue
     const handleRenameZone = (currentZoneName?: string) => {
-        if (currentZoneName) {
-            setZoneToRename(currentZoneName);
-        } else {
-            setZoneToRename("");
-        }
+        setZoneToRename(currentZoneName || "");
         setIsRenameModalOpen(true);
     };
 
-    // --- PDF DOWNLOAD HANDLER ---
     const handleDownloadReport = async (zoneName?: string) => {
-        const printFormatName = "Project Design Tracker"; 
+        const printFormatName = "Project Design Tracker";
         const params = new URLSearchParams({
             doctype: DOCTYPE,
             name: trackerId!,
             format: printFormatName,
-            no_letterhead: "0", 
+            no_letterhead: "0",
             _lang: "en",
         });
 
@@ -969,22 +991,20 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
             params.append("zone", zoneName);
         }
 
-        // Use the frappe.utils.print_format.download_pdf method which returns the PDF file directly
         const downloadUrl = `/api/method/frappe.utils.print_format.download_pdf?${params.toString()}`;
 
         try {
             toast({ title: "Generating PDF...", description: "Please wait while we generate your report." });
-            
+
             const response = await fetch(downloadUrl);
             if (!response.ok) throw new Error('PDF generation failed.');
-            
+
             const blob = await response.blob();
-            
-            // Custom Filename Logic
+
             const now = new Date();
             const dateStr = format(now, "dd_MMM_yyyy");
-            const projectNameClean = (trackerDoc.project_name || "Project").replace(/[^a-zA-Z0-9-_]/g, "_");
-            
+            const projectNameClean = (trackerDoc?.project_name || "Project").replace(/[^a-zA-Z0-9-_]/g, "_");
+
             let filename = `${projectNameClean}-${dateStr}-DesignTracker`;
             if (zoneName) {
                 filename += `-${zoneName.replace(/[^a-zA-Z0-9-_]/g, "_")}`;
@@ -1007,355 +1027,241 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
         }
     };
 
+    // --- Inline Task Save Handler ---
+    const inlineTaskSaveHandler = async (updatedFields: { [key: string]: any }) => {
+        if (!editingTask) return;
+
+        let fieldsToSend: { [key: string]: any } = { ...updatedFields };
+
+        if (Array.isArray(updatedFields.assigned_designers)) {
+            const structuredDataForServer = {
+                list: updatedFields.assigned_designers
+            };
+            fieldsToSend.assigned_designers = JSON.stringify(structuredDataForServer);
+        }
+
+        await handleTaskSave(editingTask.name, fieldsToSend);
+    };
+
+    if (isLoading) return <LoadingFallback />;
+    if (error || !trackerDoc) return <AlertDestructive error={error} />;
+
     return (
-        <div className="flex-1 space-y-6 p-6">
+        <div className="flex-1 md:p-4">
+            {/* ═══════════════════════════════════════════════════════════════
+                ROW 1: PROJECT CONTEXT BAR - Compact header with meta info
+            ═══════════════════════════════════════════════════════════════ */}
+            <div className="bg-white border-b border-gray-200 px-4 py-3 md:px-6">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                    {/* Left: Project name + meta info */}
+                    <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4">
+                        <div className="flex flex-col gap-0.5">
+                            <span className="text-[10px] font-medium uppercase tracking-wider text-gray-400">
+                                Design Tracker
+                            </span>
+                            <h1 className="text-lg font-semibold text-gray-900 truncate max-w-[300px]">
+                                {trackerDoc.project_name}
+                            </h1>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 md:gap-3 text-xs">
+                            {/* Start Date Pill */}
+                            <div className="flex items-center gap-1.5 px-2 py-1 bg-gray-50 rounded border border-gray-200">
+                                <span className="text-gray-500">Start:</span>
+                                <span className="font-medium text-gray-700">{formatDeadlineShort(trackerDoc.start_date || '')}</span>
+                            </div>
+                            {/* Deadline Pill */}
+                            <div className="flex items-center gap-1.5 px-2 py-1 bg-red-50 rounded border border-red-200">
+                                <span className="text-gray-500">Deadline:</span>
+                                <span className="font-semibold text-red-700">{formatDeadlineShort(trackerDoc.overall_deadline || '')}</span>
+                                {!isDesignExecutive && !isProjectManager && (
+                                    <Edit
+                                        className="h-3 w-3 text-red-400 hover:text-red-600 cursor-pointer"
+                                        onClick={() => setIsProjectOverviewModalOpen(true)}
+                                    />
+                                )}
+                            </div>
+                            {/* Zones Count Pill */}
+                            <div className="flex items-center gap-1.5 px-2 py-1 bg-gray-50 rounded border border-gray-200">
+                                <span className="text-gray-500">Zones:</span>
+                                <span className="font-medium text-gray-700">{uniqueZones.length}</span>
+                            </div>
+                        </div>
+                    </div>
 
-            {/* --- TOP HEADER (Adding Add Categories button) --- */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center space-y-4 md:space-y-0">
-                <header>
-                    <h1 className="text-3xl font-bold text-red-700">{trackerDoc.project_name}</h1>
-                    {/* <p className="text-sm text-gray-500">ID: {trackerDoc.project}</p> */}
-                </header>
-
-                <div className="flex flex-col md:flex-row w-full md:w-auto space-y-2 md:space-y-0 md:space-x-3">
-                    {hasEditStructureAccess && !isProjectManager && (
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex items-center gap-2 text-red-700 border-red-700 hover:bg-red-50/50 w-full md:w-auto"
-                        onClick={() => setIsAddCategoryModalOpen(true)}
-                        disabled={availableNewCategories.length === 0}
-                    >
-                        <Plus className="h-4 w-4" /> Add New Categories
-                    </Button>
-                    )}
-                    {hasEditStructureAccess && !isProjectManager && (
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex items-center justify-center gap-1 text-red-700 border-red-700 hover:bg-red-50/50 w-full md:w-auto"
-                        onClick={() => setIsAddZoneModalOpen(true)}
-                    >
-                        <Plus className="h-4 w-4" /> Add new Zone
-                    </Button>
-                    )}
-                    <Button 
-                        variant="destructive" 
-                        className="flex items-center justify-center gap-2 w-full md:w-auto"
-                        onClick={() => handleDownloadReport()}
-                    >
-                        <Download className="h-4 w-4" /> Export All
-                    </Button>
-
-                   
+                    {/* Right: Action buttons */}
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                        {hasEditStructureAccess && !isProjectManager && (
+                            <>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 text-xs gap-1"
+                                    onClick={() => setIsAddCategoryModalOpen(true)}
+                                    disabled={availableNewCategories.length === 0}
+                                >
+                                    <Plus className="h-3 w-3" /> Category
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 text-xs gap-1"
+                                    onClick={() => setIsAddZoneModalOpen(true)}
+                                >
+                                    <Plus className="h-3 w-3" /> Zone
+                                </Button>
+                            </>
+                        )}
+                        <TooltipProvider>
+                            <Tooltip delayDuration={200}>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        variant="default"
+                                        size="sm"
+                                        className="h-8 text-xs gap-1 bg-red-600 hover:bg-red-700"
+                                        onClick={() => handleDownloadReport()}
+                                    >
+                                        <Download className="h-3 w-3" /> Download Tracker
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent side="bottom" className="text-xs">
+                                    Download Design Tracker for all zones
+                                </TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                    </div>
                 </div>
             </div>
 
-            {/* --- PROJECT OVERVIEW CARD --- */}
-            <Card className="shadow-lg p-6 bg-white relative">
-                <div className="absolute top-4 right-4">
-                   {/* Edit moved to Header Actions */}
+            {/* ═══════════════════════════════════════════════════════════════
+                ROW 2: ZONE NAVIGATION BAR - Zone tabs + task actions
+            ═══════════════════════════════════════════════════════════════ */}
+            {uniqueZones.length > 0 && (
+                <div className="bg-gray-50/70 border-b border-gray-200 px-4 py-2 md:px-6">
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                        {/* Zone Tabs */}
+                        <div className="flex items-center gap-2 overflow-x-auto">
+                            <span className="text-xs font-medium text-gray-500 hidden md:block">Zone:</span>
+                            <div className="flex rounded-md border border-gray-300 overflow-hidden">
+                                {uniqueZones.map(zone => {
+                                    const taskCount = taskCountByZone.get(zone!) || 0;
+                                    const isActive = activeTab === zone;
+                                    return (
+                                        <button
+                                            key={zone}
+                                            className={`px-2.5 py-1.5 text-xs font-medium transition-colors flex items-center gap-1.5 ${
+                                                isActive
+                                                    ? 'bg-blue-600 text-white'
+                                                    : 'bg-white text-blue-600 hover:bg-blue-50'
+                                            }`}
+                                            onClick={() => setActiveTab(zone!)}
+                                        >
+                                            <span>{zone}</span>
+                                            <Badge
+                                                variant="secondary"
+                                                className={`px-1 py-0 text-[10px] min-w-[18px] justify-center rounded-full ${
+                                                    isActive
+                                                        ? 'bg-white/25 text-white'
+                                                        : 'bg-blue-100 text-blue-700'
+                                                }`}
+                                            >
+                                                {taskCount}
+                                            </Badge>
+                                            {hasEditStructureAccess && !isProjectManager && (
+                                                <Edit
+                                                    className={`w-2.5 h-2.5 cursor-pointer ${
+                                                        isActive ? 'text-white/70 hover:text-white' : 'text-blue-400 hover:text-blue-700'
+                                                    }`}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleRenameZone(zone!);
+                                                    }}
+                                                />
+                                            )}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* Right: Create Task + Export Zone */}
+                        <div className="flex items-center gap-2">
+                            {!isDesignExecutive && !isProjectManager && (
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 text-xs gap-1"
+                                    onClick={() => {
+                                        if (activeCategoriesInTracker.length === 0) {
+                                            toast({
+                                                title: "Cannot Add Task",
+                                                description: "Failed to load active categories for this project.",
+                                                variant: "destructive"
+                                            });
+                                        } else {
+                                            setIsNewTaskModalOpen(true);
+                                        }
+                                    }}
+                                >
+                                    <Plus className="h-3 w-3" /> Create Task
+                                </Button>
+                            )}
+                            {activeTab && (
+                                <TooltipProvider>
+                                    <Tooltip delayDuration={200}>
+                                        <TooltipTrigger asChild>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-7 text-xs gap-1 text-red-700 border-red-200 hover:bg-red-50"
+                                                onClick={() => handleDownloadReport(activeTab)}
+                                            >
+                                                <Download className="h-3 w-3" /> {activeTab}
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="bottom" className="text-xs">
+                                            Download Design Tracker for {activeTab}
+                                        </TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
+                            )}
+                        </div>
+                    </div>
                 </div>
-                <CardTitle className="text-xl font-semibold mb-4">Project Overview</CardTitle>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 text-sm text-gray-700 border p-4 rounded-lg">
-
-                    {/* Project ID */}
-                    <div className="space-y-1">
-                        <Label className="uppercase text-xs font-medium text-gray-500">Project ID</Label>
-                        <p className="font-semibold">{trackerDoc.project}</p>
-                    </div>
-
-                    {/* Project Name */}
-                    {/* <div className="space-y-1">
-                        <Label className="uppercase text-xs font-medium text-gray-500">Project Name</Label>
-                        <p className="font-semibold">{trackerDoc.project_name}</p>
-                    </div> */}
-                    <div className="space-y-1">
-                        <Label className="uppercase text-xs font-medium text-gray-500">Start Date</Label>
-                        <p className="font-semibold">{formatDeadlineShort(trackerDoc.start_date)}</p>
-                    </div>
-
-                    {/* Created On */}
-                    {/* <div className="space-y-1">
-                        <Label className="uppercase text-xs font-medium text-gray-500">Created On</Label>
-                        <p className="font-semibold">{formatDeadlineShort(trackerDoc.creation)}</p>
-                    </div> */}
-
-                    {/* Project Status */}
-                    {/* <div className="space-y-1">
-                        <Label className="uppercase text-xs font-medium text-gray-500">Project Status</Label>
-                        <p>
-                            <Badge
-                                variant="outline"
-                                className={`w-[120px] min-h-[28px] h-auto py-1 px-2 justify-center whitespace-normal break-words text-center leading-tight ${getStatusBadgeStyle(trackerDoc.status || '...')} rounded-full`}
-                            >
-                                {trackerDoc.status}
-                            </Badge>
-                        </p>
-
-                    </div> */}
-
-                    {/* Overall Deadline (Editable Input) */}
-
-                     {/* Overall Deadline (Editable Input) */}
-    <div className="space-y-1">
-        {/* 1. Label and Edit Button Container */}
-        <div className="flex items-center justify-start">
-
-            <Label className="uppercase text-xs font-medium text-muted-foreground tracking-wider">
-                Deadline
-            </Label>
-
-            {!isDesignExecutive && !isProjectManager && (
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setIsProjectOverviewModalOpen(true)}
-                    className="h-6 w-6 p-1 text-primary/70 hover:text-primary transition-colors"
-                    title="Edit Overall Deadline"
-                >
-                    <Edit className="h-3 w-3" />
-                </Button>
             )}
 
-        </div>
-
-        {/* 2. Value: DEADLINE DATE */}
-        <p className="text-md font-bold text-red-700 tracking-tight"> {/* MATCHED TEXT-XL FONT-BOLD */}
-            {formatDeadlineShort(trackerDoc.overall_deadline)}
-        </p>
-    </div>
-                </div>
-            </Card>
-
-            {/* --- ON-BOARDING SECTION --- */}
-            <div className="flex justify-between items-center pt-4">
-                <h2 className="text-2xl font-bold text-gray-800">Task List</h2>
-                {!isDesignExecutive && !isProjectManager && (
-                <Button
-                    variant="outline"
-                    className="text-red-700 border-red-700 hover:bg-red-50/50"
-                    onClick={() => {
-                        if (activeCategoriesInTracker.length === 0) {
-                            toast({
-                                title: "Cannot Add Task",
-                                description: "Failed to load active categories for this project.",
-                                variant: "destructive"
-                            });
-                        } else {
-                            setIsNewTaskModalOpen(true);
-                        }
-                    }}
-                >
-                    Create Custom Task
-                </Button>
-                )}
+            {/* ═══════════════════════════════════════════════════════════════
+                DATA TABLE
+            ═══════════════════════════════════════════════════════════════ */}
+            <div className="p-4 md:px-6 overflow-x-auto">
+                {/* DataTable for active zone */}
+                <DataTable<DesignTrackerTask>
+                    table={table}
+                    columns={columns}
+                    isLoading={isLoading}
+                    error={error}
+                    totalCount={table.getFilteredRowModel().rows.length}
+                    searchFieldOptions={searchFieldOptions}
+                    selectedSearchField={selectedSearchField}
+                    onSelectedSearchFieldChange={setSelectedSearchField}
+                    searchTerm={searchTerm}
+                    onSearchTermChange={setSearchTerm}
+                    facetFilterOptions={facetFilterOptions}
+                    dateFilterColumns={TASK_DATE_COLUMNS}
+                    showExportButton={true}
+                    exportFileName={`${trackerDoc.project_name.replace(/[^a-zA-Z0-9]/g, '_')}_${activeTab || 'All'}_Tasks`}
+                    onExport="default"
+                    tableHeight="60vh"
+                />
             </div>
 
-            {/* --- TASK LIST (ACCORDION STYLE) --- */}
-            
-            <Tabs value={activeTab} className="w-full" onValueChange={setActiveTab}>
-                {uniqueZones.length > 0 && (
-                    <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
-                        <TabsList className="mb-0">
-                            {/* <TabsTrigger value="all">All</TabsTrigger> */}
-                            {uniqueZones.map(zone => (
-                                <TabsTrigger key={zone} value={zone!} className="relative group pr-8">
-                                    {zone}
-                                    {hasEditStructureAccess && !isProjectManager && (
-                                        <Edit
-                                            className="w-3 h-3 absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer text-gray-400 hover:text-gray-900"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleRenameZone(zone!);
-                                            }}
-                                        />
-                                    )}
-                                </TabsTrigger>
-                            ))}
-                        </TabsList>
-
-                        {activeTab !== 'all' && (
-                             <div className="flex items-center gap-2">
-                                 <Button 
-                                    variant="outline" 
-                                    size="sm" 
-                                    className="flex items-center gap-2 text-red-700 border-red-700 hover:bg-red-50/50"
-                                    onClick={() => handleDownloadReport(activeTab)}
-                                >
-                                    <Download className="h-4 w-4" /> Export {activeTab}
-                                </Button>
-                             </div>
-                        )}
-                    </div>
-                )}
-
-
-                {uniqueZones.map(zone => (
-                    <TabsContent key={zone} value={zone!} className="mt-0 space-y-4 bg-white border rounded-lg p-4">
-                        {Object.entries(groupedTasks).map(([categoryName, tasks]) => {
-                             // --- FILTERING LOGIC ---
-                             const filteredTasks = tasks.filter(t => t.task_zone === zone);
-                             if (filteredTasks.length === 0) return null;
-
-                             const isExpanded = expandedCategories[categoryName] ?? true;
-
-                                return (
-                                    <div key={`${categoryName}-${zone}`} className="">
-
-                                        {/* Category Header */}
-                                        <div
-                                            className={`flex justify-between items-center px-2 py-3 cursor-pointer 
-                                            ${isExpanded ? 'border-none bg-white rounded-t-lg' : 'border bg-[#f2f2fb] rounded-lg'}`}
-                                            onClick={() => toggleCategory(categoryName)}
-                                        >
-                                            <h2 className="text-lg font-semibold text-gray-800">
-                                                {categoryName} ({filteredTasks.length} Tasks)
-                                            </h2>
-                                            {isExpanded ? <ChevronUp className="text-gray-600" /> : < ChevronDown />}
-                                        </div>
-
-                                        {/* Task Table Content */}
-                                        {isExpanded && (
-                                            <div className=" overflow-x-auto rounded-lg border border-gray-300">
-                                                <div className="overflow-x-auto">
-                                                    <table className="min-w-full divide-y divide-gray-200">
-                                                        <thead className="bg-gray-100 text-xs text-gray-500 uppercase" style={{ backgroundColor: '#f2f2fb' }}>
-                                                            <tr className='text-xs text-gray-500 uppercase font-medium'>
-                                                                <th className="px-4 py-3 text-left w-[15%]">Task Name</th>
-                                                                {!isDesignExecutive && <th className="px-4 py-3 text-left w-[18%]">Assigned Designer</th>}
-                                                                <th className="px-4 py-3 text-left w-[10%]">Deadline</th>
-                                                                <th className="px-4 py-3 text-left w-[10%]">Last Submitted</th>
-                                                                <th className="px-4 py-3 text-center w-[10%]">Status</th>
-                                                                <th className="px-4 py-3 text-center w-[15%]">Sub-Status</th>
-                                                                <th className="px-4 py-3 text-center w-[10%]">Comments</th>
-                                                                <th className="px-4 py-3 text-center w-[10%]">Link</th>
-                                                                <th className="px-4 py-3 text-center w-[15%]">Actions</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody className="bg-white divide-y divide-gray-100">
-                                                            {filteredTasks.map((task) => (
-                                                                <tr key={task.name}>
-                                                                    <td className="px-4 py-3 w-[15%] whitespace-wrap text-sm font-medium text-gray-900">{task.task_name}</td>
-                                                                    {!isDesignExecutive && <td className="px-4 py-3 text-sm text-gray-500 text-left ">{getAssignedNameForDisplay(task)}</td>}
-                                                                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{formatDeadlineShort(task.deadline) || '...'}</td>
-                                                                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{formatDeadlineShort(task.last_submitted) || '--'}</td>
-
-                                                                    {/* Status Badge */}
-                                                                    <td className="px-4 py-3 text-sm">
-                                                                        <div className="flex justify-center">
-                                                                            <Badge
-                                                                                variant="outline"
-                                                                                className={`w-[120px] min-h-[28px] h-auto py-1 px-2 justify-center capitalize whitespace-normal break-words text-center leading-tight ${getTaskStatusStyle(task.task_status || '...')} rounded-full`}
-                                                                            >
-                                                                                {task.task_status || '...'}
-                                                                            </Badge>
-                                                                        </div>
-                                                                    </td>
-
-                                                                    {/* Sub-Status Badge */}
-                                                                    <td className="px-4 py-3 text-sm">
-                                                                        <div className="flex justify-center">
-                                                                            <Badge
-                                                                                variant="outline"
-                                                                                className={`w-[120px] min-h-[28px] h-auto py-1 px-2 justify-center whitespace-normal break-words text-center leading-tight ${getTaskSubStatusStyle(task.task_sub_status || '...')} rounded-full`}
-                                                                            >
-                                                                                {task.task_sub_status || '...'}
-                                                                            </Badge>
-                                                                        </div>
-                                                                    </td>
-                                                                    <td className="px-4 py-3 text-center">
-                                                                        <TooltipProvider>
-                                                                            <Tooltip delayDuration={300}>
-                                                                                <TooltipTrigger asChild>
-                                                                                    {/* We use cursor-default here as the trigger handles the hover interaction */}
-                                                                                    <MessageCircle
-                                                                                        className={`h-6 w-6 p-1 bg-gray-100 rounded-md mx-auto  ${task.comments ? 'cursor-pointer text-gray-600 hover:scale-110 transition-transform ' : 'text-gray-300'}`}
-                                                                                    />
-                                                                                </TooltipTrigger>
-                                                                                {task.comments && (
-                                                                                    <TooltipContent className="max-w-xs p-2 bg-white text-gray-900 border shadow-lg">
-                                                                                        {/* <p className="font-semibold text-xs mb-1">Comments:</p> */}
-                                                                                        <p className="text-xs">{task.comments}</p>
-                                                                                    </TooltipContent>
-                                                                                )}
-                                                                            </Tooltip>
-                                                                        </TooltipProvider>
-                                                                    </td>
-
-                                                                    {/* 2. Link Column (Using Tooltip) */}
-                                                                    <td className="px-4 py-3 text-center">
-
-                                                                        <TooltipProvider>
-                                                                            <Tooltip delayDuration={300}>
-                                                                                <TooltipTrigger asChild>
-                                                                                    <a
-                                                                                        href={task.file_link}
-                                                                                        target="_blank"
-                                                                                        rel="noopener noreferrer"
-                                                                                        className="flex justify-center items-center w-full h-full cursor-pointer hover:scale-110 transition-transform"
-                                                                                    >
-                                                                                        <LinkIcon className={`h-6 w-6 p-1 bg-gray-100 rounded-md ${task.file_link ? 'cursor-pointer text-blue-500' : 'text-gray-300'}`} />
-                                                                                    </a>
-                                                                                </TooltipTrigger>
-                                                                                {task.file_link && (<TooltipContent className="p-2 bg-gray-900 text-white shadow-lg">
-                                                                                    <a
-                                                                                        href={task.file_link}
-                                                                                        target="_blank"
-                                                                                        rel="noopener noreferrer"
-                                                                                        className="block w-full h-full cursor-pointer hover:scale-110 transition-transform"
-                                                                                    >
-                                                                                        {task.file_link.substring(0, 30)}...
-                                                                                    </a>
-                                                                                </TooltipContent>)}
-
-                                                                            </Tooltip>
-                                                                        </TooltipProvider>
-
-                                                                    </td>
-
-                                                                    {/* Actions */}
-                                                                    <td className="px-4 py-3 text-center">
-                                                                        {!isProjectManager && (!isDesignExecutive || (isDesignExecutive && checkIfUserAssigned(task))) ? (
-                                                                            <Button variant="outline" size="sm" onClick={() => setEditingTask(task)} className="h-8">
-                                                                                <Edit className="h-3 w-3 mr-1" /> Edit
-                                                                            </Button>
-                                                                        ) : (
-                                                                            <Button variant="outline" size="sm" className="h-8 opacity-50 cursor-not-allowed" disabled>
-                                                                                <Edit className="h-3 w-3 mr-1" /> Edit
-                                                                            </Button>
-                                                                        )}
-                                                                    </td>
-                                                                </tr>
-                                                            ))}
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                        })}
-                         {Object.values(groupedTasks).every(tasks => tasks.filter(t => t.task_zone === zone).length === 0) && (
-                            <div className="text-center text-gray-500 py-8">No tasks found for {zone}</div>
-                         )}
-                    </TabsContent>
-                ))}
-
-            </Tabs>
-
-
             {/* --- MODALS --- */}
-
-            <RenameZoneDialog 
+            <RenameZoneDialog
                 isOpen={isRenameModalOpen}
                 onClose={() => setIsRenameModalOpen(false)}
-                zones={uniqueZones}
                 trackerId={trackerId!}
                 initialZone={zoneToRename}
                 onSuccess={() => {
-                     // Reload to reflect changes
-                     window.location.reload();
+                    window.location.reload();
                 }}
             />
 
@@ -1368,13 +1274,12 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                     usersList={usersList || []}
                     statusOptions={statusOptions}
                     subStatusOptions={subStatusOptions}
-                    existingTaskNames={getExistingTaskNames(trackerDoc)} 
+                    existingTaskNames={getExistingTaskNames(trackerDoc)}
                     isRestrictedMode={isDesignExecutive}
                 />
             )}
 
-            {/* New Task Modal */}
-            {activeCategoriesInTracker.length > 0 && (
+            {activeCategoriesInTracker.length > 0 && activeTab && (
                 <NewTaskModal
                     isOpen={isNewTaskModalOpen}
                     onOpenChange={setIsNewTaskModalOpen}
@@ -1382,14 +1287,11 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                     usersList={usersList || []}
                     statusOptions={statusOptions}
                     categories={activeCategoriesInTracker}
-                    existingTaskNames={getExistingTaskNames(trackerDoc)} 
-                    existingZones={uniqueZones}
+                    existingTaskNames={getExistingTaskNames(trackerDoc)}
+                    activeZone={activeTab}
                 />
             )}
 
-
-            {/* Project Overview Edit Modal (NEW) */}
-            {/* Add Category Modal */}
             <AddCategoryModal
                 isOpen={isAddCategoryModalOpen}
                 onOpenChange={setIsAddCategoryModalOpen}
@@ -1397,15 +1299,13 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
                 onAdd={handleAddCategories}
             />
 
-            {/* Add Zone Modal */}
-             <AddZoneModal
+            <AddZoneModal
                 isOpen={isAddZoneModalOpen}
                 onOpenChange={setIsAddZoneModalOpen}
                 onAdd={handleAddZone}
                 existingZones={uniqueZones}
             />
 
-            {/* Project Overview Edit Modal */}
             {trackerDoc && (
                 <ProjectOverviewEditModal
                     isOpen={isProjectOverviewModalOpen}
@@ -1418,6 +1318,4 @@ export const ProjectDesignTrackerDetail: React.FC<ProjectDesignTrackerDetailProp
     );
 };
 
-export default ProjectDesignTrackerDetail;
-
-
+export default ProjectDesignTrackerDetailV2;
