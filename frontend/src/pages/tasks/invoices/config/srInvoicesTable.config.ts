@@ -11,7 +11,14 @@ export const SR_INVOICE_SEARCHABLE_FIELDS: SearchFieldOption[] = [
 // Date columns for SR Invoices table (for date range filtering)
 export const SR_INVOICE_DATE_COLUMNS: string[] = ["date", "reconciled_date"];
 
-// 2B Activation status options
+// Reconciliation status options (replaces 2B Activation)
+export const SR_INVOICE_RECONCILIATION_STATUS_OPTIONS = [
+    { label: "Not Reconciled", value: "" },
+    { label: "Partially Reconciled", value: "partial" },
+    { label: "Fully Reconciled", value: "full" },
+];
+
+// @deprecated - Use SR_INVOICE_RECONCILIATION_STATUS_OPTIONS instead
 export const SR_INVOICE_2B_STATUS_OPTIONS = [
     { label: "Activated", value: "true" },
     { label: "Not Activated", value: "false" },
