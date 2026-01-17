@@ -101,9 +101,21 @@ export function usePermissionCheck() {
           setLocationStatus("granted");
           resolve("Location permission granted ✅.");
         },
-        () => {
+        (error) => {
           setLocationStatus("denied");
-          resolve("Location permission denied ❌.");
+          console.error("Location error:", error);
+          
+          let errorMsg = "Location permission denied ❌.";
+          if (error.code === 1) errorMsg = "Location denied. Please allow in settings.";
+          else if (error.code === 2) errorMsg = "Location unavailable. Check GPS/Signal.";
+          else if (error.code === 3) errorMsg = "Location timed out. Try again.";
+          
+          resolve(errorMsg);
+        },
+        {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0
         }
       );
     });

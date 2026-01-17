@@ -12,7 +12,7 @@ import {
 } from "frappe-react-sdk";
 import { useWorkHeaderOrder } from "@/hooks/useWorkHeaderOrder";
 import CameraCapture from "@/components/CameraCapture";
-import {Camera, X, MapPin,CheckCircle } from "lucide-react"
+import {Camera, X, MapPin, CheckCircle, FileText } from "lucide-react"
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -64,6 +64,7 @@ interface ProjectProgressAttachment {
   image_link: string; // The uploaded file_url (MATCHES Frappe field)
   location: string | null; // The combined location string (MATCHES Frappe field)
   remarks: string; // General remarks for the photo (MATCHES Frappe field)
+  attach_type?: 'Work' | 'Site' | 'Drawing'; // NEW FIELD
 }
 
 interface ProjectData {
@@ -414,6 +415,7 @@ const [drawingRemarksList, setDrawingRemarksList] = useState<string[]>([]);
 const [siteRemarksList, setSiteRemarksList] = useState<string[]>([]);
 const [newDrawingRemark, setNewDrawingRemark] = useState<string>("");
 const [newSiteRemark, setNewSiteRemark] = useState<string>("");
+const [currentCaptureType, setCurrentCaptureType] = useState<'Work' | 'Site' | 'Drawing'>('Work'); // NEW STATE
 const getClientClearanceStorageKey = (dateString: string) => `project_${projectId}_date_${dateString}_zone_${reportZone}_tab_Client_Clearance_Issues`;
 // --- END STATE FOR CLIENT/CLEARANCE ISSUES TAB ---
 
@@ -593,15 +595,30 @@ const getClientClearanceStorageKey = (dateString: string) => `project_${projectI
             draft_last_updated: existingDraftLastUpdated
           };
         } else if (tab.project_work_header_name === "Photos") {
-          initialData = { photos: existingDraftReport?.[0]?.photos || [] };
+          const backendPhotos = DraftReport?.photos || [];
+          // Ensure local_id exists for frontend state (it's stripped on save)
+          const photosWithLocalIds = backendPhotos.map((p: any) => ({
+            ...p,
+            local_id: p.name || `server_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            attach_type: p.attach_type || 'Work'
+          }));
+          initialData = { photos: photosWithLocalIds };
         } else if (tab.project_work_header_name === "Client / Clearance Issues") {
           // Initialize Client/Clearance Issues tab with drawing/site remarks from draft
+          const backendPhotos = DraftReport?.photos || [];
+          // Ensure local_id exists for frontend state (it's stripped on save)
+          const photosWithLocalIds = backendPhotos.map((p: any) => ({
+            ...p,
+            local_id: p.name || `server_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            attach_type: p.attach_type || 'Work'
+          }));
+
           initialData = {
             project: projectId,
             report_date: dateString,
             manpower: [],
             milestones: [],
-            photos: [],
+            photos: photosWithLocalIds, // Store photos in this tab's storage
             report_status: 'Draft',
             report_zone: reportZone,
             draft_owner: existingDraftOwner,
@@ -705,8 +722,20 @@ const getClientClearanceStorageKey = (dateString: string) => `project_${projectI
         // Parse the drawing and site remarks into arrays
         const drawingPoints = parseClientClearanceRemarks(parsedData.drawing_remarks);
         const sitePoints = parseClientClearanceRemarks(parsedData.site_remarks);
+        
+        console.log("[DEBUG] Loading Clearance tab data:", {
+          storageKey,
+          "parsedData.drawing_remarks": parsedData.drawing_remarks,
+          "parsedData.site_remarks": parsedData.site_remarks,
+          drawingPoints,
+          sitePoints
+        });
+        
         setDrawingRemarksList(drawingPoints);
         setSiteRemarksList(sitePoints);
+          
+        // Load photos directly from this tab's storage
+        setLocalPhotos(parsedData.photos || []);
       }
     } else {
       console.warn(`Local storage key ${storageKey} was unexpectedly empty in loadDailyReport. Re-initializing.`);
@@ -729,6 +758,8 @@ const getClientClearanceStorageKey = (dateString: string) => `project_${projectI
              const sitePoints = parseClientClearanceRemarks(parsedData.site_remarks);
              setDrawingRemarksList(drawingPoints);
              setSiteRemarksList(sitePoints);
+             // Load photos from this tab's storage
+             setLocalPhotos(parsedData.photos || []);
           } else if (activeTabValue === "Photos") {
              setLocalPhotos((parsedData as Pick<ProjectProgressReportData, 'photos'>).photos || []);
           }
@@ -759,12 +790,26 @@ const getClientClearanceStorageKey = (dateString: string) => `project_${projectI
 
     const handlePhotoCaptureSuccess = (photoData: ProjectProgressAttachment) => {
         console.log("photoData received from CameraCapture:", photoData);
-        const newPhotos = [...localPhotos, photoData];
+        // Inject the current capture type
+        const newPhotoWithType = { ...photoData, attach_type: currentCaptureType };
+        
+        const newPhotos = [...localPhotos, newPhotoWithType];
         setLocalPhotos(newPhotos);
         
         const dateString = formatDate(summaryWorkDate);
-        const storageKey = getPhotosStorageKey(dateString);
-        sessionStorage.setItem(storageKey, JSON.stringify({ photos: newPhotos }));
+        // Determine the correct storage key based on active tab
+        const storageKey = activeTabValue === "Client / Clearance Issues" 
+            ? `project_${projectId}_date_${dateString}_zone_${zoneKey}_tab_Client / Clearance Issues`
+            : getPhotosStorageKey(dateString);
+        
+        // For Clearance tab, we need to preserve remarks and save full payload
+        if (activeTabValue === "Client / Clearance Issues") {
+            const existingData = sessionStorage.getItem(storageKey);
+            const parsedData = existingData ? JSON.parse(existingData) : {};
+            sessionStorage.setItem(storageKey, JSON.stringify({ ...parsedData, photos: newPhotos }));
+        } else {
+            sessionStorage.setItem(storageKey, JSON.stringify({ photos: newPhotos }));
+        }
 
         setIsCaptureDialogOpen(false);
         toast({
@@ -780,8 +825,18 @@ const getClientClearanceStorageKey = (dateString: string) => `project_${projectI
         );
         setLocalPhotos(updatedPhotos);
         const dateString = formatDate(summaryWorkDate);
-        const storageKey = getPhotosStorageKey(dateString);
-        sessionStorage.setItem(storageKey, JSON.stringify({ photos: updatedPhotos }));
+        // Determine the correct storage key based on active tab
+        const storageKey = activeTabValue === "Client / Clearance Issues" 
+            ? `project_${projectId}_date_${dateString}_zone_${zoneKey}_tab_Client / Clearance Issues`
+            : getPhotosStorageKey(dateString);
+        
+        if (activeTabValue === "Client / Clearance Issues") {
+            const existingData = sessionStorage.getItem(storageKey);
+            const parsedData = existingData ? JSON.parse(existingData) : {};
+            sessionStorage.setItem(storageKey, JSON.stringify({ ...parsedData, photos: updatedPhotos }));
+        } else {
+            sessionStorage.setItem(storageKey, JSON.stringify({ photos: updatedPhotos }));
+        }
     };
 
     const handleRemovePhoto = (local_id: string) => {
@@ -789,8 +844,18 @@ const getClientClearanceStorageKey = (dateString: string) => `project_${projectI
         setLocalPhotos(updatedPhotos);
         
         const dateString = formatDate(summaryWorkDate);
-        const storageKey = getPhotosStorageKey(dateString);
-        sessionStorage.setItem(storageKey, JSON.stringify({ photos: updatedPhotos }));
+        // Determine the correct storage key based on active tab
+        const storageKey = activeTabValue === "Client / Clearance Issues" 
+            ? `project_${projectId}_date_${dateString}_zone_${zoneKey}_tab_Client / Clearance Issues`
+            : getPhotosStorageKey(dateString);
+        
+        if (activeTabValue === "Client / Clearance Issues") {
+            const existingData = sessionStorage.getItem(storageKey);
+            const parsedData = existingData ? JSON.parse(existingData) : {};
+            sessionStorage.setItem(storageKey, JSON.stringify({ ...parsedData, photos: updatedPhotos }));
+        } else {
+            sessionStorage.setItem(storageKey, JSON.stringify({ photos: updatedPhotos }));
+        }
         
         toast({
             title: "Photo Removed",
@@ -809,7 +874,8 @@ const getClientClearanceStorageKey = (dateString: string) => `project_${projectI
 
   useEffect(() => {
     // Wait for all data to be loaded before initializing
-    const isDraftLoaded = !existingDraftReportName || !lastDraftReportLoading;
+    // FIXED: Also check that DraftReport data is actually available when existingDraftReportName exists
+    const isDraftLoaded = !existingDraftReportName || (!lastDraftReportLoading && DraftReport !== undefined);
 
     if (
       projectId &&
@@ -840,6 +906,7 @@ const getClientClearanceStorageKey = (dateString: string) => `project_${projectI
     existingDraftReportLoading,
     lastDraftReportLoading, // Added
     existingDraftReportName, // Added
+    DraftReport, // ADDED: Ensure we re-run when DraftReport data arrives
     allFrappeMilestones,
     projectData,
     existingDraftReport,
@@ -1060,12 +1127,20 @@ console.log(user)
       const drawingRemarksStr = serializeClientClearanceRemarks(drawingRemarksList);
       const siteRemarksStr = serializeClientClearanceRemarks(siteRemarksList);
       
+      console.log("[DEBUG] Saving Clearance tab data:", {
+        storageKey,
+        drawingRemarksList,
+        siteRemarksList,
+        drawingRemarksStr,
+        siteRemarksStr
+      });
+      
       const payload: ProjectProgressReportData = {
         project: projectId,
         report_date: dateString,
         manpower: [],
         milestones: [],
-        photos: [],
+        photos: localPhotos, // Save photos directly to this tab's storage
         report_status: 'Draft',
         report_zone: reportZone,
         draft_owner: currentDraftOwner,
@@ -1161,6 +1236,7 @@ console.log(user)
         image_link: photo.image_link,
         location: photo.location,
         remarks: photo.remarks,
+        attach_type: photo.attach_type || 'Work',
     }));
 
     const finalPayload: FrappeProjectProgressReportPayload = {
@@ -1171,7 +1247,7 @@ console.log(user)
       milestones: cleanedMilestones,
       attachments: cleanedAttachments,
       report_status: status,
-      report_zone: reportZone, // <-- NEW: Add the zone to the payload
+      report_zone: reportZone || undefined, // Ensure undefined if null
       drawing_remarks: clientClearanceDrawingRemarks, // NEW: Client/Clearance Issues
       site_remarks: clientClearanceSiteRemarks, // NEW: Client/Clearance Issues
     };
@@ -1240,11 +1316,13 @@ console.log(user)
       docNameForFrappeOperation = currentFrappeReportName;
 
       const payloadToCheckPhotos = collectAllTabData('Draft');
-      if (!payloadToCheckPhotos.attachments || payloadToCheckPhotos.attachments.length < 3) {
+      const workPhotosCount = (payloadToCheckPhotos.attachments || []).filter(p => !p.attach_type || p.attach_type === 'Work').length;
+      
+      if (workPhotosCount < 3) {
         setIsLocalSaving(false);
         toast({
           title: "Submission Validation Error 🚫",
-          description: "Please upload at least Three photos before final submission.",
+          description: "Please upload at least Three WORK photos before final submission.",
           variant: "destructive",
         });
         return;
@@ -1785,7 +1863,10 @@ console.log(user)
       
       <div className="flex-1 mt-1">
         <div className="px-1 bg-white">
-          <Tabs value={activeTabValue} className="w-full" onValueChange={setActiveTabValue}>
+          <Tabs value={activeTabValue} className="w-full" onValueChange={(val) => {
+            saveCurrentTabData();
+            setActiveTabValue(val);
+          }}>
             <TabsList
               className="flex w-full justify-evenly p-1 bg-gray-100 rounded-md "
             >
@@ -1946,36 +2027,40 @@ console.log(user)
             {/* --- CLIENT / CLEARANCE ISSUES TAB --- */}
             <TabsContent value="Client / Clearance Issues" className="mt-4 p-1">
               <div className="space-y-6">
-                {/* Drawing Remarks Section */}
-                <Card className="bg-white shadow-sm rounded-lg">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base font-semibold text-gray-800">
-                      Drawing Remarks
-                    </CardTitle>
-                    <p className="text-sm text-gray-500">Issues related to drawings, approvals, or documentation</p>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {/* Input for new drawing remark */}
+                
+                {/* Drawing Section - Orange Theme */}
+                <div className="bg-white rounded-xl shadow-sm border border-orange-200 overflow-hidden">
+                  {/* Header */}
+                  <div className="bg-gradient-to-r from-orange-50 to-orange-100 px-4 py-3 border-b border-orange-200">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 bg-orange-500 rounded-lg">
+                        <FileText className="h-4 w-4 text-white" />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-orange-900">Drawing Issues</h3>
+                        <p className="text-xs text-orange-700">Drawings, approvals & documentation</p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Content */}
+                  <div className="p-4 space-y-4">
+                    {/* Add Remark Input */}
                     <div className="flex gap-2">
                       <Textarea
                         value={newDrawingRemark}
                         onChange={(e) => setNewDrawingRemark(e.target.value)}
-                        placeholder="Enter a drawing-related remark..."
-                        className="flex-1 min-h-[60px] text-sm resize-none"
+                        placeholder="Describe the drawing-related issue..."
+                        className="flex-1 min-h-[70px] text-sm resize-none border-orange-200 focus:border-orange-400 focus:ring-orange-400"
                         disabled={isBlockedByDraftOwnership}
                       />
                       <Button
-                        variant="outline"
-                        className="flex-shrink-0 text-red-600 border-red-600 hover:bg-red-50"
+                        className="flex-shrink-0 bg-orange-500 hover:bg-orange-600 text-white shadow-sm"
                         onClick={() => {
                           if (newDrawingRemark.trim()) {
                             setDrawingRemarksList(prev => [...prev, newDrawingRemark.trim()]);
                             setNewDrawingRemark("");
-                            toast({
-                              title: "Added! ✅",
-                              description: "Drawing remark added successfully.",
-                              variant: "default",
-                            });
+                            toast({ title: "Added! ✅", description: "Drawing remark added.", variant: "default" });
                           }
                         }}
                         disabled={isBlockedByDraftOwnership || !newDrawingRemark.trim()}
@@ -1984,72 +2069,140 @@ console.log(user)
                       </Button>
                     </div>
 
-                    {/* List of drawing remarks */}
+                    {/* Remarks List */}
                     {drawingRemarksList.length > 0 ? (
-                      <div className="space-y-2 mt-3 border-t pt-3">
-                        <p className="text-xs text-gray-500 font-medium">Added Points ({drawingRemarksList.length})</p>
-                        {drawingRemarksList.map((remark, index) => (
-                          <div 
-                            key={`drawing-${index}`}
-                            className="flex items-start gap-2 p-2 bg-gray-50 rounded-md border border-gray-200"
-                          >
-                            <span className="flex-shrink-0 text-xs text-gray-500 font-medium mt-1">{index + 1}.</span>
-                            <p className="flex-1 text-sm text-gray-700 break-words">{remark}</p>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6 flex-shrink-0 text-red-500 hover:bg-red-50"
-                              onClick={() => {
-                                setDrawingRemarksList(prev => prev.filter((_, i) => i !== index));
-                                toast({
-                                  title: "Removed",
-                                  description: "Drawing remark removed.",
-                                  variant: "default",
-                                });
-                              }}
-                              disabled={isBlockedByDraftOwnership}
+                      <div className="space-y-2">
+                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                          Remarks ({drawingRemarksList.length})
+                        </p>
+                        <div className="space-y-2">
+                          {drawingRemarksList.map((remark, index) => (
+                            <div 
+                              key={`drawing-${index}`}
+                              className="flex items-start gap-3 p-3 bg-orange-50 rounded-lg border-l-4 border-orange-400"
                             >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        ))}
+                              <span className="flex-shrink-0 w-6 h-6 bg-orange-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
+                                {index + 1}
+                              </span>
+                              <p className="flex-1 text-sm text-gray-700 break-words">{remark}</p>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 flex-shrink-0 text-orange-600 hover:text-orange-700 hover:bg-orange-100"
+                                onClick={() => {
+                                  setDrawingRemarksList(prev => prev.filter((_, i) => i !== index));
+                                  toast({ title: "Removed", description: "Drawing remark removed.", variant: "default" });
+                                }}
+                                disabled={isBlockedByDraftOwnership}
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     ) : (
-                      <p className="text-sm text-gray-400 text-center py-3">No drawing remarks added yet.</p>
+                      <div className="text-center py-6 bg-orange-50/50 rounded-lg border border-dashed border-orange-200">
+                        <FileText className="h-8 w-8 text-orange-300 mx-auto mb-2" />
+                        <p className="text-sm text-gray-500">No drawing issues reported</p>
+                        <p className="text-xs text-gray-400">Add any drawing-related blockers above</p>
+                      </div>
                     )}
-                  </CardContent>
-                </Card>
 
-                {/* Site Remarks Section */}
-                <Card className="bg-white shadow-sm rounded-lg">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base font-semibold text-gray-800">
-                      Site Remarks
-                    </CardTitle>
-                    <p className="text-sm text-gray-500">Issues related to site access, clearances, or on-ground blockers</p>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {/* Input for new site remark */}
+                    {/* Drawing Photos */}
+                    <div className="pt-3 border-t border-orange-100">
+                      <div className="flex justify-between items-center mb-3">
+                        <div className="flex items-center gap-2">
+                          {/* <Camera className="h-4 w-4 text-orange-500" /> */}
+                          {/* <h4 className="text-sm font-semibold text-gray-700">Drawing Photos</h4> */}
+                          {localPhotos.filter(p => p.attach_type === 'Drawing').length > 0 && (
+                            <span className="px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-medium rounded-full">
+                              {localPhotos.filter(p => p.attach_type === 'Drawing').length}
+                            </span>
+                          )}
+                        </div>
+                        <PhotoPermissionChecker
+                          isBlockedByDraftOwnership={isBlockedByDraftOwnership}
+                          onAddPhotosClick={() => {
+                            setCurrentCaptureType('Drawing');
+                            setIsCaptureDialogOpen(true);
+                          }}
+                          GEO_API={apiData?.api_key}
+                          triggerLabel="Add Photo"
+                        />
+                      </div>
+                      
+                      {localPhotos.filter(p => p.attach_type === 'Drawing').length > 0 ? (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                          {localPhotos.filter(p => p.attach_type === 'Drawing').map((photo) => (
+                            <div key={photo.local_id} className="group relative bg-white rounded-lg border border-orange-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                              <div className="aspect-square">
+                                <img
+                                  src={photo.image_link}
+                                  alt="Drawing"
+                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                                />
+                              </div>
+                              <Button
+                                variant="destructive"
+                                size="icon"
+                                className="absolute top-2 right-2 h-6 w-6 rounded-full opacity-80 group-hover:opacity-100 transition-opacity"
+                                onClick={() => handleRemovePhoto(photo.local_id)}
+                                disabled={isBlockedByDraftOwnership}
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
+                              {photo.remarks && (
+                                <div className="p-2 bg-orange-50 border-t border-orange-100">
+                                  <p className="text-xs text-gray-600 truncate">{photo.remarks}</p>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center py-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                          <Camera className="h-6 w-6 text-gray-300 mx-auto mb-1" />
+                          <p className="text-xs text-gray-400">No photos attached</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Site Section - Red Theme */}
+                <div className="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden">
+                  {/* Header */}
+                  <div className="bg-gradient-to-r from-red-50 to-red-100 px-4 py-3 border-b border-red-200">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 bg-red-500 rounded-lg">
+                        <MapPin className="h-4 w-4 text-white" />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-red-900">Site Issues</h3>
+                        <p className="text-xs text-red-700">Access, clearances & on-ground blockers</p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Content */}
+                  <div className="p-4 space-y-4">
+                    {/* Add Remark Input */}
                     <div className="flex gap-2">
                       <Textarea
                         value={newSiteRemark}
                         onChange={(e) => setNewSiteRemark(e.target.value)}
-                        placeholder="Enter a site-related remark..."
-                        className="flex-1 min-h-[60px] text-sm resize-none"
+                        placeholder="Describe the site-related issue..."
+                        className="flex-1 min-h-[70px] text-sm resize-none border-red-200 focus:border-red-400 focus:ring-red-400"
                         disabled={isBlockedByDraftOwnership}
                       />
                       <Button
-                        variant="outline"
-                        className="flex-shrink-0 text-red-600 border-red-600 hover:bg-red-50"
+                        className="flex-shrink-0 bg-red-500 hover:bg-red-600 text-white shadow-sm"
                         onClick={() => {
                           if (newSiteRemark.trim()) {
                             setSiteRemarksList(prev => [...prev, newSiteRemark.trim()]);
                             setNewSiteRemark("");
-                            toast({
-                              title: "Added! ✅",
-                              description: "Site remark added successfully.",
-                              variant: "default",
-                            });
+                            toast({ title: "Added! ✅", description: "Site remark added.", variant: "default" });
                           }
                         }}
                         disabled={isBlockedByDraftOwnership || !newSiteRemark.trim()}
@@ -2058,41 +2211,107 @@ console.log(user)
                       </Button>
                     </div>
 
-                    {/* List of site remarks */}
+                    {/* Remarks List */}
                     {siteRemarksList.length > 0 ? (
-                      <div className="space-y-2 mt-3 border-t pt-3">
-                        <p className="text-xs text-gray-500 font-medium">Added Points ({siteRemarksList.length})</p>
-                        {siteRemarksList.map((remark, index) => (
-                          <div 
-                            key={`site-${index}`}
-                            className="flex items-start gap-2 p-2 bg-gray-50 rounded-md border border-gray-200"
-                          >
-                            <span className="flex-shrink-0 text-xs text-gray-500 font-medium mt-1">{index + 1}.</span>
-                            <p className="flex-1 text-sm text-gray-700 break-words">{remark}</p>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6 flex-shrink-0 text-red-500 hover:bg-red-50"
-                              onClick={() => {
-                                setSiteRemarksList(prev => prev.filter((_, i) => i !== index));
-                                toast({
-                                  title: "Removed",
-                                  description: "Site remark removed.",
-                                  variant: "default",
-                                });
-                              }}
-                              disabled={isBlockedByDraftOwnership}
+                      <div className="space-y-2">
+                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                          Remarks ({siteRemarksList.length})
+                        </p>
+                        <div className="space-y-2">
+                          {siteRemarksList.map((remark, index) => (
+                            <div 
+                              key={`site-${index}`}
+                              className="flex items-start gap-3 p-3 bg-red-50 rounded-lg border-l-4 border-red-400"
                             >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        ))}
+                              <span className="flex-shrink-0 w-6 h-6 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
+                                {index + 1}
+                              </span>
+                              <p className="flex-1 text-sm text-gray-700 break-words">{remark}</p>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 flex-shrink-0 text-red-600 hover:text-red-700 hover:bg-red-100"
+                                onClick={() => {
+                                  setSiteRemarksList(prev => prev.filter((_, i) => i !== index));
+                                  toast({ title: "Removed", description: "Site remark removed.", variant: "default" });
+                                }}
+                                disabled={isBlockedByDraftOwnership}
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     ) : (
-                      <p className="text-sm text-gray-400 text-center py-3">No site remarks added yet.</p>
+                      <div className="text-center py-6 bg-red-50/50 rounded-lg border border-dashed border-red-200">
+                        <MapPin className="h-8 w-8 text-red-300 mx-auto mb-2" />
+                        <p className="text-sm text-gray-500">No site issues reported</p>
+                        <p className="text-xs text-gray-400">Add any site-related blockers above</p>
+                      </div>
                     )}
-                  </CardContent>
-                </Card>
+
+                    {/* Site Photos */}
+                    <div className="pt-3 border-t border-red-100">
+                      <div className="flex justify-between items-center mb-3">
+                        <div className="flex items-center gap-2">
+                          {/* <Camera className="h-4 w-4 text-red-500" /> */}
+                          {/* <h4 className="text-sm font-semibold text-gray-700"> Photos</h4> */}
+                          {localPhotos.filter(p => p.attach_type === 'Site').length > 0 && (
+                            <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs font-medium rounded-full">
+                              {localPhotos.filter(p => p.attach_type === 'Site').length}
+                            </span>
+                          )}
+                        </div>
+                        <PhotoPermissionChecker
+                          isBlockedByDraftOwnership={isBlockedByDraftOwnership}
+                          onAddPhotosClick={() => {
+                            setCurrentCaptureType('Site');
+                            setIsCaptureDialogOpen(true);
+                          }}
+                          GEO_API={apiData?.api_key}
+                          triggerLabel="Add Photo"
+                        />
+                      </div>
+                      
+                      {localPhotos.filter(p => p.attach_type === 'Site').length > 0 ? (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                          {localPhotos.filter(p => p.attach_type === 'Site').map((photo) => (
+                            <div key={photo.local_id} className="group relative bg-white rounded-lg border border-red-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                              <div className="aspect-square">
+                                <img
+                                  src={photo.image_link}
+                                  alt="Site"
+                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                                />
+                              </div>
+                              <Button
+                                variant="destructive"
+                                size="icon"
+                                className="absolute top-2 right-2 h-6 w-6 rounded-full opacity-80 group-hover:opacity-100 transition-opacity"
+                                onClick={() => handleRemovePhoto(photo.local_id)}
+                                disabled={isBlockedByDraftOwnership}
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
+                              {photo.remarks && (
+                                <div className="p-2 bg-red-50 border-t border-red-100">
+                                  <p className="text-xs text-gray-600 truncate">{photo.remarks}</p>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center py-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                          <Camera className="h-6 w-6 text-gray-300 mx-auto mb-1" />
+                          <p className="text-xs text-gray-400">No photos attached</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
               </div>
             </TabsContent>
             {/* --- END CLIENT / CLEARANCE ISSUES TAB --- */}
@@ -2110,14 +2329,17 @@ console.log(user)
           </Button> */}
            <PhotoPermissionChecker
             isBlockedByDraftOwnership={isBlockedByDraftOwnership}
-            onAddPhotosClick={() => setIsCaptureDialogOpen(true)}
+            onAddPhotosClick={() => {
+                setCurrentCaptureType('Work');
+                setIsCaptureDialogOpen(true);
+            }}
             GEO_API={apiData?.api_key}
           />
         </CardHeader>
         <CardContent className="pt-0">
-          {localPhotos.length > 0 ? (
+          {localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').length > 0 ? (
             <div className="space-y-4">
-              {localPhotos.map((photo) => (
+              {localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').map((photo) => (
                 <div 
                   key={photo.local_id} 
                   className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-3 bg-white rounded-md shadow-sm border  border-gray-400"

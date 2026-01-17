@@ -6,7 +6,7 @@ import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { ColumnDef } from "@tanstack/react-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { useFrappeGetDocList, useFrappeDeleteDoc } from "frappe-react-sdk";
+import { useFrappeDeleteDoc } from "frappe-react-sdk";
 import { toast } from "@/components/ui/use-toast";
 import { TDSItem } from "./components/types";
 import { AddTDSItemDialog } from "./components/AddTDSItemDialog";
@@ -21,6 +21,106 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useFacetValues } from "@/hooks/useFacetValues";
+import { useUserData } from "@/hooks/useUserData";
+
+// --- Wrapper Component for Dynamic Facets ---
+const TDSDataTableWrapper: React.FC<{
+    doctype: string;
+    columns: ColumnDef<TDSItem>[];
+    searchableFields: any[];
+    onEdit: (item: TDSItem) => void;
+    onDelete: (item: TDSItem) => void;
+    refetchRef: React.MutableRefObject<(() => void) | null>;
+}> = ({ doctype, columns, searchableFields, onEdit, onDelete, refetchRef }) => {
+
+    const {
+        table,
+        totalCount,
+        isLoading,
+        error: tableError,
+        searchTerm,
+        setSearchTerm,
+        selectedSearchField,
+        setSelectedSearchField,
+        columnFilters,
+        refetch,
+    } = useServerDataTable<TDSItem>({
+        doctype,
+        columns,
+        fetchFields: ["name", "work_package", "category", "tds_item_id", "tds_item_name", "description", "make", "tds_attachment", "creation"],
+        defaultSort: "creation desc",
+        searchableFields: searchableFields,
+        urlSyncKey: "tds_repository_master", // Enable URL sync
+    });
+
+    // Expose refetch function to parent
+    React.useEffect(() => {
+        refetchRef.current = refetch;
+    }, [refetch, refetchRef]);
+
+
+    // --- Dynamic Facet Hooks ---
+    const { facetOptions: wpFacetOptions, isLoading: isWPLoading } = useFacetValues({
+        doctype,
+        field: "work_package",
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+    });
+
+    const { facetOptions: catFacetOptions, isLoading: isCatLoading } = useFacetValues({
+        doctype,
+        field: "category",
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+    });
+
+    const { facetOptions: itemFacetOptions, isLoading: isItemLoading } = useFacetValues({
+        doctype,
+        field: "tds_item_name",
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+    });
+
+    const { facetOptions: makeFacetOptions, isLoading: isMakeLoading } = useFacetValues({
+        doctype,
+        field: "make",
+        currentFilters: columnFilters,
+        searchTerm,
+        selectedSearchField,
+    });
+
+    // Combined Facet Options
+    const facetFilterOptions = useMemo(() => ({
+        work_package: { title: "Work Package", options: wpFacetOptions, isLoading: isWPLoading },
+        category: { title: "Category", options: catFacetOptions, isLoading: isCatLoading },
+        tds_item_name: { title: "Item Name", options: itemFacetOptions, isLoading: isItemLoading },
+        make: { title: "Make", options: makeFacetOptions, isLoading: isMakeLoading },
+    }), [wpFacetOptions, isWPLoading, catFacetOptions, isCatLoading, itemFacetOptions, isItemLoading, makeFacetOptions, isMakeLoading]);
+
+
+    return (
+        <DataTable
+            table={table}
+            columns={columns}
+            isLoading={isLoading}
+            error={tableError}
+            totalCount={totalCount}
+            facetFilterOptions={facetFilterOptions}
+            searchTerm={searchTerm}
+            onSearchTermChange={setSearchTerm}
+            searchFieldOptions={searchableFields}
+            selectedSearchField={selectedSearchField}
+            onSelectedSearchFieldChange={setSelectedSearchField}
+            showExportButton={true}
+            onExport="default"
+            exportFileName="TDS_Repository_Data"
+        />
+    );
+};
 
 export const TDSRepositoryMaster: React.FC = () => {
     const doctype = "TDS Repository";
@@ -28,13 +128,24 @@ export const TDSRepositoryMaster: React.FC = () => {
     const [isEditOpen, setIsEditOpen] = useState(false);
     const [deleteItem, setDeleteItem] = useState<TDSItem | null>(null);
     const { deleteDoc, loading: deleting } = useFrappeDeleteDoc();
+    const { role } = useUserData();
+    const isAdmin = role === "Nirmaan Admin Profile";
+
+    // Ref to hold the refetch function from the datatable wrapper
+    const tableRefetchRef = React.useRef<(() => void) | null>(null);
+
+    const handleRefetch = () => {
+        if (tableRefetchRef.current) {
+            tableRefetchRef.current();
+        }
+    };
 
     const handleDelete = async () => {
         if (!deleteItem) return;
         try {
             await deleteDoc("TDS Repository", deleteItem.name);
             toast({ title: "Success", description: "Item deleted successfully", variant: "success" });
-            refetch();
+            handleRefetch();
         } catch (e) {
             console.error("Delete error:", e);
             toast({ title: "Error", description: "Failed to delete item", variant: "destructive" });
@@ -46,9 +157,9 @@ export const TDSRepositoryMaster: React.FC = () => {
     // --- Columns Definition ---
     const columns = useMemo<ColumnDef<TDSItem>[]>(() => [
         {
-            accessorKey: "name",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="ID" />,
-            cell: ({ row }) => <div className="font-medium">{row.getValue("name")}</div>,
+            accessorKey: "tds_item_id",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Item ID" />,
+            cell: ({ row }) => <div className="font-medium">{row.getValue("tds_item_id")}</div>,
             enableColumnFilter: true, 
         },
         {
@@ -57,6 +168,7 @@ export const TDSRepositoryMaster: React.FC = () => {
             cell: ({ row }) => <div className="font-medium mx-auto">{row.getValue("work_package")}</div>,
             enableColumnFilter: true,
             filterFn: "arrIncludesSome", 
+            meta: { enableFacet: true, facetTitle: "Work Package" }
         },
         {
             accessorKey: "category",
@@ -64,24 +176,22 @@ export const TDSRepositoryMaster: React.FC = () => {
             cell: ({ row }) => <div>{row.getValue("category")}</div>,
             enableColumnFilter: true,
             filterFn: "arrIncludesSome",
+            meta: { enableFacet: true, facetTitle: "Category" }
         },
         {
-            // id: "item_name",
              accessorKey: "tds_item_name",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Item Name" />,
-
-            // accessorFn: (row) => row["tds_item_name.item_name"] || row.tds_item_name,
-            // header: ({ column }) => <DataTableColumnHeader column={column} title="Item Name" />,
             cell: ({ row }) => <div className="font-medium">{row.getValue("tds_item_name")}</div>,
             enableColumnFilter: true,
             filterFn: "arrIncludesSome",
+            meta: { enableFacet: true, facetTitle: "Item Name" }
         },
         {
             accessorKey: "description",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Description" />,
             cell: ({ row }) => (
                 <div className="truncate max-w-[300px]" title={row.getValue("description")}>
-                    {row.getValue("description")}
+                    {row.getValue("description") || "--"}
                 </div>
             ),
         },
@@ -91,22 +201,24 @@ export const TDSRepositoryMaster: React.FC = () => {
             cell: ({ row }) => <div className="font-medium">{row.getValue("make")}</div>,
             enableColumnFilter: true,
             filterFn: "arrIncludesSome",
+            meta: { enableFacet: true, facetTitle: "Make" }
         },
         {
             accessorKey: "tds_attachment",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Doc" />,
             cell: ({ row }) => {
                 const docUrl = row.getValue("tds_attachment") as string;
-                if (!docUrl) return null;
-                const fileName = docUrl.split("/").pop();
+                const fileName = docUrl ? docUrl.split("/").pop() : "";
+                
                 return (
                     <div className="flex justify-start">
                         <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
-                            onClick={() => window.open(docUrl, "_blank")}
-                            title={fileName}
+                            className={`h-8 w-8 ${docUrl ? "text-blue-600 hover:text-blue-800 hover:bg-blue-50" : "text-gray-300 cursor-not-allowed"}`}
+                            onClick={() => docUrl && window.open(docUrl, "_blank")}
+                            title={docUrl ? fileName : "No Attachment"}
+                            disabled={!docUrl}
                         >
                             <FileText className="h-4 w-4" />
                         </Button>
@@ -123,51 +235,36 @@ export const TDSRepositoryMaster: React.FC = () => {
                     <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 text-gray-600 hover:text-blue-600"
+                        className={`h-8 w-8 text-gray-600 ${isAdmin ? "hover:text-blue-600" : "opacity-50 cursor-not-allowed"}`}
                         onClick={() => {
-                            setEditItem(row.original);
-                            setIsEditOpen(true);
+                            if (isAdmin) {
+                                setEditItem(row.original);
+                                setIsEditOpen(true);
+                            }
                         }}
+                        // disabled={!isAdmin}
+                        title={ "Edit Item"}
                     >
                         <Pencil className="h-4 w-4" />
                     </Button>
                     <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 text-gray-600 hover:text-red-600"
-                        onClick={() => setDeleteItem(row.original)}
+                        className={`h-8 w-8 text-gray-600 ${isAdmin ? "hover:text-red-600" : "opacity-50 cursor-not-allowed"}`}
+                        onClick={() => {
+                            if (isAdmin) {
+                                setDeleteItem(row.original);
+                            }
+                        }}
+                        disabled={!isAdmin}
+                        title={!isAdmin ? "Only Admin can delete" : "Delete Item"}
                     >
                         <Trash2 className="h-4 w-4" />
                     </Button>
                 </div>
             )
         }
-    ], []);
-
-    // --- Fetch Options for Faceted Filters ---
-    const { data: wpList } = useFrappeGetDocList("Procurement Packages", {
-        fields: ["name", "work_package_name"],
-        limit: 1000,
-    });
-    const wpOptions = useMemo(() => wpList?.map(d => ({ label: d.work_package_name, value: d.name })) || [], [wpList]);
-
-    const { data: catList } = useFrappeGetDocList("Category", {
-        fields: ["name", "category_name"],
-        limit: 1000,
-    });
-    const catOptions = useMemo(() => catList?.map(d => ({ label: d.category_name, value: d.name })) || [], [catList]);
-
-    const { data: makeList } = useFrappeGetDocList("Makelist", {
-        fields: ["name", "make_name"],
-        limit: 1000,
-    });
-    const makeOptions = useMemo(() => makeList?.map(d => ({ label: d.make_name, value: d.name })) || [], [makeList]);
-
-    const facetFilterOptions = useMemo(() => ({
-        work_package: { title: "Work Package", options: wpOptions },
-        category: { title: "Category", options: catOptions },
-        make: { title: "Make", options: makeOptions },
-    }), [wpOptions, catOptions, makeOptions]);
+    ], [isAdmin]);
 
     const searchableFields = [
         { label: "Item Name", value: "tds_item_name" }, 
@@ -175,26 +272,8 @@ export const TDSRepositoryMaster: React.FC = () => {
         { label: "Make", value: "make" }
     ];
 
-    const {
-        table,
-        totalCount,
-        isLoading,
-        error: tableError,
-        searchTerm,
-        setSearchTerm,
-        selectedSearchField,
-        setSelectedSearchField,
-        refetch,
-    } = useServerDataTable<TDSItem>({
-        doctype,
-        columns,
-        fetchFields: ["name", "work_package", "category", "tds_item_id", "tds_item_name", "description", "make", "tds_attachment", "creation"],
-        defaultSort: "creation desc",
-        searchableFields: searchableFields,
-    });
-
     const handleEditSuccess = () => {
-        refetch();
+        handleRefetch();
         setEditItem(null);
     };
 
@@ -205,28 +284,22 @@ export const TDSRepositoryMaster: React.FC = () => {
                     <h2 className="text-2xl font-bold tracking-tight text-gray-800">TDS Repository</h2>
                 </div>
                 <div className="flex items-center gap-2">
-                    <AddTDSItemDialog onSuccess={() => refetch()} />
+                    <AddTDSItemDialog onSuccess={() => handleRefetch()} />
                 </div>
             </div>
 
             <Separator />
 
-            <DataTable
-                table={table}
+            <TDSDataTableWrapper 
+                doctype={doctype}
                 columns={columns}
-                isLoading={isLoading}
-                error={tableError}
-                totalCount={totalCount}
-                facetFilterOptions={facetFilterOptions}
-                searchTerm={searchTerm}
-                onSearchTermChange={setSearchTerm}
-                searchFieldOptions={searchableFields}
-                selectedSearchField={selectedSearchField}
-                // selectedSearchField={selectedSearchField}
-                onSelectedSearchFieldChange={setSelectedSearchField}
-                showExportButton={true}
-                onExport="default"
-                exportFileName="TDS_Repository_Data"
+                searchableFields={searchableFields}
+                onEdit={(item) => {
+                    setEditItem(item);
+                    setIsEditOpen(true);
+                }}
+                onDelete={setDeleteItem}
+                refetchRef={tableRefetchRef}
             />
 
             <EditTDSItemDialog 

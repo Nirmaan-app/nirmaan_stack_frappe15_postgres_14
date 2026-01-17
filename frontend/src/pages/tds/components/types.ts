@@ -17,7 +17,7 @@ export const tdsItemSchema = z.object({
     work_package: z.string().min(1, "Work Package is required."),
     category: z.string().min(1, "Category is required."),
     tds_item_id: z.string().min(1, "Item Name is required."),
-    item_description: z.string().min(1, "Item Description is required."),
+    item_description: z.string().optional(),
     make: z.string().min(1, "Make is required."),
 });
 
