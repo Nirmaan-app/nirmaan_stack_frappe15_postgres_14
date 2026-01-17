@@ -1,5 +1,6 @@
 import { useFrappeGetCall, useFrappeGetDocList } from 'frappe-react-sdk';
 import { useMemo } from 'react';
+import { formatISO } from 'date-fns';
 import { Projects } from '@/types/NirmaanStack/Projects';
 import { Vendors } from '@/types/NirmaanStack/Vendors';
 import { NirmaanUsers } from '@/types/NirmaanStack/NirmaanUsers';
@@ -81,6 +82,11 @@ export interface SR2BReconcileRowData {
     attachmentUrl: string | null;
 }
 
+interface UseSR2BReconcileDataOptions {
+    startDate?: Date;
+    endDate?: Date;
+}
+
 interface UseSR2BReconcileDataResult {
     reportData: SR2BReconcileRowData[] | null;
     isLoading: boolean;
@@ -94,10 +100,16 @@ interface UseSR2BReconcileDataResult {
     } | null;
 }
 
-export const useSR2BReconcileData = (): UseSR2BReconcileDataResult => {
+export const useSR2BReconcileData = (options: UseSR2BReconcileDataOptions = {}): UseSR2BReconcileDataResult => {
+    const { startDate, endDate } = options;
+
     // Fetch all SR invoices
     const { data: invoicesData, isLoading: invoicesLoading, error: invoicesError, mutate } = useFrappeGetCall<AllInvoicesDataCallResponse>(
         "nirmaan_stack.api.invoices.sr_wise_invoice_data.generate_all_sr_invoice_data",
+        {
+            start_date: startDate ? formatISO(startDate, { representation: 'date' }) : undefined,
+            end_date: endDate ? formatISO(endDate, { representation: 'date' }) : undefined,
+        }
     );
 
     // Fetch all projects for name lookup

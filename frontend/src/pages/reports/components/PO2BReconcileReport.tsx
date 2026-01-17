@@ -1,4 +1,6 @@
-import { useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
+import { DateRange } from "react-day-picker";
+import { parse, formatISO, startOfDay, endOfDay, format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { PO2BReconcileRowData, usePO2BReconcileData } from "../hooks/usePO2BReconcileData";
@@ -26,19 +28,51 @@ import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ColumnDef } from "@tanstack/react-table";
 import { FileText, CheckCircle2 } from "lucide-react";
+import { StandaloneDateFilter } from "@/components/ui/StandaloneDateFilter";
+import { urlStateManager } from "@/utils/urlStateManager";
 
 interface SelectOption {
     label: string;
     value: string;
 }
 
+const URL_SYNC_KEY = "po_2b_reconcile_table";
+
 export default function PO2BReconcileReport() {
-    // Fetch 2B reconcile data
+    // Date range state with URL persistence
+    const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
+        const fromParam = urlStateManager.getParam(`${URL_SYNC_KEY}_from`);
+        const toParam = urlStateManager.getParam(`${URL_SYNC_KEY}_to`);
+        if (fromParam && toParam) {
+            try {
+                return {
+                    from: startOfDay(parse(fromParam, "yyyy-MM-dd", new Date())),
+                    to: endOfDay(parse(toParam, "yyyy-MM-dd", new Date())),
+                };
+            } catch (e) {
+                return undefined;
+            }
+        }
+        return undefined;
+    });
+
+    // Sync date range to URL
+    useEffect(() => {
+        const fromISO = dateRange?.from ? formatISO(dateRange.from, { representation: "date" }) : null;
+        const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: "date" }) : null;
+        urlStateManager.updateParam(`${URL_SYNC_KEY}_from`, fromISO);
+        urlStateManager.updateParam(`${URL_SYNC_KEY}_to`, toISO);
+    }, [dateRange]);
+
+    // Fetch 2B reconcile data with date filtering
     const {
         reportData: allInvoicesData,
         isLoading: isLoadingInitialData,
         error: initialDataError,
-    } = usePO2BReconcileData();
+    } = usePO2BReconcileData({
+        startDate: dateRange?.from,
+        endDate: dateRange?.to,
+    });
 
     // Use the column definitions
     const tableColumnsToDisplay = useMemo(() => po2BReconcileColumns, []);
@@ -191,7 +225,15 @@ export default function PO2BReconcileReport() {
         [projectFacetOptions, vendorFacetOptions]
     );
 
-    const exportFileName = "po_2b_reconcile_report";
+    const exportFileName = useMemo(() => {
+        const baseName = "po_2b_reconcile_report";
+        if (dateRange?.from && dateRange?.to) {
+            const fromStr = format(dateRange.from, "ddMMMyyyy");
+            const toStr = format(dateRange.to, "ddMMMyyyy");
+            return `${baseName}_${fromStr}_to_${toStr}`;
+        }
+        return baseName;
+    }, [dateRange]);
 
     const handleCustomExport = useCallback(() => {
         if (!fullyFilteredData || fullyFilteredData.length === 0) {
@@ -269,6 +311,13 @@ export default function PO2BReconcileReport() {
 
     return (
         <div className="flex flex-col gap-4">
+            {/* Date Filter */}
+            <StandaloneDateFilter
+                value={dateRange}
+                onChange={setDateRange}
+                onClear={() => setDateRange(undefined)}
+            />
+
             {/* Summary Card */}
             <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-50 to-white dark:from-slate-900 dark:to-slate-800">
                 {/* ===== COMPACT MOBILE VIEW ===== */}

@@ -1,5 +1,6 @@
 import { useFrappeGetCall, useFrappeGetDocList } from 'frappe-react-sdk';
 import { useMemo } from 'react';
+import { formatISO } from 'date-fns';
 import { Projects } from '@/types/NirmaanStack/Projects';
 import { Vendors } from '@/types/NirmaanStack/Vendors';
 import { NirmaanUsers } from '@/types/NirmaanStack/NirmaanUsers';
@@ -81,6 +82,11 @@ export interface PO2BReconcileRowData {
     attachmentUrl: string | null;
 }
 
+interface UsePO2BReconcileDataOptions {
+    startDate?: Date;
+    endDate?: Date;
+}
+
 interface UsePO2BReconcileDataResult {
     reportData: PO2BReconcileRowData[] | null;
     isLoading: boolean;
@@ -94,10 +100,16 @@ interface UsePO2BReconcileDataResult {
     } | null;
 }
 
-export const usePO2BReconcileData = (): UsePO2BReconcileDataResult => {
+export const usePO2BReconcileData = (options: UsePO2BReconcileDataOptions = {}): UsePO2BReconcileDataResult => {
+    const { startDate, endDate } = options;
+
     // Fetch all PO invoices
     const { data: invoicesData, isLoading: invoicesLoading, error: invoicesError, mutate } = useFrappeGetCall<AllInvoicesDataCallResponse>(
         "nirmaan_stack.api.invoices.po_wise_invoice_data.generate_all_po_invoice_data",
+        {
+            start_date: startDate ? formatISO(startDate, { representation: 'date' }) : undefined,
+            end_date: endDate ? formatISO(endDate, { representation: 'date' }) : undefined,
+        }
     );
 
     // Fetch all projects for name lookup
