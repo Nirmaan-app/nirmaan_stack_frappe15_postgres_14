@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect,useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -22,15 +22,7 @@ interface AddTDSItemDialogProps {
     onSuccess: () => void;
 }
 
-// Simple debounce hook
-function useDebounce<T>(value: T, delay: number): T {
-    const [debouncedValue, setDebouncedValue] = useState<T>(value);
-    useEffect(() => {
-        const handler = setTimeout(() => setDebouncedValue(value), delay);
-        return () => clearTimeout(handler);
-    }, [value, delay]);
-    return debouncedValue;
-}
+
 
 export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess }) => {
     const [open, setOpen] = useState(false);
@@ -42,9 +34,9 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
     // Fetch Options for Form
     const { data: wpList } = useFrappeGetDocList("Procurement Packages", { fields: ["name", "work_package_name"], limit: 1000 });
     const { data: catList } = useFrappeGetDocList("Category", { fields: ["name", "category_name", "work_package"], limit: 1000 });
-    const { data: itemList } = useFrappeGetDocList("Items", { fields: ["name", "item_name", "category"], limit: 1000 });
-    const { data: makeList } = useFrappeGetDocList("Makelist", { fields: ["name", "make_name"], limit: 1000 });
-    const { data: catMakeList } = useFrappeGetDocList("Category Makelist", { fields: ["category", "make"], limit: 5000 });
+    const { data: itemList } = useFrappeGetDocList("Items", { fields: ["name", "item_name", "category"], limit: 0 });
+    const { data: makeList } = useFrappeGetDocList("Makelist", { fields: ["name", "make_name"], limit: 0 });
+    const { data: catMakeList } = useFrappeGetDocList("Category Makelist", { fields: ["category", "make"], limit: 0 });
 
     const form = useForm<TDSItemValues>({
         resolver: zodResolver(tdsItemSchema),
@@ -57,31 +49,21 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
         },
     });
 
-    // Reactive Duplicate Check
+    // Reactively fetch existing entries for the selected category to filter items and options
+    const selectedCategory = form.watch("category");
     const watchedTdsItemId = form.watch("tds_item_id");
-    const watchedMake = form.watch("make");
     
-    // Debounce the entire filter object
-    const debouncedFilters = useDebounce(
-        useMemo(() => {
-            if (!watchedTdsItemId || !watchedMake) return null;
-            return [
-                ["tds_item_id", "=", watchedTdsItemId],
-                ["make", "=", watchedMake]
-            ];
-        }, [watchedTdsItemId, watchedMake]),
-        500
-    );
-
-    const { data: duplicateList, isLoading: checkingDuplicate } = useFrappeGetDocList("TDS Repository", {
-        filters: debouncedFilters as any,
-        fields: ["name"],
-        limit: 1
-    }, debouncedFilters ? undefined : null);
+    // Fetch all entries for this category to determine:
+    // 1. Which items are fully booked (to hide from Item dropdown)
+    // 2. Which makes are taken for the selected item (to hide from Make dropdown)
+    const { data: categoryEntries } = useFrappeGetDocList("TDS Repository", {
+        filters: selectedCategory ? [["category", "=", selectedCategory]] : undefined,
+        fields: ["tds_item_id", "make"],
+        limit: 0
+    }, selectedCategory ? undefined : null);
 
     // Watch form values for dependent filtering
     const selectedWP = form.watch("work_package");
-    const selectedCategory = form.watch("category");
 
     // Memoize options
     const wpOptions = useMemo(() => wpList?.map(d => ({ label: d.work_package_name, value: d.name })) || [], [wpList]);
@@ -95,14 +77,59 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
 
     const itemOptions = useMemo(() => {
         if (!selectedCategory) return [];
+        
+        // Get valid makes for the category
+        const validMakesForCategory = new Set(
+            catMakeList
+                ?.filter(cm => cm.category === selectedCategory)
+                .map(cm => cm.make) || []
+        );
+
+        // Map of ItemID -> Set of TakenMakes
+        const itemTakenMakes = new Map<string, Set<string>>();
+        if (categoryEntries) {
+            categoryEntries.forEach(d => {
+                if (!itemTakenMakes.has(d.tds_item_id)) {
+                    itemTakenMakes.set(d.tds_item_id, new Set());
+                }
+                itemTakenMakes.get(d.tds_item_id)!.add(d.make);
+            });
+        }
+
         return itemList
             ?.filter(d => d.category === selectedCategory)
+            .filter(d => {
+                // If there are no restricted makes for this category, assume any make is allowed, 
+                // so we can't really saturate the item unless we check global makes (which is rare).
+                // Safest to show all items if no restriction exists.
+                if (validMakesForCategory.size === 0) return true;
+
+                const taken = itemTakenMakes.get(d.name);
+                if (!taken) return true; // No entries at all for this item
+
+                // Count how many of the VALID makes are taken
+                let takenCount = 0;
+                validMakesForCategory.forEach(vm => {
+                    if (taken.has(vm)) takenCount++;
+                });
+
+                // If taken count equals valid makes count, the item is fully booked
+                return takenCount < validMakesForCategory.size;
+            })
             .map(d => ({ label: d.item_name, value: d.name })) || [];
-    }, [itemList, selectedCategory]);
+    }, [itemList, selectedCategory, categoryEntries, catMakeList]);
 
     const makeOptions = useMemo(() => {
         if (!selectedCategory || !catMakeList || !makeList) return [];
         
+        // Create a set of already taken makes for this SPECIFIC item
+        // Filter categoryEntries by the currently selected item
+        const takenMakes = new Set(
+            categoryEntries
+                ?.filter(d => d.tds_item_id === watchedTdsItemId)
+                .map(d => d.make) || []
+        );
+
         // Get valid makes for this category from Category Makelist
         const validMakesForCategory = new Set(
             catMakeList
@@ -110,26 +137,52 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                 .map(cm => cm.make)
         );
 
-        if (validMakesForCategory.size === 0) {
-            return makeList.map(d => ({ label: d.make_name, value: d.name }));
+        let availableMakes = makeList;
+
+        // Filter by category if specific makes are defined
+        if (validMakesForCategory.size > 0) {
+            availableMakes = availableMakes.filter(m => validMakesForCategory.has(m.name));
         }
 
-        return makeList
-            .filter(m => validMakesForCategory.has(m.name))
+        // Filter out makes that are already taken for this item
+        // But DON'T filter if the user has already selected it (unlikely in Add mode, but good practice)
+        return availableMakes
+            .filter(d => !takenMakes.has(d.name))
             .map(d => ({ label: d.make_name, value: d.name }));
-    }, [makeList, catMakeList, selectedCategory]);
+            
+    }, [makeList, catMakeList, selectedCategory, categoryEntries, watchedTdsItemId]);
 
-    // Reset downstream fields when upstream changes
-    useEffect(() => {
-        form.setValue("category", "");
-        form.setValue("tds_item_id", "");
-        form.setValue("make", "");
-    }, [selectedWP, form.setValue]);
+    // Track previous values to detect changes reliably
+    const prevWPRef = useRef(selectedWP);
+    const prevCatRef = useRef(selectedCategory);
+    const prevItemRef = useRef(watchedTdsItemId);
 
+    // Reset downstream fields when Work Package changes
     useEffect(() => {
-        form.setValue("tds_item_id", "");
-        form.setValue("make", "");
-    }, [selectedCategory, form.setValue]);
+        if (selectedWP !== prevWPRef.current) {
+            form.setValue("category", "", { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+            form.setValue("tds_item_id", "", { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+            form.setValue("make", "", { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+            prevWPRef.current = selectedWP;
+        }
+    }, [selectedWP, form]);
+
+    // Reset downstream fields when Category changes
+    useEffect(() => {
+        if (selectedCategory !== prevCatRef.current) {
+            form.setValue("tds_item_id", "", { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+            form.setValue("make", "", { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+            prevCatRef.current = selectedCategory;
+        }
+    }, [selectedCategory, form]);
+
+    // Reset Make when Item changes
+    useEffect(() => {
+        if (watchedTdsItemId !== prevItemRef.current) {
+            form.setValue("make", "", { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+            prevItemRef.current = watchedTdsItemId;
+        }
+    }, [watchedTdsItemId, form]);
     
     // Reset form when dialog closes
     useEffect(() => {
@@ -141,16 +194,6 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
 
     const onSubmit = async (values: TDSItemValues) => {
         try {
-            // Check for duplicates using the hook data
-             if (duplicateList && duplicateList.length > 0) {
-                 toast({
-                    title: "Duplicate Entry",
-                    description: "This TDS Item ID and Make combination already exists.",
-                    variant: "destructive"
-                });
-                return;
-            }
-
             // 1. Create the Doc
             const newDoc = await createDoc("TDS Repository", {
                 work_package: values.work_package,
@@ -168,8 +211,9 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                     isPrivate: false
                 });
 
-                 // Explicitly update the doc with the file URL if it wasn't attached automatically
-                const fileUrl = uploadResp?.message?.file_url || uploadResp?.file_url;
+                // Explicitly update the doc with the file URL if it wasn't attached automatically
+                const responseData = uploadResp as any;
+                const fileUrl = responseData?.message?.file_url || responseData?.file_url;
                 if (fileUrl) {
                     await updateDoc("TDS Repository", newDoc.name, {
                         tds_attachment: fileUrl
@@ -369,8 +413,8 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                                 <Button type="button" variant="outline" onClick={() => setOpen(false)} className="bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100">
                                     Cancel
                                 </Button>
-                                <Button type="submit" disabled={creating || uploading || checkingDuplicate} className="bg-[#dc2626] hover:bg-[#b91c1c] text-white">
-                                    {creating || uploading || checkingDuplicate ? "Saving..." : "Save"}
+                                <Button type="submit" disabled={creating || uploading} className="bg-[#dc2626] hover:bg-[#b91c1c] text-white">
+                                    {creating || uploading ? "Saving..." : "Save"}
                                 </Button>
                             </DialogFooter>
                         </form>
