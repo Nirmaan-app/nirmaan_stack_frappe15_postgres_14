@@ -11,7 +11,7 @@
 ## Tech Stack
 
 - **Framework:** Frappe v15+ (Python 3.10+)
-- **Database:** MariaDB/PostgreSQL
+- **Database:** PostgreSQL v14.11 (NOT MariaDB)
 - **Cache:** Redis
 - **Frontend:** React 18 + TypeScript (in `frontend/` directory)
 - **Real-time:** Socket.IO
@@ -80,11 +80,12 @@ nirmaan_stack/
 ## Common Gotchas
 
 1. **PostgreSQL `user` keyword:** Always quote in SQL: `"user"` not `user`
-2. **Transactions:** Always `frappe.db.commit()` after DB operations in whitelisted methods
-3. **Socket.IO:** Call `frappe.db.commit()` BEFORE `publish_realtime()` to avoid race conditions
-4. **Administrator user:** Has non-email name "Administrator" - handle explicitly in rename/delete
-5. **Link vs Data fields:** `rename_doc()` only updates Link fields, Data fields need manual SQL
-6. **Email configuration:** User creation/password reset can fail due to email server misconfiguration (encryption key issues). Use `api/users.create_user` and `api/users.reset_password` which separate email sending from the critical operation
+2. **PostgreSQL JSON fields:** Cannot use `!=` or `is set` filters with JSON fields in `frappe.get_all()`. Use raw SQL: `WHERE json_field IS NOT NULL` with double-quoted table names (`"tabDoctype"`)
+3. **Transactions:** Always `frappe.db.commit()` after DB operations in whitelisted methods
+4. **Socket.IO:** Call `frappe.db.commit()` BEFORE `publish_realtime()` to avoid race conditions
+5. **Administrator user:** Has non-email name "Administrator" - handle explicitly in rename/delete
+6. **Link vs Data fields:** `rename_doc()` only updates Link fields, Data fields need manual SQL
+7. **Email configuration:** User creation/password reset can fail due to email server misconfiguration (encryption key issues). Use `api/users.create_user` and `api/users.reset_password` which separate email sending from the critical operation
 
 ---
 
