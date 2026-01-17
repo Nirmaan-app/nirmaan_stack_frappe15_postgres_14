@@ -11,6 +11,7 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | [role-access.md](./role-access.md) | Access Control | Role checks, sidebar visibility, page permissions |
 | [testing.md](./testing.md) | Feature Testing | After implementing forms, dialogs, persistence, multi-step workflows |
 | [websocket.md](./websocket.md) | Real-time | Socket.IO events, notifications, publish_realtime, proxy config |
+| [domain/customers.md](./domain/customers.md) | Customers | Customer CRUD, financials, inflows, project relationships |
 | [domain/invoices.md](./domain/invoices.md) | Invoices | PO/SR invoices, 2B reconciliation, date filters |
 | [domain/milestones.md](./domain/milestones.md) | Milestones | Daily progress reports, zone tracking, work headers |
 
@@ -19,6 +20,7 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | Module | Location | Key Files |
 |--------|----------|-----------|
 | Assets | `src/pages/Assets/` | `assets.constants.ts` for doctypes/fields |
+| Customers | `src/pages/customers/` | `customers.constants.ts`, `CustomerFinancials.tsx`, `CustomerOverview.tsx` |
 | Critical PO Tracker | `src/pages/CriticalPOTracker/` | `types/index.ts` for interfaces, `utils.ts` for styling |
 | Critical PO Linking | `src/pages/ProcurementOrders/purchase-order/` | `hooks/useCriticalPOTaskLinking.ts`, `components/CriticalPOTaskLinkingSection.tsx` |
 | Invoices | `src/pages/tasks/invoices/` | `config/*.config.ts` for table config |
@@ -64,6 +66,7 @@ const { role, user_id } = useUserData();
     ├── testing.md        # Playwright browser testing guide
     ├── websocket.md      # Socket.IO real-time events & notifications
     └── domain/
+        ├── customers.md  # Customer management & financials
         ├── invoices.md   # Invoice management & 2B reconciliation
         └── milestones.md # Daily progress reports & zone tracking
 ```
