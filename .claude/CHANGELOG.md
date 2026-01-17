@@ -4,6 +4,46 @@ Changes made by Claude Code sessions.
 
 ---
 
+### 2026-01-17: 3-State Invoice Reconciliation Model
+
+**Summary:** Migrated from binary reconciliation (Reconciled/Pending) to 3-state model (Full/Partial/None) with reconciled amount tracking. Updated both invoices tab and reports view for consistency.
+
+**Backend Files Modified:**
+- `nirmaan_stack/patches/v2_9/migrate_invoice_reconciliation_status.py` - Migrate is_2b_activated to reconciliation_status
+- `nirmaan_stack/patches/v2_9/add_reconciled_amount_field.py` - Add reconciled_amount field to PO/SR invoices
+- `nirmaan_stack/api/invoices/po_wise_invoice_data.py` - Return reconciliation_status, reconciled_amount, proof attachment
+- `nirmaan_stack/api/invoices/sr_wise_invoice_data.py` - Same changes for SR invoices
+- `nirmaan_stack/api/invoices/update_invoice_reconciliation.py` - Support partial reconciliation with amount input
+
+**Frontend Invoices Tab Files:**
+- `frontend/src/pages/tasks/invoices/components/PoInvoices.tsx` - 3-state status, reconciled amount column, summary breakdown
+- `frontend/src/pages/tasks/invoices/components/SrInvoices.tsx` - Same changes for SR invoices
+- `frontend/src/pages/tasks/invoices/components/ReconciliationDialog.tsx` - Partial reconciliation UI with amount input
+- `frontend/src/pages/tasks/invoices/hooks/useInvoiceReconciliation.ts` - Updated hook for new model
+- `frontend/src/pages/tasks/invoices/config/*.config.ts` - Added Partial to filter options
+- `frontend/src/pages/tasks/invoices/constants.ts` - ReconciliationStatus type
+
+**Frontend Reports Files:**
+- `frontend/src/pages/reports/components/PO2BReconcileReport.tsx` - Summary cards with partial breakdown
+- `frontend/src/pages/reports/components/SR2BReconcileReport.tsx` - Same changes
+- `frontend/src/pages/reports/components/columns/po2BReconcileColumns.tsx` - Reconciled amount column, 3-state badges
+- `frontend/src/pages/reports/components/columns/sr2BReconcileColumns.tsx` - Same changes
+- `frontend/src/pages/reports/hooks/usePO2BReconcileData.ts` - New fields in interface and mapping
+- `frontend/src/pages/reports/hooks/useSR2BReconcileData.ts` - Same changes
+- `frontend/src/pages/reports/config/*.config.ts` - Partial filter option
+
+**UI Component:**
+- `frontend/src/components/data-table/data-table-column-header.tsx` - Allow ReactNode for title prop
+
+**Features:**
+- 3-state reconciliation: Full (green), Partial (yellow), None (gray outline)
+- Reconciled amount column with color coding based on comparison to invoice amount
+- Summary cards show Partial sub-metric with both invoice amount AND actual reconciled amount
+- Proof attachment support for reconciliation documentation
+- Backward compatible with legacy is_2b_activated field
+
+---
+
 ### 2026-01-16: Design Tracker UI Harmonization with Progress Visualization
 
 **Summary:** Enhanced Design Tracker list and detail pages with progress visualization, summary statistics, and hide/unhide functionality.
