@@ -239,6 +239,17 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
               No drawing remarks for this report
             </p>
           )}
+          
+          {/* Drawing Photos */}
+          {dailyReportDetails.attachments?.filter((a: any) => a.attach_type === 'Drawing').length > 0 && (
+            <div className="mt-3">
+              <p className="text-xs font-medium text-orange-700 mb-2">Drawing Photos</p>
+              <ImageBentoGrid
+                images={(dailyReportDetails.attachments || []).filter((a: any) => a.attach_type === 'Drawing')}
+                forPdf={false}
+              />
+            </div>
+          )}
         </div>
         
         {/* Site Remarks */}
@@ -258,6 +269,17 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
             <p className="text-sm text-gray-400 italic p-3 bg-gray-50 rounded-md border border-gray-200">
               No site remarks for this report
             </p>
+          )}
+          
+          {/* Site Photos */}
+          {dailyReportDetails.attachments?.filter((a: any) => a.attach_type === 'Site').length > 0 && (
+            <div className="mt-3">
+              <p className="text-xs font-medium text-red-700 mb-2">Site Photos</p>
+              <ImageBentoGrid
+                images={(dailyReportDetails.attachments || []).filter((a: any) => a.attach_type === 'Site')}
+                forPdf={false}
+              />
+            </div>
           )}
         </div>
       </div>
@@ -516,7 +538,7 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
       <div className="mt-6">
         <h3 className="text-base md:text-lg font-bold mb-3">Work Images</h3>
         <ImageBentoGrid
-          images={dailyReportDetails.attachments || []}
+          images={(dailyReportDetails.attachments || []).filter((a: any) => !a.attach_type || a.attach_type === 'Work')}
           forPdf={false}
         />
       </div>
