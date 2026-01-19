@@ -87,6 +87,8 @@ import CriticalPOTrackerDetail from "@/pages/CriticalPOTracker/critical-po-track
 //Work Plan Tracker
 import WorkPlanTrackerList from "@/pages/WorkPlanTracker/work-plan-tracker-list";
 import WorkPlanTrackerDetail from "@/pages/WorkPlanTracker/work-plan-tracker-detail";
+import TDSApprovalList from "@/pages/tds/TDSApprovalList";
+import TDSApprovalDetail from "@/pages/tds/TDSApprovalDetail";
 
 export const appRoutes: RouteObject[] = [
   // --- Public Routes ---
@@ -548,10 +550,22 @@ export const appRoutes: RouteObject[] = [
           // Commented out routes from original:
           // { path: "delayed-pr", element: <DelayedPRSelect /> },
           // { path: "delayed-pr/:id", element: <DelayedPR /> },
+          // ======================================================
+          // --- START: TDS APPROVAL SECTION ---
+          // ======================================================
+          {
+             path: "tds-approval",
+             children: [
+               { index: true, element: <TDSApprovalList /> },
+               { path: ":id", element: <TDSApprovalDetail /> },
+             ],
+          },
+          // ======================================================
+          // --- END: TDS APPROVAL SECTION ---
+          // ======================================================
+
         ],
       },
     ],
   },
-  // Add a catch-all 404 route if desired
-  // { path: "*", element: <NotFoundPage /> }
 ];

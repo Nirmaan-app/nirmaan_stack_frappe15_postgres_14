@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -6,31 +6,24 @@ import {
     DialogContent,
     DialogHeader,
     DialogTitle,
-    DialogTrigger,
     DialogFooter,
+    DialogTrigger,
 } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { PlusCircle, FileText, UploadCloud, X } from "lucide-react";
-import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeFileUpload, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { PlusCircle, UploadCloud, X } from "lucide-react";
+import { useFrappeCreateDoc, useFrappeFileUpload, useFrappeUpdateDoc } from "frappe-react-sdk";
 import RSelect from "react-select";
 import { toast } from "@/components/ui/use-toast";
 import { TDSItemValues, tdsItemSchema } from "./types";
+import { useTDSItemOptions } from "../hooks/useTDSItemOptions";
 
 interface AddTDSItemDialogProps {
     onSuccess: () => void;
 }
 
-// Simple debounce hook
-function useDebounce<T>(value: T, delay: number): T {
-    const [debouncedValue, setDebouncedValue] = useState<T>(value);
-    useEffect(() => {
-        const handler = setTimeout(() => setDebouncedValue(value), delay);
-        return () => clearTimeout(handler);
-    }, [value, delay]);
-    return debouncedValue;
-}
+
 
 export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess }) => {
     const [open, setOpen] = useState(false);
@@ -38,13 +31,6 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
     const { createDoc, loading: creating } = useFrappeCreateDoc();
     const { upload: uploadFile, loading: uploading } = useFrappeFileUpload();
     const { updateDoc } = useFrappeUpdateDoc();
-
-    // Fetch Options for Form
-    const { data: wpList } = useFrappeGetDocList("Procurement Packages", { fields: ["name", "work_package_name"], limit: 1000 });
-    const { data: catList } = useFrappeGetDocList("Category", { fields: ["name", "category_name", "work_package"], limit: 1000 });
-    const { data: itemList } = useFrappeGetDocList("Items", { fields: ["name", "item_name", "category"], limit: 1000 });
-    const { data: makeList } = useFrappeGetDocList("Makelist", { fields: ["name", "make_name"], limit: 1000 });
-    const { data: catMakeList } = useFrappeGetDocList("Category Makelist", { fields: ["category", "make"], limit: 5000 });
 
     const form = useForm<TDSItemValues>({
         resolver: zodResolver(tdsItemSchema),
@@ -57,79 +43,54 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
         },
     });
 
-    // Reactive Duplicate Check
-    const watchedTdsItemId = form.watch("tds_item_id");
-    const watchedMake = form.watch("make");
-    
-    // Debounce the entire filter object
-    const debouncedFilters = useDebounce(
-        useMemo(() => {
-            if (!watchedTdsItemId || !watchedMake) return null;
-            return [
-                ["tds_item_id", "=", watchedTdsItemId],
-                ["make", "=", watchedMake]
-            ];
-        }, [watchedTdsItemId, watchedMake]),
-        500
-    );
-
-    const { data: duplicateList, isLoading: checkingDuplicate } = useFrappeGetDocList("TDS Repository", {
-        filters: debouncedFilters as any,
-        fields: ["name"],
-        limit: 1
-    }, debouncedFilters ? undefined : null);
-
-    // Watch form values for dependent filtering
-    const selectedWP = form.watch("work_package");
+    // Reactively fetch existing entries for the selected category to filter items and options
     const selectedCategory = form.watch("category");
+    const watchedTdsItemId = form.watch("tds_item_id");
+    const selectedWP = form.watch("work_package");
 
-    // Memoize options
-    const wpOptions = useMemo(() => wpList?.map(d => ({ label: d.work_package_name, value: d.name })) || [], [wpList]);
+    // Use shared hook for options and filtering logic
+    const { 
+        wpOptions, 
+        catOptions, 
+        itemOptions, 
+        makeOptions 
+    } = useTDSItemOptions({
+        selectedWP,
+        selectedCategory,
+        watchedTdsItemId
+    });
 
-    const catOptions = useMemo(() => {
-        if (!selectedWP) return [];
-        return catList
-            ?.filter(d => d.work_package === selectedWP)
-            .map(d => ({ label: d.category_name, value: d.name })) || [];
-    }, [catList, selectedWP]);
+    // Track previous values to detect changes reliably
+    const prevWPRef = useRef(selectedWP);
+    const prevCatRef = useRef(selectedCategory);
+    const prevItemRef = useRef(watchedTdsItemId);
 
-    const itemOptions = useMemo(() => {
-        if (!selectedCategory) return [];
-        return itemList
-            ?.filter(d => d.category === selectedCategory)
-            .map(d => ({ label: d.item_name, value: d.name })) || [];
-    }, [itemList, selectedCategory]);
-
-    const makeOptions = useMemo(() => {
-        if (!selectedCategory || !catMakeList || !makeList) return [];
-        
-        // Get valid makes for this category from Category Makelist
-        const validMakesForCategory = new Set(
-            catMakeList
-                .filter(cm => cm.category === selectedCategory)
-                .map(cm => cm.make)
-        );
-
-        if (validMakesForCategory.size === 0) {
-            return makeList.map(d => ({ label: d.make_name, value: d.name }));
+    // Reset downstream fields when Work Package changes
+    useEffect(() => {
+        if (selectedWP !== prevWPRef.current) {
+            form.resetField("category");
+            form.resetField("tds_item_id");
+            form.resetField("make");
+            prevWPRef.current = selectedWP;
         }
+    }, [selectedWP, form]);
 
-        return makeList
-            .filter(m => validMakesForCategory.has(m.name))
-            .map(d => ({ label: d.make_name, value: d.name }));
-    }, [makeList, catMakeList, selectedCategory]);
-
-    // Reset downstream fields when upstream changes
+    // Reset downstream fields when Category changes
     useEffect(() => {
-        form.setValue("category", "");
-        form.setValue("tds_item_id", "");
-        form.setValue("make", "");
-    }, [selectedWP, form.setValue]);
+        if (selectedCategory !== prevCatRef.current) {
+            form.resetField("tds_item_id");
+            form.resetField("make");
+            prevCatRef.current = selectedCategory;
+        }
+    }, [selectedCategory, form]);
 
+    // Reset Make when Item changes
     useEffect(() => {
-        form.setValue("tds_item_id", "");
-        form.setValue("make", "");
-    }, [selectedCategory, form.setValue]);
+        if (watchedTdsItemId !== prevItemRef.current) {
+            form.resetField("make");
+            prevItemRef.current = watchedTdsItemId;
+        }
+    }, [watchedTdsItemId, form]);
     
     // Reset form when dialog closes
     useEffect(() => {
@@ -141,16 +102,6 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
 
     const onSubmit = async (values: TDSItemValues) => {
         try {
-            // Check for duplicates using the hook data
-             if (duplicateList && duplicateList.length > 0) {
-                 toast({
-                    title: "Duplicate Entry",
-                    description: "This TDS Item ID and Make combination already exists.",
-                    variant: "destructive"
-                });
-                return;
-            }
-
             // 1. Create the Doc
             const newDoc = await createDoc("TDS Repository", {
                 work_package: values.work_package,
@@ -168,8 +119,9 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                     isPrivate: false
                 });
 
-                 // Explicitly update the doc with the file URL if it wasn't attached automatically
-                const fileUrl = uploadResp?.message?.file_url || uploadResp?.file_url;
+                // Explicitly update the doc with the file URL if it wasn't attached automatically
+                const responseData = uploadResp as any;
+                const fileUrl = responseData?.message?.file_url || responseData?.file_url;
                 if (fileUrl) {
                     await updateDoc("TDS Repository", newDoc.name, {
                         tds_attachment: fileUrl
@@ -216,7 +168,7 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                                         <FormControl>
                                             <RSelect
                                                 options={wpOptions}
-                                                value={wpOptions.find(opt => opt.value === field.value)}
+                                                value={wpOptions.find(opt => opt.value === field.value) || null}
                                                 onChange={(opt) => field.onChange(opt?.value)}
                                                 placeholder="Select Work Package"
                                                 className="react-select-container"
@@ -240,7 +192,7 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                                         <FormControl>
                                             <RSelect
                                                 options={catOptions}
-                                                value={catOptions.find(opt => opt.value === field.value)}
+                                                value={catOptions.find(opt => opt.value === field.value) || null}
                                                 onChange={(opt) => field.onChange(opt?.value)}
                                                 placeholder="Select product category"
                                                 className="react-select-container"
@@ -264,7 +216,7 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                                         <FormControl>
                                             <RSelect
                                                 options={itemOptions}
-                                                value={itemOptions.find(opt => opt.value === field.value)}
+                                                value={itemOptions.find(opt => opt.value === field.value) || null}
                                                 onChange={(opt) => field.onChange(opt?.value)}
                                                 placeholder="Select Item"
                                                 className="react-select-container"
@@ -288,7 +240,7 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                                         <FormControl>
                                             <RSelect
                                                 options={makeOptions}
-                                                value={makeOptions.find(opt => opt.value === field.value)}
+                                                value={makeOptions.find(opt => opt.value === field.value) || null}
                                                 onChange={(opt) => field.onChange(opt?.value)}
                                                 placeholder="Select Make"
                                                 className="react-select-container"
@@ -307,7 +259,7 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                                 render={({ field }) => (
                                     <FormItem>
                                         <FormLabel className="text-sm font-semibold flex items-center">
-                                            Item Description<span className="text-red-500 ml-0.5">*</span>
+                                            Item Description <span className="text-gray-400 font-normal ml-1">(Optional)</span>
                                         </FormLabel>
                                         <FormControl>
                                             <Input placeholder="Type Description" {...field} className="bg-white border-gray-200 focus:ring-1 focus:ring-gray-300 h-10" />
@@ -322,7 +274,7 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                             {/* Attach Document */}
                             <div className="space-y-2">
                                 <label className="text-sm font-semibold">
-                                    Attach Document <span className="text-gray-400 font-normal ml-1">(Images, XLSX, PDF, max 50MB)</span>
+                                    Attach Document <span className="text-gray-400 font-normal ml-1">(PDF only, max 50MB)</span>
                                 </label>
                                 <div 
                                     className="border-2 border-dashed border-blue-100 bg-blue-50/50 rounded-lg p-8 flex flex-col items-center justify-center cursor-pointer hover:bg-blue-50 transition-colors relative"
@@ -359,7 +311,7 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                                         type="file" 
                                         id="tds-file-upload" 
                                         className="hidden" 
-                                        accept="image/*,.xlsx,.pdf"
+                                        accept=".pdf,application/pdf"
                                         onChange={(e) => e.target.files && setSelectedFile(e.target.files[0])}
                                     />
                                 </div>
@@ -369,8 +321,8 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                                 <Button type="button" variant="outline" onClick={() => setOpen(false)} className="bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100">
                                     Cancel
                                 </Button>
-                                <Button type="submit" disabled={creating || uploading || checkingDuplicate} className="bg-[#dc2626] hover:bg-[#b91c1c] text-white">
-                                    {creating || uploading || checkingDuplicate ? "Saving..." : "Save"}
+                                <Button type="submit" disabled={creating || uploading} className="bg-[#dc2626] hover:bg-[#b91c1c] text-white">
+                                    {creating || uploading ? "Saving..." : "Save"}
                                 </Button>
                             </DialogFooter>
                         </form>
