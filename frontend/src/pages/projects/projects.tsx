@@ -162,7 +162,6 @@ export const Projects: React.FC<ProjectsProps> = ({
         call({
           doctype: DOCTYPE,
           filters: { status: status.value },
-          cache: true,
         })
           .then((res) => ({
             ...status,
