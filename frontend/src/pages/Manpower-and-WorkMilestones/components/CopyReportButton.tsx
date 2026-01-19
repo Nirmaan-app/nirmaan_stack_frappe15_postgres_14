@@ -642,7 +642,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
       if (workPhotosCount < 4) {
         toast({
           title: "Work Photos Required 📷",
-          description: `You have added ${workPhotosCount} work photos. Please add at least 3 work photos to proceed.`,
+          description: `You have added ${workPhotosCount} work photos. Please add at least 4 work photos to proceed.`,
           variant: "destructive",
         });
         setIsCopying(false);

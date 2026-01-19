@@ -1337,7 +1337,7 @@ console.log(user)
         setIsLocalSaving(false);
         toast({
           title: "Submission Validation Error 🚫",
-          description: "Please upload at least Four WORK photos before final submission.",
+          description: "Please upload at least 4 WORK photos before final submission.",
           variant: "destructive",
         });
         return;
