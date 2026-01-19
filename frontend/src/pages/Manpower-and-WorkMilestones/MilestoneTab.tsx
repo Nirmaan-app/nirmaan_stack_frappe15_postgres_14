@@ -1196,6 +1196,8 @@ console.log(user)
         // We capture them from the parsed data
         clientClearanceDrawingRemarks = (parsedData as ProjectProgressReportData)?.drawing_remarks || "";
         clientClearanceSiteRemarks = (parsedData as ProjectProgressReportData)?.site_remarks || "";
+        // FIXED: Collect photos from this tab as well (Site and Drawing photos)
+        allPhotos.push(...((parsedData as ProjectProgressReportData)?.photos || []).filter(p => p.image_link));
       } else { // Milestone tabs
         let tabMilestones: LocalMilestoneData[] = [];
         if (parsedData && (parsedData as ProjectProgressReportData).milestones && (parsedData as ProjectProgressReportData).milestones!.length > 0) {

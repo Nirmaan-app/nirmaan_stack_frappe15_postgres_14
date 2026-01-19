@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo,useRef } from "react";
 import {
     Dialog,
     DialogContent,
@@ -86,17 +86,23 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
     // 2. Fetch Existing Project Items (to avoid duplicates)
     // We check against all project items except the one we are editing
     const { data: existingProjectItems } = useFrappeGetDocList("Project TDS Item List", {
-        fields: ["name", "tds_item_id", "tds_make", "tds_status", "tdsi_project_id"],
+        fields: ["name", "tds_item_id", "tds_make", "tds_status", "tdsi_project_id","tds_description"],
         filters: (item && open) ? [["tdsi_project_id", "=", item.tdsi_project_id || ""], ["name", "!=", item.name], ["docstatus", "!=", 2]] : [["name", "=", "NOT_FOUND"]],
         limit: 0
     });
 
+    // Initialize states when item changes or modal opens
+    // Track previous Make to detect changes
+    const prevMakeRef = useRef<string | null>(null);
+
+    // Initialize states when item changes or modal opens
     // Initialize states when item changes or modal opens
     useEffect(() => {
         if (item && open) {
             setSelectedItemName(item.tds_item_name || "");
             setSelectedMake(item.tds_make || "");
             setDescription(item.tds_description || "");
+            prevMakeRef.current = item.tds_make || "";
         }
     }, [item, open]);
 
@@ -146,6 +152,16 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
             i.make === selectedMake
         );
     }, [availableRepoItems, selectedItemName, selectedMake]);
+
+    // Auto-fill Description from Repo Entry when Make changes
+    useEffect(() => {
+        // Only run if make has changed (and not initial load)
+        if (selectedMake !== prevMakeRef.current) {
+            setDescription(selectedRepoEntry?.description || "");
+        }
+        // Update ref
+        prevMakeRef.current = selectedMake;
+    }, [selectedMake, selectedRepoEntry]);
 
     // --- Handlers ---
 

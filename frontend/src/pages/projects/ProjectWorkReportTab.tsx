@@ -461,11 +461,13 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
             />
 
             {/* Milestone Summary */}
-            <MilestonesSummary
-                workReport={true}
-                projectIdForWorkReport={projectData?.name}
-                parentSelectedZone={selectedZone as any}
-            />
+            {isMilestoneTrackingEnabled && Boolean(projectDataWithZones?.project_zones?.length) && (
+                <MilestonesSummary
+                    workReport={true}
+                    projectIdForWorkReport={projectData?.name}
+                    parentSelectedZone={selectedZone as any}
+                />
+            )}
         </>
     );
 };
