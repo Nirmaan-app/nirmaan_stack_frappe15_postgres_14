@@ -214,7 +214,7 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
             <div className="font-medium flex items-center gap-1 group">
               <Link
                 className="text-blue-600 hover:underline whitespace-nowrap"
-                to={`/service-requests-list/${sr.name}/order-view`}
+                to={`/service-requests-list/${sr.name}`}
               >
                 {sr.name?.slice(-5)}
               </Link>

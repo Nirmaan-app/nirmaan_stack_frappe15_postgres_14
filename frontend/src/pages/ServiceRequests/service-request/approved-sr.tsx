@@ -1,19 +1,20 @@
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeDocumentEventListener, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { CheckIcon, CirclePlus, Edit, Eye, PencilIcon, PencilRuler, Printer, Save, SquarePlus, Trash, Trash2, TriangleAlert, RefreshCcw } from "lucide-react";
+import { useFrappeCreateDoc, useFrappeDocumentEventListener, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { CheckIcon, CirclePlus, Edit, PencilIcon, Save, SquarePlus, Trash, Trash2, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useReactToPrint } from "react-to-print";
 // import { Button } from "../ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Pencil2Icon } from "@radix-ui/react-icons";
 // import { Button, Layout } from 'antd';
 import logo from "@/assets/logo-svg.svg";
 import { AddressView } from "@/components/address-view";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
-import { VendorHoverCard } from "@/components/helpers/vendor-hover-card";
+import { NirmaanComments as NirmaanCommentsType } from "@/types/NirmaanStack/NirmaanComments";
+import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
+import { SRDetailsCard } from "./components/SRDetailsCard";
 import {
     AlertDialog,
     AlertDialogCancel,
@@ -23,7 +24,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
@@ -153,6 +154,28 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
         filters: [["document_name", "=", id]],
         limit: 100
     })
+
+    // Fetch comments for the SR (for SRDetailsCard comments section)
+    const { data: universalComments, isLoading: universalCommentsLoading } = useFrappeGetDocList<NirmaanCommentsType>(
+        "Nirmaan Comments",
+        {
+            fields: ["*"],
+            filters: [["reference_name", "=", id]],
+            orderBy: { field: "creation", order: "desc" },
+            limit: 100,
+        },
+        id ? `Nirmaan Comments for SR ${id}` : null
+    );
+
+    // Fetch users list for displaying commenter names
+    const { data: usersList, isLoading: usersListLoading } = useFrappeGetDocList<NirmaanUsersType>(
+        "Nirmaan Users",
+        {
+            fields: ["name", "full_name"],
+            limit: 1000,
+        },
+        "Nirmaan Users"
+    );
 
     const getAmountPaid = useMemo(() => getTotalAmountPaid(projectPayments?.filter(i => i?.status === "Paid") || []), [projectPayments]);
 
@@ -377,7 +400,9 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
         service_request_loading ||
         service_vendor_loading ||
         project_loading ||
-        projectPaymentsLoading
+        projectPaymentsLoading ||
+        universalCommentsLoading ||
+        usersListLoading
     )
         return (
             <LoadingFallback />
@@ -392,105 +417,56 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
 
 
 
+    // Compute delete disabled state
+    const deleteDisabled = isDeleting || summaryPage || accountsPage ||
+        ((projectPayments || [])?.length > 0) ||
+        ((orderData?.invoice_data?.data || [])?.length > 0) ||
+        (orderData?.owner !== user_id && role !== "Nirmaan Admin Profile" && role !== "Nirmaan PMO Executive Profile");
+
     return (
         <div className="flex-1 space-y-4">
-            <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
-                <CardHeader>
-                    <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
-                        <div>
-                            <h2>WO Details</h2>
-                            <Badge>{orderData?.status}</Badge>
-                        </div>
-                        <div className="flex items-center gap-2">
+            {/* WO Details Card - using new SRDetailsCard component */}
+            <SRDetailsCard
+                orderData={orderData}
+                project={project}
+                vendor={service_vendor}
+                gstEnabled={gstEnabled}
+                getTotal={getTotal}
+                amountPaid={getAmountPaid}
+                isRestrictedRole={isRestrictedRole}
+                usersList={usersList}
+                universalComments={universalComments}
+                onPrint={handlePrint}
+                onDelete={() => setDeleteDialog(true)}
+                onAmend={toggleAmendDialog}
+                onAddInvoice={toggleNewInvoiceDialog}
+                onRequestPayment={toggleRequestPaymentDialog}
+                onPreview={toggleSrPdfSheet}
+                summaryPage={summaryPage}
+                accountsPage={accountsPage}
+                deleteDisabled={deleteDisabled}
+                isDeleting={isDeleting}
+            />
 
-                            {/* For restricted roles (PM, Estimates Executive), only show Preview button */}
-                            {isRestrictedRole ? (
-                                <Button variant={"outline"} disabled={!orderData?.project_gst} onClick={toggleSrPdfSheet} className="text-xs flex items-center gap-1 border border-primary px-2">
-                                    <Eye className="w-4 h-4" />
-                                    Preview
-                                </Button>
-                            ) : (
-                                <>
-                                    <Button
-                                        disabled={isDeleting || summaryPage || accountsPage || ((projectPayments || [])?.length > 0) || ((orderData?.invoice_data?.data || [])?.length > 0) || (orderData?.owner !== user_id && role !== "Nirmaan Admin Profile" && role !== "Nirmaan PMO Executive Profile")}
-                                        variant={"outline"} onClick={() => setDeleteDialog(true)} className="text-xs flex items-center gap-1 border border-primary px-2">
-                                        <Trash2 className="w-4 h-4" />
-                                        Delete
-                                    </Button>
+            {/* Delete Confirmation Dialog */}
+            <SRDeleteConfirmationDialog
+                open={deleteDialog}
+                onOpenChange={() => setDeleteDialog(false)}
+                itemName={orderData?.name}
+                itemType="Service Request"
+                onConfirm={handleConfirmDelete}
+                isDeleting={isDeleting}
+            />
 
-                                    {/* Render the Delete Confirmation Dialog */}
-                                    <SRDeleteConfirmationDialog
-                                        open={deleteDialog}
-                                        onOpenChange={() => setDeleteDialog(false)}
-                                        itemName={orderData?.name}
-                                        itemType="Service Request" // Specific type for this instance
-                                        onConfirm={handleConfirmDelete}
-                                        isDeleting={isDeleting}
-                                    />
-                                    {!summaryPage && !accountsPage && (
-                                        <Button variant={"outline"} onClick={toggleAmendDialog} className="text-xs flex items-center gap-1 border border-primary px-2">
-                                            <PencilRuler className="w-4 h-4" />
-                                            Amend
-                                        </Button>
-                                    )}
-
-                                    <Button
-                                        variant="outline"
-                                        className="text-primary border-primary text-xs px-2"
-                                        onClick={toggleNewInvoiceDialog}
-                                    >
-                                        Add Invoice
-                                    </Button>
-
-                                    <Sheet open={amendDialog} onOpenChange={toggleAmendDialog}>
-                                        <SheetContent className="overflow-auto">
-                                            <SheetHeader>
-                                                <SheetTitle className="text-center mb-6">Amend WO!</SheetTitle>
-                                            </SheetHeader>
-                                            <SelectServiceVendorPage sr_data={service_request} sr_data_mutate={service_request_mutate} amend={true} />
-                                        </SheetContent>
-                                    </Sheet>
-                                    <Button variant={"outline"} disabled={!orderData?.project_gst} onClick={toggleSrPdfSheet} className="text-xs flex items-center gap-1 border border-primary px-2">
-                                        <Eye className="w-4 h-4" />
-                                        Preview
-                                    </Button>
-                                </>
-                            )}
-                        </div>
-                    </CardTitle>
-                </CardHeader>
-
-                <CardContent className="max-sm:text-xs">
-                    <div className="grid grid-cols-3 gap-4 space-y-2 max-sm:grid-cols-2">
-                        <div className="flex flex-col gap-2">
-                            <Label className=" text-red-700">Vendor</Label>
-                            <VendorHoverCard vendor_id={orderData?.vendor} />
-                        </div>
-                        <div className="flex flex-col gap-2 sm:items-center max-sm:items-end">
-                            <Label className=" text-red-700">Package</Label>
-                            <span>Services</span>
-                        </div>
-                        <div className="flex flex-col gap-2 sm:items-end">
-                            <Label className=" text-red-700">Date Created</Label>
-                            <span>{formatDate(orderData?.creation)}</span>
-                        </div>
-                        <div className="flex flex-col gap-2 max-sm:items-end">
-                            <Label className=" text-red-700">Total (Excl. GST)</Label>
-                            <span>{formatToRoundedIndianRupee(getTotal)}</span>
-                        </div>
-                        <div className="flex flex-col gap-2 sm:items-center">
-                            <Label className=" text-red-700">Total Amount Paid</Label>
-                            <span>{getAmountPaid ? formatToRoundedIndianRupee(getAmountPaid) : "--"}</span>
-                        </div>
-                        {gstEnabled && (
-                            <div className="flex flex-col gap-2 items-end">
-                                <Label className=" text-red-700">Total (Incl. GST)</Label>
-                                <span>{formatToRoundedIndianRupee(getTotal * 1.18)}</span>
-                            </div>
-                        )}
-                    </div>
-                </CardContent>
-            </Card>
+            {/* Amend Sheet */}
+            <Sheet open={amendDialog} onOpenChange={toggleAmendDialog}>
+                <SheetContent className="overflow-auto">
+                    <SheetHeader>
+                        <SheetTitle className="text-center mb-6">Amend WO!</SheetTitle>
+                    </SheetHeader>
+                    <SelectServiceVendorPage sr_data={service_request} sr_data_mutate={service_request_mutate} amend={true} />
+                </SheetContent>
+            </Sheet>
 
             {/* Hide Transaction Details and WO Options for restricted roles (PM, Estimates Executive) */}
             {!isRestrictedRole && (

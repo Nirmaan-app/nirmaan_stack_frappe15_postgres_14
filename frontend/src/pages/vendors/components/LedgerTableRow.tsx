@@ -67,7 +67,7 @@ export const LedgerTableRow: React.FC<LedgerTableRowProps> = ({ item }) => {
         const prefix = part.substring(0, part.indexOf(': ') + 2);
         return (
             <React.Fragment key={index}>
-                {prefix}<Link className="text-blue-600 hover:underline font-medium" to={`/service-requests-list/${id}/order-view`}> {/* Update link path */}
+                {prefix}<Link className="text-blue-600 hover:underline font-medium" to={`/service-requests-list/${id}`}>
                     {id}
                 </Link>
             </React.Fragment>
