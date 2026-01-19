@@ -1298,6 +1298,21 @@ console.log(user)
 
     saveCurrentTabData();
 
+    // --- Validation: Manpower Count must be >= 1 ---
+    if (isCalledFromManpowerDialog || activeTabValue === "Work force") {
+        const totalManpowerCount = dialogManpowerRoles.reduce((sum, item) => sum + (item.count || 0), 0);
+        if (totalManpowerCount < 1) {
+            setIsLocalSaving(false);
+            toast({
+                title: "Validation Error 🚫",
+                description: "Manpower total count should be at least one.",
+                variant: "destructive",
+            });
+            return;
+        }
+    }
+    // -----------------------------------------------
+
     const allTabs = getAllAvailableTabs();
     const currentIndex = allTabs.findIndex(tab => tab.project_work_header_name === activeTabValue);
     const isLastTab = currentIndex === allTabs.length - 1;
@@ -1318,11 +1333,11 @@ console.log(user)
       const payloadToCheckPhotos = collectAllTabData('Draft');
       const workPhotosCount = (payloadToCheckPhotos.attachments || []).filter(p => !p.attach_type || p.attach_type === 'Work').length;
       
-      if (workPhotosCount < 3) {
+      if (workPhotosCount < 4) {
         setIsLocalSaving(false);
         toast({
           title: "Submission Validation Error 🚫",
-          description: "Please upload at least Three WORK photos before final submission.",
+          description: "Please upload at least Four WORK photos before final submission.",
           variant: "destructive",
         });
         return;
