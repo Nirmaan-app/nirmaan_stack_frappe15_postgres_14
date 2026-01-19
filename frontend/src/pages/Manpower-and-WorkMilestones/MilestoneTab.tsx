@@ -2110,8 +2110,9 @@ console.log(user)
                     )}
 
                     {/* Drawing Photos */}
-                    <div className="pt-3 border-t border-orange-100">
-                      <div className="flex justify-between items-center mb-3">
+                    {drawingRemarksList.length > 0 && (
+                     <div className="pt-3 border-t border-orange-100">
+                      <div className="flex flex-col items-start gap-2 mb-3">
                         <div className="flex items-center gap-2">
                           {/* <Camera className="h-4 w-4 text-orange-500" /> */}
                           {/* <h4 className="text-sm font-semibold text-gray-700">Drawing Photos</h4> */}
@@ -2121,15 +2122,17 @@ console.log(user)
                             </span>
                           )}
                         </div>
-                        <PhotoPermissionChecker
-                          isBlockedByDraftOwnership={isBlockedByDraftOwnership}
-                          onAddPhotosClick={() => {
-                            setCurrentCaptureType('Drawing');
-                            setIsCaptureDialogOpen(true);
-                          }}
-                          GEO_API={apiData?.api_key}
-                          triggerLabel="Add Photo"
-                        />
+                        <div className="w-full">
+                            <PhotoPermissionChecker
+                            isBlockedByDraftOwnership={isBlockedByDraftOwnership}
+                            onAddPhotosClick={() => {
+                                setCurrentCaptureType('Drawing');
+                                setIsCaptureDialogOpen(true);
+                            }}
+                            GEO_API={apiData?.api_key}
+                            triggerLabel="Add Photo"
+                            />
+                        </div>
                       </div>
                       
                       {localPhotos.filter(p => p.attach_type === 'Drawing').length > 0 ? (
@@ -2167,6 +2170,7 @@ console.log(user)
                         </div>
                       )}
                     </div>
+                   )}
                   </div>
                 </div>
 
@@ -2252,8 +2256,9 @@ console.log(user)
                     )}
 
                     {/* Site Photos */}
-                    <div className="pt-3 border-t border-red-100">
-                      <div className="flex justify-between items-center mb-3">
+                    {siteRemarksList.length > 0 && (
+                     <div className="pt-3 border-t border-red-100">
+                      <div className="flex flex-col items-start gap-2 mb-3">
                         <div className="flex items-center gap-2">
                           {/* <Camera className="h-4 w-4 text-red-500" /> */}
                           {/* <h4 className="text-sm font-semibold text-gray-700"> Photos</h4> */}
@@ -2263,15 +2268,17 @@ console.log(user)
                             </span>
                           )}
                         </div>
-                        <PhotoPermissionChecker
-                          isBlockedByDraftOwnership={isBlockedByDraftOwnership}
-                          onAddPhotosClick={() => {
-                            setCurrentCaptureType('Site');
-                            setIsCaptureDialogOpen(true);
-                          }}
-                          GEO_API={apiData?.api_key}
-                          triggerLabel="Add Photo"
-                        />
+                        <div className="w-full">
+                            <PhotoPermissionChecker
+                            isBlockedByDraftOwnership={isBlockedByDraftOwnership}
+                            onAddPhotosClick={() => {
+                                setCurrentCaptureType('Site');
+                                setIsCaptureDialogOpen(true);
+                            }}
+                            GEO_API={apiData?.api_key}
+                            triggerLabel="Add Photo"
+                            />
+                        </div>
                       </div>
                       
                       {localPhotos.filter(p => p.attach_type === 'Site').length > 0 ? (
@@ -2309,6 +2316,7 @@ console.log(user)
                         </div>
                       )}
                     </div>
+                   )}
                   </div>
                 </div>
 

@@ -975,6 +975,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                           )}
 
                           {/* Photos */}
+                          {drawingRemarkPoints.length > 0 && (
                            <div className="pt-3 mt-auto border-t border-orange-100">
                               <div className="flex flex-col gap-2 mb-2">
                                   <p className="text-[10px] font-bold text-orange-400 uppercase tracking-wider">Attached Photos</p>
@@ -999,6 +1000,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                                 <p className="text-[10px] text-gray-400 italic">No photos attached</p>
                               )}
                            </div>
+                          )}
                       </div>
                     </div>
 
@@ -1064,6 +1066,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                           )}
 
                           {/* Photos */}
+                          {siteRemarkPoints.length > 0 && (
                            <div className="pt-3 mt-auto border-t border-red-100">
                               <div className="flex flex-col gap-2 mb-2">
                                   <p className="text-[10px] font-bold text-red-400 uppercase tracking-wider">Attached Photos</p>
@@ -1088,6 +1091,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                                 <p className="text-[10px] text-gray-400 italic">No photos attached</p>
                               )}
                            </div>
+                          )}
                       </div>
                     </div>
                   </div>
