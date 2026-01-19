@@ -3,7 +3,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import flt, nowdate
+from frappe.utils import flt, nowdate, getdate, today
 
 # This constant is a good security practice
 ALLOWED_DOCS = {"Procurement Orders", "Service Requests"}
@@ -90,21 +90,30 @@ def create_project_payment(doctype: str, docname: str, vendor: str, amount: floa
         term_details = frappe.db.get_value(
             "PO Payment Terms",
             ptname,
-            ["term_status", "project_payment", "payment_type"],
+            ["term_status", "project_payment", "payment_type", "due_date"],
             as_dict=True
         )
 
         if not term_details:
             frappe.throw(_("Payment term not found. Please refresh and try again."))
 
-        # Prevent duplicate payment requests
-        if term_details.get("term_status") not in ("Created", "Scheduled"):
+        # Prevent duplicate payment requests - only "Created" status allowed
+        if term_details.get("term_status") != "Created":
             frappe.throw(_(
                 "This payment term is already in '{0}' status and cannot be requested again."
             ).format(term_details.get("term_status")))
 
         if term_details.get("project_payment"):
             frappe.throw(_("This payment term already has a linked payment request."))
+
+        # --- Step 2.5: Due date validation for Credit payment terms ---
+        if term_details.get("payment_type") == "Credit":
+            if not term_details.get("due_date"):
+                frappe.throw(_("Credit payment term must have a due date set."))
+            if getdate(term_details.get("due_date")) > getdate(today()):
+                frappe.throw(_(
+                    "This credit payment term is not yet due. Due date is {0}."
+                ).format(term_details.get("due_date")))
 
         # --- Step 3: Financial Validation ---
         from nirmaan_stack.services.finance import (

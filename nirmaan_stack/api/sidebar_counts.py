@@ -139,18 +139,38 @@ def sidebar_counts(user: str) -> str:
     }
     pay_counts["all"] = simple("Project Payments", {**pay_filters})
     credit_po_filters = {} if is_full_access else {"project": ["in", user_projects]}
-    credit_po_filters["status"] = ["!=", "Merged"]
+    credit_po_filters["status"] = ["not in", ["Merged", "Inactive", "PO Amendment"]]
+
+    # Get the list of valid PO names once for reuse
+    valid_po_names = frappe.get_all("Procurement Orders", filters=credit_po_filters, pluck="name")
+
+    # Get term_status counts
     credit_counts_raw = frappe.get_all(
         "PO Payment Terms",
         fields=["term_status", "count(name) as count"],
         filters={
             "payment_type": "Credit",
-            "parent": ["in", frappe.get_all("Procurement Orders", filters=credit_po_filters, pluck="name")]
+            "parent": ["in", valid_po_names]
         },
         group_by="term_status"
     )
     credit_counts = {item.term_status.lower(): item.count for item in credit_counts_raw}
     credit_counts["all"] = sum(credit_counts.values())
+
+    # Calculate "due" count: Created terms with due_date <= today
+    # This replaces the old "Scheduled" concept with real-time date-based calculation
+    from datetime import date
+    today = date.today().isoformat()
+    due_count = frappe.db.count(
+        "PO Payment Terms",
+        filters={
+            "payment_type": "Credit",
+            "term_status": "Created",
+            "due_date": ["<=", today],
+            "parent": ["in", valid_po_names]
+        }
+    )
+    credit_counts["due"] = due_count
 
     return json.dumps({
         "po": po_map,

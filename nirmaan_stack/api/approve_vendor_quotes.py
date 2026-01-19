@@ -163,28 +163,13 @@ def generate_pos_from_selection(project_id: str, pr_name: str, selected_items: l
                 po_doc.payment_type = milestones[0].get('type') if milestones else None
                 # Your old code checked for `.get('terms', [])`. We now have the list directly.
                 if milestones:
-                    today = getdate(nowdate())
                     print(f"DEBUGPP3terms: milestones.terms:")
                     for milestone in milestones:
-                    # for milestone in milestones.get('terms'):
-                      
-                        term_status = "Created"
-                        due_date=""
                         print(f"DEBUGPP3term: milestones.terms: {milestone}")
-                        # Get the payment type and due date from the milestone data
+                        # Get the payment type from the milestone data
                         payment_type = milestone.get('type')
-                        if payment_type == "Credit":
-                            due_date_str = milestone.get('due_date')
-                            # This append logic now mirrors your original code, ensuring compatibility.
-                        if payment_type == "Credit" and due_date_str:
-                    # Convert the due_date string to a proper date object for comparison
-                            due_date = getdate(due_date_str)
-                    
-                    # If the due date is today or in the past...
-                            if due_date <= today:
-                        # ...override the default status to "Scheduled"
-                                term_status = "Scheduled"
-                # --- [END NEW LOGIC BLOCK] ---
+                        # Always set term_status to "Created" - frontend will determine
+                        # eligibility for payment request based on due_date
                         po_doc.append("payment_terms", {
                             # The keys here MUST match the fieldnames in your "PO Payment Terms" Child Doctype.
                             # Get the 'type' from the milestone itself if it exists, otherwise it will be None.
@@ -193,7 +178,7 @@ def generate_pos_from_selection(project_id: str, pr_name: str, selected_items: l
                             "percentage": milestone.get('percentage'),
                             "amount": milestone.get('amount'),
                             "due_date": milestone.get('due_date'),
-                            "term_status": term_status # Example of setting a default status
+                            "term_status": "Created"  # Always "Created" - eligibility determined by due_date
                         })
                         print(f"DEBUGPP3ifend: milestone: {milestone}")
                 else:

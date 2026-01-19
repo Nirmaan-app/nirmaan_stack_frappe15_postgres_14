@@ -38,12 +38,12 @@ def approve_amend_po_with_payment_terms(po_name: str):
 
         # --- STEP 3: Update Payment Terms ---
         if po_doc.payment_terms:
-            locked_terms = [t for t in po_doc.payment_terms if t.status in ["Paid", "Requested", "Approved"]]
-            modifiable_terms = [t for t in po_doc.payment_terms if t.status in ["Created", "Scheduled"]]
+            locked_terms = [t for t in po_doc.payment_terms if t.term_status in ["Paid", "Requested", "Approved"]]
+            modifiable_terms = [t for t in po_doc.payment_terms if t.term_status in ["Created"]]
             locked_amount = sum(flt(t.amount) for t in locked_terms)
 
             # --- Validation Block for "Return" scenarios ---
-            has_existing_return = any(t.status == "Return" for t in po_doc.payment_terms)
+            has_existing_return = any(t.term_status == "Return" for t in po_doc.payment_terms)
             will_create_return = current_total < locked_amount
             if has_existing_return or will_create_return:
                 frappe.throw(f"PO {po_name} has been returned and recalculated, not available so revert to Original for Approve this .")
@@ -90,7 +90,7 @@ def approve_amend_po_with_payment_terms(po_name: str):
             #             reduction_amount = 0 # The entire reduction is now applied.
                 
             #     # Clean up any terms that have been reduced to zero.
-            #     terms_to_keep = [t for t in po_doc.payment_terms if not (t.status in ['Created', 'Scheduled'] and flt(t.amount) < 0.01)]
+            #     terms_to_keep = [t for t in po_doc.payment_terms if not (t.term_status in ['Created'] and flt(t.amount) < 0.01)]
             #     po_doc.set("payment_terms", [])
             #     for term in terms_to_keep:
             #         po_doc.append("payment_terms", term.as_dict())
