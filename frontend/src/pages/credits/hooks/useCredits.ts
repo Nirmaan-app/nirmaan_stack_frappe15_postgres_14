@@ -124,7 +124,8 @@ export const useCredits = () => {
   }));
 
   // --- Sorting State ---
-  const [sorting, setSorting] = useState<SortingState>([]);
+  // Default to descending due_date (most urgent/overdue items first)
+  const [sorting, setSorting] = useState<SortingState>([{ id: 'due_date', desc: true }]);
 
   // --- Search State ---
   const [searchTerm, setSearchTerm] = useState<string>(
@@ -258,7 +259,7 @@ export const useCredits = () => {
     // Build order_by from sorting state
     const orderBy = sorting.length > 0
       ? `${sorting[0].id} ${sorting[0].desc ? "desc" : "asc"}`
-      : "due_date asc";
+      : "due_date desc";
 
     const payload = {
       status_filter: currentStatus,

@@ -346,15 +346,16 @@ def _parse_tanstack_filters(filters_json: str) -> list:
 def _build_order_clause(order_by: str) -> str:
     """
     Build SQL ORDER BY clause from user input.
-    Default: due_date ASC
+    Default: due_date DESC (most urgent/overdue items first)
     """
     if not order_by:
-        return 'ORDER BY pt.due_date ASC'
+        return 'ORDER BY pt.due_date DESC'
 
     # Map frontend field names to SQL fields
     field_map = {
         'due_date': 'pt.due_date',
         'amount': 'pt.amount',
+        'total_amount': 'po.total_amount',
         'term_status': 'pt.term_status',
         'creation': 'po.creation',
         'modified': 'pt.modified',

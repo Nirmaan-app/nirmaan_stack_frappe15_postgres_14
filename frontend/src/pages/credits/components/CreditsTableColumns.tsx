@@ -151,7 +151,6 @@ export const getCreditsColumns = (
     {
       // Number -> Right Align
       accessorKey: "amount",
-      id: "`tabPO Payment Terms`.amount", // Explicit ID for backend sorting
       header: ({ column }) => (
         <div className="flex justify-end">
           <DataTableColumnHeader column={column} title="Due Amount" />
@@ -166,7 +165,6 @@ export const getCreditsColumns = (
     {
       // Date -> Center Align
       accessorKey: "due_date",
-      id: "`tabPO Payment Terms`.due_date", // Explicit ID for backend sorting
       header: ({ column }) => (
         <div className="flex justify-center">
           <DataTableColumnHeader column={column} title="Due Date" />
