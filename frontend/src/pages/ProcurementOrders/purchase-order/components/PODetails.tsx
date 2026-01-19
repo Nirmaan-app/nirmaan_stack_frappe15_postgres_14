@@ -6,7 +6,6 @@ import { ProcurementOrder, DeliveryDataType } from "@/types/NirmaanStack/Procure
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { formatDate } from "@/utils/FormatDate";
-import { useDeliveryNoteData } from "../../../DeliveryNotes/hooks/useDeliveryNoteData";
 import {
   ROUTE_PATHS,
   STATUS_BADGE_VARIANT,
@@ -331,37 +330,28 @@ export const PODetails: React.FC<PODetailsProps> = ({
   };
 
 
-  const {
-    deliveryNoteId,
-    poId,
-    data: deliveryNoteData,
-    isLoading,
-    error,
-    mutate: refetchDeliveryNoteData
-  } = useDeliveryNoteData();
-
-
-  // --- (Indicator) STEP 1: Implement the print logic hooks ---
+  // --- Print logic hooks (using po prop directly instead of separate fetch) ---
   const printComponentRef = useRef<HTMLDivElement>(null);
-  const { triggerHistoryPrint, PrintableHistoryComponent } = usePrintHistory(deliveryNoteData);
+  const { triggerHistoryPrint, PrintableHistoryComponent } = usePrintHistory(po);
 
-  // The main print handler is for the overall DN/PO Summary, which you might already have a version of.
+  // The main print handler is for the overall DN/PO Summary
   const handlePrint = useReactToPrint({
     content: () => printComponentRef.current,
     documentTitle: po
       ? `${deriveDnIdFromPoId(po.name).toUpperCase()}_${po.vendor_name}`
       : "Delivery_Note",
-    // Optional: Add page styles if needed
-    // pageStyle: `@page { size: A4; margin: 20mm; } @media print { body { -webkit-print-color-adjust: exact; } }`
   });
 
+  // Parse delivery history from po prop
   const deliveryHistory = useMemo(() =>
-    safeJsonParse<{ data: DeliveryDataType }>(deliveryNoteData?.delivery_data, { data: {} }),
-    [deliveryNoteData?.delivery_data]
+    safeJsonParse<{ data: DeliveryDataType }>(po?.delivery_data, { data: {} }),
+    [po?.delivery_data]
   );
+
+  // Derive DN ID from PO name
   const displayDnId = useMemo(() =>
-    formatDisplayId(deliveryNoteId, DOCUMENT_PREFIX.DELIVERY_NOTE),
-    [deliveryNoteId]
+    formatDisplayId(deriveDnIdFromPoId(po.name), DOCUMENT_PREFIX.DELIVERY_NOTE),
+    [po.name]
   );
 
 
@@ -814,8 +804,8 @@ export const PODetails: React.FC<PODetailsProps> = ({
             </SheetHeader>
             <div className="space-y-4">
               <DeliveryNoteItemsDisplay
-                data={deliveryNoteData}
-                poMutate={refetchDeliveryNoteData}
+                data={po}
+                poMutate={poMutate}
               />
 
               <DeliveryHistoryTable
