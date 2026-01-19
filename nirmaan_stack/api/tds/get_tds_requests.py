@@ -3,11 +3,70 @@ import frappe
 from frappe import _
 from frappe.utils import cint
 
+# Roles that require project-level filtering based on user permissions
+FILTERED_ACCESS_ROLES = {
+    "Nirmaan Project Manager Profile",
+   
+    "Nirmaan Procurement Executive Profile",
+}
+
+# Roles with full access to all projects
+FULL_ACCESS_ROLES = {
+    "Nirmaan Admin Profile",
+    "Nirmaan Project Lead Profile",
+    "Nirmaan PMO Executive Profile",
+    "Nirmaan Accountant Profile",
+    "Nirmaan Design Lead Profile",
+    "Nirmaan Design Executive Profile",
+    "Nirmaan HR Executive Profile",
+}
+
+
+def _get_user_role(user: str) -> str:
+    """Get the role profile for a user from Nirmaan Users."""
+    if user == "Administrator":
+        return "Administrator"
+
+    role = frappe.db.get_value("Nirmaan Users", user, "role_profile")
+    return role or ""
+
+
+def _get_allowed_projects(user: str) -> list[str]:
+    """
+    Get list of projects the user has access to via Nirmaan User Permissions.
+    """
+    return frappe.get_all(
+        "Nirmaan User Permissions",
+        filters={"user": user, "allow": "Projects"},
+        pluck="for_value",
+    )
+
+
+def _should_filter_by_permissions(user: str, role: str) -> bool:
+    """
+    Determine if the user should see filtered projects based on role.
+
+    Returns:
+        True if user should only see their assigned projects
+        False if user has full access to all projects
+    """
+    # Administrator and full-access roles see everything
+    if user == "Administrator" or role in FULL_ACCESS_ROLES:
+        return False
+
+    # These roles see only their assigned projects
+    if role in FILTERED_ACCESS_ROLES:
+        return True
+
+    # Default: show all (for any other roles not explicitly defined)
+    return False
+
+
 @frappe.whitelist()
 def get_tds_request_list(
     start=0,
     page_length=50,
-    tab="Pending Approval",  # Tabs: "Pending Approval", "Approved", "Rejected", "All TDS"
+    tab="Pending Approval",
     search_term=None,
     user_id=None
 ):
@@ -24,6 +83,25 @@ def get_tds_request_list(
     
     conditions = []
     values = {}
+
+    # --- Permission Check ---
+    current_user = frappe.session.user
+    role = _get_user_role(current_user)
+
+    if _should_filter_by_permissions(current_user, role):
+        allowed_projects = _get_allowed_projects(current_user)
+        if not allowed_projects:
+            # User has restricted access but no assigned projects
+            return {
+                "data": [],
+                "total_count": 0,
+                "tab_counts": {"pending": 0, "approved": 0, "rejected": 0, "all": 0}
+            }
+        
+        conditions.append("tdsi_project_id IN %(allowed_projects)s")
+        values['allowed_projects'] = allowed_projects
+    # ------------------------
+
     
     # 1. Search Filter
     if search_term:
@@ -120,8 +198,14 @@ def get_tds_request_list(
     """
     total_count = frappe.db.sql(count_sql, values)[0][0]
     
-    # Tab counts for badges (ignores current tab filter)
-    tab_counts_sql = """
+    # Tab counts for badges (ignores current tab filter but respects permissions)
+    tab_conditions = ["docstatus != 2"]
+    if 'allowed_projects' in values:
+        tab_conditions.append("tdsi_project_id IN %(allowed_projects)s")
+    
+    tab_where = "WHERE " + " AND ".join(tab_conditions)
+
+    tab_counts_sql = f"""
         SELECT 
             COUNT(DISTINCT CASE WHEN pending_count > 0 THEN tds_request_id END) as pending,
             COUNT(DISTINCT CASE WHEN approved_count > 0 THEN tds_request_id END) as approved,
@@ -135,11 +219,11 @@ def get_tds_request_list(
                 SUM(CASE WHEN tds_status = 'Approved' THEN 1 ELSE 0 END) as approved_count,
                 COUNT(name) as total_count
             FROM `tabProject TDS Item List`
-            WHERE docstatus != 2
+            {tab_where}
             GROUP BY tds_request_id
         ) as sub
     """
-    tab_counts_result = frappe.db.sql(tab_counts_sql, as_dict=True)[0]
+    tab_counts_result = frappe.db.sql(tab_counts_sql, values, as_dict=True)[0]
     
     return {
         "data": data,
