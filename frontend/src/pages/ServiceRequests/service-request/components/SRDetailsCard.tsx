@@ -7,7 +7,7 @@ import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { Eye, FileText, PencilRuler, Printer, Trash2 } from "lucide-react";
+import { Eye, FileText, Lock, PencilRuler, Trash2, Unlock } from "lucide-react";
 import { useMemo } from "react";
 
 interface SRDetailsCardProps {
@@ -19,18 +19,27 @@ interface SRDetailsCardProps {
   amountPaid: number;
   isRestrictedRole: boolean;
   // Action callbacks
-  onPrint?: () => void;
   onDelete?: () => void;
   onAmend?: () => void;
   onAddInvoice?: () => void;
   onRequestPayment?: () => void;
   onPreview?: () => void;
+  onEditTerms?: () => void;
   // Feature flags
   summaryPage?: boolean;
   accountsPage?: boolean;
   // Delete button disabled state
   deleteDisabled?: boolean;
   isDeleting?: boolean;
+  // Finalization props
+  isFinalized?: boolean;
+  finalizedBy?: string | null;
+  finalizedOn?: string | null;
+  canFinalize?: boolean;
+  canRevert?: boolean;
+  onFinalize?: () => void;
+  onRevertFinalize?: () => void;
+  isProcessingFinalize?: boolean;
 }
 
 /**
@@ -51,16 +60,25 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
   getTotal,
   amountPaid,
   isRestrictedRole,
-  onPrint,
   onDelete,
   onAmend,
   onAddInvoice,
   onRequestPayment,
   onPreview,
+  onEditTerms,
   summaryPage = false,
   accountsPage = false,
   deleteDisabled = false,
   isDeleting = false,
+  // Finalization props
+  isFinalized = false,
+  finalizedBy,
+  finalizedOn,
+  canFinalize = false,
+  canRevert = false,
+  onFinalize,
+  onRevertFinalize,
+  isProcessingFinalize = false,
 }) => {
   // Get status badge variant
   const getStatusVariant = (status: string | undefined): "green" | "red" | "orange" | "outline" => {
@@ -93,6 +111,13 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
             WO Details
           </h1>
           <div className="flex items-center gap-2">
+            {/* Finalized badge - shown when WO is finalized */}
+            {isFinalized && (
+              <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 flex items-center gap-1">
+                <Lock className="h-3 w-3" />
+                Finalized
+              </Badge>
+            )}
             <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
               Status
             </span>
@@ -195,7 +220,7 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
             Timeline
           </p>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             {/* Date Created */}
             <div className="space-y-0.5">
               <p className="text-xs text-gray-500">Created</p>
@@ -215,41 +240,74 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
                 <p className="text-sm">{orderData?.modified ? formatDate(orderData.modified) : "--"}</p>
               </div>
             )}
+
+            {/* Finalized Date (if finalized) */}
+            {isFinalized && finalizedOn && (
+              <div className="space-y-0.5">
+                <p className="text-xs text-gray-500 flex items-center gap-1">
+                  <Lock className="h-3 w-3" />
+                  Finalized
+                </p>
+                <p className="text-sm">{formatDate(finalizedOn)}</p>
+                {finalizedBy && (
+                  <p className="text-xs text-gray-400">by {finalizedBy}</p>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
         {/* ═══════════════════════════════════════════════════════════════════
             SECTION 5: ACTIONS - All action buttons (hidden for PM role)
+            Layout: Finalize/Revert → Preview → Content actions → Edit actions → Delete
         ═══════════════════════════════════════════════════════════════════ */}
         {!isRestrictedRole && (
           <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 sm:flex-wrap sm:justify-end">
-            {/* Delete Button */}
-            {onDelete && (
+            {/* ─── State Control Actions (First) ─── */}
+            {/* Finalize Button - Primary action when available */}
+            {canFinalize && onFinalize && (
               <Button
                 variant="outline"
                 size="sm"
-                disabled={deleteDisabled || isDeleting}
-                onClick={onDelete}
-                className="flex items-center gap-1 border-primary text-primary shrink-0"
+                disabled={isProcessingFinalize}
+                onClick={onFinalize}
+                className="flex items-center gap-1 border-blue-600 text-blue-600 hover:bg-blue-50 shrink-0"
               >
-                <Trash2 className="h-3.5 w-3.5" />
-                Delete
+                <Lock className="h-3.5 w-3.5" />
+                Finalize
               </Button>
             )}
 
-            {/* Amend Button */}
-            {onAmend && !summaryPage && !accountsPage && (
+            {/* Revert Finalization Button - Admin action when finalized */}
+            {canRevert && onRevertFinalize && (
               <Button
                 variant="outline"
                 size="sm"
-                onClick={onAmend}
-                className="flex items-center gap-1 border-primary text-primary shrink-0"
+                disabled={isProcessingFinalize}
+                onClick={onRevertFinalize}
+                className="flex items-center gap-1 border-amber-600 text-amber-600 hover:bg-amber-50 shrink-0"
               >
-                <PencilRuler className="h-3.5 w-3.5" />
-                Amend
+                <Unlock className="h-3.5 w-3.5" />
+                Revert Finalization
               </Button>
             )}
 
+            {/* ─── View Action ─── */}
+            {/* Preview Button */}
+            {onPreview && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!orderData?.project_gst}
+                onClick={onPreview}
+                className="flex items-center gap-1 border-primary text-primary shrink-0"
+              >
+                <Eye className="h-3.5 w-3.5" />
+                Preview
+              </Button>
+            )}
+
+            {/* ─── Content Actions (Allowed when finalized) ─── */}
             {/* Add Invoice Button */}
             {onAddInvoice && (
               <Button
@@ -275,30 +333,45 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
               </Button>
             )}
 
-            {/* Preview Button */}
-            {onPreview && (
+            {/* ─── Edit Actions (Hidden when finalized) ─── */}
+            {/* Amend Button */}
+            {onAmend && !summaryPage && !accountsPage && !isFinalized && (
               <Button
                 variant="outline"
                 size="sm"
-                disabled={!orderData?.project_gst}
-                onClick={onPreview}
+                onClick={onAmend}
                 className="flex items-center gap-1 border-primary text-primary shrink-0"
               >
-                <Eye className="h-3.5 w-3.5" />
-                Preview
+                <PencilRuler className="h-3.5 w-3.5" />
+                Amend
               </Button>
             )}
 
-            {/* Print Button */}
-            {onPrint && orderData?.status === "Approved" && (
+            {/* Edit Terms Button */}
+            {onEditTerms && !summaryPage && !accountsPage && !isFinalized && (
               <Button
                 variant="outline"
                 size="sm"
-                onClick={onPrint}
+                onClick={onEditTerms}
                 className="flex items-center gap-1 border-primary text-primary shrink-0"
               >
-                <Printer className="h-3.5 w-3.5" />
-                Print
+                <PencilRuler className="h-3.5 w-3.5" />
+                Edit Terms
+              </Button>
+            )}
+
+            {/* ─── Destructive Action (Last) ─── */}
+            {/* Delete Button - Hidden when finalized */}
+            {onDelete && !isFinalized && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={deleteDisabled || isDeleting}
+                onClick={onDelete}
+                className="flex items-center gap-1 border-red-600 text-red-600 hover:bg-red-50 shrink-0"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete
               </Button>
             )}
           </div>

@@ -48,7 +48,9 @@ import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
 import { SelectServiceVendorPage } from "./select-service-vendor";
 import { useUserData } from "@/hooks/useUserData";
 import { SRDeleteConfirmationDialog } from "../components/SRDeleteConfirmationDialog";
+import { SRFinalizeDialog, SRRevertFinalizeDialog } from "../components/SRFinalizeDialog";
 import { useServiceRequestLogic } from "../hooks/useServiceRequestLogic";
+import { useSRFinalizePermissions, useFinalizeSR, useRevertFinalizeSR } from "../hooks/useSRFinalize";
 import { DocumentAttachments } from "@/pages/ProcurementOrders/invoices-and-dcs/DocumentAttachments";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { DeletePaymentDialog } from "@/pages/ProjectPayments/update-payment/DeletePaymentDialog";
@@ -143,6 +145,49 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
         },
         navigateOnSuccessPath: "/service-requests?tab=approved-sr"
     });
+
+    // Finalization state and hooks
+    const [finalizeDialog, setFinalizeDialog] = useState(false);
+    const [revertFinalizeDialog, setRevertFinalizeDialog] = useState(false);
+    const [commentsRefreshTrigger, setCommentsRefreshTrigger] = useState(0);
+
+    const {
+        canFinalize,
+        canRevert,
+        isFinalized,
+        finalizedBy,
+        finalizedOn,
+        refetch: refetchFinalizePermissions,
+    } = useSRFinalizePermissions(id);
+
+    const handleFinalizeSuccess = useCallback(() => {
+        service_request_mutate();
+        refetchFinalizePermissions();
+        setCommentsRefreshTrigger(prev => prev + 1); // Refresh comments to show auto-remark
+        setFinalizeDialog(false);
+    }, [service_request_mutate, refetchFinalizePermissions]);
+
+    const handleRevertSuccess = useCallback(() => {
+        service_request_mutate();
+        refetchFinalizePermissions();
+        setCommentsRefreshTrigger(prev => prev + 1); // Refresh comments to show auto-remark
+        setRevertFinalizeDialog(false);
+    }, [service_request_mutate, refetchFinalizePermissions]);
+
+    const { finalize, isLoading: isFinalizingLoading } = useFinalizeSR(handleFinalizeSuccess);
+    const { revert, isLoading: isRevertingLoading } = useRevertFinalizeSR(handleRevertSuccess);
+
+    const handleFinalize = useCallback(() => {
+        if (id) {
+            finalize(id);
+        }
+    }, [finalize, id]);
+
+    const handleRevertFinalize = useCallback(() => {
+        if (id) {
+            revert(id);
+        }
+    }, [revert, id]);
 
     const { data: service_vendor, isLoading: service_vendor_loading } = useFrappeGetDoc<Vendors>("Vendors", service_request?.vendor, service_request?.vendor ? `Vendors ${service_request?.vendor}` : null)
 
@@ -392,8 +437,8 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
 
 
 
-    // Compute delete disabled state
-    const deleteDisabled = isDeleting || summaryPage || accountsPage ||
+    // Compute delete disabled state - also disabled when finalized
+    const deleteDisabled = isDeleting || summaryPage || accountsPage || isFinalized ||
         ((projectPayments || [])?.length > 0) ||
         ((orderData?.invoice_data?.data || [])?.length > 0) ||
         (orderData?.owner !== user_id && role !== "Nirmaan Admin Profile" && role !== "Nirmaan PMO Executive Profile");
@@ -409,16 +454,25 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 getTotal={getTotal}
                 amountPaid={getAmountPaid}
                 isRestrictedRole={isRestrictedRole}
-                onPrint={handlePrint}
                 onDelete={() => setDeleteDialog(true)}
                 onAmend={toggleAmendDialog}
                 onAddInvoice={toggleNewInvoiceDialog}
                 onRequestPayment={toggleRequestPaymentDialog}
                 onPreview={toggleSrPdfSheet}
+                onEditTerms={toggleEditSrTermsDialog}
                 summaryPage={summaryPage}
                 accountsPage={accountsPage}
                 deleteDisabled={deleteDisabled}
                 isDeleting={isDeleting}
+                // Finalization props
+                isFinalized={isFinalized}
+                finalizedBy={finalizedBy}
+                finalizedOn={finalizedOn}
+                canFinalize={canFinalize}
+                canRevert={canRevert}
+                onFinalize={() => setFinalizeDialog(true)}
+                onRevertFinalize={() => setRevertFinalizeDialog(true)}
+                isProcessingFinalize={isFinalizingLoading || isRevertingLoading}
             />
 
             {/* Delete Confirmation Dialog */}
@@ -429,6 +483,24 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 itemType="Service Request"
                 onConfirm={handleConfirmDelete}
                 isDeleting={isDeleting}
+            />
+
+            {/* Finalize Confirmation Dialog */}
+            <SRFinalizeDialog
+                open={finalizeDialog}
+                onOpenChange={setFinalizeDialog}
+                srName={orderData?.name}
+                onConfirm={handleFinalize}
+                isProcessing={isFinalizingLoading}
+            />
+
+            {/* Revert Finalization Dialog */}
+            <SRRevertFinalizeDialog
+                open={revertFinalizeDialog}
+                onOpenChange={setRevertFinalizeDialog}
+                srName={orderData?.name}
+                onConfirm={handleRevertFinalize}
+                isProcessing={isRevertingLoading}
             />
 
             {/* Amend Sheet */}
@@ -678,7 +750,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                         <TriangleAlert className="text-primary max-sm:w-4 max-sm:h-4" />
                                     )}
                                 </div>
-                                {!summaryPage && !accountsPage && (
+                                {!summaryPage && !accountsPage && !isFinalized && (
                                     <Dialog open={editSrTermsDialog} onOpenChange={toggleEditSrTermsDialog}>
                                         <DialogTrigger>
                                             <Button variant={"outline"} className="felx items-center gap-1">
@@ -931,7 +1003,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
             {/* SR Comments Card */}
             {id && (
                 <Card className="rounded-sm shadow-md p-2">
-                    <SRComments srId={id} />
+                    <SRComments srId={id} refreshTrigger={commentsRefreshTrigger} />
                 </Card>
             )}
 

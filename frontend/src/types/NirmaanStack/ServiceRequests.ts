@@ -52,4 +52,10 @@ export interface ServiceRequests {
 	invoice_date?: string
 	total_amount?: string
 	amount_paid?: string
+	/** Is Finalized : Check */
+	is_finalized?: 0 | 1
+	/** Finalized By : Data (stores full name) */
+	finalized_by?: string
+	/** Finalized On : Datetime */
+	finalized_on?: string
 }
