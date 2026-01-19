@@ -4,6 +4,48 @@ Changes made by Claude Code sessions.
 
 ---
 
+### 2026-01-19: SR Finalization Workflow
+
+**Summary:** Implemented finalization feature for approved Service Requests (Work Orders) that locks editing, amendments, and deletion. Includes system-generated audit comments that are undeletable.
+
+**Backend Files Created:**
+- `nirmaan_stack/api/sr_finalize.py` - Finalize/revert APIs with permission checks:
+  - `finalize_sr()` - Locks SR, records who/when
+  - `revert_finalize_sr()` - Admin-only unlock
+  - `check_finalize_permissions()` - Permission checks for UI
+
+**Backend Files Modified:**
+- `nirmaan_stack/nirmaan_stack/doctype/service_requests/service_requests.json` - Added fields:
+  - `is_finalized` (Check)
+  - `finalized_by` (Data)
+  - `finalized_on` (Datetime)
+- `nirmaan_stack/nirmaan_stack/doctype/nirmaan_comments/nirmaan_comments.json` - Added `is_system_generated` (Check) field
+- `nirmaan_stack/api/sr_remarks.py` - Block deletion of system-generated comments
+
+**Frontend Files Created:**
+- `frontend/src/pages/ServiceRequests/components/SRFinalizeDialog.tsx` - Confirmation dialogs for finalize/revert
+- `frontend/src/pages/ServiceRequests/hooks/useSRFinalize.ts` - Hooks for finalize permissions and actions
+
+**Frontend Files Modified:**
+- `approved-sr.tsx` - Integrated finalize button, permission-based action disabling
+- `SRDetailsCard.tsx` - Accept finalization state for UI
+- `SRComments.tsx` - System comments undeletable, shows "Auto" badge
+- `useSRRemarks.ts` - Added `is_system_generated` to interface
+
+**Features:**
+- Finalize locks: Amend, Delete, Edit Terms & Notes
+- System-generated audit comments marked with `is_system_generated=1`
+- System comments cannot be deleted (backend blocks, frontend hides button)
+- Finalized by stores full name (not email) for display
+
+**Permission Model:**
+| Action | Who Can Perform |
+|--------|-----------------|
+| Finalize | Admin, PMO, PL, Procurement Executive, OR owner |
+| Revert | Admin, PMO, PL, Procurement Executive only |
+
+---
+
 ### 2026-01-17: 3-State Invoice Reconciliation Model
 
 **Summary:** Migrated from binary reconciliation (Reconciled/Pending) to 3-state model (Full/Partial/None) with reconciled amount tracking. Updated both invoices tab and reports view for consistency.
