@@ -12,7 +12,7 @@ import {
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { PlusCircle, UploadCloud, X } from "lucide-react";
+import { PlusCircle, UploadCloud, X,FileText } from "lucide-react";
 import { useFrappeCreateDoc, useFrappeFileUpload, useFrappeUpdateDoc } from "frappe-react-sdk";
 import RSelect from "react-select";
 import { toast } from "@/components/ui/use-toast";
