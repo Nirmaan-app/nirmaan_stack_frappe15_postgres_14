@@ -130,6 +130,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
 
 
   const { role } = useUserData();
+  const isProjectManager = role === "Nirmaan Project Manager Profile";
   const { errors, isValid, hasVendorIssues } = usePOValidation(po);
 
   const { updateDoc, loading: update_loading } = useFrappeUpdateDoc();
@@ -525,46 +526,48 @@ export const PODetails: React.FC<PODetailsProps> = ({
           </div>
 
           {/* ═══════════════════════════════════════════════════════════════════
-              SECTION 3: AMOUNTS - All financial figures
+              SECTION 3: AMOUNTS - All financial figures (hidden for Project Manager)
           ═══════════════════════════════════════════════════════════════════ */}
-          <div className="pb-3 border-b border-gray-100">
-            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Amounts</p>
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-              {/* PO Amount (Incl. GST) */}
-              <div className="space-y-0.5">
-                <p className="text-xs text-gray-500">PO Amount(Incl. GST)</p>
-                <p className="text-sm font-semibold">{formatToRoundedIndianRupee(po?.total_amount)}</p>
-              </div>
+          {!isProjectManager && (
+            <div className="pb-3 border-b border-gray-100">
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Amounts</p>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+                {/* PO Amount (Incl. GST) */}
+                <div className="space-y-0.5">
+                  <p className="text-xs text-gray-500">PO Amount(Incl. GST)</p>
+                  <p className="text-sm font-semibold">{formatToRoundedIndianRupee(po?.total_amount)}</p>
+                </div>
 
-              {/* PO Amount (Excl. GST) */}
-              <div className="space-y-0.5">
-                <p className="text-xs text-gray-500">PO Amount(Excl. GST)</p>
-                <p className="text-sm font-medium">{formatToRoundedIndianRupee(po?.amount)}</p>
-              </div>
+                {/* PO Amount (Excl. GST) */}
+                <div className="space-y-0.5">
+                  <p className="text-xs text-gray-500">PO Amount(Excl. GST)</p>
+                  <p className="text-sm font-medium">{formatToRoundedIndianRupee(po?.amount)}</p>
+                </div>
 
-              {/* Total Invoiced Amount */}
-              <div className="space-y-0.5">
-                <p className="text-xs text-gray-500">Total Invoiced Amount</p>
-                <p className="text-sm font-medium">{totalInvoice ? formatToRoundedIndianRupee(totalInvoice) : "--"}</p>
-              </div>
+                {/* Total Invoiced Amount */}
+                <div className="space-y-0.5">
+                  <p className="text-xs text-gray-500">Total Invoiced Amount</p>
+                  <p className="text-sm font-medium">{totalInvoice ? formatToRoundedIndianRupee(totalInvoice) : "--"}</p>
+                </div>
 
-              {/* Total Amount Paid */}
-              <div className="space-y-0.5">
-                <p className="text-xs text-gray-500">Total Amount Paid</p>
-                <p className="text-sm font-medium text-green-600">
-                  {amountPaid ? formatToRoundedIndianRupee(amountPaid) : "--"}
-                </p>
-              </div>
+                {/* Total Amount Paid */}
+                <div className="space-y-0.5">
+                  <p className="text-xs text-gray-500">Total Amount Paid</p>
+                  <p className="text-sm font-medium text-green-600">
+                    {amountPaid ? formatToRoundedIndianRupee(amountPaid) : "--"}
+                  </p>
+                </div>
 
-              {/* PO Amount Delivered */}
-              <div className="space-y-0.5">
-                <p className="text-xs text-gray-500">PO Amount Delivered</p>
-                <p className="text-sm font-medium text-blue-600">
-                  {po?.po_amount_delivered ? formatToRoundedIndianRupee(po?.po_amount_delivered) : "--"}
-                </p>
+                {/* PO Amount Delivered */}
+                <div className="space-y-0.5">
+                  <p className="text-xs text-gray-500">PO Amount Delivered</p>
+                  <p className="text-sm font-medium text-blue-600">
+                    {po?.po_amount_delivered ? formatToRoundedIndianRupee(po?.po_amount_delivered) : "--"}
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* ═══════════════════════════════════════════════════════════════════
               SECTION 4: DATES - All timeline dates

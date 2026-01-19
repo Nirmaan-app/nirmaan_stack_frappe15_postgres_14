@@ -1312,6 +1312,8 @@ export const POPdf: React.FC<POPdfProps> = ({
             {downloadingFormat === "PO Orders Without Rate" ? "Downloading..." : "Download Without Rate"}
           </Button>
         </div>
+        {/* Hide PO render/preview for Project Manager - they can only download without rate */}
+        {role !== "Nirmaan Project Manager Profile" && (
         <div className={`w-full border mt-6`}>
           <div ref={componentRef} className="w-full p-4">
             <style>
@@ -1811,6 +1813,7 @@ export const POPdf: React.FC<POPdfProps> = ({
             )}
           </div>
         </div>
+        )}
       </SheetContent>
     </Sheet>
   );

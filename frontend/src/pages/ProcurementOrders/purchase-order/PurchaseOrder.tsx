@@ -146,6 +146,10 @@ export const PurchaseOrder = ({
     () => userData?.role === "Nirmaan Accountant Profile",
     [userData?.role]
   );
+  const isProjectManager = useMemo(
+    () => userData?.role === "Nirmaan Project Manager Profile",
+    [userData?.role]
+  );
 
   const navigate = useNavigate();
   const params = useParams();
@@ -1484,60 +1488,63 @@ export const PurchaseOrder = ({
         amountPaid={amountPaid}
         poMutate={poMutate}
       />
-      <Card className="rounded-sm  md:col-span-3 p-2">
-        <Accordion
-          type="multiple"
-          defaultValue={openAccordionItems == true ? ["transac&payments"] : []}
-          // value={openAccordionItems}
-          className="w-full"
-        >
-          <AccordionItem key="transac&payments" value="transac&payments">
-            {/* {tab === "Delivered PO" && ( */}
-            <AccordionTrigger>
-              <p className="font-semibold text-lg text-red-600 pl-6">
-                Payment Details
-              </p>
-            </AccordionTrigger>
-            {/* )} */}
-            <AccordionContent>
-              <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
-                <TransactionDetailsCard
-                  accountsPage={accountsPage}
-                  estimatesViewing={estimatesViewing}
-                  summaryPage={summaryPage}
-                  PO={PO}
-                  getTotal={getTotal}
-                  amountPaid={amountPaid}
-                  poPayments={poPayments}
-                  poPaymentsMutate={poPaymentsMutate}
-                  AllPoPaymentsListMutate={AllPoPaymentsListMutate}
-                />
+      {/* Payment Details - hidden for Project Manager */}
+      {!isProjectManager && (
+        <Card className="rounded-sm  md:col-span-3 p-2">
+          <Accordion
+            type="multiple"
+            defaultValue={openAccordionItems == true ? ["transac&payments"] : []}
+            // value={openAccordionItems}
+            className="w-full"
+          >
+            <AccordionItem key="transac&payments" value="transac&payments">
+              {/* {tab === "Delivered PO" && ( */}
+              <AccordionTrigger>
+                <p className="font-semibold text-lg text-red-600 pl-6">
+                  Payment Details
+                </p>
+              </AccordionTrigger>
+              {/* )} */}
+              <AccordionContent>
+                <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
+                  <TransactionDetailsCard
+                    accountsPage={accountsPage}
+                    estimatesViewing={estimatesViewing}
+                    summaryPage={summaryPage}
+                    PO={PO}
+                    getTotal={getTotal}
+                    amountPaid={amountPaid}
+                    poPayments={poPayments}
+                    poPaymentsMutate={poPaymentsMutate}
+                    AllPoPaymentsListMutate={AllPoPaymentsListMutate}
+                  />
 
-                <POPaymentTermsCard
-                  accountsPage={accountsPage}
-                  estimatesViewing={estimatesViewing}
-                  summaryPage={summaryPage}
-                  PO={PO}
-                  getTotal={getTotal}
-                  poMutate={poMutate}
-                  projectPaymentsMutate={poPaymentsMutate}
+                  <POPaymentTermsCard
+                    accountsPage={accountsPage}
+                    estimatesViewing={estimatesViewing}
+                    summaryPage={summaryPage}
+                    PO={PO}
+                    getTotal={getTotal}
+                    poMutate={poMutate}
+                    projectPaymentsMutate={poPaymentsMutate}
 
-                // advance={advance}
-                // materialReadiness={materialReadiness}
-                // afterDelivery={afterDelivery}
-                // xDaysAfterDelivery={xDaysAfterDelivery}
-                // xDays={xDays}
-                // setAdvance={setAdvance}
-                // setMaterialReadiness={setMaterialReadiness}
-                // setAfterDelivery={setAfterDelivery}
-                // setXDaysAfterDelivery={setXDaysAfterDelivery}
-                // setXDays={setXDays}
-                />
-              </div>
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
-      </Card>
+                  // advance={advance}
+                  // materialReadiness={materialReadiness}
+                  // afterDelivery={afterDelivery}
+                  // xDaysAfterDelivery={xDaysAfterDelivery}
+                  // xDays={xDays}
+                  // setAdvance={setAdvance}
+                  // setMaterialReadiness={setMaterialReadiness}
+                  // setAfterDelivery={setAfterDelivery}
+                  // setXDaysAfterDelivery={setXDaysAfterDelivery}
+                  // setXDays={setXDays}
+                  />
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+        </Card>
+      )}
 
       {/* PO Attachments Accordion */}
 
@@ -1619,10 +1626,10 @@ export const PurchaseOrder = ({
                     {["Partially Delivered", "Delivered"].includes(PO?.status) && (
                       <th className="text-center py-3">Delivered Qty</th>
                     )}
-                    <th className="text-center py-3">Rate</th>
-                    <th className="text-center py-3">Tax</th>
-                    <th className="text-center py-3">Amount</th>
-                    <th className="text-center pr-4 py-3">Amount (incl.GST)</th>
+                    {!isProjectManager && <th className="text-center py-3">Rate</th>}
+                    {!isProjectManager && <th className="text-center py-3">Tax</th>}
+                    {!isProjectManager && <th className="text-center py-3">Amount</th>}
+                    {!isProjectManager && <th className="text-center pr-4 py-3">Amount (incl.GST)</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
@@ -1650,12 +1657,14 @@ export const PurchaseOrder = ({
                           {item?.received_quantity || 0}
                         </td>
                       )}
-                      <td className="text-center py-3 align-top">{formatToIndianRupee(item?.quote)}</td>
-                      <td className="text-center py-3 align-top">{item?.tax}%</td>
-                      <td className="text-center py-3 align-top font-medium">{formatToIndianRupee(item?.amount)}</td>
-                      <td className="text-center pr-4 py-3 align-top font-medium">
-                        {formatToIndianRupee(item?.quote * item?.quantity * (1 + item?.tax / 100))}
-                      </td>
+                      {!isProjectManager && <td className="text-center py-3 align-top">{formatToIndianRupee(item?.quote)}</td>}
+                      {!isProjectManager && <td className="text-center py-3 align-top">{item?.tax}%</td>}
+                      {!isProjectManager && <td className="text-center py-3 align-top font-medium">{formatToIndianRupee(item?.amount)}</td>}
+                      {!isProjectManager && (
+                        <td className="text-center pr-4 py-3 align-top font-medium">
+                          {formatToIndianRupee(item?.quote * item?.quantity * (1 + item?.tax / 100))}
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -1708,21 +1717,26 @@ export const PurchaseOrder = ({
                     </div>
                   )}
 
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">Rate:</span>
-                    <span className="font-medium text-gray-900">{formatToIndianRupee(item?.quote)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">Tax:</span>
-                    <span className="font-medium text-gray-900">{item?.tax}%</span>
-                  </div>
+                  {/* Financial fields hidden for Project Manager */}
+                  {!isProjectManager && (
+                    <>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Rate:</span>
+                        <span className="font-medium text-gray-900">{formatToIndianRupee(item?.quote)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Tax:</span>
+                        <span className="font-medium text-gray-900">{item?.tax}%</span>
+                      </div>
 
-                  <div className="flex justify-between col-span-2 pt-2 border-t border-gray-200 mt-1">
-                    <span className="text-gray-700 font-medium">Total (incl. GST):</span>
-                    <span className="font-semibold text-gray-900">
-                      {formatToIndianRupee(item?.quote * item?.quantity * (1 + item?.tax / 100))}
-                    </span>
-                  </div>
+                      <div className="flex justify-between col-span-2 pt-2 border-t border-gray-200 mt-1">
+                        <span className="text-gray-700 font-medium">Total (incl. GST):</span>
+                        <span className="font-semibold text-gray-900">
+                          {formatToIndianRupee(item?.quote * item?.quantity * (1 + item?.tax / 100))}
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             ))}
