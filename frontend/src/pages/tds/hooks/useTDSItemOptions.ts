@@ -14,7 +14,7 @@ export const useTDSItemOptions = ({ selectedWP, selectedCategory, watchedTdsItem
     // Fetch Data
     // Using limit: 0 (or large generic limit in some versions of SDK, assuming 0 means all or standard ample limit)
     // The user code used limit:0, I will stick to that to preserve behavior.
-    const { data: wpList } = useFrappeGetDocList("Procurement Packages", { fields: ["name", "work_package_name"], limit: 0 });
+    const { data: wpList } = useFrappeGetDocList("Work Packages", { fields: ["name", "work_package_name"], limit: 0 });
     const { data: catList } = useFrappeGetDocList("Category", { fields: ["name", "category_name", "work_package"], limit: 0 });
     const { data: itemList } = useFrappeGetDocList("Items", { fields: ["name", "item_name", "category"], limit: 0 });
     const { data: makeList } = useFrappeGetDocList("Makelist", { fields: ["name", "make_name"], limit: 0 });
