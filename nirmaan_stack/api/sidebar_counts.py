@@ -139,18 +139,50 @@ def sidebar_counts(user: str) -> str:
     }
     pay_counts["all"] = simple("Project Payments", {**pay_filters})
     credit_po_filters = {} if is_full_access else {"project": ["in", user_projects]}
-    credit_po_filters["status"] = ["!=", "Merged"]
+    credit_po_filters["status"] = ["not in", ["Merged", "Inactive", "PO Amendment"]]
+
+    # Get the list of valid PO names once for reuse
+    valid_po_names = frappe.get_all("Procurement Orders", filters=credit_po_filters, pluck="name")
+
+    # Get term_status counts
     credit_counts_raw = frappe.get_all(
         "PO Payment Terms",
         fields=["term_status", "count(name) as count"],
         filters={
             "payment_type": "Credit",
-            "parent": ["in", frappe.get_all("Procurement Orders", filters=credit_po_filters, pluck="name")]
+            "parent": ["in", valid_po_names]
         },
         group_by="term_status"
     )
     credit_counts = {item.term_status.lower(): item.count for item in credit_counts_raw}
     credit_counts["all"] = sum(credit_counts.values())
+
+    # Calculate "due" count for the Due tab:
+    # - Created terms with due_date <= today (overdue/due for payment)
+    # - Requested terms (payment has been requested)
+    # - Approved terms (payment approved, pending disbursement)
+    from datetime import date
+    today = date.today().isoformat()
+
+    # Count Created terms with past due_date
+    created_due_count = frappe.db.count(
+        "PO Payment Terms",
+        filters={
+            "payment_type": "Credit",
+            "term_status": "Created",
+            "due_date": ["<=", today],
+            "parent": ["in", valid_po_names]
+        }
+    )
+
+    # Count Requested terms
+    requested_count = credit_counts.get("requested", 0)
+
+    # Count Approved terms
+    approved_count = credit_counts.get("approved", 0)
+
+    # Total "due" count = Created (past due) + Requested + Approved
+    credit_counts["due"] = created_due_count + requested_count + approved_count
 
     return json.dumps({
         "po": po_map,

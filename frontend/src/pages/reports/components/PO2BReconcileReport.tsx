@@ -1,4 +1,6 @@
-import { useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
+import { DateRange } from "react-day-picker";
+import { parse, formatISO, startOfDay, endOfDay, format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { PO2BReconcileRowData, usePO2BReconcileData } from "../hooks/usePO2BReconcileData";
@@ -25,20 +27,52 @@ import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ColumnDef } from "@tanstack/react-table";
-import { FileText, CheckCircle, Clock, Receipt } from "lucide-react";
+import { FileText, CheckCircle2 } from "lucide-react";
+import { StandaloneDateFilter } from "@/components/ui/StandaloneDateFilter";
+import { urlStateManager } from "@/utils/urlStateManager";
 
 interface SelectOption {
     label: string;
     value: string;
 }
 
+const URL_SYNC_KEY = "po_2b_reconcile_table";
+
 export default function PO2BReconcileReport() {
-    // Fetch 2B reconcile data
+    // Date range state with URL persistence
+    const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
+        const fromParam = urlStateManager.getParam(`${URL_SYNC_KEY}_from`);
+        const toParam = urlStateManager.getParam(`${URL_SYNC_KEY}_to`);
+        if (fromParam && toParam) {
+            try {
+                return {
+                    from: startOfDay(parse(fromParam, "yyyy-MM-dd", new Date())),
+                    to: endOfDay(parse(toParam, "yyyy-MM-dd", new Date())),
+                };
+            } catch (e) {
+                return undefined;
+            }
+        }
+        return undefined;
+    });
+
+    // Sync date range to URL
+    useEffect(() => {
+        const fromISO = dateRange?.from ? formatISO(dateRange.from, { representation: "date" }) : null;
+        const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: "date" }) : null;
+        urlStateManager.updateParam(`${URL_SYNC_KEY}_from`, fromISO);
+        urlStateManager.updateParam(`${URL_SYNC_KEY}_to`, toISO);
+    }, [dateRange]);
+
+    // Fetch 2B reconcile data with date filtering
     const {
         reportData: allInvoicesData,
         isLoading: isLoadingInitialData,
         error: initialDataError,
-    } = usePO2BReconcileData();
+    } = usePO2BReconcileData({
+        startDate: dateRange?.from,
+        endDate: dateRange?.to,
+    });
 
     // Use the column definitions
     const tableColumnsToDisplay = useMemo(() => po2BReconcileColumns, []);
@@ -77,16 +111,60 @@ export default function PO2BReconcileReport() {
             return {
                 totalInvoices: 0,
                 totalAmount: 0,
-                total2bActivated: 0,
-                pending2bActivation: 0,
+                totalReconciledAmount: 0,
+                totalFullyReconciled: 0,
+                totalFullyReconciledAmount: 0,
+                totalPartiallyReconciled: 0,
+                totalPartiallyReconciledAmount: 0,
+                totalPartialReconciledValue: 0,
+                pendingReconciliation: 0,
+                totalNotReconciledAmount: 0,
+                pendingReconciliationAmount: 0,
             };
         }
 
+        let totalAmount = 0;
+        let totalReconciledAmount = 0;
+        let totalFullyReconciledAmount = 0;
+        let totalPartiallyReconciledAmount = 0;
+        let totalPartialReconciledValue = 0; // Actual reconciled amount for partial invoices
+        let totalNotReconciledAmount = 0;
+        let totalFullyReconciled = 0;
+        let totalPartiallyReconciled = 0;
+        let pendingReconciliation = 0;
+
+        fullyFilteredData.forEach(row => {
+            const invoiceAmount = row.invoiceAmount || 0;
+            const reconciledAmount = row.reconciledAmount || 0;
+
+            totalAmount += invoiceAmount;
+            totalReconciledAmount += reconciledAmount;
+
+            if (row.reconciliationStatus === "full") {
+                totalFullyReconciled++;
+                totalFullyReconciledAmount += invoiceAmount;
+            } else if (row.reconciliationStatus === "partial") {
+                totalPartiallyReconciled++;
+                totalPartiallyReconciledAmount += invoiceAmount;
+                totalPartialReconciledValue += reconciledAmount; // Track actual reconciled amount
+            } else {
+                pendingReconciliation++;
+                totalNotReconciledAmount += invoiceAmount;
+            }
+        });
+
         return {
             totalInvoices: fullyFilteredData.length,
-            totalAmount: fullyFilteredData.reduce((sum, row) => sum + row.invoiceAmount, 0),
-            total2bActivated: fullyFilteredData.filter(row => row.is2bActivated).length,
-            pending2bActivation: fullyFilteredData.filter(row => !row.is2bActivated).length,
+            totalAmount,
+            totalReconciledAmount,
+            totalFullyReconciled,
+            totalFullyReconciledAmount,
+            totalPartiallyReconciled,
+            totalPartiallyReconciledAmount,
+            totalPartialReconciledValue,
+            pendingReconciliation,
+            totalNotReconciledAmount,
+            pendingReconciliationAmount: totalPartiallyReconciledAmount + totalNotReconciledAmount,
         };
     }, [fullyFilteredData]);
 
@@ -142,12 +220,20 @@ export default function PO2BReconcileReport() {
         () => ({
             projectName: { title: "Project", options: projectFacetOptions },
             vendorName: { title: "Vendor", options: vendorFacetOptions },
-            is2bActivated: { title: "2B Status", options: PO_2B_STATUS_OPTIONS },
+            is2bActivated: { title: "Reconciled Status", options: PO_2B_STATUS_OPTIONS },
         }),
         [projectFacetOptions, vendorFacetOptions]
     );
 
-    const exportFileName = "po_2b_reconcile_report";
+    const exportFileName = useMemo(() => {
+        const baseName = "po_2b_reconcile_report";
+        if (dateRange?.from && dateRange?.to) {
+            const fromStr = format(dateRange.from, "ddMMMyyyy");
+            const toStr = format(dateRange.to, "ddMMMyyyy");
+            return `${baseName}_${fromStr}_to_${toStr}`;
+        }
+        return baseName;
+    }, [dateRange]);
 
     const handleCustomExport = useCallback(() => {
         if (!fullyFilteredData || fullyFilteredData.length === 0) {
@@ -159,26 +245,36 @@ export default function PO2BReconcileReport() {
             return;
         }
 
-        const dataToExport = fullyFilteredData.map((row) => ({
-            invoice_date: row.invoiceDate ? formatDate(row.invoiceDate.slice(0, 10)) : '-',
-            invoice_no: row.invoiceNo,
-            amount: formatForReport(row.invoiceAmount),
-            po_id: row.poId,
-            project: row.projectName || '-',
-            vendor: row.vendorName,
-            status_2b: row.is2bActivated ? "Reconciled" : "Pending",
-            reconciled_date: row.reconciledDate ? formatDate(row.reconciledDate.slice(0, 10)) : '-',
-            updated_by: row.updatedByName,
-        }));
+        const dataToExport = fullyFilteredData.map((row) => {
+            let status = "None";
+            if (row.reconciliationStatus === "full") status = "Full";
+            else if (row.reconciliationStatus === "partial") status = "Partial";
+
+            return {
+                invoice_date: row.invoiceDate ? formatDate(row.invoiceDate.slice(0, 10)) : '-',
+                invoice_no: row.invoiceNo,
+                amount: formatForReport(row.invoiceAmount),
+                reconciled_amount: formatForReport(row.reconciledAmount ?? 0),
+                po_id: row.poId,
+                project: row.projectName || '-',
+                vendor: row.vendorName,
+                status_2b: status,
+                reconciled_by: row.reconciledByName || '-',
+                reconciled_date: row.reconciledDate ? formatDate(row.reconciledDate.slice(0, 10)) : '-',
+                updated_by: row.updatedByName,
+            };
+        });
 
         const exportColumnsConfig: ColumnDef<any, any>[] = [
             { header: "Invoice Date", accessorKey: "invoice_date" },
             { header: "Invoice No", accessorKey: "invoice_no" },
             { header: "Amount", accessorKey: "amount" },
+            { header: "Reconciled Amount", accessorKey: "reconciled_amount" },
             { header: "PO ID", accessorKey: "po_id" },
             { header: "Project", accessorKey: "project" },
             { header: "Vendor", accessorKey: "vendor" },
-            { header: "2B Status", accessorKey: "status_2b" },
+            { header: "Reconciled Status", accessorKey: "status_2b" },
+            { header: "Reconciled By", accessorKey: "reconciled_by" },
             { header: "Reconciled Date", accessorKey: "reconciled_date" },
             { header: "Updated By", accessorKey: "updated_by" },
         ];
@@ -215,34 +311,31 @@ export default function PO2BReconcileReport() {
 
     return (
         <div className="flex flex-col gap-4">
+            {/* Date Filter */}
+            <StandaloneDateFilter
+                value={dateRange}
+                onChange={setDateRange}
+                onClear={() => setDateRange(undefined)}
+            />
+
             {/* Summary Card */}
             <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-50 to-white dark:from-slate-900 dark:to-slate-800">
                 {/* ===== COMPACT MOBILE VIEW ===== */}
                 <div className="sm:hidden">
                     <CardContent className="p-3">
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 mb-2">
                             {/* Color accent + Icon */}
-                            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
+                            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-gradient-to-br from-slate-500 to-blue-500 flex items-center justify-center">
                                 <FileText className="h-5 w-5 text-white" />
                             </div>
-                            {/* Primary metric */}
+                            {/* Primary metric - Total Amount */}
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-baseline gap-2">
-                                    <span className="text-lg font-bold text-blue-700 dark:text-blue-400 tabular-nums">
+                                    <span className="text-lg font-bold text-slate-700 dark:text-slate-300 tabular-nums">
                                         {formatToRoundedIndianRupee(dynamicSummary.totalAmount)}
                                     </span>
                                     <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase">
-                                        Total Amount
-                                    </span>
-                                </div>
-                                <div className="flex items-center gap-3 mt-1">
-                                    <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
-                                        <CheckCircle className="inline w-3 h-3 mr-0.5" />
-                                        {dynamicSummary.total2bActivated} Reconciled
-                                    </span>
-                                    <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">
-                                        <Clock className="inline w-3 h-3 mr-0.5" />
-                                        {dynamicSummary.pending2bActivation} Pending
+                                        Total
                                     </span>
                                 </div>
                             </div>
@@ -256,6 +349,17 @@ export default function PO2BReconcileReport() {
                                 </span>
                             </div>
                         </div>
+                        {/* Reconciliation Status compact */}
+                        <div className="flex items-center gap-2 bg-green-50 dark:bg-green-950/30 rounded-md p-2 border border-green-100 dark:border-green-900/50">
+                            <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                            <span className="text-[10px] font-medium text-green-600 dark:text-green-400 uppercase">Reconciled:</span>
+                            <span className="text-sm font-bold text-green-700 dark:text-green-400 tabular-nums">
+                                {formatToRoundedIndianRupee(dynamicSummary.totalReconciledAmount)}
+                            </span>
+                            <span className="text-[9px] text-amber-600 dark:text-amber-500">
+                                | {dynamicSummary.pendingReconciliation + dynamicSummary.totalPartiallyReconciled} pending
+                            </span>
+                        </div>
                     </CardContent>
                 </div>
 
@@ -264,59 +368,83 @@ export default function PO2BReconcileReport() {
                     <CardHeader className="pb-2 pt-4 px-5">
                         <div className="flex items-center justify-between">
                             <CardTitle className="text-base font-semibold tracking-tight text-slate-800 dark:text-slate-200">
-                                2B Reconciliation Summary
+                                PO Invoices Summary
                             </CardTitle>
-                            <div className="flex items-center gap-1.5 text-xs font-medium text-slate-400 dark:text-slate-500">
-                                <Receipt className="h-3.5 w-3.5" />
-                                <span className="uppercase tracking-wider">
-                                    {dynamicSummary.totalInvoices} Invoice{dynamicSummary.totalInvoices !== 1 ? 's' : ''}
-                                </span>
-                            </div>
                         </div>
                     </CardHeader>
                     <CardContent className="px-5 pb-4 pt-0">
                         <div className="grid grid-cols-3 gap-3">
-                            {/* Total Amount */}
-                            <div className="bg-gradient-to-br from-blue-50 to-indigo-50/50 dark:from-blue-950/40 dark:to-indigo-950/30 rounded-lg p-3 border border-blue-100 dark:border-blue-900/50">
-                                <dt className="text-[10px] font-medium text-blue-600/80 dark:text-blue-400/80 uppercase tracking-wide mb-1 flex items-center gap-1">
+                            {/* Card 1: Total Invoices */}
+                            <div className="bg-gradient-to-br from-slate-50 to-blue-50/50 dark:from-slate-950/40 dark:to-blue-950/30 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
+                                <dt className="text-xs font-medium text-slate-600/80 dark:text-slate-400/80 uppercase tracking-wide mb-2 flex items-center gap-1.5">
                                     <FileText className="h-3 w-3" />
-                                    Total Amount
+                                    Total Invoices
                                 </dt>
-                                <dd className="text-xl font-bold text-blue-700 dark:text-blue-400 tabular-nums">
-                                    {formatToRoundedIndianRupee(dynamicSummary.totalAmount)}
-                                </dd>
+                                <div className="space-y-1">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm text-slate-500 dark:text-slate-400">Invoice Count</span>
+                                        <span className="text-lg font-bold text-slate-700 dark:text-slate-300 tabular-nums">{dynamicSummary.totalInvoices}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm text-slate-500 dark:text-slate-400">Invoice Amount</span>
+                                        <span className="text-lg font-semibold text-blue-600 dark:text-blue-400 tabular-nums">{formatToRoundedIndianRupee(dynamicSummary.totalAmount)}</span>
+                                    </div>
+                                </div>
                             </div>
 
-                            {/* 2B Reconciled */}
-                            <div className="bg-gradient-to-br from-emerald-50 to-green-50/50 dark:from-emerald-950/40 dark:to-green-950/30 rounded-lg p-3 border border-emerald-100 dark:border-emerald-900/50">
-                                <dt className="text-[10px] font-medium text-emerald-600/80 dark:text-emerald-400/80 uppercase tracking-wide mb-1 flex items-center gap-1">
-                                    <CheckCircle className="h-3 w-3" />
-                                    2B Reconciled
+                            {/* Card 2: Fully Reconciled */}
+                            <div className="bg-gradient-to-br from-green-50 to-emerald-50/50 dark:from-green-950/40 dark:to-emerald-950/30 rounded-lg p-4 border border-green-100 dark:border-green-900/50">
+                                <dt className="text-xs font-medium text-green-600/80 dark:text-green-400/80 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                                    <CheckCircle2 className="h-3 w-3" />
+                                    Reconciled
                                 </dt>
-                                <dd className="text-xl font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
-                                    {dynamicSummary.total2bActivated}
-                                </dd>
-                                {dynamicSummary.totalInvoices > 0 && (
-                                    <span className="text-[10px] text-emerald-500/70 dark:text-emerald-500/60 mt-0.5 block">
-                                        {((dynamicSummary.total2bActivated / dynamicSummary.totalInvoices) * 100).toFixed(0)}% of total
-                                    </span>
-                                )}
+                                <div className="space-y-1">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm text-green-600/70 dark:text-green-400/70">Invoice Count</span>
+                                        <span className="text-lg font-bold text-green-700 dark:text-green-400 tabular-nums">{dynamicSummary.totalFullyReconciled}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm text-green-600/70 dark:text-green-400/70">Reconciled Amount</span>
+                                        <span className="text-lg font-semibold text-green-600 dark:text-green-400 tabular-nums">{formatToRoundedIndianRupee(dynamicSummary.totalReconciledAmount)}</span>
+                                    </div>
+                                </div>
                             </div>
 
-                            {/* Pending 2B */}
-                            <div className="bg-gradient-to-br from-amber-50 to-orange-50/50 dark:from-amber-950/40 dark:to-orange-950/30 rounded-lg p-3 border border-amber-100 dark:border-amber-900/50">
-                                <dt className="text-[10px] font-medium text-amber-600/80 dark:text-amber-400/80 uppercase tracking-wide mb-1 flex items-center gap-1">
-                                    <Clock className="h-3 w-3" />
-                                    Pending 2B
+                            {/* Card 3: Pending Reconciliation */}
+                            <div className="bg-gradient-to-br from-amber-50 to-orange-50/50 dark:from-amber-950/40 dark:to-orange-950/30 rounded-lg p-4 border border-amber-100 dark:border-amber-900/50">
+                                <dt className="text-xs font-medium text-amber-600/80 dark:text-amber-400/80 uppercase tracking-wide mb-2">
+                                    Pending Reconciliation
                                 </dt>
-                                <dd className="text-xl font-bold text-amber-700 dark:text-amber-400 tabular-nums">
-                                    {dynamicSummary.pending2bActivation}
-                                </dd>
-                                {dynamicSummary.totalInvoices > 0 && (
-                                    <span className="text-[10px] text-amber-500/70 dark:text-amber-500/60 mt-0.5 block">
-                                        {((dynamicSummary.pending2bActivation / dynamicSummary.totalInvoices) * 100).toFixed(0)}% pending
-                                    </span>
-                                )}
+                                <div className="space-y-1">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm text-amber-600/70 dark:text-amber-400/70">Invoice Count</span>
+                                        <span className="text-lg font-bold text-amber-700 dark:text-amber-400 tabular-nums">{dynamicSummary.pendingReconciliation + dynamicSummary.totalPartiallyReconciled}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm text-amber-600/70 dark:text-amber-400/70">Invoice Amount</span>
+                                        <span className="text-lg font-semibold text-amber-600 dark:text-amber-400 tabular-nums">{formatToRoundedIndianRupee(dynamicSummary.pendingReconciliationAmount)}</span>
+                                    </div>
+                                </div>
+                                {/* Sub-metrics */}
+                                <div className="mt-2 pt-2 border-t border-amber-200/50 dark:border-amber-800/50 space-y-1">
+                                    <div className="text-[11px]">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-yellow-600 dark:text-yellow-400">Partial</span>
+                                            <span className="text-yellow-700 dark:text-yellow-400">
+                                                {dynamicSummary.totalPartiallyReconciled} • {formatToRoundedIndianRupee(dynamicSummary.totalPartiallyReconciledAmount)}
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center justify-end text-[10px] text-yellow-600/70 dark:text-yellow-400/70">
+                                            ({formatToRoundedIndianRupee(dynamicSummary.totalPartialReconciledValue)} reconciled)
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center justify-between text-[11px]">
+                                        <span className="text-red-600 dark:text-red-400">Not Reconciled</span>
+                                        <span className="text-red-700 dark:text-red-400">
+                                            {dynamicSummary.pendingReconciliation} • {formatToRoundedIndianRupee(dynamicSummary.totalNotReconciledAmount)}
+                                        </span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </CardContent>

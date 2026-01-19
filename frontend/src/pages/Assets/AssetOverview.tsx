@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo,useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import {
     useFrappeGetDoc,
@@ -7,6 +7,7 @@ import {
     useFrappeFileUpload,
     useFrappeDocumentEventListener,
 } from 'frappe-react-sdk';
+import { useSWRConfig } from 'swr';
 import ReactSelect from 'react-select';
 import { TailSpin } from 'react-loader-spinner';
 
@@ -58,7 +59,7 @@ import {
     UserMinus,
     AlertTriangle,
     Upload,
-    Printer
+    Download,
 } from 'lucide-react';
 
 import { AssignAssetDialog } from './components/AssignAssetDialog';
@@ -69,6 +70,7 @@ import {
     ASSET_CATEGORY_DOCTYPE,
     ASSET_MANAGEMENT_DOCTYPE,
     ASSET_CONDITION_OPTIONS,
+    ASSET_CACHE_KEYS,
 } from './assets.constants';
 
 interface AssetMaster {
@@ -122,6 +124,7 @@ const AssetOverview: React.FC = () => {
 const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
     const { toast } = useToast();
     const userData = useUserData();
+    const { mutate: globalMutate } = useSWRConfig();
 
     // Dialog states
     const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -205,8 +208,8 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
         `${ASSET_MASTER_DOCTYPE}_${assetId}`
     );
 
-    // Fetch current assignment
-    const { data: assignments } = useFrappeGetDocList<AssetAssignment>(
+    // Fetch current assignment - uses shared cache key for cross-component invalidation
+    const { data: assignments, mutate: mutateAssignments } = useFrappeGetDocList<AssetAssignment>(
         ASSET_MANAGEMENT_DOCTYPE,
         {
             fields: ['name', 'asset', 'asset_assigned_to', 'asset_assigned_on', 'asset_declaration_attachment'],
@@ -214,7 +217,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
             orderBy: { field: 'asset_assigned_on', order: 'desc' },
             limit: 1,
         },
-        asset?.current_assignee ? `${ASSET_MANAGEMENT_DOCTYPE}_${assetId}` : null
+        asset?.current_assignee ? ASSET_CACHE_KEYS.assetManagement(assetId) : null
     );
 
     const currentAssignment = assignments?.[0];
@@ -226,7 +229,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
         asset?.current_assignee ? `NirmaanUsers_${asset.current_assignee}` : null
     );
 
-    // Fetch categories for edit dialog
+    // Fetch categories for edit dialog - uses shared cache key for cross-component invalidation
     const { data: categoryList } = useFrappeGetDocList(
         ASSET_CATEGORY_DOCTYPE,
         {
@@ -234,7 +237,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
             orderBy: { field: 'asset_category', order: 'asc' },
             limit: 0,
         },
-        'asset_categories_for_edit'
+        ASSET_CACHE_KEYS.CATEGORIES_DROPDOWN
     );
 
     const categoryOptions = useMemo(() =>
@@ -362,7 +365,14 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
 
             setUploadDeclarationDialogOpen(false);
             setDeclarationFile(null);
+            // Refresh Asset Master data
             mutate();
+            // Refresh assignment data using hook's mutate function
+            mutateAssignments();
+            // Also refresh via global mutate for cross-component updates
+            globalMutate(ASSET_CACHE_KEYS.assetManagement(assetId), undefined, { revalidate: true });
+            // Refresh summary counts (pending declaration count)
+            globalMutate(ASSET_CACHE_KEYS.PENDING_DECLARATION_COUNT, undefined, { revalidate: true });
         } catch (err: any) {
             console.error('Failed to upload declaration:', err);
             toast({
@@ -414,21 +424,28 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
 
                 {canManageAssets && !isLoading && (
                     <div className="flex items-center gap-2">
-                        {/* Print Button */}
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={handleDownloadPrint}
-                            disabled={isGeneratingPdf}
-                            className="gap-2"
-                        >
-                            {isGeneratingPdf ? (
-                                <TailSpin height={16} width={16} color="grey" />
-                            ) : (
-                                <Printer className="h-4 w-4" />
-                            )}
-                            <span className="hidden sm:inline">{isGeneratingPdf ? 'Printing...' : 'Print'}</span>
-                        </Button>
+                        {/* Download New Declaration - only show when declaration is pending */}
+                        {isDeclarationPending && (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={handleDownloadPrint}
+                                disabled={isGeneratingPdf}
+                                className="gap-2 text-amber-600 border-amber-200 hover:bg-amber-50 hover:text-amber-700"
+                            >
+                                {isGeneratingPdf ? (
+                                    <TailSpin height={16} width={16} color="#d97706" />
+                                ) : (
+                                    <Download className="h-4 w-4" />
+                                )}
+                                <span className="hidden sm:inline">
+                                    {isGeneratingPdf ? 'Generating...' : 'Download New Declaration'}
+                                </span>
+                                <span className="sm:hidden">
+                                    {isGeneratingPdf ? '...' : 'Form'}
+                                </span>
+                            </Button>
+                        )}
 
                         {/* Assignment Actions */}
                         {asset?.current_assignee ? (

@@ -135,12 +135,12 @@ export default function ListSR() {
                       <TableRow key={item.name}>
                         <TableCell className="text-sm text-center">
                           <Link
-                            to={`${item.name}/order-view`}
+                            to={`${item.name}`}
                             className="text-blue-500 underline-offset-1"
                           >
-                           
+
                             <span>{item.name.slice(-4)}</span>
-                          
+
                           </Link>
                         </TableCell>
                    

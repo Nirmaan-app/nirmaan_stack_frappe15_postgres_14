@@ -1,6 +1,7 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
     Dialog,
     DialogContent,
@@ -18,28 +19,20 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { FileText, UploadCloud, X, Download, AlertTriangle } from "lucide-react";
-import { useFrappeGetDocList, useFrappeFileUpload, useFrappeUpdateDoc, useFrappeDeleteDoc } from "frappe-react-sdk";
+import { useFrappeFileUpload, useFrappeUpdateDoc } from "frappe-react-sdk";
 import RSelect from "react-select";
 import { toast } from "@/components/ui/use-toast";
 import { TDSItem, TDSItemValues, tdsItemSchema } from "./types";
+import { useTDSItemOptions } from "../hooks/useTDSItemOptions";
 
 interface EditTDSItemDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     item: TDSItem | null;
-    item: TDSItem | null;
     onSuccess: () => void;
 }
 
-// Simple debounce hook
-function useDebounce<T>(value: T, delay: number): T {
-    const [debouncedValue, setDebouncedValue] = useState<T>(value);
-    useEffect(() => {
-        const handler = setTimeout(() => setDebouncedValue(value), delay);
-        return () => clearTimeout(handler);
-    }, [value, delay]);
-    return debouncedValue;
-}
+
 
 export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOpenChange, item, onSuccess }) => {
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -48,14 +41,6 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
     
     const { updateDoc, loading: updating } = useFrappeUpdateDoc();
     const { upload: uploadFile, loading: uploading } = useFrappeFileUpload();
-    const { deleteDoc } = useFrappeDeleteDoc();
-
-    // Fetch Options for Form
-    const { data: wpList } = useFrappeGetDocList("Procurement Packages", { fields: ["name", "work_package_name"], limit: 1000 });
-    const { data: catList } = useFrappeGetDocList("Category", { fields: ["name", "category_name", "work_package"], limit: 1000 });
-    const { data: itemList } = useFrappeGetDocList("Items", { fields: ["name", "item_name", "category"], limit: 1000 });
-    const { data: makeList } = useFrappeGetDocList("Makelist", { fields: ["name", "make_name"], limit: 1000 });
-    const { data: catMakeList } = useFrappeGetDocList("Category Makelist", { fields: ["category", "make"], limit: 5000 });
 
     const form = useForm<TDSItemValues>({
         resolver: zodResolver(tdsItemSchema),
@@ -68,46 +53,31 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
         },
     });
 
-    // Reactive Duplicate Check
+    // Reactively fetch existing entries for the selected category to filter items and options
+    const selectedCategory = form.watch("category");
     const watchedTdsItemId = form.watch("tds_item_id");
-    const watchedMake = form.watch("make");
-    
-    // Debounce the entire filter object to avoid intermediate states
-    const debouncedFilters = useDebounce(
-        useMemo(() => {
-            if (!watchedTdsItemId || !watchedMake) return null;
-            return [
-                ["tds_item_id", "=", watchedTdsItemId],
-                ["make", "=", watchedMake],
-                ["name", "!=", item?.name] // Exclude self
-            ];
-        }, [watchedTdsItemId, watchedMake, item?.name]),
-        500
-    );
+    const selectedWP = form.watch("work_package");
 
-    const { data: duplicateList, isLoading: checkingDuplicate } = useFrappeGetDocList("TDS Repository", {
-        filters: debouncedFilters as any,
-        fields: ["name"],
-        limit: 1
-    }, debouncedFilters ? undefined : null);
+    // Use shared hook for options and filtering logic
+    const { 
+        wpOptions, 
+        catOptions, 
+        itemOptions, 
+        makeOptions 
+    } = useTDSItemOptions({
+        selectedWP,
+        selectedCategory,
+        watchedTdsItemId,
+        currentItem: item
+    });
 
-    // Reactive File Document Lookup
-    const { data: fileDocList } = useFrappeGetDocList("File", {
-        filters: [["file_url", "=", existingAttachmentUrl || ""]],
-        fields: ["name"],
-        limit: 1
-    }, existingAttachmentUrl ? undefined : null);
+    // Use a ref to track the previous item ID to detect actual changes
+    const previousItemIdRef = useRef<string | null>(null);
 
-    // Reset form when item changes
+    // Reset form when item changes OR when dialog opens
+    // We must reset when 'open' becomes true to ensure any previous dirty state is discarded
     useEffect(() => {
-        if (item) {
-            form.reset({
-                work_package: item.work_package,
-                category: item.category,
-                tds_item_id: item.tds_item_id || "", 
-                item_description: item.description,
-                make: item.make,
-            });
+        if (open && item) {
             form.reset({
                 work_package: item.work_package,
                 category: item.category,
@@ -118,8 +88,60 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
             setSelectedFile(null);
             setExistingAttachmentUrl(item.tds_attachment || null);
             setAttachmentAction(item.tds_attachment ? "keep" : "remove");
+            
+            // Sync the ref with the freshly loaded item ID so we don't trigger a "change"
+            previousItemIdRef.current = item.tds_item_id || "";
         }
-    }, [item, form]);
+    }, [open, item, form]);
+
+    // Reset make when item changes
+    useEffect(() => {
+        // Compare current watched ID with the ref
+        // If they differ, it means the user changed the selection (or the form reset happened, but we handled that above)
+        // Wait: The form.reset above runs. react-hook-form updates the watched value. This effect fires.
+        // We need to ensure we don't clear 'make' immediately after reset.
+        
+        // The issue: form.reset updates the value.
+        // If we set ref.current in the SAME render cycle (or strictly ordered effect), we should be fine?
+        // Actually, the above effect runs FIRST (it has `open` dep which changes true).
+        // Then Ref is set.
+        // Then this effect runs (watchedTdsItemId changes).
+        // checking ref.current vs watchedTdsItemId: They should be EQUAL if it was just reset.
+        // So we ONLY clear if they are NOT equal.
+        
+        const currentId = watchedTdsItemId || "";
+        const prevId = previousItemIdRef.current || "";
+
+        if (currentId !== prevId) {
+            // It's a real change (not the initial reset)
+            form.setValue("make", "");
+            form.setValue("item_description", "");
+            previousItemIdRef.current = currentId;
+        }
+    }, [watchedTdsItemId, form.setValue]);
+
+    // Track previous Make to detect changes
+    const prevMakeRef = useRef<string | null>(null);
+    const watchedMake = form.watch("make");
+
+    // Initialize prevMakeRef when item loads
+    useEffect(() => {
+        if (open && item) {
+            prevMakeRef.current = item.make;
+        }
+    }, [open, item]);
+
+    // Reset Description when Make changes
+    useEffect(() => {
+        const currentMake = watchedMake || "";
+        const prevMake = prevMakeRef.current || "";
+
+        if (currentMake !== prevMake) {
+             form.setValue("item_description", "");
+             prevMakeRef.current = currentMake;
+        }
+    }, [watchedMake, form.setValue]);
+    
 
     const handleNewFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -137,60 +159,10 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
         setAttachmentAction("keep");
     };
 
-    // Watch form values for dependent filtering
-    const selectedWP = form.watch("work_package");
-    const selectedCategory = form.watch("category");
-
-    // Memoize options
-    const wpOptions = useMemo(() => wpList?.map(d => ({ label: d.work_package_name, value: d.name })) || [], [wpList]);
-
-    const catOptions = useMemo(() => {
-        if (!selectedWP) return [];
-        return catList
-            ?.filter(d => d.work_package === selectedWP)
-            .map(d => ({ label: d.category_name, value: d.name })) || [];
-    }, [catList, selectedWP]);
-
-    const itemOptions = useMemo(() => {
-        if (!selectedCategory) return [];
-        return itemList
-            ?.filter(d => d.category === selectedCategory)
-            .map(d => ({ label: d.item_name, value: d.name })) || [];
-    }, [itemList, selectedCategory]);
-
-    const makeOptions = useMemo(() => {
-        if (!selectedCategory || !catMakeList || !makeList) return [];
-        
-        const validMakesForCategory = new Set(
-            catMakeList
-                .filter(cm => cm.category === selectedCategory)
-                .map(cm => cm.make)
-        );
-
-        if (validMakesForCategory.size === 0) {
-            return makeList.map(d => ({ label: d.make_name, value: d.name }));
-        }
-
-        return makeList
-            .filter(m => validMakesForCategory.has(m.name))
-            .map(d => ({ label: d.make_name, value: d.name }));
-    }, [makeList, catMakeList, selectedCategory]);
-
-
     const onSubmit = async (values: TDSItemValues) => {
         if (!item) return;
 
         try {
-            // Check for duplicates using the hook data
-            if (duplicateList && duplicateList.length > 0) {
-                 toast({
-                    title: "Duplicate Entry",
-                    description: "This TDS Item ID and Make combination already exists.",
-                    variant: "destructive"
-                });
-                return;
-            }
-
             const updatePayload: any = {
                 work_package: values.work_package,
                 category: values.category,
@@ -199,24 +171,15 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                 make: values.make,
             };
 
-            if (attachmentAction === "remove" || (attachmentAction === "replace" && existingAttachmentUrl)) {
-                // If removing or replacing, unlink first AND delete the actual File document to prevent orphans
-                if (existingAttachmentUrl && fileDocList && fileDocList.length > 0) {
-                    try {
-                        // Delete the File document found by the hook
-                        await deleteDoc("File", fileDocList[0].name);
-                    } catch (err) {
-                        console.warn("Failed to cleanup old file:", err);
-                    }
-                }
-                
-                if (attachmentAction === "remove") {
-                    updatePayload.tds_attachment = null;
-                }
+            // Handle attachment changes - DON'T delete actual files, just update URL
+            if (attachmentAction === "remove") {
+                // Just clear the URL field, don't delete the file
+                updatePayload.tds_attachment = "";
             }
 
             await updateDoc("TDS Repository", item.name, updatePayload);
 
+            // If replacing with a new file, upload and update URL
             if (attachmentAction === "replace" && selectedFile) {
                 const uploadResp = await uploadFile(selectedFile, {
                     doctype: "TDS Repository",
@@ -225,7 +188,8 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                     isPrivate: false
                 });
 
-                const fileUrl = uploadResp?.message?.file_url || uploadResp?.file_url;
+                const responseData = uploadResp as any;
+                const fileUrl = responseData?.message?.file_url || responseData?.file_url;
                 if (fileUrl) {
                     await updateDoc("TDS Repository", item.name, {
                         tds_attachment: fileUrl
@@ -268,7 +232,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                         <FormControl>
                                             <RSelect
                                                 options={wpOptions}
-                                                value={wpOptions.find(opt => opt.value === field.value)}
+                                                value={wpOptions.find(opt => opt.value === field.value) || null}
                                                 onChange={(opt) => field.onChange(opt?.value)}
                                                 placeholder="Select Work Package"
                                                 className="react-select-container"
@@ -293,7 +257,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                         <FormControl>
                                             <RSelect
                                                 options={catOptions}
-                                                value={catOptions.find(opt => opt.value === field.value)}
+                                                value={catOptions.find(opt => opt.value === field.value) || null}
                                                 onChange={(opt) => field.onChange(opt?.value)}
                                                 placeholder="Select product category"
                                                 className="react-select-container"
@@ -318,7 +282,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                         <FormControl>
                                             <RSelect
                                                 options={itemOptions}
-                                                value={itemOptions.find(opt => opt.value === field.value)}
+                                                value={itemOptions.find(opt => opt.value === field.value) || null}
                                                 onChange={(opt) => field.onChange(opt?.value)}
                                                 placeholder="Select Item"
                                                 className="react-select-container"
@@ -344,7 +308,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                         <FormControl>
                                             <RSelect
                                                 options={makeOptions}
-                                                value={makeOptions.find(opt => opt.value === field.value)}
+                                                value={makeOptions.find(opt => opt.value === field.value) || null}
                                                 onChange={(opt) => field.onChange(opt?.value)}
                                                 placeholder="Select Make"
                                                 className="react-select-container"
@@ -363,10 +327,10 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                 render={({ field }) => (
                                     <FormItem>
                                         <FormLabel className="text-sm font-semibold flex items-center">
-                                            Item Description<span className="text-red-500 ml-0.5">*</span>
+                                            Item Description <span className="text-gray-400 font-normal ml-1">(Optional)</span>
                                         </FormLabel>
                                         <FormControl>
-                                            <Input placeholder="Type Description" {...field} className="bg-white border-gray-200 focus:ring-1 focus:ring-gray-300 h-10" />
+                                            <Textarea placeholder="Type Description" {...field} className="bg-white border-gray-200 focus:ring-1 focus:ring-gray-300 min-h-[100px]" />
                                         </FormControl>
                                         <FormMessage className="text-xs" />
                                     </FormItem>
@@ -503,7 +467,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                                 <UploadCloud className="h-6 w-6 text-blue-500" />
                                             </div>
                                             <p className="text-sm font-medium text-gray-900 mb-1">Click to upload replacement</p>
-                                            <p className="text-xs text-gray-500">Images, XLSX, PDF up to 10MB</p>
+                                            <p className="text-xs text-gray-500">PDF only, up to 10MB</p>
                                         </div>
                                     </div>
                                 ) : (
@@ -516,7 +480,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                             <UploadCloud className="h-5 w-5 text-blue-500" />
                                         </div>
                                         <p className="text-sm font-medium text-gray-900 mb-0.5">Click to upload or drag and drop</p>
-                                        <p className="text-xs text-gray-500">Images, XLSX, PDF up to 10MB</p>
+                                        <p className="text-xs text-gray-500">PDF only, up to 10MB</p>
                                         
                                     </div>
                                 )}
@@ -525,7 +489,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                     type="file" 
                                     id="edit-tds-file-upload" 
                                     className="hidden" 
-                                    accept="image/*,.xlsx,.pdf"
+                                    accept=".pdf,application/pdf"
                                     onChange={handleNewFileSelected}
                                 />
                             </div>
@@ -534,8 +498,8 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                 <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100">
                                     Cancel
                                 </Button>
-                                <Button type="submit" disabled={updating || uploading || checkingDuplicate} className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
-                                    {updating || uploading || checkingDuplicate ? (
+                                <Button type="submit" disabled={updating || uploading} className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
+                                    {updating || uploading ? (
                                         <>
                                             <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                                             Updating...

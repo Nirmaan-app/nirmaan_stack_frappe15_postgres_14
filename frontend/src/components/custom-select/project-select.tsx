@@ -1,18 +1,32 @@
+import { FuzzySearchSelect, FuzzyOptionType, TokenSearchConfig } from "@/components/ui/fuzzy-search-select";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { useEffect, useMemo, useState } from "react";
-import ReactSelect from "react-select";
 
-interface SelectOptions {
-    value: string,
-    label: string
+interface SelectOptions extends FuzzyOptionType {
+    value: string;
+    label: string;
 }
 
 interface ProjectSelectProps {
-    onChange: (selectedOption: SelectOptions | null) => void
-    universal?: boolean
-    all?: boolean
+    onChange: (selectedOption: SelectOptions | null) => void;
+    universal?: boolean;
+    all?: boolean;
 }
+
+// Token-based search config optimized for projects
+// Searches both project name (label) and project code (value)
+const projectSearchConfig: TokenSearchConfig = {
+    searchFields: ['label', 'value'],
+    minSearchLength: 1,
+    partialMatch: true,
+    minTokenLength: 1,
+    fieldWeights: {
+        'label': 2.0,   // Project name is primary
+        'value': 1.5,   // Project code is secondary but still important
+    },
+    minTokenMatches: 1
+};
 
 export default function ProjectSelect({ onChange, universal = true, all = false }: ProjectSelectProps) {
 
@@ -51,21 +65,22 @@ export default function ProjectSelect({ onChange, universal = true, all = false 
         onChange(selectedOption);
     };
 
-    const options = useMemo(() => data?.map((item) => ({
+    const options: SelectOptions[] = useMemo(() => data?.map((item) => ({
         value: item.name,
         label: item.project_name,
     })) || [], [data]);
 
     if (error) return <h1>Error</h1>;
     return (
-        <ReactSelect
-            options={options}
+        <FuzzySearchSelect<SelectOptions, false>
+            allOptions={options}
+            tokenSearchConfig={projectSearchConfig}
             isLoading={loading}
             value={selectedOption}
             onChange={handleChange}
             placeholder="Select Project"
             isClearable
             onMenuOpen={() => handleChange(null)}
-        ></ReactSelect>
+        />
     );
 }

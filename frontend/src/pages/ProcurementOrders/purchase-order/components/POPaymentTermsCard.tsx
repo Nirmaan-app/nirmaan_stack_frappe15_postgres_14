@@ -251,14 +251,9 @@ export const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
               </div>
               <div className="space-y-1">
                 {fields.map((field, index) => {
-                  // const isRowDisabled =
-                  //   watchedTerms[index]?.status !== "Created"
+                  // Only "Created" status terms are editable
                   const currentStatus = watchedTerms[index]?.term_status;
-                  const isRowDisabled = !(
-                    currentStatus === "Created" || currentStatus === "Scheduled"
-                  );
-
-                  //   && watchedTerms[index]?.status !== "Scheduled";
+                  const isRowDisabled = currentStatus !== "Created";
                   const isTermInactive = watchedTerms[index]?.docstatus === 1;
                   const isDisabled = isRowDisabled || isTermInactive;
 
@@ -376,33 +371,28 @@ export const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
                             name={`payment_terms.${index}.due_date`}
                             control={control}
                             rules={{
-                              //
-                              // --- START: MODIFIED VALIDATION LOGIC ---
-                              //
                               validate: (value) => {
                                 // Get the status of the current row
                                 const status =
                                   getValues().payment_terms[index].term_status;
-                                // If the row IS editable, apply the original rules
+
+                                // Due date is required for credit terms
                                 if (!value) {
                                   return "Due date is required for credit terms.";
                                 }
-                                // If the row is not editable, skip validation
-                                if (status !== "Created" || "Scheduled") {
-                                  return true; // Always valid
+
+                                // If the row is not editable (not Created), skip further validation
+                                if (status !== "Created") {
+                                  return true;
                                 }
 
-                                if (status == "Created" || "Scheduled") {
-                                  if (new Date(value) < new Date(today)) {
-                                    return "Due date must be today or in the future.";
-                                  }
+                                // For Created terms, due date must be today or in the future
+                                if (new Date(value) < new Date(today)) {
+                                  return "Due date must be today or in the future.";
                                 }
 
-                                return true; // Passed validation
+                                return true;
                               },
-                              //
-                              // --- END: MODIFIED VALIDATION LOGIC ---
-                              //
                             }}
                             render={({ field: dateField }) => (
                               <Input
@@ -754,8 +744,29 @@ const RequestPaymentDialog = ({
   );
 };
 
+/**
+ * Helper function to determine if a payment term is eligible for payment request.
+ * For Credit terms: must be in Created status AND due_date <= today
+ * For non-Credit terms (DAP, Cash, etc.): must be in Created status
+ */
+const canRequestPaymentForTerm = (term: PaymentTerm): boolean => {
+  if (term.term_status !== "Created") return false;
+
+  // Non-credit: always eligible if Created
+  if (term.payment_type !== "Credit") return true;
+
+  // Credit: eligible only if due_date <= today
+  if (!term.due_date) return false;
+  const dueDate = new Date(term.due_date);
+  return isToday(dueDate) || isPast(dueDate);
+};
+
 const PaymentTermRow = ({ term, onReques_tPayment, role }) => {
-  const canRequestPayment = ["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role);
+  const hasPermission = ["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role);
+
+  // Calculate eligibility using the helper function
+  const isEligibleForRequest = canRequestPaymentForTerm(term);
+  const canRequest = hasPermission && isEligibleForRequest;
 
   return (
     <li className="flex justify-between items-center py-2.5 border-b border-gray-100 last:border-b-0">
@@ -803,24 +814,8 @@ const PaymentTermRow = ({ term, onReques_tPayment, role }) => {
             canceled
           </Badge>
         )}
-        {term?.term_status === "Scheduled" && term.payment_type === "Credit" && canRequestPayment && (
-          <Button
-            size="sm"
-            className="bg-yellow-400 hover:bg-yellow-500 text-red text-xs h-7 px-3"
-            onClick={() => onReques_tPayment(term)}
-          >
-            Request Payments
-          </Button>
-        )}
-        {term?.term_status === "Created" && term.payment_type === "Credit" && (
-          <Badge
-            variant="outline"
-            className="border-orange-500 text-orange-600"
-          >
-            {term.due_date}
-          </Badge>
-        )}
-        {term?.term_status === "Created" && term.payment_type !== "Credit" && canRequestPayment && (
+        {/* For Created status: show Request button if eligible, or due date badge if Credit term not yet due */}
+        {term?.term_status === "Created" && canRequest && (
           <Button
             size="sm"
             className="bg-yellow-400 hover:bg-yellow-500 text-red text-xs h-7 px-3"
@@ -828,6 +823,14 @@ const PaymentTermRow = ({ term, onReques_tPayment, role }) => {
           >
             Request Payment
           </Button>
+        )}
+        {term?.term_status === "Created" && term.payment_type === "Credit" && !isEligibleForRequest && (
+          <Badge
+            variant="outline"
+            className="border-orange-500 text-orange-600"
+          >
+            Due: {term.due_date ? format(new Date(term.due_date), "dd-MMM-yyyy") : "N/A"}
+          </Badge>
         )}
       </div>
     </li>
@@ -999,55 +1002,11 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
   };
 
   const handleSaveTerms = async (data: { payment_terms: PaymentTerm[] }) => {
-    // --- [NEW LOGIC BLOCK] ---
-    // Create a mutable copy of the payment terms to modify.
-    const updatedTerms = [...data.payment_terms];
-
-    // Get today's date for comparison. We only need to do this once.
-    const today = new Date();
-
-    // Loop through each term that is about to be saved.
-    updatedTerms.forEach((term) => {
-      // Check if the term meets all three conditions:
-      // 1. The payment type is "Credit".
-      // 2. The status is currently "Created".
-      // 3. A due_date exists.
-      if (
-        term.payment_type === "Credit" &&
-        term.term_status === "Scheduled" &&
-        term.due_date
-      ) {
-        // Parse the due_date string into a Date object.
-        const dueDate = new Date(term.due_date);
-
-        // Using date-fns, check if the due date is today or in the past.
-        // console.log("dueDate", !isToday(dueDate), !isPast(dueDate));
-
-        if (!isToday(dueDate) && !isPast(dueDate)) {
-          // If it is, update the status of this term.
-          term.term_status = "Created";
-        }
-      }
-
-      if (
-        term.payment_type === "Credit" &&
-        term.term_status === "Created" &&
-        term.due_date
-      ) {
-        // Parse the due_date string into a Date object.
-        const dueDate = new Date(term.due_date);
-
-        // Using date-fns, check if the due date is today or in the past.
-        if (isToday(dueDate) || isPast(dueDate)) {
-          // If it is, update the status of this term.
-          term.term_status = "Scheduled";
-        }
-      }
-    });
-    // --- [END NEW LOGIC BLOCK] ---
-
+    // Payment terms are saved as-is. Status transitions (Created → Requested → etc.)
+    // are handled by the backend when payment requests are made.
+    // Frontend determines eligibility for payment requests based on due_date.
     try {
-      await handleSave({ payment_terms: updatedTerms });
+      await handleSave({ payment_terms: data.payment_terms });
       toast({
         title: "Success",
         description: "Payment terms updated.",

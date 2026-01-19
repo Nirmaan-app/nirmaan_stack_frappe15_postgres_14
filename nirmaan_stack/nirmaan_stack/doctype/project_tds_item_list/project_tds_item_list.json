@@ -1,0 +1,232 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-01-15 12:58:37.001494",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "links_section",
+  "tdsi_project_id",
+  "tdsi_project_name",
+  "details_section",
+  "tds_work_package",
+  "tds_request_id",
+  "tds_category",
+  "tds_item_id",
+  "tds_item_name",
+  "tds_make",
+  "tds_description",
+  "tds_attachment",
+  "tds_status",
+  "tds_rejection_reason"
+ ],
+ "fields": [
+  {
+   "fieldname": "links_section",
+   "fieldtype": "Section Break",
+   "label": "Links"
+  },
+  {
+   "fieldname": "tdsi_project_id",
+   "fieldtype": "Link",
+   "label": "TDSI Project ID",
+   "options": "Projects"
+  },
+  {
+   "fetch_from": "tdsi_project_id.project_name",
+   "fieldname": "tdsi_project_name",
+   "fieldtype": "Data",
+   "label": "TDSI Project Name"
+  },
+  {
+   "fieldname": "details_section",
+   "fieldtype": "Section Break",
+   "label": "Details"
+  },
+  {
+   "fieldname": "tds_work_package",
+   "fieldtype": "Data",
+   "label": "TDS Work Package"
+  },
+  {
+   "fieldname": "tds_category",
+   "fieldtype": "Data",
+   "label": "TDS Category"
+  },
+  {
+   "fieldname": "tds_item_id",
+   "fieldtype": "Data",
+   "label": "TDS Item ID"
+  },
+  {
+   "fieldname": "tds_item_name",
+   "fieldtype": "Data",
+   "label": "TDS Item Name"
+  },
+  {
+   "fieldname": "tds_make",
+   "fieldtype": "Data",
+   "label": "TDS Make"
+  },
+  {
+   "fieldname": "tds_description",
+   "fieldtype": "Text",
+   "label": "TDS Description"
+  },
+  {
+   "fieldname": "tds_attachment",
+   "fieldtype": "Attach",
+   "label": "TDS Attachment"
+  },
+  {
+   "fieldname": "tds_status",
+   "fieldtype": "Data",
+   "label": "TDS Status"
+  },
+  {
+   "fieldname": "tds_request_id",
+   "fieldtype": "Data",
+   "label": "TDS Request ID"
+  },
+  {
+   "fieldname": "tds_rejection_reason",
+   "fieldtype": "Data",
+   "label": "TDS Rejection Reason"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-01-17 12:21:36.965727",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Project TDS Item List",
+ "owner": "madhubalan1247@gmail.com",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan HR Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

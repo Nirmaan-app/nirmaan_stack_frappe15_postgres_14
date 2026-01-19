@@ -6,7 +6,6 @@ import { ProcurementOrder, DeliveryDataType } from "@/types/NirmaanStack/Procure
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { formatDate } from "@/utils/FormatDate";
-import { useDeliveryNoteData } from "../../../DeliveryNotes/hooks/useDeliveryNoteData";
 import {
   ROUTE_PATHS,
   STATUS_BADGE_VARIANT,
@@ -130,6 +129,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
 
 
   const { role } = useUserData();
+  const isProjectManager = role === "Nirmaan Project Manager Profile";
   const { errors, isValid, hasVendorIssues } = usePOValidation(po);
 
   const { updateDoc, loading: update_loading } = useFrappeUpdateDoc();
@@ -330,37 +330,28 @@ export const PODetails: React.FC<PODetailsProps> = ({
   };
 
 
-  const {
-    deliveryNoteId,
-    poId,
-    data: deliveryNoteData,
-    isLoading,
-    error,
-    mutate: refetchDeliveryNoteData
-  } = useDeliveryNoteData();
-
-
-  // --- (Indicator) STEP 1: Implement the print logic hooks ---
+  // --- Print logic hooks (using po prop directly instead of separate fetch) ---
   const printComponentRef = useRef<HTMLDivElement>(null);
-  const { triggerHistoryPrint, PrintableHistoryComponent } = usePrintHistory(deliveryNoteData);
+  const { triggerHistoryPrint, PrintableHistoryComponent } = usePrintHistory(po);
 
-  // The main print handler is for the overall DN/PO Summary, which you might already have a version of.
+  // The main print handler is for the overall DN/PO Summary
   const handlePrint = useReactToPrint({
     content: () => printComponentRef.current,
     documentTitle: po
       ? `${deriveDnIdFromPoId(po.name).toUpperCase()}_${po.vendor_name}`
       : "Delivery_Note",
-    // Optional: Add page styles if needed
-    // pageStyle: `@page { size: A4; margin: 20mm; } @media print { body { -webkit-print-color-adjust: exact; } }`
   });
 
+  // Parse delivery history from po prop
   const deliveryHistory = useMemo(() =>
-    safeJsonParse<{ data: DeliveryDataType }>(deliveryNoteData?.delivery_data, { data: {} }),
-    [deliveryNoteData?.delivery_data]
+    safeJsonParse<{ data: DeliveryDataType }>(po?.delivery_data, { data: {} }),
+    [po?.delivery_data]
   );
+
+  // Derive DN ID from PO name
   const displayDnId = useMemo(() =>
-    formatDisplayId(deliveryNoteId, DOCUMENT_PREFIX.DELIVERY_NOTE),
-    [deliveryNoteId]
+    formatDisplayId(deriveDnIdFromPoId(po.name), DOCUMENT_PREFIX.DELIVERY_NOTE),
+    [po.name]
   );
 
 
@@ -525,46 +516,48 @@ export const PODetails: React.FC<PODetailsProps> = ({
           </div>
 
           {/* ═══════════════════════════════════════════════════════════════════
-              SECTION 3: AMOUNTS - All financial figures
+              SECTION 3: AMOUNTS - All financial figures (hidden for Project Manager)
           ═══════════════════════════════════════════════════════════════════ */}
-          <div className="pb-3 border-b border-gray-100">
-            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Amounts</p>
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-              {/* PO Amount (Incl. GST) */}
-              <div className="space-y-0.5">
-                <p className="text-xs text-gray-500">PO Amount(Incl. GST)</p>
-                <p className="text-sm font-semibold">{formatToRoundedIndianRupee(po?.total_amount)}</p>
-              </div>
+          {!isProjectManager && (
+            <div className="pb-3 border-b border-gray-100">
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Amounts</p>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+                {/* PO Amount (Incl. GST) */}
+                <div className="space-y-0.5">
+                  <p className="text-xs text-gray-500">PO Amount(Incl. GST)</p>
+                  <p className="text-sm font-semibold">{formatToRoundedIndianRupee(po?.total_amount)}</p>
+                </div>
 
-              {/* PO Amount (Excl. GST) */}
-              <div className="space-y-0.5">
-                <p className="text-xs text-gray-500">PO Amount(Excl. GST)</p>
-                <p className="text-sm font-medium">{formatToRoundedIndianRupee(po?.amount)}</p>
-              </div>
+                {/* PO Amount (Excl. GST) */}
+                <div className="space-y-0.5">
+                  <p className="text-xs text-gray-500">PO Amount(Excl. GST)</p>
+                  <p className="text-sm font-medium">{formatToRoundedIndianRupee(po?.amount)}</p>
+                </div>
 
-              {/* Total Invoiced Amount */}
-              <div className="space-y-0.5">
-                <p className="text-xs text-gray-500">Total Invoiced Amount</p>
-                <p className="text-sm font-medium">{totalInvoice ? formatToRoundedIndianRupee(totalInvoice) : "--"}</p>
-              </div>
+                {/* Total Invoiced Amount */}
+                <div className="space-y-0.5">
+                  <p className="text-xs text-gray-500">Total Invoiced Amount</p>
+                  <p className="text-sm font-medium">{totalInvoice ? formatToRoundedIndianRupee(totalInvoice) : "--"}</p>
+                </div>
 
-              {/* Total Amount Paid */}
-              <div className="space-y-0.5">
-                <p className="text-xs text-gray-500">Total Amount Paid</p>
-                <p className="text-sm font-medium text-green-600">
-                  {amountPaid ? formatToRoundedIndianRupee(amountPaid) : "--"}
-                </p>
-              </div>
+                {/* Total Amount Paid */}
+                <div className="space-y-0.5">
+                  <p className="text-xs text-gray-500">Total Amount Paid</p>
+                  <p className="text-sm font-medium text-green-600">
+                    {amountPaid ? formatToRoundedIndianRupee(amountPaid) : "--"}
+                  </p>
+                </div>
 
-              {/* PO Amount Delivered */}
-              <div className="space-y-0.5">
-                <p className="text-xs text-gray-500">PO Amount Delivered</p>
-                <p className="text-sm font-medium text-blue-600">
-                  {po?.po_amount_delivered ? formatToRoundedIndianRupee(po?.po_amount_delivered) : "--"}
-                </p>
+                {/* PO Amount Delivered */}
+                <div className="space-y-0.5">
+                  <p className="text-xs text-gray-500">PO Amount Delivered</p>
+                  <p className="text-sm font-medium text-blue-600">
+                    {po?.po_amount_delivered ? formatToRoundedIndianRupee(po?.po_amount_delivered) : "--"}
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* ═══════════════════════════════════════════════════════════════════
               SECTION 4: DATES - All timeline dates
@@ -811,8 +804,8 @@ export const PODetails: React.FC<PODetailsProps> = ({
             </SheetHeader>
             <div className="space-y-4">
               <DeliveryNoteItemsDisplay
-                data={deliveryNoteData}
-                poMutate={refetchDeliveryNoteData}
+                data={po}
+                poMutate={poMutate}
               />
 
               <DeliveryHistoryTable

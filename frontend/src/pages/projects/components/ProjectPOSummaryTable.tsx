@@ -140,6 +140,7 @@ const DOCTYPE = "Procurement Orders";
 interface ProjectPOSummaryTableProps {
   projectId: string | undefined;
   hideSummaryCard?: boolean;
+  hideFinancialColumns?: boolean;
 }
 
 interface POAmountsDict {
@@ -235,6 +236,7 @@ const AppliedFiltersDisplay = ({ filters, search }) => {
 export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
   projectId,
   hideSummaryCard = false,
+  hideFinancialColumns = false,
 }) => {
   const { toast } = useToast();
 
@@ -532,158 +534,125 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
           },
         },
       },
-      // {
-      //     id: "po_value_inc_gst", header: ({ column }) => <DataTableColumnHeader column={column} title="PO Value (inc. GST)" />,
-      //     // cell: ({ row }) => <div className="font-medium pr-2">{formatToRoundedIndianRupee(poAmountsDict?.[row.original.name]?.total_incl_gst)}</div>,
-      //          cell: ({ row }) => <div className="font-medium truncate">{formatToRoundedIndianRupee(row.original.total_amount)}</div>,
-      //     size: 160, enableSorting: true,
-      //     meta: {
-      //         exportHeaderName: "PO Value (inc. GST)",
-      //         exportValue: (row: ProcurementOrder) => {
-      //             return formatForReport(row.total_amount);
-      //         }
-      //     }
-      // },
-      {
-        // Use 'accessorKey' to make it sortable by the data table library
-        accessorKey: "total_amount",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="PO Value (inc. GST)" />
-        ),
-        cell: ({ row }) => (
-          <div className="font-medium pr-2 text-center tabular-nums">
-            {formatToRoundedIndianRupee(row.original.total_amount)}
-          </div>
-        ),
-        size: 160,
-        // enableSorting is true by default when using accessorKey
-        meta: {
-          exportHeaderName: "PO Value (inc. GST)",
-          exportValue: (row: ProcurementOrder) => {
-            return formatForReport(row.total_amount); // Use the direct field for export
-          },
-        },
-      },
-      {
-        // Use 'accessorKey' to make it sortable by the data table library
-        accessorKey: "amount_paid",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Amount Paid" />
-        ),
-        cell: ({ row }) => (
-          <div className="font-medium pr-2 text-center tabular-nums">
-            {formatToRoundedIndianRupee(row.original.amount_paid)}
-          </div>
-        ),
-        size: 160,
-        // enableSorting is true by default when using accessorKey
-        meta: {
-          exportHeaderName: "Amount Paid",
-          exportValue: (row: ProcurementOrder) => {
-            return formatForReport(row.amount_paid); // Use the direct field for export
-          },
-        },
-      },
-      {
-        // Use 'accessorKey' to make it sortable by the data table library
-        accessorKey: "po_amount_delivered",
-        header: ({ column }) => (
-          <DataTableColumnHeader
-            column={column}
-            title={
-              <>
-                Payable Amt against
-                <br />
-                Delivered Items
-              </>
-            }
-          />
-        ),
-        cell: ({ row }) => (
-          <div className="font-medium pr-2 text-center tabular-nums">
-            {formatToRoundedIndianRupee(row.original.po_amount_delivered)}
-          </div>
-        ),
-        size: 160,
-        // enableSorting is true by default when using accessorKey
-        meta: {
-          exportHeaderName: "PO Amount Payable",
-          exportValue: (row: ProcurementOrder) => {
-            return formatForReport(row.po_amount_delivered); // Use the direct field for export
-          },
-        },
-      },
-      {
-        id: "total_liabilities",
-        accessorFn: (row) => calculateTotalLiabilities(row),
-        header: "Total Liabilities",
-        cell: ({ row }) => {
-          const liability = calculateTotalLiabilities(row.original);
-          return (
-            <div className="font-medium pr-2 text-center tabular-nums">
-              {formatToRoundedIndianRupee(liability)}
-            </div>
-          );
-        },
-        size: 160,
-        enableSorting: false,
-        meta: {
-          exportHeaderName: "Total Liabilities",
-          exportValue: (row: ProcurementOrder) => {
-            return formatForReport(calculateTotalLiabilities(row));
-          },
-        },
-      },
-      {
-        accessorKey: "payment_type",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Payment Type" />
-        ),
-        cell: ({ row }) => {
-          const type = row.original.payment_type;
-          let variant: "default" | "green" | "yellow" = "default";
-          if (type === "Credit") variant = "yellow";
-          if (type === "Delivery against Payment") variant = "green";
+      // Financial columns - conditionally included based on hideFinancialColumns prop
+      ...(!hideFinancialColumns
+        ? [
+            {
+              // Use 'accessorKey' to make it sortable by the data table library
+              accessorKey: "total_amount",
+              header: ({ column }) => (
+                <DataTableColumnHeader column={column} title="PO Value (inc. GST)" />
+              ),
+              cell: ({ row }) => (
+                <div className="font-medium pr-2 text-center tabular-nums">
+                  {formatToRoundedIndianRupee(row.original.total_amount)}
+                </div>
+              ),
+              size: 160,
+              meta: {
+                exportHeaderName: "PO Value (inc. GST)",
+                exportValue: (row: ProcurementOrder) => {
+                  return formatForReport(row.total_amount);
+                },
+              },
+            } as ColumnDef<ProcurementOrder>,
+            {
+              accessorKey: "amount_paid",
+              header: ({ column }) => (
+                <DataTableColumnHeader column={column} title="Amount Paid" />
+              ),
+              cell: ({ row }) => (
+                <div className="font-medium pr-2 text-center tabular-nums">
+                  {formatToRoundedIndianRupee(row.original.amount_paid)}
+                </div>
+              ),
+              size: 160,
+              meta: {
+                exportHeaderName: "Amount Paid",
+                exportValue: (row: ProcurementOrder) => {
+                  return formatForReport(row.amount_paid);
+                },
+              },
+            } as ColumnDef<ProcurementOrder>,
+            {
+              accessorKey: "po_amount_delivered",
+              header: ({ column }) => (
+                <DataTableColumnHeader
+                  column={column}
+                  title={
+                    <>
+                      Payable Amt against
+                      <br />
+                      Delivered Items
+                    </>
+                  }
+                />
+              ),
+              cell: ({ row }) => (
+                <div className="font-medium pr-2 text-center tabular-nums">
+                  {formatToRoundedIndianRupee(row.original.po_amount_delivered)}
+                </div>
+              ),
+              size: 160,
+              meta: {
+                exportHeaderName: "PO Amount Payable",
+                exportValue: (row: ProcurementOrder) => {
+                  return formatForReport(row.po_amount_delivered);
+                },
+              },
+            } as ColumnDef<ProcurementOrder>,
+            {
+              id: "total_liabilities",
+              accessorFn: (row) => calculateTotalLiabilities(row),
+              header: "Total Liabilities",
+              cell: ({ row }) => {
+                const liability = calculateTotalLiabilities(row.original);
+                return (
+                  <div className="font-medium pr-2 text-center tabular-nums">
+                    {formatToRoundedIndianRupee(liability)}
+                  </div>
+                );
+              },
+              size: 160,
+              enableSorting: false,
+              meta: {
+                exportHeaderName: "Total Liabilities",
+                exportValue: (row: ProcurementOrder) => {
+                  return formatForReport(calculateTotalLiabilities(row));
+                },
+              },
+            } as ColumnDef<ProcurementOrder>,
+            {
+              accessorKey: "payment_type",
+              header: ({ column }) => (
+                <DataTableColumnHeader column={column} title="Payment Type" />
+              ),
+              cell: ({ row }) => {
+                const type = row.original.payment_type;
+                let variant: "default" | "green" | "yellow" = "default";
+                if (type === "Credit") variant = "yellow";
+                if (type === "Delivery against Payment") variant = "green";
 
-          return (
-            <div className="font-medium pr-2 text-center tabular-nums">
-              <Badge
-                variant={variant}
-                className="whitespace-nowrap text-center"
-              >
-                {type === "Delivery against Payment" ? "DAP" : type || "N/A"}
-              </Badge>
-            </div>
-          );
-        },
-        enableColumnFilter: true, // Enable filtering for this column
-        size: 150,
-        meta: {
-          exportHeaderName: "Payment Type",
-          exportValue: (row: ProcurementOrder) => row.payment_type || "N/A",
-        },
-      },
-      // {
-      //     id: "amount_paid_po",
-      //     header: ({ column }) => (
-      //         <DataTableColumnHeader column={column} title="Amt. Paid" />
-      //     ),
-      //     cell: ({ row }) => (
-      //         <div className="font-medium pr-2 text-center">
-      //             {formatToRoundedIndianRupee(
-      //                 getTotalAmountPaidForPO(row.original.name)
-      //             )}
-      //         </div>
-      //     ),
-      //     size: 130,
-      //     enableSorting: false,
-      //     meta: {
-      //         exportHeaderName: "Amt. Paid",
-      //         exportValue: (row: ProcurementOrder) => {
-      //             return formatForReport(getTotalAmountPaidForPO(row.name));
-      //         },
-      //     },
-      // },
+                return (
+                  <div className="font-medium pr-2 text-center tabular-nums">
+                    <Badge
+                      variant={variant}
+                      className="whitespace-nowrap text-center"
+                    >
+                      {type === "Delivery against Payment" ? "DAP" : type || "N/A"}
+                    </Badge>
+                  </div>
+                );
+              },
+              enableColumnFilter: true,
+              size: 150,
+              meta: {
+                exportHeaderName: "Payment Type",
+                exportValue: (row: ProcurementOrder) => row.payment_type || "N/A",
+              },
+            } as ColumnDef<ProcurementOrder>,
+          ]
+        : []),
     ],
     [
       getVendorName,
@@ -691,6 +660,8 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
       getTotalAmountPaidForPO,
       userList,
       poAmountsDict,
+      calculateTotalLiabilities,
+      hideFinancialColumns,
     ]
   );
 

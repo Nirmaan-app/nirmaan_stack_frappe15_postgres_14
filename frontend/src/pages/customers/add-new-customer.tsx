@@ -28,7 +28,18 @@ const customerFormSchema = z.object({
             required_error: "Must provide company Name"
         })
         .min(3, {
-            message: "Employee Name must be at least 3 characters.",
+            message: "Company Name must be at least 3 characters.",
+        }),
+
+    customer_nickname: z
+        .string({
+            required_error: "Must provide customer nickname"
+        })
+        .min(2, {
+            message: "Nickname must be at least 2 characters.",
+        })
+        .max(30, {
+            message: "Nickname must be at most 30 characters.",
         }),
 
     company_address_line_1: z
@@ -134,6 +145,7 @@ export const NewCustomer : React.FC<{company_mutate?: any, navigation?: boolean}
                 // Create the customer document using the address document reference
                 await createDoc("Customers", {
                     company_name: values.company_name,
+                    customer_nickname: values.customer_nickname,
                     company_address: addressDoc.name,
                     company_contact_person: values.company_contact_person,
                     company_phone: values.phone,
@@ -304,6 +316,7 @@ export const NewCustomer : React.FC<{company_mutate?: any, navigation?: boolean}
     const resetForm = () => {
         form.reset({
             company_name: undefined,
+            customer_nickname: undefined,
             email: undefined,
             phone: undefined,
             company_contact_person: undefined,
@@ -381,6 +394,19 @@ export const NewCustomer : React.FC<{company_mutate?: any, navigation?: boolean}
                                 <FormLabel className="flex">Company Name:<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
                                 <FormControl>
                                     <Input placeholder="Company Name" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="customer_nickname"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel className="flex">Nickname:<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
+                                <FormControl>
+                                    <Input placeholder="Short, memorable name (e.g. TATA, Reliance)" {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>

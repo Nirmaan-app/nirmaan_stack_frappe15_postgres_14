@@ -89,6 +89,7 @@ const CriticalPOTasksTab = React.lazy(() => import("./CriticalPOTasks/CriticalPO
 import { ProjectExpensesTab } from "./components/ProjectExpenseTab"; // NEW
 import { ProjectWorkReportTab } from "./ProjectWorkReportTab";
 import { SevenDayPlanningTab } from "./SevenDayPlanningTab";
+import { TDSRepositoryTab } from "./TDSRepository/TDSRepositoryTab";
 
 import { KeyedMutator } from "swr";
 import { useUrlParam } from "@/hooks/useUrlParam";
@@ -249,6 +250,7 @@ export const PROJECT_PAGE_TABS = {
   MAKES: 'projectmakes',
   ESTIMATES: 'projectestimates',
   MATERIAL_USAGE: 'projectmaterialusage',
+  TDS_REPOSITORY: 'tdsrepository',
   PROJECT_EXPENSES: 'projectexpenses', // --- (Indicator) NEW TAB KEY ---
 } as const;
 
@@ -440,8 +442,11 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           key: PROJECT_PAGE_TABS.PO_SUMMARY,
         },
         {
-          label: "Material Usage",
           key: PROJECT_PAGE_TABS.MATERIAL_USAGE,
+        },
+        {
+          label: "TDS Repository",
+          key: PROJECT_PAGE_TABS.TDS_REPOSITORY,
         },
         {
           label: "Misc. Project Expenses",
@@ -480,6 +485,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         {
           label: "Material Usage",
           key: PROJECT_PAGE_TABS.MATERIAL_USAGE,
+        },
+        {
+          label: "TDS Repository",
+          key: PROJECT_PAGE_TABS.TDS_REPOSITORY,
         },
         {
           label: "Project Estimates",
@@ -529,6 +538,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       {
         label: "Material Usage",
         key: PROJECT_PAGE_TABS.MATERIAL_USAGE,
+      },
+      {
+        label: "TDS Repository",
+        key: PROJECT_PAGE_TABS.TDS_REPOSITORY,
       },
       // Hide Project Makes from Accountant
       ...(!isAccountant ? [{
@@ -1151,9 +1164,9 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       case PROJECT_PAGE_TABS.PR_SUMMARY:
         return <ProjectPRSummaryTable projectId={projectId} />;
       case PROJECT_PAGE_TABS.SR_SUMMARY:
-        return <ProjectSRSummaryTable projectId={projectId} hideSummaryCard={isProjectManager} />;
+        return <ProjectSRSummaryTable projectId={projectId} hideSummaryCard={isProjectManager} hideFinancialColumns={isProjectManager} />;
       case PROJECT_PAGE_TABS.PO_SUMMARY:
-        return <ProjectPOSummaryTable projectId={projectId} hideSummaryCard={isProjectManager} />;
+        return <ProjectPOSummaryTable projectId={projectId} hideSummaryCard={isProjectManager} hideFinancialColumns={isProjectManager} />;
       case PROJECT_PAGE_TABS.FINANCIALS:
         return <ProjectFinancialsTab projectData={data} projectCustomer={projectCustomer}
           totalPOAmountWithGST={totalPOAmountWithGST} getTotalAmountPaid={getTotalAmountPaid} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getAllPODeliveredAmount={totalPoDeliveredAmount}
@@ -1172,6 +1185,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       // --- (Indicator) NEW CASE FOR THE NEW TAB ---
       case PROJECT_PAGE_TABS.PROJECT_EXPENSES:
         return <ProjectExpensesTab projectId={projectId} />;
+      case PROJECT_PAGE_TABS.TDS_REPOSITORY:
+        return <TDSRepositoryTab projectId={projectId} />;
       default:
         return <div>Select a tab.</div>;
     }

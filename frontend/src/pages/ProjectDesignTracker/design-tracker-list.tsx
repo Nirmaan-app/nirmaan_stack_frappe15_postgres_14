@@ -2,14 +2,15 @@ import React, { useMemo, useState, useCallback, useEffect } from "react";
 import { addDays, format } from "date-fns";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Link, useNavigate } from "react-router-dom";
-import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeGetCall } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeGetCall, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { TableSkeleton } from "@/components/ui/skeleton";
-import { ChevronDown, ChevronUp, Search, Filter, CirclePlus, Link as LinkIcon, MessageCircle, Edit, ArrowUpRight, Check } from "lucide-react";
+import { ChevronDown, ChevronUp, Search, Filter, CirclePlus, Link as LinkIcon, MessageCircle, Edit, ArrowUpRight, Check, EyeOff, CheckCircle2 } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
@@ -354,6 +355,7 @@ export const DesignTrackerList: React.FC = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedProjectFilters, setSelectedProjectFilters] = useState<string[]>([]);
+    const [isHiddenSectionOpen, setIsHiddenSectionOpen] = useState(false);
 
     const initialTab = useMemo(() => getUrlStringParam("tab", DESIGN_TABS.PROJECT_WISE), []);
     const [activeTab, setActiveTab] = useState<string>(initialTab);
@@ -384,6 +386,9 @@ export const DesignTrackerList: React.FC = () => {
     const {
         data: trackerDocsData, isLoading, error, mutate: refetchList
     } = useFrappeGetCall<any>('nirmaan_stack.api.design_tracker.get_tracker_list.get_trackers_with_stats', {}, "cache-first");
+
+    // Hook for updating tracker visibility
+    const { updateDoc } = useFrappeUpdateDoc();
 
     // Safe access to array data
     const trackerDocs = useMemo(() => {
@@ -441,61 +446,135 @@ export const DesignTrackerList: React.FC = () => {
         setExpandedProject(prev => prev === docName ? null : docName)
     }, []);
 
+    // Handler for toggling tracker visibility from card
+    const handleHideToggle = useCallback(async (trackerId: string, newHiddenState: boolean) => {
+        try {
+            await updateDoc("Project Design Tracker", trackerId, {
+                hide_design_tracker: newHiddenState ? 1 : 0
+            });
+            refetchList();
+            toast({
+                title: newHiddenState ? "Tracker Hidden" : "Tracker Visible",
+                description: newHiddenState
+                    ? "Hidden from Design Executives and Project Managers"
+                    : "Now visible to all users",
+            });
+        } catch (error) {
+            toast({
+                title: "Error",
+                description: "Failed to update tracker visibility",
+                variant: "destructive"
+            });
+        }
+    }, [updateDoc, refetchList]);
+
+    // Split docs into active and hidden
+    const activeDocs = useMemo(() =>
+        filteredDocs.filter(doc => !doc.hide_design_tracker), [filteredDocs]);
+
+    const hiddenDocs = useMemo(() =>
+        filteredDocs.filter(doc => doc.hide_design_tracker === 1), [filteredDocs]);
+
+    // Calculate aggregate summary stats for the list header
+    const summaryStats = useMemo(() => {
+        const total = trackerDocs.length;
+        const active = activeDocs.length;
+        const hidden = hiddenDocs.length;
+
+        // Aggregate task stats across all visible (active) trackers
+        const totalTasks = activeDocs.reduce((sum, doc) => sum + (doc.total_tasks || 0), 0);
+        const completedTasks = activeDocs.reduce((sum, doc) => sum + (doc.completed_tasks || 0), 0);
+        const overallCompletion = totalTasks > 0
+            ? Math.round((completedTasks / totalTasks) * 100)
+            : 0;
+
+        return { total, active, hidden, totalTasks, completedTasks, overallCompletion };
+    }, [trackerDocs, activeDocs, hiddenDocs]);
+
     if (isLoading) return <TableSkeleton />;
     if (error) return <AlertDestructive error={error} />;
 
     return (
-        <div className="flex-1 space-y-5 p-4 md:p-6">
-            {/* Header Section */}
-            <header className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
-                {/* Tab Switcher - Hidden for Project Managers */}
-                {!isProjectManager && (
-                    <div className="inline-flex border border-gray-300 rounded-lg overflow-hidden shadow-sm bg-white">
-                        <Button
-                            variant="primary"
-                            onClick={() => onClick(DESIGN_TABS.PROJECT_WISE)}
-                            className={`
-                                px-5 py-2.5 text-sm font-medium h-auto shadow-none rounded-none
-                                transition-all duration-200
-                                ${activeTab === DESIGN_TABS.PROJECT_WISE
-                                    ? 'bg-primary text-white'
-                                    : 'bg-white text-gray-700 hover:bg-gray-50'}
-                                cursor-pointer
-                                border-r border-gray-300
-                            `}
-                        >
-                            Project Wise
-                        </Button>
-
-                        <Button
-                            variant="primary"
-                            onClick={() => onClick(DESIGN_TABS.TASK_WISE)}
-                            className={`
-                                px-5 py-2.5 text-sm font-medium h-auto shadow-none rounded-none
-                                transition-all duration-200
-                                ${activeTab === DESIGN_TABS.TASK_WISE
-                                    ? 'bg-primary text-white'
-                                    : 'bg-white text-gray-700 hover:bg-gray-50'}
-                                cursor-pointer
-                            `}
-                        >
-                            Task Wise
-                        </Button>
+        <div className="flex-1 space-y-5">
+            {/* ═══════════════════════════════════════════════════════════════
+                HEADER SECTION - Matches details page aesthetic
+            ═══════════════════════════════════════════════════════════════ */}
+            <div className="bg-white border-b border-gray-200 px-4 py-4 md:px-6">
+                {/* Row 1: Title + Summary Stats */}
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                    <div>
+                        <h1 className="text-lg font-semibold text-gray-900">Design Trackers</h1>
+                        <p className="text-sm text-gray-500">Track project design progress</p>
                     </div>
-                )}
 
-                {/* Action Button */}
-                {activeTab === DESIGN_TABS.PROJECT_WISE && hasEditStructureAccess && (
-                    <Button onClick={() => setIsModalOpen(true)} className="whitespace-nowrap">
-                        <CirclePlus className="h-4 w-4 mr-2" />
-                        Track New Project
-                    </Button>
-                )}
-            </header>
+                    {/* Summary Pills - Only for privileged users */}
+                    <div className="flex flex-wrap items-center gap-2">
+                        {hasEditStructureAccess && (
+                            <>
+                                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-gray-50 rounded border border-gray-200">
+                                    <span className="text-xs text-gray-500">Projects:</span>
+                                    <span className="text-sm font-semibold text-gray-700">{summaryStats.active}</span>
+                                </div>
+                                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-green-50 rounded border border-green-200">
+                                    <CheckCircle2 className="h-3 w-3 text-green-600" />
+                                    <span className="text-xs text-gray-500">Tasks:</span>
+                                    <span className="text-sm font-semibold text-green-700">
+                                        {summaryStats.completedTasks}/{summaryStats.totalTasks}
+                                    </span>
+                                </div>
+                            </>
+                        )}
+                        {hasEditStructureAccess && summaryStats.hidden > 0 && (
+                            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-orange-50 rounded border border-orange-200">
+                                <EyeOff className="h-3 w-3 text-orange-600" />
+                                <span className="text-xs text-gray-500">Hidden:</span>
+                                <span className="text-sm font-semibold text-orange-700">{summaryStats.hidden}</span>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Row 2: Tab Switcher + Action Button */}
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    {/* Tab Switcher - Hidden for Project Managers */}
+                    {!isProjectManager && (
+                        <div className="inline-flex border border-gray-300 rounded-lg overflow-hidden bg-white">
+                            <button
+                                onClick={() => onClick(DESIGN_TABS.PROJECT_WISE)}
+                                className={`px-4 py-2 text-sm font-medium transition-colors ${
+                                    activeTab === DESIGN_TABS.PROJECT_WISE
+                                        ? 'bg-primary text-white'
+                                        : 'bg-white text-gray-700 hover:bg-gray-50'
+                                } border-r border-gray-300`}
+                            >
+                                Project Wise
+                            </button>
+                            <button
+                                onClick={() => onClick(DESIGN_TABS.TASK_WISE)}
+                                className={`px-4 py-2 text-sm font-medium transition-colors ${
+                                    activeTab === DESIGN_TABS.TASK_WISE
+                                        ? 'bg-primary text-white'
+                                        : 'bg-white text-gray-700 hover:bg-gray-50'
+                                }`}
+                            >
+                                Task Wise
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Action Button */}
+                    {activeTab === DESIGN_TABS.PROJECT_WISE && hasEditStructureAccess && (
+                        <Button onClick={() => setIsModalOpen(true)} className="whitespace-nowrap">
+                            <CirclePlus className="h-4 w-4 mr-2" />
+                            Track New Project
+                        </Button>
+                    )}
+                </div>
+            </div>
 
             {/* Search and Filter Section */}
             {activeTab === DESIGN_TABS.PROJECT_WISE && (
-                <div className="flex flex-col sm:flex-row gap-3">
+                <div className="flex flex-col sm:flex-row gap-3 px-4 md:px-6">
                     {/* Search Input */}
                     <div className="relative flex-1 min-w-0">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none" />
@@ -579,10 +658,10 @@ export const DesignTrackerList: React.FC = () => {
 
             {/* Content based on Active Tab */}
             {activeTab === DESIGN_TABS.PROJECT_WISE && (
-                <div className="space-y-4">
-                    {/* Project Cards Grid */}
+                <div className="space-y-4 px-4 md:px-6">
+                    {/* Project Cards Grid - Active Trackers */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 md:gap-5">
-                        {filteredDocs.length === 0 ? (
+                        {activeDocs.length === 0 && hiddenDocs.length === 0 ? (
                             <div className="col-span-full">
                                 <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
                                     <div className="w-16 h-16 mb-4 rounded-full bg-gray-100 flex items-center justify-center">
@@ -598,17 +677,74 @@ export const DesignTrackerList: React.FC = () => {
                                     </p>
                                 </div>
                             </div>
+                        ) : activeDocs.length === 0 ? (
+                            <div className="col-span-full">
+                                <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
+                                    <p className="text-sm text-gray-500">
+                                        No active trackers. Check the hidden trackers section below.
+                                    </p>
+                                </div>
+                            </div>
                         ) : (
-                            filteredDocs.map((doc: any) => (
+                            activeDocs.map((doc: any) => (
                                 <div key={doc.name} className="h-full">
                                     <ProjectWiseCard
                                         tracker={doc}
                                         onClick={() => navigate(`/design-tracker/${doc.name}`)}
+                                        showHiddenBadge={hasEditStructureAccess}
+                                        onHideToggle={hasEditStructureAccess ? handleHideToggle : undefined}
+                                        currentUserId={user_id}
+                                        isDesigner={isDesignExecutive || role === "Nirmaan Design Lead Profile"}
                                     />
                                 </div>
                             ))
                         )}
                     </div>
+
+                    {/* Hidden Trackers Section - Only visible to privileged users */}
+                    {hasEditStructureAccess && hiddenDocs.length > 0 && (
+                        <Collapsible
+                            open={isHiddenSectionOpen}
+                            onOpenChange={setIsHiddenSectionOpen}
+                            className="mt-6"
+                        >
+                            <CollapsibleTrigger asChild>
+                                <button className="flex items-center gap-2 w-full px-4 py-3 bg-orange-50 border border-orange-200 rounded-lg hover:bg-orange-100 transition-colors">
+                                    <EyeOff className="h-4 w-4 text-orange-600" />
+                                    <span className="text-sm font-medium text-orange-700">
+                                        Hidden Trackers
+                                    </span>
+                                    <Badge
+                                        variant="secondary"
+                                        className="px-2 py-0.5 text-xs bg-orange-200 text-orange-800 border-0"
+                                    >
+                                        {hiddenDocs.length}
+                                    </Badge>
+                                    <ChevronDown
+                                        className={`h-4 w-4 text-orange-600 ml-auto transition-transform duration-200 ${
+                                            isHiddenSectionOpen ? 'rotate-180' : ''
+                                        }`}
+                                    />
+                                </button>
+                            </CollapsibleTrigger>
+                            <CollapsibleContent>
+                                <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 md:gap-5">
+                                    {hiddenDocs.map((doc: any) => (
+                                        <div key={doc.name} className="h-full">
+                                            <ProjectWiseCard
+                                                tracker={doc}
+                                                onClick={() => navigate(`/design-tracker/${doc.name}`)}
+                                                showHiddenBadge={true}
+                                                onHideToggle={handleHideToggle}
+                                                currentUserId={user_id}
+                                                isDesigner={isDesignExecutive || role === "Nirmaan Design Lead Profile"}
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+                            </CollapsibleContent>
+                        </Collapsible>
+                    )}
 
 
                     {/* 
@@ -708,37 +844,96 @@ export const DesignTrackerList: React.FC = () => {
             )}
 
             {activeTab === DESIGN_TABS.TASK_WISE && (
-                <div className="space-y-5">
-                    {/* Status Filter Tabs */}
-                    <Tabs value={activeStatusTab} onValueChange={setActiveStatusTab} className="w-full">
-                        <TabsList className="w-full justify-start h-auto flex-wrap gap-2 bg-transparent p-0 border-b pb-3">
-                            <TabsTrigger
-                                value="All"
-                                className="data-[state=active]:bg-primary data-[state=active]:text-white border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 min-w-[100px] rounded-md shadow-sm transition-all"
+                <div className="space-y-5 px-4 md:px-6">
+                    {/* Status Filter Tabs - Enhanced Design */}
+                    <div className="bg-gray-50/70 rounded-lg p-3 border border-gray-200">
+                        <div className="flex items-center gap-2 mb-2">
+                            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Filter by Status</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            {/* All Tasks Tab */}
+                            <button
+                                onClick={() => setActiveStatusTab("All")}
+                                className={`
+                                    px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150
+                                    flex items-center gap-2
+                                    ${activeStatusTab === "All"
+                                        ? 'bg-gray-800 text-white shadow-md'
+                                        : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-100 hover:border-gray-400'
+                                    }
+                                `}
                             >
-                                All
-                            </TabsTrigger>
-                            <TabsTrigger
-                                value="Approved"
-                                className="data-[state=active]:bg-green-600 data-[state=active]:text-white border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 min-w-[100px] rounded-md shadow-sm transition-all"
+                                <span className={`w-2 h-2 rounded-full ${activeStatusTab === "All" ? 'bg-white' : 'bg-gray-400'}`} />
+                                All Tasks
+                            </button>
+
+                            {/* Approved Tab - Green */}
+                            <button
+                                onClick={() => setActiveStatusTab("Approved")}
+                                className={`
+                                    px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150
+                                    flex items-center gap-2
+                                    ${activeStatusTab === "Approved"
+                                        ? 'bg-green-600 text-white shadow-md'
+                                        : 'bg-white text-green-700 border border-green-300 hover:bg-green-50 hover:border-green-400'
+                                    }
+                                `}
                             >
+                                <CheckCircle2 className={`h-3.5 w-3.5 ${activeStatusTab === "Approved" ? 'text-white' : 'text-green-600'}`} />
                                 Approved
-                            </TabsTrigger>
-                            {/* Dynamic Status Tabs */}
+                            </button>
+
+                            {/* Dynamic Status Tabs with status-specific colors */}
                             {statusOptions
                                 ?.filter(s => s.value !== 'Approved' && s.value !== 'Not Applicable')
-                                .sort((a, b) => a.label.localeCompare(b.label))
-                                .map((option) => (
-                                    <TabsTrigger
-                                        key={option.value}
-                                        value={option.value}
-                                        className="data-[state=active]:bg-primary data-[state=active]:text-white border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 min-w-[100px] rounded-md shadow-sm transition-all"
-                                    >
-                                        {option.label}
-                                    </TabsTrigger>
-                                ))}
-                        </TabsList>
-                    </Tabs>
+                                .sort((a, b) => {
+                                    // Custom sort order: In Progress first, then alphabetically
+                                    if (a.value === 'In Progress') return -1;
+                                    if (b.value === 'In Progress') return 1;
+                                    if (a.value === 'Not Started') return -1;
+                                    if (b.value === 'Not Started') return 1;
+                                    return a.label.localeCompare(b.label);
+                                })
+                                .map((option) => {
+                                    const isActive = activeStatusTab === option.value;
+                                    const lowerValue = option.value.toLowerCase();
+
+                                    // Determine color scheme based on status
+                                    let activeStyles = 'bg-gray-700 text-white';
+                                    let inactiveStyles = 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50';
+                                    let dotColor = isActive ? 'bg-white' : 'bg-gray-400';
+
+                                    if (lowerValue.includes('in progress')) {
+                                        activeStyles = 'bg-blue-600 text-white';
+                                        inactiveStyles = 'bg-white text-blue-700 border-blue-300 hover:bg-blue-50 hover:border-blue-400';
+                                        dotColor = isActive ? 'bg-white' : 'bg-blue-500';
+                                    } else if (lowerValue.includes('blocked') || lowerValue.includes('on hold') || lowerValue.includes('revision') || lowerValue.includes('clarification')) {
+                                        activeStyles = 'bg-orange-500 text-white';
+                                        inactiveStyles = 'bg-white text-orange-700 border-orange-300 hover:bg-orange-50 hover:border-orange-400';
+                                        dotColor = isActive ? 'bg-white' : 'bg-orange-500';
+                                    } else if (lowerValue.includes('not started') || lowerValue.includes('todo')) {
+                                        activeStyles = 'bg-gray-600 text-white';
+                                        inactiveStyles = 'bg-white text-gray-600 border-gray-300 hover:bg-gray-100 hover:border-gray-400';
+                                        dotColor = isActive ? 'bg-white' : 'bg-gray-400';
+                                    }
+
+                                    return (
+                                        <button
+                                            key={option.value}
+                                            onClick={() => setActiveStatusTab(option.value)}
+                                            className={`
+                                                px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150
+                                                flex items-center gap-2 border
+                                                ${isActive ? `${activeStyles} shadow-md` : inactiveStyles}
+                                            `}
+                                        >
+                                            <span className={`w-2 h-2 rounded-full ${dotColor}`} />
+                                            {option.label}
+                                        </button>
+                                    );
+                                })}
+                        </div>
+                    </div>
 
                     {/* Task Table */}
                     <TaskWiseTable

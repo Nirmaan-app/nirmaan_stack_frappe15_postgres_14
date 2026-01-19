@@ -1,19 +1,19 @@
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeDocumentEventListener, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { CheckIcon, CirclePlus, Edit, Eye, PencilIcon, PencilRuler, Printer, Save, SquarePlus, Trash, Trash2, TriangleAlert, RefreshCcw } from "lucide-react";
+import { useFrappeCreateDoc, useFrappeDocumentEventListener, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { CheckIcon, CirclePlus, Edit, PencilIcon, Save, SquarePlus, Trash, Trash2, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useReactToPrint } from "react-to-print";
 // import { Button } from "../ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Pencil2Icon } from "@radix-ui/react-icons";
 // import { Button, Layout } from 'antd';
 import logo from "@/assets/logo-svg.svg";
 import { AddressView } from "@/components/address-view";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
-import { VendorHoverCard } from "@/components/helpers/vendor-hover-card";
+import { SRDetailsCard } from "./components/SRDetailsCard";
+import { SRComments } from "./components/SRComments";
 import {
     AlertDialog,
     AlertDialogCancel,
@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
@@ -48,7 +48,9 @@ import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
 import { SelectServiceVendorPage } from "./select-service-vendor";
 import { useUserData } from "@/hooks/useUserData";
 import { SRDeleteConfirmationDialog } from "../components/SRDeleteConfirmationDialog";
+import { SRFinalizeDialog, SRRevertFinalizeDialog } from "../components/SRFinalizeDialog";
 import { useServiceRequestLogic } from "../hooks/useServiceRequestLogic";
+import { useSRFinalizePermissions, useFinalizeSR, useRevertFinalizeSR } from "../hooks/useSRFinalize";
 import { DocumentAttachments } from "@/pages/ProcurementOrders/invoices-and-dcs/DocumentAttachments";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { DeletePaymentDialog } from "@/pages/ProjectPayments/update-payment/DeletePaymentDialog";
@@ -143,6 +145,49 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
         },
         navigateOnSuccessPath: "/service-requests?tab=approved-sr"
     });
+
+    // Finalization state and hooks
+    const [finalizeDialog, setFinalizeDialog] = useState(false);
+    const [revertFinalizeDialog, setRevertFinalizeDialog] = useState(false);
+    const [commentsRefreshTrigger, setCommentsRefreshTrigger] = useState(0);
+
+    const {
+        canFinalize,
+        canRevert,
+        isFinalized,
+        finalizedBy,
+        finalizedOn,
+        refetch: refetchFinalizePermissions,
+    } = useSRFinalizePermissions(id);
+
+    const handleFinalizeSuccess = useCallback(() => {
+        service_request_mutate();
+        refetchFinalizePermissions();
+        setCommentsRefreshTrigger(prev => prev + 1); // Refresh comments to show auto-remark
+        setFinalizeDialog(false);
+    }, [service_request_mutate, refetchFinalizePermissions]);
+
+    const handleRevertSuccess = useCallback(() => {
+        service_request_mutate();
+        refetchFinalizePermissions();
+        setCommentsRefreshTrigger(prev => prev + 1); // Refresh comments to show auto-remark
+        setRevertFinalizeDialog(false);
+    }, [service_request_mutate, refetchFinalizePermissions]);
+
+    const { finalize, isLoading: isFinalizingLoading } = useFinalizeSR(handleFinalizeSuccess);
+    const { revert, isLoading: isRevertingLoading } = useRevertFinalizeSR(handleRevertSuccess);
+
+    const handleFinalize = useCallback(() => {
+        if (id) {
+            finalize(id);
+        }
+    }, [finalize, id]);
+
+    const handleRevertFinalize = useCallback(() => {
+        if (id) {
+            revert(id);
+        }
+    }, [revert, id]);
 
     const { data: service_vendor, isLoading: service_vendor_loading } = useFrappeGetDoc<Vendors>("Vendors", service_request?.vendor, service_request?.vendor ? `Vendors ${service_request?.vendor}` : null)
 
@@ -392,105 +437,81 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
 
 
 
+    // Compute delete disabled state - also disabled when finalized
+    const deleteDisabled = isDeleting || summaryPage || accountsPage || isFinalized ||
+        ((projectPayments || [])?.length > 0) ||
+        ((orderData?.invoice_data?.data || [])?.length > 0) ||
+        (orderData?.owner !== user_id && role !== "Nirmaan Admin Profile" && role !== "Nirmaan PMO Executive Profile");
+
     return (
         <div className="flex-1 space-y-4">
-            <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
-                <CardHeader>
-                    <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
-                        <div>
-                            <h2>WO Details</h2>
-                            <Badge>{orderData?.status}</Badge>
-                        </div>
-                        <div className="flex items-center gap-2">
+            {/* WO Details Card - using new SRDetailsCard component */}
+            <SRDetailsCard
+                orderData={orderData}
+                project={project}
+                vendor={service_vendor}
+                gstEnabled={gstEnabled}
+                getTotal={getTotal}
+                amountPaid={getAmountPaid}
+                isRestrictedRole={isRestrictedRole}
+                onDelete={() => setDeleteDialog(true)}
+                onAmend={toggleAmendDialog}
+                onAddInvoice={toggleNewInvoiceDialog}
+                onRequestPayment={toggleRequestPaymentDialog}
+                onPreview={toggleSrPdfSheet}
+                onEditTerms={toggleEditSrTermsDialog}
+                summaryPage={summaryPage}
+                accountsPage={accountsPage}
+                deleteDisabled={deleteDisabled}
+                isDeleting={isDeleting}
+                // Finalization props
+                isFinalized={isFinalized}
+                finalizedBy={finalizedBy}
+                finalizedOn={finalizedOn}
+                canFinalize={canFinalize}
+                canRevert={canRevert}
+                onFinalize={() => setFinalizeDialog(true)}
+                onRevertFinalize={() => setRevertFinalizeDialog(true)}
+                isProcessingFinalize={isFinalizingLoading || isRevertingLoading}
+            />
 
-                            {/* For restricted roles (PM, Estimates Executive), only show Preview button */}
-                            {isRestrictedRole ? (
-                                <Button variant={"outline"} disabled={!orderData?.project_gst} onClick={toggleSrPdfSheet} className="text-xs flex items-center gap-1 border border-primary px-2">
-                                    <Eye className="w-4 h-4" />
-                                    Preview
-                                </Button>
-                            ) : (
-                                <>
-                                    <Button
-                                        disabled={isDeleting || summaryPage || accountsPage || ((projectPayments || [])?.length > 0) || ((orderData?.invoice_data?.data || [])?.length > 0) || (orderData?.owner !== user_id && role !== "Nirmaan Admin Profile" && role !== "Nirmaan PMO Executive Profile")}
-                                        variant={"outline"} onClick={() => setDeleteDialog(true)} className="text-xs flex items-center gap-1 border border-primary px-2">
-                                        <Trash2 className="w-4 h-4" />
-                                        Delete
-                                    </Button>
+            {/* Delete Confirmation Dialog */}
+            <SRDeleteConfirmationDialog
+                open={deleteDialog}
+                onOpenChange={() => setDeleteDialog(false)}
+                itemName={orderData?.name}
+                itemType="Service Request"
+                onConfirm={handleConfirmDelete}
+                isDeleting={isDeleting}
+            />
 
-                                    {/* Render the Delete Confirmation Dialog */}
-                                    <SRDeleteConfirmationDialog
-                                        open={deleteDialog}
-                                        onOpenChange={() => setDeleteDialog(false)}
-                                        itemName={orderData?.name}
-                                        itemType="Service Request" // Specific type for this instance
-                                        onConfirm={handleConfirmDelete}
-                                        isDeleting={isDeleting}
-                                    />
-                                    {!summaryPage && !accountsPage && (
-                                        <Button variant={"outline"} onClick={toggleAmendDialog} className="text-xs flex items-center gap-1 border border-primary px-2">
-                                            <PencilRuler className="w-4 h-4" />
-                                            Amend
-                                        </Button>
-                                    )}
+            {/* Finalize Confirmation Dialog */}
+            <SRFinalizeDialog
+                open={finalizeDialog}
+                onOpenChange={setFinalizeDialog}
+                srName={orderData?.name}
+                onConfirm={handleFinalize}
+                isProcessing={isFinalizingLoading}
+            />
 
-                                    <Button
-                                        variant="outline"
-                                        className="text-primary border-primary text-xs px-2"
-                                        onClick={toggleNewInvoiceDialog}
-                                    >
-                                        Add Invoice
-                                    </Button>
+            {/* Revert Finalization Dialog */}
+            <SRRevertFinalizeDialog
+                open={revertFinalizeDialog}
+                onOpenChange={setRevertFinalizeDialog}
+                srName={orderData?.name}
+                onConfirm={handleRevertFinalize}
+                isProcessing={isRevertingLoading}
+            />
 
-                                    <Sheet open={amendDialog} onOpenChange={toggleAmendDialog}>
-                                        <SheetContent className="overflow-auto">
-                                            <SheetHeader>
-                                                <SheetTitle className="text-center mb-6">Amend WO!</SheetTitle>
-                                            </SheetHeader>
-                                            <SelectServiceVendorPage sr_data={service_request} sr_data_mutate={service_request_mutate} amend={true} />
-                                        </SheetContent>
-                                    </Sheet>
-                                    <Button variant={"outline"} disabled={!orderData?.project_gst} onClick={toggleSrPdfSheet} className="text-xs flex items-center gap-1 border border-primary px-2">
-                                        <Eye className="w-4 h-4" />
-                                        Preview
-                                    </Button>
-                                </>
-                            )}
-                        </div>
-                    </CardTitle>
-                </CardHeader>
-
-                <CardContent className="max-sm:text-xs">
-                    <div className="grid grid-cols-3 gap-4 space-y-2 max-sm:grid-cols-2">
-                        <div className="flex flex-col gap-2">
-                            <Label className=" text-red-700">Vendor</Label>
-                            <VendorHoverCard vendor_id={orderData?.vendor} />
-                        </div>
-                        <div className="flex flex-col gap-2 sm:items-center max-sm:items-end">
-                            <Label className=" text-red-700">Package</Label>
-                            <span>Services</span>
-                        </div>
-                        <div className="flex flex-col gap-2 sm:items-end">
-                            <Label className=" text-red-700">Date Created</Label>
-                            <span>{formatDate(orderData?.creation)}</span>
-                        </div>
-                        <div className="flex flex-col gap-2 max-sm:items-end">
-                            <Label className=" text-red-700">Total (Excl. GST)</Label>
-                            <span>{formatToRoundedIndianRupee(getTotal)}</span>
-                        </div>
-                        <div className="flex flex-col gap-2 sm:items-center">
-                            <Label className=" text-red-700">Total Amount Paid</Label>
-                            <span>{getAmountPaid ? formatToRoundedIndianRupee(getAmountPaid) : "--"}</span>
-                        </div>
-                        {gstEnabled && (
-                            <div className="flex flex-col gap-2 items-end">
-                                <Label className=" text-red-700">Total (Incl. GST)</Label>
-                                <span>{formatToRoundedIndianRupee(getTotal * 1.18)}</span>
-                            </div>
-                        )}
-                    </div>
-                </CardContent>
-            </Card>
+            {/* Amend Sheet */}
+            <Sheet open={amendDialog} onOpenChange={toggleAmendDialog}>
+                <SheetContent className="overflow-auto">
+                    <SheetHeader>
+                        <SheetTitle className="text-center mb-6">Amend WO!</SheetTitle>
+                    </SheetHeader>
+                    <SelectServiceVendorPage sr_data={service_request} sr_data_mutate={service_request_mutate} amend={true} />
+                </SheetContent>
+            </Sheet>
 
             {/* Hide Transaction Details and WO Options for restricted roles (PM, Estimates Executive) */}
             {!isRestrictedRole && (
@@ -729,7 +750,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                         <TriangleAlert className="text-primary max-sm:w-4 max-sm:h-4" />
                                     )}
                                 </div>
-                                {!summaryPage && !accountsPage && (
+                                {!summaryPage && !accountsPage && !isFinalized && (
                                     <Dialog open={editSrTermsDialog} onOpenChange={toggleEditSrTermsDialog}>
                                         <DialogTrigger>
                                             <Button variant={"outline"} className="felx items-center gap-1">
@@ -925,7 +946,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                 <th className="w-[5%] text-left ">
                                     S.No.
                                 </th>
-                                <th className="w-[50%] text-left px-2">
+                                <th className={isRestrictedRole ? "w-[60%] text-left px-2" : "w-[50%] text-left px-2"}>
                                     Service Description
                                 </th>
                                 <th className="w-[10%]  text-center px-2">
@@ -934,12 +955,16 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                 <th className="w-[10%]  text-center px-2">
                                     Quantity
                                 </th>
-                                <th className="w-[10%]  text-center px-2">
-                                    Rate
-                                </th>
-                                <th className="w-[10%]  text-center px-2">
-                                    Amount
-                                </th>
+                                {!isRestrictedRole && (
+                                    <>
+                                        <th className="w-[10%]  text-center px-2">
+                                            Rate
+                                        </th>
+                                        <th className="w-[10%]  text-center px-2">
+                                            Amount
+                                        </th>
+                                    </>
+                                )}
                             </tr>
                         </thead>
                         <tbody className="max-sm:text-xs text-sm">
@@ -948,7 +973,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                     <td className="w-[5%] text-start ">
                                         {index + 1}
                                     </td>
-                                    <td className="w-[50%] text-left py-1">
+                                    <td className={isRestrictedRole ? "w-[60%] text-left py-1" : "w-[50%] text-left py-1"}>
                                         <p className="font-semibold">{item?.category}</p>
                                         <span className="whitespace-pre-wrap">{item?.description}</span>
                                     </td>
@@ -958,18 +983,29 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                     <td className="w-[10%]  text-center">
                                         {item.quantity}
                                     </td>
-                                    <td className="w-[10%]  text-center">
-                                        {formatToIndianRupee(item?.rate)}
-                                    </td>
-                                    <td className="w-[10%]  text-center">
-                                        {formatToIndianRupee(parseNumber(item.rate) * parseNumber(item.quantity))}
-                                    </td>
+                                    {!isRestrictedRole && (
+                                        <>
+                                            <td className="w-[10%]  text-center">
+                                                {formatToIndianRupee(item?.rate)}
+                                            </td>
+                                            <td className="w-[10%]  text-center">
+                                                {formatToIndianRupee(parseNumber(item.rate) * parseNumber(item.quantity))}
+                                            </td>
+                                        </>
+                                    )}
                                 </tr>
                             ))}
                         </tbody>
                     </table>
                 </CardContent>
             </Card>
+
+            {/* SR Comments Card */}
+            {id && (
+                <Card className="rounded-sm shadow-md p-2">
+                    <SRComments srId={id} refreshTrigger={commentsRefreshTrigger} />
+                </Card>
+            )}
 
             {/* SR PDF Sheet */}
             <SRPdf

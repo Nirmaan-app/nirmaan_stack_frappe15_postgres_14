@@ -1,11 +1,8 @@
-import { Radio } from "antd";
 import { cn } from "@/lib/utils";
 import { DataTable } from "@/components/data-table/new-data-table";
-import { useCredits } from "./hooks/useCredits"; // Import our new hook
-// import { PoPaymentTermRow } from "@types/NirmaanStack/POPaymentTerms";
-
+import { useCredits } from "./hooks/useCredits";
+import { PoPaymentTermRow } from "@/types/NirmaanStack/POPaymentTerms";
 import { RequestPaymentDialog } from "@/components/dialogs/RequestPaymentDialog";
-import { EditTermsDialog } from "../ProcurementOrders/purchase-order/components/POPaymentTermsCard";
 
 const CreditsPage = () => {
   // 1. Get all state, props, and handlers from our custom hook.
@@ -49,14 +46,27 @@ const CreditsPage = () => {
         <h2 className="text-2xl font-bold tracking-tight">Credits</h2>
       </div> */}
 
+      {/* Status Filter Tabs - matching Work Plan Zone pattern */}
       <div className="pb-4">
-        <Radio.Group
-          options={PAYMENT_TERM_STATUS_OPTIONS}
-          value={currentStatus}
-          onChange={(e) => handleStatusChange(e.target.value)}
-          optionType="button"
-          buttonStyle="solid"
-        />
+        <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">
+          <div className="flex gap-1.5 sm:flex-wrap pb-1 sm:pb-0">
+            {PAYMENT_TERM_STATUS_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => handleStatusChange(option.value)}
+                className={`px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded
+                  transition-colors flex items-center gap-1.5 whitespace-nowrap
+                  ${currentStatus === option.value
+                    ? "bg-sky-500 text-white"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       <DataTable<PoPaymentTermRow>

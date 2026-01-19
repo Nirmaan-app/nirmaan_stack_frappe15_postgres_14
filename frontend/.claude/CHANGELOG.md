@@ -4,6 +4,250 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-19: SR Comments Standalone Card with Add/Delete
+
+### Summary
+Extracted comments functionality from SRDetailsCard into a dedicated SRComments component with role-based comment creation and deletion capabilities. Uses the existing `sr_remarks` backend API.
+
+### Files Created
+- `src/pages/ServiceRequests/service-request/hooks/useSRRemarks.ts` - Hooks for SR remarks API:
+  - `useSRRemarks()` - Fetch remarks with optional filter
+  - `useAddSRRemark()` - Add new remark
+  - `useDeleteSRRemark()` - Delete own remarks
+
+- `src/pages/ServiceRequests/service-request/components/SRComments.tsx` - Standalone comments card with:
+  - Role-based filter pills (All, Accountant, Procurement, Admin) with counts
+  - Add comment form with Ctrl+Enter submit
+  - Delete own comments capability
+  - Timeline display with avatars and relative time
+
+### Files Modified
+- `src/pages/ServiceRequests/service-request/approved-sr.tsx`:
+  - Removed `universalComments` and `usersList` data fetching
+  - Removed comments props from SRDetailsCard
+  - Added SRComments card after Order Details section
+
+- `src/pages/ServiceRequests/service-request/components/SRDetailsCard.tsx`:
+  - Removed Comments section (Section 5)
+  - Removed `usersList`, `universalComments` props
+  - Removed helper functions: `getFullName`, `getInitials`, `formatRelativeTime`, `getSubjectDotColor`
+
+### Role-Based Comment Access
+| Role | Can Add | Subject Category |
+|------|---------|------------------|
+| Accountant | Yes | `accountant_remark` |
+| Procurement Executive | Yes | `procurement_remark` |
+| Admin/PMO/Project Lead | Yes | `admin_remark` |
+| Others | No | - |
+
+All users can delete their own comments.
+
+---
+
+## 2026-01-19: Hide Financial Information from Project Manager in PO Details View
+
+### Summary
+Extended role-based financial data hiding to the PO Details view for users with "Nirmaan Project Manager Profile" role. Follows the pattern established in commit `53594079` (WO/PO Summary tabs).
+
+### Files Modified
+- `src/pages/ProcurementOrders/purchase-order/components/PODetails.tsx`:
+  - Added `isProjectManager` check
+  - Wrapped Amounts section (PO Amount Incl/Excl GST, Total Invoiced, Amount Paid, Amount Delivered) with conditional
+
+- `src/pages/ProcurementOrders/purchase-order/components/POPdf.tsx`:
+  - Hide PO render/preview section for Project Manager (Print, Download buttons were already hidden)
+  - Keep "Download Without Rate" button visible for all roles
+
+- `src/pages/ProcurementOrders/purchase-order/PurchaseOrder.tsx`:
+  - Added `isProjectManager` useMemo check
+  - Hide Payment Details accordion (TransactionDetailsCard, POPaymentTermsCard) entirely
+  - Hide financial columns in Order Details desktop table: Rate, Tax, Amount, Amount (incl.GST)
+  - Hide financial fields in Order Details mobile view: Rate, Tax, Total (incl. GST)
+
+### What Project Managers See
+| Section | Visible | Hidden |
+|---------|---------|--------|
+| PO Details Card | Vendor, Package, Status, Timeline | Amounts section |
+| Preview Sheet | "Download Without Rate" button | Print, Download, PO render |
+| Payment Details | - | Entire accordion hidden |
+| Order Details | S.No., Item Name, Unit, Qty, Delivered Qty | Rate, Tax, Amount, Amount (incl.GST) |
+
+---
+
+## 2026-01-19: SR Summary and ApprovedSR Consolidation
+
+### Summary
+Consolidated the separate sr-summary.tsx and ApprovedSR components into a unified view with role-based feature visibility. Users no longer need to click "View Order" to access full features.
+
+### Files Created
+- `src/pages/ServiceRequests/service-request/components/SRDetailsCard.tsx` - Reusable sectioned card component with Header, Info (Project|Package|Vendor), Amounts (color-coded), Timeline, Comments (collapsible), and Actions sections
+
+### Files Modified
+- `src/pages/ServiceRequests/service-request/approved-sr.tsx`:
+  - Integrated SRDetailsCard component
+  - Added Nirmaan Comments fetch for comments section
+  - Added Nirmaan Users fetch for commenter names
+  - Cleaned up unused imports (Badge, VendorHoverCard, Eye, PencilRuler, etc.)
+
+- `src/components/helpers/routesConfig.tsx`:
+  - Changed index route for `:srId` to use ApprovedSR directly
+  - Removed `/order-view` route (no longer needed)
+
+- `src/pages/ServiceRequests/service-request/list-sr.tsx`:
+  - Updated link from `${item.name}/order-view` to `${item.name}`
+
+- `src/pages/projects/components/ProjectSRSummaryTable.tsx`:
+  - Updated link from `/service-requests-list/${sr.name}/order-view` to `/service-requests-list/${sr.name}`
+
+- `src/pages/vendors/components/LedgerTableRow.tsx`:
+  - Updated SR links to remove `/order-view`
+
+### Files Retired
+- `src/pages/Retired Components/sr-summary.tsx` - Original component with all code commented out and documentation header
+
+### Route Changes
+- **Before:** `/service-requests-list/:srId` → sr-summary.tsx (read-only), `/service-requests-list/:srId/order-view` → ApprovedSR (full management)
+- **After:** `/service-requests-list/:srId` → ApprovedSR (unified view with role-based features)
+
+### Role-Based Access (preserved from ApprovedSR)
+| Feature | PM / Estimates | Admin / PMO / Others |
+|---------|---------------|---------------------|
+| View SR Details | ✓ | ✓ |
+| PDF Preview | ✓ | ✓ |
+| Delete/Amend/Invoice/Payment | ✗ | ✓ |
+
+---
+
+## 2026-01-17: Customer Page UI Revamp & Nickname Feature
+
+### Summary
+Complete redesign of the Customer detail page with enterprise-grade components, migration from Ant Design to shadcn Tabs, addition of customer filtering for Project Invoices, and new customer_nickname field across the system.
+
+### Files Modified
+
+**Customer Page UI (Phase 1-2):**
+- `src/pages/customers/customer.tsx`:
+  - Replaced Ant Design `ConfigProvider/Menu` with shadcn `Tabs` component
+  - Added lucide icons (LayoutDashboard, Receipt) for tab visual enhancement
+  - Simplified handlers: `mainTabClick` → `handleMainTabChange`
+  - Display customer nickname alongside company name in header
+
+- `src/pages/customers/CustomerOverview.tsx`:
+  - Complete redesign following `UserOverviewTab.tsx` patterns
+  - Added `StatCard` component with hover effects and gradient overlays
+  - Added `InfoItem` component following icon + label + value pattern
+  - Created gradient header card with overlapping Building2 icon
+  - Display customer stats: Total Projects, Active Projects, Days as Customer
+  - Replaced Ant Radio.Group with shadcn Tabs for sub-navigation
+  - Added new "Invoices" tab for customer-scoped project invoices
+
+**Project Invoices Customer Filtering (Phase 3):**
+- `src/pages/ProjectInvoices/config/projectInvoices.config.tsx`:
+  - Added `getProjectInvoiceStaticFilters()` helper function
+  - Added `hideCustomerColumn` option to column generator
+  - Conditionally hide customer column when viewing from customer context
+
+- `src/pages/ProjectInvoices/AllProjectInvoices.tsx`:
+  - Destructured and wired up `customerId` prop
+  - Used static filters helper for `additionalFilters`
+  - Pass `customerName` to summary card for context display
+
+**Customer Nickname Feature:**
+- `nirmaan_stack/doctype/customers/customers.json`:
+  - Added `customer_nickname` field (Data, required, in_list_view)
+
+- `src/types/NirmaanStack/Customers.ts`:
+  - Added `customer_nickname: string` to interface
+
+- `src/pages/customers/add-new-customer.tsx`:
+  - Added nickname field with validation (2-30 chars)
+  - Fixed validation message typo: "Employee Name" → "Company Name"
+
+- `src/pages/customers/edit-customer.tsx`:
+  - Added nickname field with change detection
+
+- `src/pages/customers/customers.constants.ts`:
+  - Added nickname to `CUSTOMER_LIST_FIELDS_TO_FETCH`
+  - Added nickname to `CUSTOMER_SEARCHABLE_FIELDS`
+
+- `src/pages/customers/customers.tsx`:
+  - Added Nickname column to customers list table
+
+**Customer Statistics API:**
+- `nirmaan_stack/api/customers/customer_stats.py` (NEW):
+  - Added `get_customer_stats()` whitelisted API
+  - Returns total, by_state breakdown, with/without projects, recent_30_days
+
+- `src/pages/customers/components/CustomersSummaryCard.tsx`:
+  - Complete redesign with state-based color pills
+  - Integrated with customer_stats API
+  - Added expandable dropdown for state breakdown
+
+**Documentation:**
+- `.claude/context/_index.md` - Added customers domain reference
+- `.claude/context/domain/customers.md` (NEW) - Customer management docs
+
+### Design Patterns Established
+
+**Enterprise Minimalist Info Cards:**
+```tsx
+<InfoItem
+  icon={<Building2 className="h-4 w-4" />}
+  label="Company Name"
+  value={data?.company_name}
+/>
+```
+
+**Stat Cards with Hover Effects:**
+```tsx
+<StatCard
+  icon={<FolderKanban className="h-5 w-5" />}
+  label="Total Projects"
+  value={totalProjectCount ?? 0}
+  colorClass="text-blue-600"
+/>
+```
+
+**Conditional Column Hiding:**
+```typescript
+getProjectInvoiceColumns({
+  hideCustomerColumn: !!customerId, // Hide when in customer context
+})
+```
+
+---
+
+## 2026-01-16: WebSocket Documentation Added
+
+### Summary
+Created comprehensive context documentation for Socket.IO real-time integration between Frappe backend and React frontend.
+
+### Files Modified
+
+- `.claude/context/websocket.md` - **NEW**
+  - Architecture overview diagram
+  - Key files reference table
+  - Development proxy setup details
+  - Complete event naming convention table (20+ events)
+  - Backend event publishing pattern with commit-before-publish rule
+  - Frontend event handling flow (SocketInitializer -> socketListeners -> eventListeners)
+  - Notification store structure and methods
+  - Step-by-step guide for adding new event types
+  - Debugging tips and common issues
+
+- `.claude/context/_index.md`
+  - Added websocket.md to Available Context Files table
+  - Updated Directory Structure to include websocket.md
+
+### Key Patterns Documented
+
+1. **Event naming**: `{doctype}:{action}` (e.g., `pr:new`, `po:amended`)
+2. **Critical rule**: Always `frappe.db.commit()` BEFORE `publish_realtime()` to avoid race conditions
+3. **Event flow**: Backend publishes -> Socket.IO -> Frontend listeners -> Fetch notification doc -> Update Zustand store
+4. **Deduplication**: Notification store checks for existing notifications by `name` before adding
+
+---
+
 ## 2026-01-15: Dispatch PO - Mandatory Critical Task Linking
 
 ### Summary

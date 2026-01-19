@@ -161,7 +161,7 @@ export const ProjectDetailsStep: React.FC<ProjectDetailsStepProps> = ({
                 )}
             />
 
-            {/* Project Value (excl. GST) */}
+            {/* Project Value fields hidden - auto-calculated from Customer PO details
             <FormField
                 control={form.control}
                 name="project_value"
@@ -184,7 +184,6 @@ export const ProjectDetailsStep: React.FC<ProjectDetailsStepProps> = ({
                 )}
             />
 
-            {/* Project Value (incl. GST) */}
             <FormField
                 control={form.control}
                 name="project_value_gst"
@@ -206,6 +205,7 @@ export const ProjectDetailsStep: React.FC<ProjectDetailsStepProps> = ({
                     </FormItem>
                 )}
             />
+            */}
 
             {/* Project Type */}
             <FormField
@@ -262,7 +262,7 @@ export const ProjectDetailsStep: React.FC<ProjectDetailsStepProps> = ({
                 )}
             />
 
-            {/* Project GST */}
+            {/* Nirmaan GST used for billing */}
             <FormField
                 control={form.control}
                 name="project_gst_number"
@@ -272,7 +272,7 @@ export const ProjectDetailsStep: React.FC<ProjectDetailsStepProps> = ({
                     return (
                         <FormItem className="lg:flex lg:items-center gap-4">
                             <FormLabel className="md:basis-2/12">
-                                Project GST<sup className="pl-1 text-sm text-red-600">*</sup>
+                                Nirmaan GST used for billing<sup className="pl-1 text-sm text-red-600">*</sup>
                             </FormLabel>
                             <div className="md:basis-2/4">
                                 <Select
@@ -290,7 +290,7 @@ export const ProjectDetailsStep: React.FC<ProjectDetailsStepProps> = ({
                                     disabled={field.disabled}
                                 >
                                     <SelectTrigger className="w-full">
-                                        <SelectValue placeholder="Select Project GST" />
+                                        <SelectValue placeholder="Select Nirmaan GST" />
                                     </SelectTrigger>
                                     <SelectContent>
                                         {gstOptions.map((option) => (

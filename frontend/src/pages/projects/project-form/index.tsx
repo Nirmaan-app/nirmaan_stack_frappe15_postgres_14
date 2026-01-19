@@ -118,7 +118,7 @@ export const ProjectForm = () => {
         if (!gstList || gstList.length === 0) {
             toast({
                 title: "Failed!",
-                description: "At least one Project GST location must be selected.",
+                description: "At least one Nirmaan GST location must be selected.",
                 variant: "destructive",
             });
             return;

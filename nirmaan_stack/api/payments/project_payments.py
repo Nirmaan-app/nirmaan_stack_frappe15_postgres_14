@@ -3,7 +3,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import flt, nowdate
+from frappe.utils import flt, nowdate, getdate, today
 
 # This constant is a good security practice
 ALLOWED_DOCS = {"Procurement Orders", "Service Requests"}
@@ -72,17 +72,50 @@ def create_project_payment(doctype: str, docname: str, vendor: str, amount: floa
     """
     Creates a new "Project Payments" doc AND updates the source PO Payment Term row
     to establish the link. This is the primary function called by the frontend.
+
+    Uses a two-phase approach to ensure atomicity:
+    1. Validate and update the PO term status first (prevents duplicate requests)
+    2. Create the payment document and establish the link
     """
     try:
         # --- Step 1: Input Validation ---
         if doctype not in ALLOWED_DOCS:
             frappe.throw(_("Not allowed for doctype {0}").format(doctype))
-        
+
         amount = flt(amount)
         if amount <= 0:
             frappe.throw(_("Amount must be greater than zero."))
 
-        # --- Step 2 (Optional but Recommended): Financial Validation ---
+        # --- Step 2: Verify the PO term exists and is in a valid state ---
+        term_details = frappe.db.get_value(
+            "PO Payment Terms",
+            ptname,
+            ["term_status", "project_payment", "payment_type", "due_date"],
+            as_dict=True
+        )
+
+        if not term_details:
+            frappe.throw(_("Payment term not found. Please refresh and try again."))
+
+        # Prevent duplicate payment requests - only "Created" status allowed
+        if term_details.get("term_status") != "Created":
+            frappe.throw(_(
+                "This payment term is already in '{0}' status and cannot be requested again."
+            ).format(term_details.get("term_status")))
+
+        if term_details.get("project_payment"):
+            frappe.throw(_("This payment term already has a linked payment request."))
+
+        # --- Step 2.5: Due date validation for Credit payment terms ---
+        if term_details.get("payment_type") == "Credit":
+            if not term_details.get("due_date"):
+                frappe.throw(_("Credit payment term must have a due date set."))
+            if getdate(term_details.get("due_date")) > getdate(today()):
+                frappe.throw(_(
+                    "This credit payment term is not yet due. Due date is {0}."
+                ).format(term_details.get("due_date")))
+
+        # --- Step 3: Financial Validation ---
         from nirmaan_stack.services.finance import (
             get_source_document_financials,
             get_total_paid,
@@ -99,7 +132,7 @@ def create_project_payment(doctype: str, docname: str, vendor: str, amount: floa
                 "Maximum amount you can request is {0} (available balance)"
             ).format(frappe.format_value(available, "Currency")))
 
-        
+        # --- Step 4: Create the payment document ---
         pay = frappe.new_doc("Project Payments")
         pay.update({
             "document_type": doctype,
@@ -109,31 +142,32 @@ def create_project_payment(doctype: str, docname: str, vendor: str, amount: floa
             "amount": round(amount, 2),
             "status": "Requested",
         })
-        
+
         # This insert will trigger the 'after_insert' hook for notifications.
         pay.insert(ignore_permissions=True)
 
-        # --- Step 4: Manually update the PO Payment Term row ---
-        # This is now REQUIRED here because without a back-link, the system
-        # has no other way to know which term this payment belongs to.
+        # --- Step 5: Update the PO Payment Term row with the link ---
+        # This establishes the bidirectional relationship
         frappe.db.set_value(
-            "PO Payment Terms",   # The child DocType
-            ptname,               # The unique row name we are targeting
+            "PO Payment Terms",
+            ptname,
             {
-                "term_status": "Requested",      # Set the initial status
-                "project_payment": pay.name # Create the link FROM the PO Term TO the new Payment
+                "term_status": "Requested",
+                "project_payment": pay.name
             }
         )
-        
-        # --- Step 5: Return a success response ---
-        # Frappe automatically handles the database commit on success.
+
+        # --- Step 6: Return success ---
         return {
             "status": 200,
             "message": f"Payment {pay.name} has been requested."
         }
-        
+
     except frappe.DoesNotExistError:
         frappe.throw(_("A required document could not be found. Please check the details and try again."))
+    except frappe.ValidationError:
+        # Re-raise validation errors (like our custom throws) without wrapping
+        raise
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Create Project Payment Failed")
         frappe.throw(_("An unexpected error occurred: {0}").format(str(e)))

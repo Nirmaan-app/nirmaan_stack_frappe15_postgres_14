@@ -173,8 +173,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
           ?.filter(
             (user) =>
               !projectAssignees?.some((i) => i?.user === user?.name) &&
-              !["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(user?.role_profile) &&
-              user?.full_name !== "Administrator"
+              ["Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile"].includes(user?.role_profile)
           )
           ?.map((op) => ({
             // This is the structure react-select expects.
@@ -384,7 +383,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
               </p>
             </CardDescription> */}
             <CardDescription className="space-y-2 md:text-end">
-              <span>Project GST(s)</span>
+              <span>Nirmaan GST(s) for billing</span>
               <ul className="list-disc list-inside space-y-1">
                 {(typeof projectData?.project_gst_number === "string" ? JSON.parse(projectData?.project_gst_number) : projectData?.project_gst_number)?.list?.map((item) => (
                   <li key={item?.location}>

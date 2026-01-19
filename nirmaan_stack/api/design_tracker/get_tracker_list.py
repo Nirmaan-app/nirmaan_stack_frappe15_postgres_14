@@ -2,6 +2,19 @@ import frappe
 from collections import defaultdict
 import json
 
+# Roles that can see hidden trackers
+FULL_VISIBILITY_ROLES = {
+    "Nirmaan Admin Profile",
+    "Nirmaan PMO Executive Profile",
+    "Nirmaan Design Lead Profile",
+}
+
+def _get_user_role_profile(user: str) -> str:
+    """Get user's role profile."""
+    if user == "Administrator":
+        return "Nirmaan Admin Profile"
+    return frappe.db.get_value("Nirmaan Users", user.strip().lower(), "role_profile") or ""
+
 @frappe.whitelist()
 def get_trackers_with_stats():
     """
@@ -30,13 +43,22 @@ def get_trackers_with_stats():
     if not trackers:
         return []
 
+    # Role-based visibility check
+    user = frappe.session.user
+    role = _get_user_role_profile(user)
+    should_filter_hidden = user != "Administrator" and role not in FULL_VISIBILITY_ROLES
+
     result = []
-    
+
     # 2. Iterate and fetch full Element (Get Doc)
     for t in trackers:
         # Fetch the full document (includes child tables)
         doc = frappe.get_doc("Project Design Tracker", t.name)
-        
+
+        # Skip hidden trackers for non-privileged users
+        if should_filter_hidden and doc.get("hide_design_tracker"):
+            continue
+
         # Calculate stats
         total_tasks = 0
         completed_tasks = 0

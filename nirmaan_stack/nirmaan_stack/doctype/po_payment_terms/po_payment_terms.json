@@ -15,7 +15,6 @@
   "percentage",
   "amount",
   "due_date",
-  "status",
   "project_payment",
   "term_status"
  ],
@@ -72,11 +71,6 @@
    "fieldtype": "Link",
    "label": "Project",
    "options": "Projects"
-  },
-  {
-   "fieldname": "status",
-   "fieldtype": "Data",
-   "label": "Status"
   },
   {
    "fieldname": "term_status",

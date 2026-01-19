@@ -62,13 +62,26 @@ export const useProjectAllCredits = (projectId: string | undefined) => {
 
     const totals = useMemo(() => {
         const totalPurchase = creditTerms.reduce((sum, term) => sum + parseNumber(term.amount), 0);
+
+        // "Due" = Created status + due_date is on or before today
+        // This replaces the old "Scheduled" concept with real-time date-based calculation
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
         const due = creditTerms
-            .filter(cr => cr.term_status == "Scheduled")
+            .filter(cr => {
+                if (cr.term_status !== "Created") return false;
+                const dueDate = cr.due_date ? new Date(cr.due_date) : null;
+                if (!dueDate) return false;
+                dueDate.setHours(0, 0, 0, 0);
+                return dueDate <= today;
+            })
             .reduce((sum, term) => sum + parseNumber(term.amount), 0);
+
         const paid = creditTerms
             .filter(cr => cr.term_status === "Paid")
             .reduce((sum, term) => sum + parseNumber(term.amount), 0);
-            
+
         return {
             totalPurchase,
             due,

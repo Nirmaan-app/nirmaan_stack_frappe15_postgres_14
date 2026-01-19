@@ -122,7 +122,7 @@ def get_sr_remarks(sr_id: str, subject_filter: str = None) -> dict:
     remarks = frappe.get_all(
         "Nirmaan Comments",
         filters=filters,
-        fields=["name", "content", "subject", "comment_by", "creation"],
+        fields=["name", "content", "subject", "comment_by", "creation", "is_system_generated"],
         order_by="creation desc",
         limit=100,
     )
@@ -154,6 +154,7 @@ def get_sr_remarks(sr_id: str, subject_filter: str = None) -> dict:
             "comment_by": comment_by,
             "comment_by_name": user_names.get(comment_by_key, comment_by),
             "creation": str(remark["creation"]),
+            "is_system_generated": bool(remark.get("is_system_generated")),
         })
 
     # Get counts per category (without filter)
@@ -236,6 +237,10 @@ def delete_sr_remark(remark_id: str) -> dict:
     # Verify it's a SR remark
     if remark.comment_type != "sr_remark":
         frappe.throw(_("Invalid remark type"))
+
+    # Prevent deletion of system-generated comments
+    if remark.is_system_generated:
+        frappe.throw(_("System-generated comments cannot be deleted"))
 
     # Check ownership - users can only delete their own remarks
     current_user = frappe.session.user

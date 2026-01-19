@@ -6,6 +6,7 @@ export const CUSTOMER_DOCTYPE = 'Customers';
 export const CUSTOMER_LIST_FIELDS_TO_FETCH: (keyof CustomersType | 'name')[] = [
     'name', // Customer ID
     'company_name',
+    'customer_nickname',
     'company_contact_person',
     'company_phone',
     'company_email',
@@ -14,6 +15,7 @@ export const CUSTOMER_LIST_FIELDS_TO_FETCH: (keyof CustomersType | 'name')[] = [
 
 export const CUSTOMER_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "company_name", label: "Company Name", placeholder: "Search by company name...", default: true },
+    { value: "customer_nickname", label: "Nickname", placeholder: "Search by nickname..." },
     { value: "name", label: "Customer ID", placeholder: "Search by ID..." },
     { value: "company_contact_person", label: "Contact Person", placeholder: "Search by contact person..." },
     { value: "company_email", label: "Email", placeholder: "Search by email..." },

@@ -360,6 +360,41 @@ const year = date.toLocaleString('default', { year: 'numeric' });
 return `${day}-${month}-${year}`; // "15-Jan-2026"
 ```
 
+### React-Select Search Pattern
+
+When using react-select for searchable dropdowns with >50 options, use `FuzzySearchSelect` from `@/components/ui/fuzzy-search-select.tsx` instead of plain ReactSelect.
+
+**Why:** Default react-select uses simple substring matching on label only. FuzzySearchSelect provides:
+- Multi-field search (label + value/ID)
+- Token-based matching ("proj 2024" finds items matching both tokens)
+- Partial word matching ("act" finds "actuators")
+- Relevance scoring and ranking
+- Field weighting (label > value)
+
+**Pattern:**
+```tsx
+import { FuzzySearchSelect, TokenSearchConfig } from "@/components/ui/fuzzy-search-select";
+
+const searchConfig: TokenSearchConfig = {
+    searchFields: ['label', 'value'],
+    partialMatch: true,
+    fieldWeights: { label: 2.0, value: 1.5 }
+};
+
+<FuzzySearchSelect
+    allOptions={options}
+    tokenSearchConfig={searchConfig}
+    onChange={handleChange}
+    // ...other react-select props
+/>
+```
+
+**Components using this pattern:**
+- `ProjectSelect` (`components/custom-select/project-select.tsx`) - Project selection dropdowns
+- `ItemSelectorControls` - Item selection in PR creation
+
+When reviewing or creating react-select components, check if FuzzySearchSelect would improve the UX.
+
 ---
 
 ## Important Notes

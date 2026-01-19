@@ -1,3 +1,20 @@
+/**
+ * RETIRED COMPONENT - sr-summary.tsx
+ *
+ * This component has been replaced by the consolidated ApprovedSR component.
+ * The ApprovedSR component now handles all SR statuses with role-based feature visibility.
+ *
+ * Retired on: 2026-01-19
+ * Replaced by: src/pages/ServiceRequests/service-request/approved-sr.tsx
+ * New details card: src/pages/ServiceRequests/service-request/components/SRDetailsCard.tsx
+ *
+ * Route changes:
+ * - Old: /service-requests-list/:srId -> sr-summary.tsx (read-only summary)
+ *        /service-requests-list/:srId/order-view -> ApprovedSR (full management)
+ * - New: /service-requests-list/:srId -> ApprovedSR (unified view with role-based features)
+ */
+
+/*
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 import logo from "@/assets/logo-svg.svg";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
@@ -193,7 +210,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                 <AlertDialogTrigger>
                                     <Button className="flex items-center gap-1">
                                         <Trash2 className="h-4 w-4" />
-                                        Delete</Button> 
+                                        Delete</Button>
                                 </AlertDialogTrigger>
                                 <AlertDialogContent>
                                     <AlertDialogHeader>
@@ -383,7 +400,6 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                     </tr>
                                     <tr className="border-t border-black">
                                         <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">No.</th>
-                                        {/* <th scope="col" className="py-3 text-left text-xs font-bold text-gray-800 tracking-wider">Services</th> */}
                                         <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Service Description</th>
                                         <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Unit</th>
                                         <th scope="col" className="px-4 py-1 text-left text-xs font-bold text-gray-800 tracking-wider">Quantity</th>
@@ -396,7 +412,6 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                     {sr_data && JSON.parse(sr_data?.service_order_list)?.list?.map((item, index) => (
                                         <tr key={item.id} className={`${index === (sr_data && JSON.parse(sr_data?.service_order_list))?.list?.length - 1 && "border-b border-black"} page-break-inside-avoid`}>
                                             <td className="py-2 text-sm whitespace-nowrap flex items-start">{index + 1}.</td>
-                                            {/* <td className="py-2 text-sm whitespace-nowrap text-wrap">{item?.category}</td> */}
                                             <td className="px-4 py-2 text-sm whitespace-nowrap text-wrap w-[95%]">
                                                 <p className="font-semibold">{item?.category}</p>
                                                 <span className="whitespace-pre-wrap">{item?.description}</span>
@@ -413,7 +428,6 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                         <td className=" py-2 whitespace-nowrap font-semibold flex justify-start w-[80%]"></td>
                                         <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
                                         <td className="px-4 py-2 text-sm whitespace-nowrap"></td>
-                                        {/* <td className="px-4 py-2 text-sm whitespace-nowrap"></td> */}
                                         {gstEnabled && <td className="px-4 py-2 text-sm whitespace-nowrap"></td>}
                                         <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">Sub-Total</td>
                                         <td className="px-4 py-2 text-sm whitespace-nowrap font-semibold">{formatToIndianRupee(getTotal())}</td>
@@ -422,7 +436,6 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                         <td></td>
                                         <td></td>
                                         <td></td>
-                                        {/* <td></td> */}
                                         {gstEnabled && <td></td>}
                                         <td></td>
                                         <td className="space-y-4 w-[110px] py-4 flex flex-col items-end text-sm font-semibold page-break-inside-avoid">
@@ -494,7 +507,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                         <ol className="list-decimal pl-6 space-y-2 text-sm">
                                             <li className="pl-2">All invoices shall be submitted in original and shall be tax invoices showing the breakup of tax structure/value payable at the prevailing rate and a clear description of goods.</li>
                                             <li className="pl-2">All invoices submitted shall have Delivery Challan/E-waybill for supply items.</li>
-                                            <li className="pl-2">All Invoices shall have the tax registration numbers mentioned thereon. The invoices shall be raised in the name of “Stratos Infra Technologies Pvt Ltd, Bangalore”.</li>
+                                            <li className="pl-2">All Invoices shall have the tax registration numbers mentioned thereon. The invoices shall be raised in the name of "Stratos Infra Technologies Pvt Ltd, Bangalore".</li>
                                             <li className="pl-2">Payments shall be only entertained after receipt of the correct invoice.</li>
                                             <li className="pl-2">In case of advance request, Advance payment shall be paid after the submission of an advance receipt (as suggested under GST law).</li>
                                         </ol>
@@ -518,8 +531,8 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
 
                                         <h2 className="text-lg font-semibold mt-6">3. Technical Specifications of the Work:</h2>
                                         <ol className="list-decimal pl-6 space-y-2 text-sm">
-                                            <li className="pl-2">All goods delivered shall conform to the technical specifications mentioned in the vendor’s quote referred to in this PO or as detailed in Annexure 1 to this PO.</li>
-                                            <li className="pl-2">Supply of goods or services shall be strictly as per Annexure - 1 or the Vendor’s quote/PI in case of the absence of Annexure - I.</li>
+                                            <li className="pl-2">All goods delivered shall conform to the technical specifications mentioned in the vendor's quote referred to in this PO or as detailed in Annexure 1 to this PO.</li>
+                                            <li className="pl-2">Supply of goods or services shall be strictly as per Annexure - 1 or the Vendor's quote/PI in case of the absence of Annexure - I.</li>
                                             <li className="pl-2">Any change in line items or quantities shall be duly approved by Nirmaan with rate approval prior to supply. Any goods supplied by the agency without obtaining due approvals shall be subject to the acceptance or rejection from Nirmaan.</li>
                                             <li className="pl-2">Any damaged/faulty material supplied needs to be replaced with a new item free of cost, without extending the completion dates.</li>
                                             <li className="pl-2">Material supplied in excess and not required by the project shall be taken back by the vendor at no cost to Nirmaan.</li>
@@ -536,7 +549,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
                                             <li className="pl-2"><div className="font-semibold">Termination/Cancellation:</div> If Nirmaan reasonably determines that it can no longer continue business with the vendor in accordance with applicable legal, regulatory, or professional obligations, Nirmaan shall have the right to terminate/cancel this PO immediately.</li>
                                             <li className="pl-2"><div className="font-semibold">Other General Conditions:</div></li>
                                             <ol className="list-decimal pl-6 space-y-1 text-sm">
-                                                <li className="pl-2">Insurance: All required insurance including, but not limited to, Contractors’ All Risk (CAR) Policy, FLEXA cover, and Workmen’s Compensation (WC) policy are in the vendor’s scope. Nirmaan in any case shall not be made liable for providing these insurance. All required insurances are required prior to the commencement of the work at the site.</li>
+                                                <li className="pl-2">Insurance: All required insurance including, but not limited to, Contractors' All Risk (CAR) Policy, FLEXA cover, and Workmen's Compensation (WC) policy are in the vendor's scope. Nirmaan in any case shall not be made liable for providing these insurance. All required insurances are required prior to the commencement of the work at the site.</li>
                                                 <li className="pl-2">Safety: The safety and security of all men deployed and materials placed by the Vendor or its agents for the project shall be at the risk and responsibility of the Vendor. Vendor shall ensure compliance with all safety norms at the site. Nirmaan shall have no obligation or responsibility on any safety, security & compensation related matters for the resources & material deployed by the Vendor or its agent.</li>
                                                 <li className="pl-2">Notice: Any notice or other communication required or authorized under this PO shall be in writing and given to the party for whom it is intended at the address given in this PO or such other address as shall have been notified to the other party for that purpose, through registered post, courier, facsimile or electronic mail.</li>
                                                 <li className="pl-2">Force Majeure: Neither party shall be liable for any delay or failure to perform if such delay or failure arises from an act of God or of the public enemy, an act of civil disobedience, epidemic, war, insurrection, labor action, or governmental action.</li>
@@ -564,3 +577,7 @@ export const SrSummaryPage = ({ sr_data, project_data, usersList, universalComme
 }
 
 export const Component = SrSummary
+*/
+
+// This file is retired - all code above is commented out
+export {};

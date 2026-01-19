@@ -34,9 +34,9 @@ interface StatusBadgeProps extends React.HTMLAttributes<HTMLDivElement> {
 // Define the mapping from status to badge variant
 // We use BadgeProps["variant"] for type safety
 const statusVariantMap: { [key: string]: BadgeProps["variant"] } = {
+  Due: "destructive",      // Created terms with past due_date - shown in red
   Approved: "green",
   Paid: "darkGreen",
-  Scheduled: "destructive",
   Requested: "yellow",
   Created: "gray",
 };
@@ -51,12 +51,11 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
   const variant = statusVariantMap[formattedStatus] || "default";
 
   return (
-    // We pass down the className so it can be customized from the outside
     <Badge
       variant={variant}
       className={cn("w-20 justify-center capitalize", className)}
     >
-      {status == "Scheduled" ? "Due" : status}
+      {status}
     </Badge>
   );
 }
@@ -118,11 +117,13 @@ export const getCreditsColumns = (
 
     {
       // Badge -> Center Align
-      accessorKey: "term_status",
-      id: "`tabPO Payment Terms`.term_status",
+      // Uses display_status which shows "Due" for Created terms with past due_date
+      accessorKey: "display_status",
+      id: "display_status",
       header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
       cell: ({ row }) => {
-        const status = row.original.term_status as string;
+        // display_status is computed by backend: "Due" for Created+past due, else term_status
+        const status = row.original.display_status as string;
         return (
           <div className="flex justify-start">
             <StatusBadge status={status} />
@@ -241,18 +242,23 @@ export const getCreditsColumns = (
   ];
 
 
-  if (currentStatus === "Scheduled") {
+  // Action column for "Due" tab
+  // Shows actions for terms that are eligible for payment requests:
+  // - "Due" status (Created with past due_date) -> Request Payment + Edit
+  // - "Requested" / "Approved" -> View only (no actions)
+  if (currentStatus === "Due") {
     columns.push({
       id: "actions",
       header: () => <div className="text-center">Actions</div>,
       cell: ({ row }) => {
-        const { term_status, name, postatus } = row.original;
+        const { display_status, name, postatus } = row.original;
         const encodedPoName = name.replace(/\//g, "&="); // Encode slashes
         const encodedPoStatus = postatus?.replace(" ", "%20");
 
         return (
           <div className="flex justify-center">
-            {term_status === "Scheduled" ? (
+            {/* Only "Due" status terms (Created with past due_date) can request payment */}
+            {display_status === "Due" ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="h-8 w-8 p-0">
@@ -274,7 +280,7 @@ export const getCreditsColumns = (
                     className="cursor-pointer"
                   >
                     <PencilIcon className="mr-2 h-4 w-4" />
-                    <span>Reschedule / Edit</span>
+                    <span>Edit Payment Term</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

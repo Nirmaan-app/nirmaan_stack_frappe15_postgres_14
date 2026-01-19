@@ -3,6 +3,7 @@ from frappe import _
 from frappe.utils import cint, getdate
 import json
 
+
 @frappe.whitelist()
 def get_task_wise_list(
     doctype=None,
@@ -66,13 +67,17 @@ def get_task_wise_list(
     
     for p in projects:
         try:
-            # Skip if project name doesn't match search term? 
+            # Skip if project name doesn't match search term?
             # NO, because a task inside might match.
-            
+
             # Fetch Full Doc (Cached preferably? No, get_doc hits DB usually unless key-value cached)
             # frappe.get_doc allows us to access .design_tracker_task
             doc = frappe.get_doc("Project Design Tracker", p.name)
-            
+
+            # Skip hidden trackers - tasks from hidden trackers are filtered for all users
+            if doc.get("hide_design_tracker"):
+                continue
+
             if not doc.design_tracker_task:
                 continue
                 

@@ -11,6 +11,7 @@
   "start_date",
   "overall_deadline",
   "status",
+  "hide_design_tracker",
   "design_tracker_task",
   "phase",
   "zone"
@@ -41,6 +42,13 @@
    "fieldname": "status",
    "fieldtype": "Data",
    "label": "Status"
+  },
+  {
+   "fieldname": "hide_design_tracker",
+   "fieldtype": "Check",
+   "label": "Hide Design Tracker",
+   "description": "When enabled, this tracker is hidden from Design Executives and Project Managers",
+   "default": "0"
   },
   {
    "fieldname": "design_tracker_task",

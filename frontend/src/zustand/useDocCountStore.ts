@@ -53,8 +53,9 @@ export interface SidebarCountsData {
     };
     credits: {
         all: number;
+        created: number;  // Payment terms created but not yet requested
+        due: number;      // Created terms with due_date <= today (replaces "scheduled")
         requested: number;
-        scheduled: number;
         approved: number;
         paid: number;
         return: number; // Note: 'return' is a keyword, but fine as a key.
@@ -116,8 +117,9 @@ export const useDocCountStore = create<Store>()(
         },
         credits: {
             all: 0,
+            created: 0,
+            due: 0,
             requested: 0,
-            scheduled: 0,
             approved: 0,
             paid: 0,
             return: 0,

@@ -4,6 +4,160 @@ Changes made by Claude Code sessions.
 
 ---
 
+### 2026-01-20: Credits API Refactoring with Row-Level Filtering
+
+**Summary:** Created custom Credits API that filters PO Payment Terms at the child row level (not parent level), removed deprecated "Scheduled" status, and implemented date-based "Due" logic.
+
+**Backend Files Created:**
+- `nirmaan_stack/api/credits/__init__.py` - Credits API module
+- `nirmaan_stack/api/credits/get_credits_list.py` - Custom API with row-level filtering
+- `nirmaan_stack/patches/v2_9/remove_scheduled_status_and_cleanup.py` - Migration patch
+
+**Backend Files Modified:**
+- `nirmaan_stack/api/approve_amend_po.py` - Updated payment term status handling
+- `nirmaan_stack/api/approve_vendor_quotes.py` - Updated payment term creation
+- `nirmaan_stack/api/payments/project_payments.py` - Removed scheduled status logic
+- `nirmaan_stack/api/sidebar_counts.py` - Updated "due" count calculation using date logic
+- `nirmaan_stack/integrations/controllers/project_payments.py` - Simplified status handling
+- `nirmaan_stack/hooks.py` - Removed scheduled task reference
+- `po_payment_terms.json` - Removed "Scheduled" from status options
+
+**Backend Files Deleted:**
+- `nirmaan_stack/tasks/payment_term_worker.py` - No longer needed (scheduled status removed)
+
+**Frontend Files Modified:**
+- `frontend/src/pages/credits/hooks/useCredits.ts` - Rewritten to use custom API
+- `frontend/src/pages/credits/CreditsPage.tsx` - Updated for new hook interface
+- `frontend/src/pages/credits/components/CreditsTableColumns.tsx` - Added display_status column
+- `frontend/src/pages/credits/credits.constant.ts` - Updated status options (Due/Requested/Approved/Paid)
+- `frontend/src/types/NirmaanStack/POPaymentTerms.ts` - Added display_status field
+- `frontend/src/pages/projects/hooks/useProjectAllCredits.ts` - Updated with date-based due logic
+- `frontend/src/pages/reports/hooks/useProjectReportCalculations.ts` - Updated CreditDueAmount calculation
+- `frontend/src/zustand/useDocCountStore.ts` - Track due/created counts
+- `frontend/src/pages/ProcurementOrders/purchase-order/components/POPaymentTermsCard.tsx` - UI updates
+
+**Key Technical Details:**
+- Custom SQL API filters at CHILD ROW level, not parent document level
+- "Due" tab shows: Created terms (due_date <= today) + Requested + Approved
+- Computed `display_status` field: Shows "Due" for eligible Created terms
+- Permission-aware based on user's project access
+- TanStack filter support with special handling for "Due" status
+
+**Credits API Endpoint:**
+```
+nirmaan_stack.api.credits.get_credits_list.get_credits_list
+```
+
+---
+
+### 2026-01-19: SR Finalization Workflow
+
+**Summary:** Implemented finalization feature for approved Service Requests (Work Orders) that locks editing, amendments, and deletion. Includes system-generated audit comments that are undeletable.
+
+**Backend Files Created:**
+- `nirmaan_stack/api/sr_finalize.py` - Finalize/revert APIs with permission checks:
+  - `finalize_sr()` - Locks SR, records who/when
+  - `revert_finalize_sr()` - Admin-only unlock
+  - `check_finalize_permissions()` - Permission checks for UI
+
+**Backend Files Modified:**
+- `nirmaan_stack/nirmaan_stack/doctype/service_requests/service_requests.json` - Added fields:
+  - `is_finalized` (Check)
+  - `finalized_by` (Data)
+  - `finalized_on` (Datetime)
+- `nirmaan_stack/nirmaan_stack/doctype/nirmaan_comments/nirmaan_comments.json` - Added `is_system_generated` (Check) field
+- `nirmaan_stack/api/sr_remarks.py` - Block deletion of system-generated comments
+
+**Frontend Files Created:**
+- `frontend/src/pages/ServiceRequests/components/SRFinalizeDialog.tsx` - Confirmation dialogs for finalize/revert
+- `frontend/src/pages/ServiceRequests/hooks/useSRFinalize.ts` - Hooks for finalize permissions and actions
+
+**Frontend Files Modified:**
+- `approved-sr.tsx` - Integrated finalize button, permission-based action disabling
+- `SRDetailsCard.tsx` - Accept finalization state for UI
+- `SRComments.tsx` - System comments undeletable, shows "Auto" badge
+- `useSRRemarks.ts` - Added `is_system_generated` to interface
+
+**Features:**
+- Finalize locks: Amend, Delete, Edit Terms & Notes
+- System-generated audit comments marked with `is_system_generated=1`
+- System comments cannot be deleted (backend blocks, frontend hides button)
+- Finalized by stores full name (not email) for display
+
+**Permission Model:**
+| Action | Who Can Perform |
+|--------|-----------------|
+| Finalize | Admin, PMO, PL, Procurement Executive, OR owner |
+| Revert | Admin, PMO, PL, Procurement Executive only |
+
+---
+
+### 2026-01-17: 3-State Invoice Reconciliation Model
+
+**Summary:** Migrated from binary reconciliation (Reconciled/Pending) to 3-state model (Full/Partial/None) with reconciled amount tracking. Updated both invoices tab and reports view for consistency.
+
+**Backend Files Modified:**
+- `nirmaan_stack/patches/v2_9/migrate_invoice_reconciliation_status.py` - Migrate is_2b_activated to reconciliation_status
+- `nirmaan_stack/patches/v2_9/add_reconciled_amount_field.py` - Add reconciled_amount field to PO/SR invoices
+- `nirmaan_stack/api/invoices/po_wise_invoice_data.py` - Return reconciliation_status, reconciled_amount, proof attachment
+- `nirmaan_stack/api/invoices/sr_wise_invoice_data.py` - Same changes for SR invoices
+- `nirmaan_stack/api/invoices/update_invoice_reconciliation.py` - Support partial reconciliation with amount input
+
+**Frontend Invoices Tab Files:**
+- `frontend/src/pages/tasks/invoices/components/PoInvoices.tsx` - 3-state status, reconciled amount column, summary breakdown
+- `frontend/src/pages/tasks/invoices/components/SrInvoices.tsx` - Same changes for SR invoices
+- `frontend/src/pages/tasks/invoices/components/ReconciliationDialog.tsx` - Partial reconciliation UI with amount input
+- `frontend/src/pages/tasks/invoices/hooks/useInvoiceReconciliation.ts` - Updated hook for new model
+- `frontend/src/pages/tasks/invoices/config/*.config.ts` - Added Partial to filter options
+- `frontend/src/pages/tasks/invoices/constants.ts` - ReconciliationStatus type
+
+**Frontend Reports Files:**
+- `frontend/src/pages/reports/components/PO2BReconcileReport.tsx` - Summary cards with partial breakdown
+- `frontend/src/pages/reports/components/SR2BReconcileReport.tsx` - Same changes
+- `frontend/src/pages/reports/components/columns/po2BReconcileColumns.tsx` - Reconciled amount column, 3-state badges
+- `frontend/src/pages/reports/components/columns/sr2BReconcileColumns.tsx` - Same changes
+- `frontend/src/pages/reports/hooks/usePO2BReconcileData.ts` - New fields in interface and mapping
+- `frontend/src/pages/reports/hooks/useSR2BReconcileData.ts` - Same changes
+- `frontend/src/pages/reports/config/*.config.ts` - Partial filter option
+
+**UI Component:**
+- `frontend/src/components/data-table/data-table-column-header.tsx` - Allow ReactNode for title prop
+
+**Features:**
+- 3-state reconciliation: Full (green), Partial (yellow), None (gray outline)
+- Reconciled amount column with color coding based on comparison to invoice amount
+- Summary cards show Partial sub-metric with both invoice amount AND actual reconciled amount
+- Proof attachment support for reconciliation documentation
+- Backward compatible with legacy is_2b_activated field
+
+---
+
+### 2026-01-16: Design Tracker UI Harmonization with Progress Visualization
+
+**Summary:** Enhanced Design Tracker list and detail pages with progress visualization, summary statistics, and hide/unhide functionality.
+
+**Files Modified:**
+- `frontend/src/pages/ProjectDesignTracker/components/ProjectWiseCard.tsx` - Added progress circle and task breakdown display
+- `frontend/src/pages/ProjectDesignTracker/design-tracker-list.tsx` - Added structured header with summary stats, hide/unhide functionality
+- `frontend/src/pages/ProjectDesignTracker/project-design-tracker-details.tsx` - Added ProgressCircle, completion counter, status breakdown
+- `frontend/src/pages/ProjectDesignTracker/types/index.ts` - Added `hide_design_tracker` field to types
+- `nirmaan_stack/api/design_tracker/get_task_wise_list.py` - Updated metrics calculation
+- `nirmaan_stack/api/design_tracker/get_tracker_list.py` - Added hide_design_tracker field and role-based visibility filtering
+- `nirmaan_stack/nirmaan_stack/doctype/project_design_tracker/project_design_tracker.json` - Added hide_design_tracker field
+
+**Features:**
+- List page summary header showing project count, completion stats, hidden trackers count
+- Hide/unhide functionality with collapsible section for hidden trackers
+- Progress circle visualization on detail page header (desktop and mobile)
+- Status breakdown showing task counts by status (excluding Not Applicable)
+- Metrics exclude "Not Applicable" tasks to match backend calculation
+
+**Access Control:**
+- Hidden trackers visible only to: Admin, PMO Executive, Design Lead
+- Design Executives and Project Managers cannot see hidden trackers
+
+---
+
 ### 2026-01-14: PO Details Section Redesign
 
 **Summary:** Reorganized PO Details card into logical sections with enterprise-minimal design, added PO Amount Delivered field.

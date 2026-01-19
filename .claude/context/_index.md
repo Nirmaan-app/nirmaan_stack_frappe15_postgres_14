@@ -10,4 +10,5 @@ Quick navigation to detailed documentation. Read only when working on related ta
 | [workflows.md](workflows.md) | Business Logic | Auto-approval, state machines, scheduled tasks |
 | [patterns.md](patterns.md) | Code Conventions | Naming, file organization, error handling |
 | [domain/procurement.md](domain/procurement.md) | Procurement | PR/PO/RFQ/Quotation workflows |
+| [domain/service-requests.md](domain/service-requests.md) | Service Requests | Work Orders, finalization, SR remarks |
 | [domain/users.md](domain/users.md) | User Management | Nirmaan Users, permissions, authentication |

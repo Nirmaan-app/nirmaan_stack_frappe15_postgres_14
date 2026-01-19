@@ -39,10 +39,10 @@ export interface ProjectCalculatedFields {
     totalProjectInvoiced: number;
     totalInflow: number;
     totalOutflow: number;
-    TotalPurchaseOverCredit: number; // ✨ NEW
-    CreditPaidAmount: number;           // ✨ NEW
+    TotalPurchaseOverCredit: number;
+    CreditPaidAmount: number;
+    CreditDueAmount: number; // Credit terms that are "Due" (Created + due_date <= today)
     totalLiabilities: number; // Current liabilities
-    // You can add more calculated fields here if needed, e.g., totalCredit
 }
 
 // The hook's return type
@@ -300,9 +300,9 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
     // ... (rest of the file until getProjectCreditAndDue)
 
      const getProjectCreditAndDue = useCallback(
-        (projId: string): { TotalPurchaseOverCredit: number; CreditPaidAmount: number } => {
+        (projId: string): { TotalPurchaseOverCredit: number; CreditPaidAmount: number; CreditDueAmount: number } => {
             if (!CreditData || !projId) {
-                return { TotalPurchaseOverCredit: 0, CreditPaidAmount: 0 };
+                return { TotalPurchaseOverCredit: 0, CreditPaidAmount: 0, CreditDueAmount: 0 };
             }
 
             // The inner logic now just uses the pre-calculated flag
@@ -319,9 +319,18 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
                             totals.TotalPurchaseOverCredit += amount;
                         }
 
-                        // Check 1.1: CreditDueAmount (Scheduled Only, Due Date) - NEW
-                         if (filterDue && term.term_status === 'Scheduled') {
-                            totals.CreditDueAmount += amount;
+                        // Check 1.1: CreditDueAmount (Created + due_date <= today) - Replaces old "Scheduled"
+                        // Only count as "due" if term_status is Created AND due_date has passed
+                        if (filterDue && term.term_status === 'Created') {
+                            const dueDate = term.due_date ? new Date(term.due_date) : null;
+                            if (dueDate) {
+                                const todayCheck = new Date();
+                                todayCheck.setHours(0, 0, 0, 0);
+                                dueDate.setHours(0, 0, 0, 0);
+                                if (dueDate <= todayCheck) {
+                                    totals.CreditDueAmount += amount;
+                                }
+                            }
                         }
 
                         // Check 2: CreditPaidAmount (Modified Date - fallback to creation/due_date if needed or assume parent modified)
@@ -334,7 +343,7 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
                     }
                     return totals;
                 },
-                { TotalPurchaseOverCredit: 0, CreditPaidAmount: 0 }
+                { TotalPurchaseOverCredit: 0, CreditPaidAmount: 0, CreditDueAmount: 0 }
             );
         },
         // Include shouldFilterByDate in the dependency array

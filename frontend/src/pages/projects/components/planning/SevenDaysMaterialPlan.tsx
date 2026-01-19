@@ -1,8 +1,12 @@
 import React, { useState, useMemo } from "react";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList, useFrappeDeleteDoc } from "frappe-react-sdk";
-import { format } from "date-fns";
+import { format, addDays, startOfDay, parseISO } from "date-fns";
 import { safeFormatDate } from "@/lib/utils";
 import { Loader2, AlertCircle, ChevronDown, ChevronUp, Package, Calendar, Trash2, Download } from "lucide-react";
+import { SevenDayPlanningHeader } from "./SevenDayPlanningHeader";
+import { DateRange } from "react-day-picker";
+import { useUrlParam } from "@/hooks/useUrlParam";
+import { urlStateManager } from "@/utils/urlStateManager";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AddMaterialPlanForm } from "./AddMaterialPlanForm";
@@ -21,8 +25,6 @@ import {
 
 interface SevenDaysMaterialPlanProps {
     projectId: string;
-    startDate?: Date;
-    endDate?: Date;
     isOverview?: boolean;
     projectName?: string;
 }
@@ -42,7 +44,53 @@ const getMaterialItems = (plan: any): any[] => {
 };
 
 
-export const SevenDaysMaterialPlan = ({ projectId, startDate, endDate, isOverview, projectName }: SevenDaysMaterialPlanProps) => {
+export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: SevenDaysMaterialPlanProps) => {
+    
+    // --- Date/Duration State (Local) ---
+    const activeDurationParam = useUrlParam("planningDuration");
+    
+    const activeDuration = useMemo(() => {
+        if (activeDurationParam === "All") return "All";
+        const num = Number(activeDurationParam);
+        if (!isNaN(num) && [3, 7, 14].includes(num)) return num;
+        if (activeDurationParam === "custom") return "custom";
+        return "All"; 
+    }, [activeDurationParam]);
+
+    const startDateParam = useUrlParam("startDate");
+    const endDateParam = useUrlParam("endDate");
+
+    const dateRange = useMemo<DateRange | undefined>(() => {
+        const today = startOfDay(new Date());
+
+        if (activeDuration === "All") return undefined;
+        
+        if (typeof activeDuration === 'number') {
+             return { from: today, to: addDays(today, activeDuration) };
+        }
+
+        if (activeDuration === 'custom') {
+            if (startDateParam && endDateParam) {
+                return { from: parseISO(startDateParam), to: parseISO(endDateParam) };
+            }
+             return undefined;
+        }
+        return undefined;
+    }, [activeDuration, startDateParam, endDateParam]);
+
+    const setDaysRange = (days: number | "All" | "custom", customRange?: DateRange) => {
+        urlStateManager.updateParam("planningDuration", days.toString());
+        if (days === "custom" && customRange?.from && customRange?.to) {
+            urlStateManager.updateParam("startDate", format(customRange.from, 'yyyy-MM-dd'));
+            urlStateManager.updateParam("endDate", format(customRange.to, 'yyyy-MM-dd'));
+        } else {
+            urlStateManager.updateParam("startDate", null);
+            urlStateManager.updateParam("endDate", null);
+        }
+    };
+
+    const startDate = dateRange?.from;
+    const endDate = dateRange?.to;
     
     // console.log("Material Plan Project Name ",projectName)
     // State for Material Plans Form
@@ -187,9 +235,20 @@ export const SevenDaysMaterialPlan = ({ projectId, startDate, endDate, isOvervie
     return (
         <div className="space-y-6">
              {/* Material Plan Intro / Actions Header */}
-            {/* Material Plan Intro / Actions Header */}
+
             {!isOverview ? (
-                <div className="border border-blue-100 rounded-lg p-6 bg-white shadow-sm">
+                <div className="bg-white shadow-sm">
+                     {/* Header Section */}
+                     {setDaysRange && activeDuration && (
+                        <div className="mb-6">
+                            <SevenDayPlanningHeader
+                                isOverview={isOverview}
+                                dateRange={dateRange}
+                                activeDuration={activeDuration}
+                                setDaysRange={setDaysRange}
+                            />
+                        </div>
+                    )}
                     <div className="flex justify-between items-start mb-2">
                         <div className="flex items-center gap-2">
                         <h3 className="text-xl font-bold text-gray-900">Material Plan</h3>
@@ -202,7 +261,7 @@ export const SevenDaysMaterialPlan = ({ projectId, startDate, endDate, isOvervie
                         <Button 
                             variant="outline" 
                             size="sm" 
-                            className="gap-2 h-8 text-xs border-gray-300 text-gray-700"
+                            className="gap-2 h-8 text-xs border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-300 border bg-white"
                             onClick={handleDownload}
                             disabled={isDownloading}
                         >
@@ -211,7 +270,7 @@ export const SevenDaysMaterialPlan = ({ projectId, startDate, endDate, isOvervie
                             ) : (
                                 <Download className="h-3.5 w-3.5" />
                             )}
-                            {isDownloading ? "Exporting..." : "Export"}
+                            {isDownloading ? "Downloading..." : "Download"}
                         </Button>
                     </div>
                     <p className="text-sm text-gray-600 mb-4">
@@ -236,30 +295,42 @@ export const SevenDaysMaterialPlan = ({ projectId, startDate, endDate, isOvervie
                     </div>
                 </div>
             ) : (
-                <div className="flex items-center justify-between mb-4 mt-4">
-                     <div className="flex items-center gap-2">
-                        <h3 className="text-xl font-bold text-gray-900">Material Plan</h3>
-                        {existingPlans && existingPlans.length > 0 && (
-                            <Badge variant="secondary" className="bg-blue-700 text-white hover:bg-blue-800 h-6 w-6 p-0 flex items-center justify-center rounded-full text-[12px]">
-                                {existingPlans.length }
-                            </Badge>
-                        )}
-                     </div>
-                     <Button 
-                        variant="outline" 
-                        size="sm" 
-                        className="gap-2 h-8 text-xs border-gray-300 text-gray-700"
-                        onClick={handleDownload}
-                        disabled={isDownloading}
-                    >
-                        {isDownloading ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                            <Download className="h-3.5 w-3.5" />
-                        )}
-                        {isDownloading ? "Exporting..." : "Export"}
-                    </Button>
-                </div>
+                <>
+                     {setDaysRange && activeDuration && (
+                        <div className="mb-6">
+                            <SevenDayPlanningHeader
+                                isOverview={isOverview}
+                                dateRange={dateRange}
+                                activeDuration={activeDuration}
+                                setDaysRange={setDaysRange}
+                            />
+                        </div>
+                    )}
+                    <div className="flex items-center justify-between mb-4 mt-4">
+                        <div className="flex items-center gap-2">
+                            <h3 className="text-xl font-bold text-gray-900">Material Plan</h3>
+                            {existingPlans && existingPlans.length > 0 && (
+                                <Badge variant="secondary" className="bg-blue-700 text-white hover:bg-blue-800 h-6 w-6 p-0 flex items-center justify-center rounded-full text-[12px]">
+                                    {existingPlans.length }
+                                </Badge>
+                            )}
+                        </div>
+                        <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="gap-2 h-8 text-xs border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-300 border bg-white"
+                            onClick={handleDownload}
+                            disabled={isDownloading}
+                        >
+                            {isDownloading ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                                <Download className="h-3.5 w-3.5" />
+                            )}
+                            {isDownloading ? "Downloading..." : "Download"}
+                        </Button>
+                    </div>
+                </>
             )}
             
             {/* Render Active Forms */}

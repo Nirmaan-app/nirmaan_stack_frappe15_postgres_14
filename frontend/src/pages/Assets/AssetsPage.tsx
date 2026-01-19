@@ -12,6 +12,7 @@ import { UnassignedAssetsList } from './components/UnassignedAssetsList';
 import { PendingActionsList } from './components/PendingActionsList';
 import { AddAssetCategoryDialog } from './components/AddAssetCategoryDialog';
 import { AddAssetDialog } from './components/AddAssetDialog';
+import { useAssetDataRefresh } from './hooks/useAssetDataRefresh';
 
 const AssetsPage: React.FC = () => {
     const userData = useUserData();
@@ -23,11 +24,26 @@ const AssetsPage: React.FC = () => {
     const [categoryRefreshKey, setCategoryRefreshKey] = useState(0);
     const [assetRefreshKey, setAssetRefreshKey] = useState(0);
 
+    // Hook for cross-component cache invalidation
+    const { refreshSummaryCards, refreshCategoryDropdowns } = useAssetDataRefresh();
+
     const canManageAssets = userData?.user_id === 'Administrator' ||
         ['Nirmaan Admin Profile', 'Nirmaan PMO Executive Profile', 'Nirmaan HR Executive Profile'].includes(userData?.role || '');
 
     const handleAssetChange = () => {
         setAssetRefreshKey(k => k + 1);
+        refreshSummaryCards(); // Also refresh summary counts
+    };
+
+    const handleCategoryAdded = () => {
+        setCategoryRefreshKey(k => k + 1);
+        refreshSummaryCards(); // Refresh category count in summary
+        refreshCategoryDropdowns(); // Refresh category dropdowns in dialogs
+    };
+
+    const handleAssetAdded = () => {
+        setAssetRefreshKey(k => k + 1);
+        refreshSummaryCards(); // Refresh asset counts in summary
     };
 
     const assetSubTabs = [
@@ -174,12 +190,12 @@ const AssetsPage: React.FC = () => {
             <AddAssetCategoryDialog
                 isOpen={addCategoryDialogOpen}
                 onOpenChange={setAddCategoryDialogOpen}
-                onCategoryAdded={() => setCategoryRefreshKey(k => k + 1)}
+                onCategoryAdded={handleCategoryAdded}
             />
             <AddAssetDialog
                 isOpen={addAssetDialogOpen}
                 onOpenChange={setAddAssetDialogOpen}
-                onAssetAdded={() => setAssetRefreshKey(k => k + 1)}
+                onAssetAdded={handleAssetAdded}
             />
         </div>
     );

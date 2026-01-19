@@ -69,7 +69,7 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({
                         value={form.getValues("carpet_area")}
                     />
                     <ReviewDetail
-                        label="GST Locations"
+                        label="Nirmaan GST for billing"
                         value={form
                             .getValues("project_gst_number")
                             ?.list?.map((item) => item.location)

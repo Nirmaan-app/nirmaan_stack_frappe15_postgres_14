@@ -22,7 +22,11 @@
   "latest_payment_date",
   "service_request_totals_section",
   "total_amount",
-  "amount_paid"
+  "amount_paid",
+  "finalization_section",
+  "is_finalized",
+  "finalized_by",
+  "finalized_on"
  ],
  "fields": [
   {
@@ -117,6 +121,29 @@
    "fieldname": "amount_paid",
    "fieldtype": "Currency",
    "label": "Amount Paid"
+  },
+  {
+   "fieldname": "finalization_section",
+   "fieldtype": "Section Break",
+   "label": "Finalization"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_finalized",
+   "fieldtype": "Check",
+   "label": "Is Finalized"
+  },
+  {
+   "fieldname": "finalized_by",
+   "fieldtype": "Data",
+   "label": "Finalized By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "finalized_on",
+   "fieldtype": "Datetime",
+   "label": "Finalized On",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,

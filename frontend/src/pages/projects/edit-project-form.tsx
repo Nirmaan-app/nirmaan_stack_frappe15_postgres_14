@@ -564,7 +564,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
     if (!gstList || gstList.length === 0) {
         toast({
             title: "Failed!",
-            description: "At least one Project GST location must be selected for update.",
+            description: "At least one Nirmaan GST location must be selected for update.",
             variant: "destructive"
         });
         return; // Prevent update if validation fails
@@ -766,6 +766,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
                 </FormItem>
               )}
             />
+            {/* Project Value fields hidden - auto-calculated from Customer PO details
             <FormField
               control={form.control}
               name="project_value"
@@ -813,6 +814,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
                 );
               }}
             />
+            */}
 
             {/* // For `project_type` SelectField */}
             <FormField
@@ -883,7 +885,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
     return (
       <FormItem className="md:flex md:items-start gap-4">
         {/* Preserving the md:w-1/4 md:pt-2.5 shrink-0 from your last provided component */}
-        <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">Project GST<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
+        <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">Nirmaan GST used for billing<sup className="pl-1 text-sm text-red-600">*</sup></FormLabel>
         {/* Preserving the flex-1 from your last provided component */}
         <div className="flex-1">
           <Select
@@ -905,7 +907,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
           >
             <SelectTrigger className="w-full">
               {/* Display the selected location name or the placeholder */}
-              <SelectValue placeholder="Select Project GST" />
+              <SelectValue placeholder="Select Nirmaan GST" />
             </SelectTrigger>
             <SelectContent>
               {/* Map all available options */}

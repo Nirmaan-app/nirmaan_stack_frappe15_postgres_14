@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { ChevronDown, ChevronUp, MessagesSquare, Eye, EyeOff, Download } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { ChevronDown, ChevronUp, MessagesSquare, Eye, EyeOff, Download, FileText, MapPin } from 'lucide-react';
 import { format } from 'date-fns';
 import { formatDate } from '@/utils/FormatDate';
 import { toast } from "@/components/ui/use-toast";
@@ -48,7 +48,6 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
   completedWorksOnReport,
   totalManpowerInReport,
   workMilestonesList,
-  workHeaderOrderMap,
 }) => {
   // Expand/Collapse state
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
@@ -222,44 +221,91 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
         <h3 className="text-base md:text-lg font-bold mb-3">Clearance Issues</h3>
 
         {/* Drawing Remarks */}
-        <div className="mb-4">
-          <p className="text-sm font-medium text-gray-700 mb-2">Drawing Approvals Remarks</p>
-          {dailyReportDetails.drawing_remarks && dailyReportDetails.drawing_remarks.trim() !== "" ? (
-            <div className="p-3 rounded-md bg-orange-50 border border-orange-200">
-              <ul className="list-disc list-inside text-sm text-orange-900 space-y-1 ml-2">
-                {dailyReportDetails.drawing_remarks.split("$#,,,").filter((item: string) => item.trim() !== "").map((remark: string, idx: number) => (
-                  <li key={`drawing-${idx}`} className="break-words whitespace-pre-wrap">
-                    {remark.trim()}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : (
-            <p className="text-sm text-gray-400 italic p-3 bg-gray-50 rounded-md border border-gray-200">
-              No drawing remarks for this report
-            </p>
-          )}
-        </div>
+       
+          <div className="bg-white rounded-xl shadow-sm border border-orange-200 overflow-hidden flex flex-col h-full mb-4">
+                      <div className="bg-gradient-to-r from-orange-50 to-orange-100 px-4 py-3 border-b border-orange-200 flex items-center gap-2">
+                        <div className="p-1.5 bg-orange-500 rounded-lg">
+                          <FileText className="h-4 w-4 text-white" />
+                        </div>
+                        <h4 className="font-semibold text-orange-900">Drawing Approvals Remarks</h4>
+                      </div>
+                      
+                      <div className="p-4 flex-1 flex flex-col gap-4">
+                        {/* Remarks */}
+                        <div className="flex-1">
+                          {dailyReportDetails.drawing_remarks && dailyReportDetails.drawing_remarks.trim() !== "" ? (
+                            <ul className="space-y-2">
+                              {dailyReportDetails.drawing_remarks.split("$#,,,").filter((item: string) => item.trim() !== "").map((remark: string, idx: number) => (
+                                <li key={`drawing-${idx}`} className="flex items-start gap-2 text-sm text-gray-700 bg-orange-50/50 p-2 rounded-md border border-orange-100">
+                                  <span className="flex-shrink-0 w-5 h-5 bg-orange-200 text-orange-800 text-xs font-bold rounded-full flex items-center justify-center mt-0.5">
+                                    {idx + 1}
+                                  </span>
+                                  <span className="break-words">{remark.trim()}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <div className="text-center py-6 px-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                              <p className="text-sm text-gray-400 italic">No drawing issues reported</p>
+                            </div>
+                          )}
+                        </div>
+          
+                        {/* Photos */}
+                        {dailyReportDetails.attachments?.filter((a: any) => a.attach_type === 'Drawing').length > 0 && (
+                          <div className="mt-auto pt-4 border-t border-orange-100">
+                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Attached Photos</p>
+                            <ImageBentoGrid
+                              images={(dailyReportDetails.attachments || []).filter((a: any) => a.attach_type === 'Drawing')}
+                              forPdf={false}
+                            />
+                          </div>
+                        )}
+                      </div>
+                      </div>
 
-        {/* Site Remarks */}
-        <div>
-          <p className="text-sm font-medium text-gray-700 mb-2">Site Clearence Remarks</p>
-          {dailyReportDetails.site_remarks && dailyReportDetails.site_remarks.trim() !== "" ? (
-            <div className="p-3 rounded-md bg-red-50 border border-red-200">
-              <ul className="list-disc list-inside text-sm text-red-900 space-y-1 ml-2">
-                {dailyReportDetails.site_remarks.split("$#,,,").filter((item: string) => item.trim() !== "").map((remark: string, idx: number) => (
-                  <li key={`site-${idx}`} className="break-words whitespace-pre-wrap">
-                    {remark.trim()}
-                  </li>
-                ))}
-              </ul>
+                      {/* //Site CLearance Isseuse  */}
+          <div className="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden flex flex-col h-full">
+            <div className="bg-gradient-to-r from-red-50 to-red-100 px-4 py-3 border-b border-red-200 flex items-center gap-2">
+              <div className="p-1.5 bg-red-500 rounded-lg">
+                <MapPin className="h-4 w-4 text-white" />
+              </div>
+              <h4 className="font-semibold text-red-900">Site Clearence Remarks</h4>
             </div>
-          ) : (
-            <p className="text-sm text-gray-400 italic p-3 bg-gray-50 rounded-md border border-gray-200">
-              No site remarks for this report
-            </p>
-          )}
-        </div>
+            
+            <div className="p-4 flex-1 flex flex-col gap-4">
+              {/* Remarks */}
+              <div className="flex-1">
+                {dailyReportDetails.site_remarks && dailyReportDetails.site_remarks.trim() !== "" ? (
+                  <ul className="space-y-2">
+                    {dailyReportDetails.site_remarks.split("$#,,,").filter((item: string) => item.trim() !== "").map((remark: string, idx: number) => (
+                      <li key={`site-${idx}`} className="flex items-start gap-2 text-sm text-gray-700 bg-red-50/50 p-2 rounded-md border border-red-100">
+                        <span className="flex-shrink-0 w-5 h-5 bg-red-200 text-red-800 text-xs font-bold rounded-full flex items-center justify-center mt-0.5">
+                          {idx + 1}
+                        </span>
+                        <span className="break-words">{remark.trim()}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="text-center py-6 px-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                    <p className="text-sm text-gray-400 italic">No site issues reported</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Photos */}
+              {dailyReportDetails.attachments?.filter((a: any) => a.attach_type === 'Site').length > 0 && (
+                <div className="mt-auto pt-4 border-t border-red-100">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Attached Photos</p>
+                  <ImageBentoGrid
+                    images={(dailyReportDetails.attachments || []).filter((a: any) => a.attach_type === 'Site')}
+                    forPdf={false}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
       </div>
 
       {/* Work Plan Summary */}
@@ -516,7 +562,7 @@ export const DailyReportView: React.FC<DailyReportViewProps> = ({
       <div className="mt-6">
         <h3 className="text-base md:text-lg font-bold mb-3">Work Images</h3>
         <ImageBentoGrid
-          images={dailyReportDetails.attachments || []}
+          images={(dailyReportDetails.attachments || []).filter((a: any) => !a.attach_type || a.attach_type === 'Work')}
           forPdf={false}
         />
       </div>

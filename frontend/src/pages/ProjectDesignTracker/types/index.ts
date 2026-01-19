@@ -60,6 +60,7 @@ export interface ProjectDesignTracker {
     owner: string;
     design_tracker_task: DesignTrackerTask[];
     zone?: TrackerZone[];
+    hide_design_tracker?: 0 | 1;
 }
 
 export interface MasterDataResponse {

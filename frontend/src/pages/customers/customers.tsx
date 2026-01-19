@@ -54,8 +54,6 @@ export default function CustomersPage() {
             className="hover:underline font-medium "
             to={`/customers/${row.original.name}`}
           >
-            {" "}
-            {/* Adjust route */}
             {row.getValue("company_name")}
           </Link>
         ),
@@ -64,6 +62,24 @@ export default function CustomersPage() {
           exportHeaderName: "Company Name",
           exportValue: (row: any) => {
             return row.company_name;
+          },
+        },
+      },
+      {
+        accessorKey: "customer_nickname",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Nickname" />
+        ),
+        cell: ({ row }) => (
+          <span className="font-medium text-primary/80">
+            {row.getValue("customer_nickname") || "--"}
+          </span>
+        ),
+        size: 150,
+        meta: {
+          exportHeaderName: "Nickname",
+          exportValue: (row: any) => {
+            return row.customer_nickname;
           },
         },
       },

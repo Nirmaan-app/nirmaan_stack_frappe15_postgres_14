@@ -48,7 +48,6 @@ export const HRDashboard = () => {
   } = useFrappeGetDocCount(
     "Nirmaan Users",
     undefined,
-    true,
     false,
     "hr_users_count"
   );

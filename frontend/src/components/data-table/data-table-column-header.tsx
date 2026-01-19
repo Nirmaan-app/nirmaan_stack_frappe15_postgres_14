@@ -17,9 +17,9 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 interface DataTableColumnHeaderProps<TData, TValue>
-    extends React.HTMLAttributes<HTMLDivElement> {
+    extends Omit<React.HTMLAttributes<HTMLDivElement>, 'title'> {
     column: Column<TData, TValue>
-    title: string
+    title: React.ReactNode
 }
 
 export function DataTableColumnHeader<TData, TValue>({

@@ -3,7 +3,7 @@ import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 import memoize from "lodash/memoize";
-import { Info, Check, X, Calendar, Edit2, FileText, CheckCircle2 } from "lucide-react";
+import { Info, Calendar, Edit2, FileText, CheckCircle2, FileCheck2, CircleDashed, CircleCheck } from "lucide-react";
 
 // --- UI Components ---
 import { DataTable } from '@/components/data-table/new-data-table';
@@ -13,7 +13,6 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
@@ -30,7 +29,8 @@ import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 
 // --- Config ---
-import { PO_INVOICE_SEARCHABLE_FIELDS, PO_INVOICE_DATE_COLUMNS, PO_INVOICE_2B_STATUS_OPTIONS } from '../config/poInvoicesTable.config';
+import { PO_INVOICE_SEARCHABLE_FIELDS, PO_INVOICE_DATE_COLUMNS, PO_INVOICE_RECONCILIATION_STATUS_OPTIONS } from '../config/poInvoicesTable.config';
+import { ReconciliationStatus } from '../constants';
 
 // --- Components ---
 import { ReconciliationDialog } from "./ReconciliationDialog";
@@ -46,6 +46,7 @@ interface Projects {
 interface InvoiceItem {
     name: string; // Generated unique identifier
     amount: number;
+    reconciled_amount: number;
     invoice_no: string;
     date: string;
     updated_by: string;
@@ -54,9 +55,10 @@ interface InvoiceItem {
     project?: string;
     vendor: string;
     vendor_name: string;
-    is_2b_activated?: boolean;
+    reconciliation_status?: ReconciliationStatus;
     reconciled_date?: string | null;
     reconciled_by?: string | null;
+    reconciliation_proof_attachment_id?: string | null;
 }
 
 interface AllInvoicesDataCallResponse {
@@ -65,8 +67,15 @@ interface AllInvoicesDataCallResponse {
             invoice_entries: InvoiceItem[];
             total_invoices: number;
             total_amount: number;
-            total_2b_activated: number;
-            pending_2b_activation: number;
+            total_fully_reconciled: number;
+            total_partially_reconciled: number;
+            pending_reconciliation: number;
+            // New amount metrics
+            total_reconciled_amount: number;
+            total_fully_reconciled_amount: number;
+            total_partially_reconciled_amount: number;
+            total_not_reconciled_amount: number;
+            pending_reconciliation_amount: number;
         };
         status: number;
     };
@@ -88,20 +97,8 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId }) => {
         "nirmaan_stack.api.invoices.po_wise_invoice_data.generate_all_po_invoice_data",
     );
 
-    // --- Reconciliation Hook ---
-    const {
-        dialogState,
-        openReconciliationDialog,
-        closeDialog,
-        updateReconciliation,
-        isProcessing: isReconciliationProcessing,
-    } = useInvoiceReconciliation({
-        invoiceType: 'po',
-        onSuccess: () => mutateInvoices(),
-    });
-
     // --- Fetch Nirmaan Attachments ---
-    const { data: attachmentsData, isLoading: attachmentsDataLoading } = useFrappeGetDocList<NirmaanAttachment>(
+    const { data: attachmentsData, isLoading: attachmentsDataLoading, mutate: mutateAttachments } = useFrappeGetDocList<NirmaanAttachment>(
         "Nirmaan Attachments",
         {
             fields: ["name", "attachment"],
@@ -151,6 +148,22 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId }) => {
         return attachment?.attachment;
     }, (id: string) => id), [attachmentsData]);
 
+    // --- Reconciliation Hook ---
+    const {
+        dialogState,
+        openReconciliationDialog,
+        closeDialog,
+        updateReconciliation,
+        isProcessing: isReconciliationProcessing,
+    } = useInvoiceReconciliation({
+        invoiceType: 'po',
+        onSuccess: () => {
+            mutateInvoices();
+            mutateAttachments();
+        },
+        getAttachmentUrl,
+    });
+
     // Helper to get project name
     const getProjectName = useMemo(() => memoize((projectId: string) => {
         const project = projectValues.find(p => p.value === projectId);
@@ -184,24 +197,12 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId }) => {
         }));
     }, [invoicesData, vendorId]);
 
-    // --- Calculate vendor-specific summary when vendorId is provided ---
-    const vendorSummary = useMemo(() => {
-        if (!vendorId) return null;
-
-        const totalAmount = invoiceEntries.reduce((sum, entry) => sum + (entry.amount || 0), 0);
-        const totalInvoices = invoiceEntries.length;
-        const total2bActivated = invoiceEntries.filter(entry => entry.is_2b_activated).length;
-        const pending2bActivation = totalInvoices - total2bActivated;
-
-        return { totalAmount, totalInvoices, total2bActivated, pending2bActivation };
-    }, [invoiceEntries, vendorId]);
-
     // --- Column Definitions ---
     const columns: ColumnDef<InvoiceItem>[] = useMemo(() => {
         const baseColumns: ColumnDef<InvoiceItem>[] = [
             {
                 accessorKey: "date",
-                header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice Date" />,
+                header: ({ column }) => <DataTableColumnHeader column={column} title={<span className="whitespace-normal leading-tight">Invoice Date</span>} />,
                 cell: ({ row }) => {
                     const dateValue = row.original.date?.slice(0, 10);
                     return <div className="font-medium">{dateValue ? formatDate(dateValue) : '-'}</div>;
@@ -254,15 +255,45 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId }) => {
                 size: 120,
             },
             {
+                accessorKey: "reconciled_amount",
+                header: ({ column }) => (
+                    <DataTableColumnHeader
+                        column={column}
+                        title={<span className="whitespace-normal leading-tight">Reconciled Amount</span>}
+                    />
+                ),
+                cell: ({ row }) => {
+                    const reconciledAmount = row.original.reconciled_amount ?? 0;
+                    const invoiceAmount = row.original.amount;
+
+                    // Determine color based on comparison
+                    let colorClass = "";
+                    if (reconciledAmount === 0) {
+                        colorClass = "text-red-600";  // Not reconciled
+                    } else if (reconciledAmount !== invoiceAmount) {
+                        colorClass = "text-yellow-600";  // Partial
+                    } else {
+                        colorClass = "text-green-600";  // Full
+                    }
+
+                    return (
+                        <div className={`font-medium ${colorClass}`}>
+                            {formatToRoundedIndianRupee(reconciledAmount)}
+                        </div>
+                    );
+                },
+                size: 130,
+            },
+            {
                 accessorKey: "updated_by",
-                header: ({ column }) => <DataTableColumnHeader column={column} title="Updated By" />,
+                header: ({ column }) => <DataTableColumnHeader column={column} title={<span className="whitespace-normal leading-tight">Invoice Uploaded By</span>} />,
                 cell: ({ row }) => {
                     const userId = row.original.updated_by;
                     const fullName = getUserFullName(userId);
                     return <div className="font-medium">{fullName}</div>;
                 },
                 filterFn: (row, id, value) => value.includes(row.getValue(id)),
-                size: 150,
+                size: 160,
             },
             {
                 accessorKey: "procurement_order",
@@ -348,27 +379,42 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId }) => {
         // Add remaining columns
         baseColumns.push(
             {
-                accessorKey: "is_2b_activated",
-                header: ({ column }) => <DataTableColumnHeader column={column} title="2B Activated" />,
+                accessorKey: "reconciliation_status",
+                header: ({ column }) => <DataTableColumnHeader column={column} title={<span className="whitespace-normal leading-tight">Reconciled Status</span>} />,
                 cell: ({ row }) => {
-                    const is2bActivated = row.original.is_2b_activated;
+                    const reconciliationStatus = row.original.reconciliation_status || "";
 
                     // Show loading state while role is being fetched
                     if (role === "Loading") {
                         return <span className="text-gray-400">...</span>;
                     }
 
+                    const getStatusBadge = () => {
+                        switch (reconciliationStatus) {
+                            case "full":
+                                return (
+                                    <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
+                                        <CircleCheck className="w-3 h-3 mr-1" /> Full
+                                    </Badge>
+                                );
+                            case "partial":
+                                return (
+                                    <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">
+                                        <CircleDashed className="w-3 h-3 mr-1" /> Partial
+                                    </Badge>
+                                );
+                            default:
+                                return (
+                                    <Badge variant="outline" className="text-gray-500">
+                                        None
+                                    </Badge>
+                                );
+                        }
+                    };
+
                     return (
-                        <div className="flex items-center gap-2">
-                            {is2bActivated ? (
-                                <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
-                                    <Check className="w-3 h-3 mr-1" /> Yes
-                                </Badge>
-                            ) : (
-                                <Badge variant="outline" className="text-gray-500">
-                                    <X className="w-3 h-3 mr-1" /> No
-                                </Badge>
-                            )}
+                        <div className="flex items-center gap-1">
+                            {getStatusBadge()}
                             {canUpdateReconciliation && (
                                 <Button
                                     variant="ghost"
@@ -384,15 +430,30 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId }) => {
                     );
                 },
                 filterFn: (row, _id, value) => {
-                    const is2bActivated = row.original.is_2b_activated;
-                    const stringValue = is2bActivated ? "true" : "false";
-                    return value.includes(stringValue);
+                    const reconciliationStatus = row.original.reconciliation_status || "";
+                    return value.includes(reconciliationStatus);
                 },
-                size: 140,
+                size: 120,
+            },
+            {
+                accessorKey: "reconciled_by",
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Reconciled By" />,
+                cell: ({ row }) => {
+                    const reconciledBy = row.original.reconciled_by;
+
+                    if (!reconciledBy) {
+                        return <span className="text-gray-400">-</span>;
+                    }
+
+                    const fullName = getUserFullName(reconciledBy);
+                    return <div className="font-medium">{fullName}</div>;
+                },
+                filterFn: (row, id, value) => value.includes(row.getValue(id)),
+                size: 150,
             },
             {
                 accessorKey: "reconciled_date",
-                header: ({ column }) => <DataTableColumnHeader column={column} title="Reconciled Date" />,
+                header: ({ column }) => <DataTableColumnHeader column={column} title={<span className="whitespace-normal leading-tight">Reconciled Date</span>} />,
                 cell: ({ row }) => {
                     const reconciledDate = row.original.reconciled_date;
 
@@ -409,6 +470,36 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId }) => {
                 },
                 filterFn: dateFilterFn,
                 size: 130,
+            },
+            {
+                accessorKey: "reconciliation_proof_attachment_id",
+                header: ({ column }) => <DataTableColumnHeader column={column} title={<span className="whitespace-normal leading-tight">Reconciliation Proof</span>} />,
+                cell: ({ row }) => {
+                    const proofAttachmentId = row.original.reconciliation_proof_attachment_id;
+
+                    if (!proofAttachmentId) {
+                        return <span className="text-gray-400">-</span>;
+                    }
+
+                    const proofUrl = getAttachmentUrl(proofAttachmentId);
+
+                    if (!proofUrl) {
+                        return <span className="text-gray-400">-</span>;
+                    }
+
+                    return (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs text-blue-600 hover:text-blue-800"
+                            onClick={() => window.open(`${SITEURL}${proofUrl}`, "_blank")}
+                        >
+                            <FileCheck2 className="w-3 h-3 mr-1" />
+                            View
+                        </Button>
+                    );
+                },
+                size: 80,
             }
         );
 
@@ -418,7 +509,6 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId }) => {
     // --- Use Server Data Table Hook in Client Mode ---
     const {
         table,
-        totalCount,
         isLoading: tableLoading,
         error: tableError,
         searchTerm,
@@ -437,10 +527,78 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId }) => {
         defaultSort: 'date desc',
     });
 
+    // --- Get filtered rows from table (after filters/search applied) ---
+    const fullyFilteredData = table.getFilteredRowModel().rows.map((row) => row.original);
+    const filteredRowCount = table.getFilteredRowModel().rows.length;
+
+    // --- Dynamic Summary calculated from filtered data (updates when filters change) ---
+    const dynamicSummary = useMemo(() => {
+        if (!fullyFilteredData || fullyFilteredData.length === 0) {
+            return {
+                totalInvoices: 0,
+                totalAmount: 0,
+                totalReconciledAmount: 0,
+                totalFullyReconciled: 0,
+                totalFullyReconciledAmount: 0,
+                totalPartiallyReconciled: 0,
+                totalPartiallyReconciledAmount: 0,
+                totalPartialReconciledValue: 0,
+                pendingReconciliation: 0,
+                totalNotReconciledAmount: 0,
+                pendingReconciliationAmount: 0,
+            };
+        }
+
+        let totalAmount = 0;
+        let totalReconciledAmount = 0;
+        let totalFullyReconciledAmount = 0;
+        let totalPartiallyReconciledAmount = 0;
+        let totalPartialReconciledValue = 0;
+        let totalNotReconciledAmount = 0;
+        let totalFullyReconciled = 0;
+        let totalPartiallyReconciled = 0;
+        let pendingReconciliation = 0;
+
+        fullyFilteredData.forEach(entry => {
+            const invoiceAmount = entry.amount || 0;
+            const reconciledAmount = entry.reconciled_amount || 0;
+
+            totalAmount += invoiceAmount;
+            totalReconciledAmount += reconciledAmount;
+
+            if (entry.reconciliation_status === "full") {
+                totalFullyReconciled++;
+                totalFullyReconciledAmount += invoiceAmount;
+            } else if (entry.reconciliation_status === "partial") {
+                totalPartiallyReconciled++;
+                totalPartiallyReconciledAmount += invoiceAmount;
+                totalPartialReconciledValue += reconciledAmount;
+            } else {
+                pendingReconciliation++;
+                totalNotReconciledAmount += invoiceAmount;
+            }
+        });
+
+        return {
+            totalInvoices: fullyFilteredData.length,
+            totalAmount,
+            totalReconciledAmount,
+            totalFullyReconciled,
+            totalFullyReconciledAmount,
+            totalPartiallyReconciled,
+            totalPartiallyReconciledAmount,
+            totalPartialReconciledValue,
+            pendingReconciliation,
+            totalNotReconciledAmount,
+            pendingReconciliationAmount: totalPartiallyReconciledAmount + totalNotReconciledAmount,
+        };
+    }, [fullyFilteredData]);
+
     // --- Facet Filter Options from Client Data ---
     const facetFilterOptions = useMemo(() => {
         const uniqueProjects = [...new Set(invoiceEntries.map((i: InvoiceItem) => i.project).filter(Boolean))];
         const uniqueUpdatedBy = [...new Set(invoiceEntries.map((i: InvoiceItem) => i.updated_by).filter(Boolean))];
+        const uniqueReconciledBy = [...new Set(invoiceEntries.map((i: InvoiceItem) => i.reconciled_by).filter(Boolean))];
 
         const options: Record<string, { title: string; options: { label: string; value: string }[] }> = {
             project: {
@@ -451,15 +609,22 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId }) => {
                 }))
             },
             updated_by: {
-                title: "Updated By",
+                title: "Invoice Uploaded By",
                 options: uniqueUpdatedBy.map(u => ({
                     label: getUserFullName(u as string),
                     value: u as string
                 }))
             },
-            is_2b_activated: {
-                title: "2B Activated",
-                options: PO_INVOICE_2B_STATUS_OPTIONS
+            reconciliation_status: {
+                title: "Reconciliation Status",
+                options: PO_INVOICE_RECONCILIATION_STATUS_OPTIONS
+            },
+            reconciled_by: {
+                title: "Reconciled By",
+                options: uniqueReconciledBy.map(u => ({
+                    label: getUserFullName(u as string),
+                    value: u as string
+                }))
             }
         };
 
@@ -480,12 +645,20 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId }) => {
 
     // --- Summary Card ---
     const summaryCard = useMemo(() => {
-        // Use vendor-specific summary if vendorId is provided, otherwise use API totals
-        const totalAmount = vendorSummary?.totalAmount ?? invoicesData?.message?.message?.total_amount ?? 0;
-        const totalInvoices = vendorSummary?.totalInvoices ?? invoicesData?.message?.message?.total_invoices ?? 0;
-        const total2bActivated = vendorSummary?.total2bActivated ?? invoicesData?.message?.message?.total_2b_activated ?? 0;
-        const pending2bActivation = vendorSummary?.pending2bActivation ?? invoicesData?.message?.message?.pending_2b_activation ?? 0;
-        const activationProgress = totalInvoices > 0 ? (total2bActivated / totalInvoices) * 100 : 0;
+        // Use dynamicSummary - calculated from filtered data (updates when filters change)
+        const {
+            totalAmount,
+            totalInvoices,
+            totalFullyReconciled,
+            totalPartiallyReconciled,
+            pendingReconciliation,
+            totalReconciledAmount,
+            totalPartiallyReconciledAmount,
+            totalPartialReconciledValue,
+            totalNotReconciledAmount,
+            pendingReconciliationAmount
+        } = dynamicSummary;
+
         const hasFilters = columnFilters.length > 0 || !!searchTerm;
 
         return (
@@ -495,13 +668,13 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId }) => {
                     <CardContent className="p-3">
                         <div className="flex items-center gap-3 mb-2">
                             {/* Color accent + Icon */}
-                            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center">
+                            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-gradient-to-br from-slate-500 to-blue-500 flex items-center justify-center">
                                 <FileText className="h-5 w-5 text-white" />
                             </div>
                             {/* Primary metric - Total Amount */}
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-baseline gap-2">
-                                    <span className="text-lg font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                                    <span className="text-lg font-bold text-slate-700 dark:text-slate-300 tabular-nums">
                                         {formatToRoundedIndianRupee(totalAmount)}
                                     </span>
                                     <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase">
@@ -529,16 +702,15 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId }) => {
                                 </span>
                             </div>
                         </div>
-                        {/* 2B Status compact */}
-                        <div className="flex items-center gap-2 bg-violet-50 dark:bg-violet-950/30 rounded-md p-2 border border-violet-100 dark:border-violet-900/50">
-                            <CheckCircle2 className="h-4 w-4 text-violet-600 dark:text-violet-400" />
-                            <span className="text-[10px] font-medium text-violet-600 dark:text-violet-400 uppercase">2B:</span>
-                            <span className="text-sm font-bold text-violet-700 dark:text-violet-400 tabular-nums">
-                                {total2bActivated}/{totalInvoices}
+                        {/* Reconciliation Status compact */}
+                        <div className="flex items-center gap-2 bg-green-50 dark:bg-green-950/30 rounded-md p-2 border border-green-100 dark:border-green-900/50">
+                            <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                            <span className="text-[10px] font-medium text-green-600 dark:text-green-400 uppercase">Reconciled:</span>
+                            <span className="text-sm font-bold text-green-700 dark:text-green-400 tabular-nums">
+                                {formatToRoundedIndianRupee(totalReconciledAmount)}
                             </span>
-                            <Progress value={activationProgress} className="h-1.5 flex-1 max-w-[60px]" />
-                            <span className="text-[9px] text-slate-400 dark:text-slate-500">
-                                {pending2bActivation} pending
+                            <span className="text-[9px] text-amber-600 dark:text-amber-500">
+                                | {pendingReconciliation} pending
                             </span>
                         </div>
                     </CardContent>
@@ -551,74 +723,92 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId }) => {
                             <CardTitle className="text-base font-semibold tracking-tight text-slate-800 dark:text-slate-200">
                                 {vendorId ? "Vendor PO Invoices" : "PO Invoices Summary"}
                             </CardTitle>
-                            <div className="flex items-center gap-1.5 text-xs font-medium text-slate-400 dark:text-slate-500">
-                                <FileText className="h-3.5 w-3.5" />
-                                <span className="uppercase tracking-wider">
-                                    {totalInvoices} Invoice{totalInvoices !== 1 ? 's' : ''} (Approved)
-                                </span>
-                            </div>
+                            {hasFilters && (
+                                <div className="flex flex-wrap gap-1.5 items-center">
+                                    <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider">Filtered:</span>
+                                    {searchTerm && (
+                                        <span className="px-2 py-0.5 text-[10px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full">
+                                            "{searchTerm}"
+                                        </span>
+                                    )}
+                                    {columnFilters.map(filter => (
+                                        <span
+                                            key={filter.id}
+                                            className="px-2 py-0.5 text-[10px] font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-full capitalize"
+                                        >
+                                            {filter.id.replace(/_/g, ' ')}
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
                         </div>
-                        {hasFilters && (
-                            <div className="flex flex-wrap gap-1.5 items-center mt-2">
-                                <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wider">Filtered:</span>
-                                {searchTerm && (
-                                    <span className="px-2 py-0.5 text-[10px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full">
-                                        "{searchTerm}"
-                                    </span>
-                                )}
-                                {columnFilters.map(filter => (
-                                    <span
-                                        key={filter.id}
-                                        className="px-2 py-0.5 text-[10px] font-medium bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 rounded-full capitalize"
-                                    >
-                                        {filter.id.replace(/_/g, ' ')}
-                                    </span>
-                                ))}
-                            </div>
-                        )}
                     </CardHeader>
                     <CardContent className="px-5 pb-4 pt-0">
                         <div className="grid grid-cols-3 gap-3">
-                            {/* Total Amount */}
-                            <div className="bg-gradient-to-br from-emerald-50 to-teal-50/50 dark:from-emerald-950/40 dark:to-teal-950/30 rounded-lg p-4 border border-emerald-100 dark:border-emerald-900/50">
-                                <dt className="text-xs font-medium text-emerald-600/80 dark:text-emerald-400/80 uppercase tracking-wide mb-1">
-                                    Total Amount
+                            {/* Card 1: Total Invoices */}
+                            <div className="bg-gradient-to-br from-slate-50 to-blue-50/50 dark:from-slate-950/40 dark:to-blue-950/30 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
+                                <dt className="text-xs font-medium text-slate-600/80 dark:text-slate-400/80 uppercase tracking-wide mb-1 flex items-center gap-1.5">
+                                    <FileText className="h-3 w-3" />
+                                    Total Invoices
                                 </dt>
-                                <dd className="text-2xl font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                                <dd className="text-xl font-bold text-slate-700 dark:text-slate-300 tabular-nums">
+                                    {totalInvoices} <span className="text-sm font-normal text-slate-500">invoices</span>
+                                </dd>
+                                <dd className="text-lg font-semibold text-blue-600 dark:text-blue-400 tabular-nums mt-1">
                                     {formatToRoundedIndianRupee(totalAmount)}
                                 </dd>
                             </div>
-                            {/* Total Invoices */}
-                            <div className="bg-slate-50/80 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
-                                <dt className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">
-                                    Total Invoices
+                            {/* Card 2: Fully Reconciled */}
+                            <div className="bg-gradient-to-br from-green-50 to-emerald-50/50 dark:from-green-950/40 dark:to-emerald-950/30 rounded-lg p-4 border border-green-100 dark:border-green-900/50">
+                                <dt className="text-xs font-medium text-green-600/80 dark:text-green-400/80 uppercase tracking-wide mb-1 flex items-center gap-1.5">
+                                    <CheckCircle2 className="h-3 w-3" />
+                                    Reconciled
                                 </dt>
-                                <dd className="text-2xl font-bold text-slate-700 dark:text-slate-300 tabular-nums">
-                                    {totalInvoices}
+                                <dd className="text-xl font-bold text-green-700 dark:text-green-400 tabular-nums">
+                                    {totalFullyReconciled} <span className="text-sm font-normal text-green-600/70">invoices</span>
+                                </dd>
+                                <dd className="text-lg font-semibold text-green-600 dark:text-green-400 tabular-nums mt-1">
+                                    {formatToRoundedIndianRupee(totalReconciledAmount)}
                                 </dd>
                             </div>
-                            {/* 2B Activation */}
-                            <div className="bg-gradient-to-br from-violet-50 to-purple-50/50 dark:from-violet-950/40 dark:to-purple-950/30 rounded-lg p-4 border border-violet-100 dark:border-violet-900/50">
-                                <dt className="text-xs font-medium text-violet-600/80 dark:text-violet-400/80 uppercase tracking-wide mb-1 flex items-center gap-1.5">
-                                    <CheckCircle2 className="h-3 w-3" />
-                                    2B Activation
+                            {/* Card 3: Pending Reconciliation */}
+                            <div className="bg-gradient-to-br from-amber-50 to-orange-50/50 dark:from-amber-950/40 dark:to-orange-950/30 rounded-lg p-4 border border-amber-100 dark:border-amber-900/50">
+                                <dt className="text-xs font-medium text-amber-600/80 dark:text-amber-400/80 uppercase tracking-wide mb-1">
+                                    Pending Reconciliation
                                 </dt>
-                                <div className="flex items-center justify-between mb-1">
-                                    <span className="text-xl font-bold text-violet-700 dark:text-violet-400 tabular-nums">
-                                        {total2bActivated}/{totalInvoices}
-                                    </span>
-                                    <span className="text-[10px] text-slate-400 dark:text-slate-500">
-                                        {pending2bActivation} pending
-                                    </span>
+                                <dd className="text-xl font-bold text-amber-700 dark:text-amber-400 tabular-nums">
+                                    {pendingReconciliation + totalPartiallyReconciled} <span className="text-sm font-normal text-amber-600/70">invoices</span>
+                                </dd>
+                                <dd className="text-lg font-semibold text-amber-600 dark:text-amber-400 tabular-nums mt-1">
+                                    {formatToRoundedIndianRupee(pendingReconciliationAmount)}
+                                </dd>
+                                {/* Sub-metrics */}
+                                <div className="mt-2 pt-2 border-t border-amber-200/50 dark:border-amber-800/50 space-y-1">
+                                    <div className="flex flex-col">
+                                        <div className="flex items-center justify-between text-[11px]">
+                                            <span className="text-yellow-600 dark:text-yellow-400">Partial</span>
+                                            <span className="text-yellow-700 dark:text-yellow-400">
+                                                {totalPartiallyReconciled} • {formatToRoundedIndianRupee(totalPartiallyReconciledAmount)}
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center justify-end text-[10px] text-yellow-600/70">
+                                            ({formatToRoundedIndianRupee(totalPartialReconciledValue)} reconciled)
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center justify-between text-[11px]">
+                                        <span className="text-red-600 dark:text-red-400">Not Reconciled</span>
+                                        <span className="text-red-700 dark:text-red-400">
+                                            {pendingReconciliation} • {formatToRoundedIndianRupee(totalNotReconciledAmount)}
+                                        </span>
+                                    </div>
                                 </div>
-                                <Progress value={activationProgress} className="h-2" />
                             </div>
                         </div>
                     </CardContent>
                 </div>
             </Card>
         );
-    }, [invoicesData, columnFilters, searchTerm, vendorSummary, vendorId]);
+    }, [dynamicSummary, columnFilters, searchTerm, vendorId]);
 
     // --- Loading State ---
     const isDataLoading = invoicesDataLoading || attachmentsDataLoading || projectloading || vendorsLoading || usersLoading;
@@ -638,7 +828,7 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId }) => {
                 columns={columns}
                 isLoading={tableLoading}
                 error={tableError}
-                totalCount={totalCount}
+                totalCount={filteredRowCount}
                 searchFieldOptions={PO_INVOICE_SEARCHABLE_FIELDS}
                 selectedSearchField={selectedSearchField}
                 onSelectedSearchFieldChange={setSelectedSearchField}
@@ -659,8 +849,11 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId }) => {
                 onConfirm={updateReconciliation}
                 isProcessing={isReconciliationProcessing}
                 invoiceNo={dialogState.invoiceNo}
-                currentIs2bActivated={dialogState.currentIs2bActivated}
+                currentReconciliationStatus={dialogState.currentReconciliationStatus}
                 currentReconciledDate={dialogState.currentReconciledDate}
+                currentProofAttachmentUrl={dialogState.currentProofAttachmentUrl}
+                currentInvoiceAmount={dialogState.currentInvoiceAmount}
+                currentReconciledAmount={dialogState.currentReconciledAmount}
             />
         </div>
     );
