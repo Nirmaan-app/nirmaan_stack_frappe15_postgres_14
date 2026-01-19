@@ -12,11 +12,11 @@ import {
 } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/new-data-table"; 
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header"; 
-import { useFrappePostCall } from "frappe-react-sdk";
+import { useFrappePostCall, useFrappeGetDoc } from "frappe-react-sdk";
 import { format } from "date-fns";
-import Cookies from "js-cookie";
 import { toast } from "@/components/ui/use-toast";
 import { useTDSStore } from "@/zustand/useTDSStore";
+import { useUserData } from "@/hooks/useUserData";
 
 // Design tokens from screenshots
 const COLORS = {
@@ -82,7 +82,18 @@ const formatDateOrdinal = (dateStr: string) => {
 export const TDSApprovalList: React.FC = () => {
     const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
-    const user_id = Cookies.get("user_id") ?? "";
+    
+    // Use custom hook for user data and role
+    const { user_id, role } = useUserData();
+
+    const ALLOWED_APPROVER_ROLES = [
+        "Nirmaan Admin Profile",
+        "Nirmaan Project Lead Profile", 
+        "Nirmaan PMO Executive Profile",
+    ];
+
+    const canApprove = user_id === "Administrator" || (role && ALLOWED_APPROVER_ROLES.includes(role));
+
     
     const { activeTab, setActiveTab, tabCounts, setTabCounts } = useTDSStore();
 
@@ -99,11 +110,25 @@ export const TDSApprovalList: React.FC = () => {
     useEffect(() => {
         const tabParam = searchParams.get("tab");
         if (tabParam && ["Pending Approval", "Approved", "Rejected", "All TDS"].includes(tabParam)) {
+            // Prevent unauthorized users from accessing Pending Approval via URL
+            if (!canApprove && tabParam === "Pending Approval") {
+                setSearchParams({ tab: "All TDS" }, { replace: true });
+                setActiveTab("All TDS");
+                return;
+            }
+
             if (tabParam !== activeTab) {
                 setActiveTab(tabParam as TabType);
             }
+        } else {
+            // No URL param - check default behavior
+            if (!canApprove && activeTab === "Pending Approval") {
+                // If user lands on page without param and store has Pending (default), switch to All TDS
+                setSearchParams({ tab: "All TDS" }, { replace: true });
+                setActiveTab("All TDS");
+            }
         }
-    }, [searchParams, activeTab, setActiveTab]);
+    }, [searchParams, activeTab, setActiveTab, canApprove, setSearchParams]);
 
     // Update URL when tab changes
     const handleTabChange = (tab: TabType) => {
@@ -348,8 +373,8 @@ export const TDSApprovalList: React.FC = () => {
             
             {/* Refined Grouped Calm Segmented Tab Control */}
             <div className="flex items-center gap-4">
-                {/* Standalone Pending Approval Tab */}
-                {TAB_CONFIG.filter(t => t.key === "Pending Approval").map((tab) => (
+                {/* Standalone Pending Approval Tab - Only for authorized users */}
+                {canApprove && TAB_CONFIG.filter(t => t.key === "Pending Approval").map((tab) => (
                     <button
                         key={tab.key}
                         onClick={() => handleTabChange(tab.key)}
@@ -368,21 +393,26 @@ export const TDSApprovalList: React.FC = () => {
 
                 {/* Grouped Tabs: Approved, Rejected, All TDS */}
                 <div className="flex items-center rounded-lg border border-gray-200 bg-white">
-                    {TAB_CONFIG.filter(t => t.key !== "Pending Approval").map((tab) => (
-                        <button
-                            key={tab.key}
-                            onClick={() => handleTabChange(tab.key)}
-                            className={`
-                                px-4 py-2 rounded-md text-sm font-medium transition-all
-                                ${activeTab === tab.key 
-                                    ? "text-white shadow-sm" 
-                                    : "text-muted-foreground hover:text-gray-900 hover:bg-gray-50"
-                                }
-                            `}
-                            style={activeTab === tab.key ? { backgroundColor: COLORS.primaryRed } : {}}
-                        >
-                            {tab.label} {tabCounts[tab.countKey]}
-                        </button>
+                    {TAB_CONFIG.filter(t => t.key !== "Pending Approval").map((tab, index, array) => (
+                        <React.Fragment key={tab.key}>
+                            <button
+                                onClick={() => handleTabChange(tab.key)}
+                                className={`
+                                    px-4 py-2 rounded-md text-sm font-medium transition-all
+                                    ${activeTab === tab.key 
+                                        ? "text-white shadow-sm" 
+                                        : "text-muted-foreground hover:text-gray-900 hover:bg-gray-50"
+                                    }
+                                `}
+                                style={activeTab === tab.key ? { backgroundColor: COLORS.primaryRed } : {}}
+                            >
+                                {tab.label} {tabCounts[tab.countKey]}
+                            </button>
+                            {/* Add vertical separator if not the last item */}
+                            {index < array.length - 1 && (
+                                <div className="h-5 w-px bg-gray-200"></div>
+                            )}
+                        </React.Fragment>
                     ))}
                 </div>
             </div>
