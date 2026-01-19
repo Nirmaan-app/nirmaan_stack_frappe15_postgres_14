@@ -2,12 +2,15 @@
 
 import React, { useMemo, useState, useEffect } from "react";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappeDeleteDoc } from "frappe-react-sdk";
-import { format } from "date-fns";
+import { format, addDays, startOfDay, parseISO } from "date-fns";
 import { AlertCircle, Loader2, ChevronDown, ChevronUp, Pencil, Trash2, Download, Play, Flag, Activity, TrendingUp, Target, Zap } from "lucide-react";
 import { ProgressCircle } from "@/components/ui/ProgressCircle";
 import { CreateWorkplantask } from "./CreateWorkplantask";
 import { WorkPlanOverview } from "./WorkPlanOverview";
 import { ProjectManagerEditWorkPlanDialog } from "./ProjectManagerEditWorkPlanDialog";
+import { SevenDayPlanningHeader } from "./SevenDayPlanningHeader";
+import { DateRange } from "react-day-picker";
+
 
 import { useToast } from "@/components/ui/use-toast";
 import { useUrlParam } from "@/hooks/useUrlParam";
@@ -32,8 +35,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 
 interface SevendaysWorkPlanProps {
     projectId: string;
-    startDate: Date | undefined;
-    endDate: Date | undefined;
     isOverview?: boolean;
     projectName?: string;
 }
@@ -511,14 +512,58 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
 
 export const SevendaysWorkPlan = ({
     projectId,
-    startDate,
-    endDate,
     isOverview,
-    projectName
+    projectName,
 }: SevendaysWorkPlanProps) => {
 
     const { role } = useUserData();
     const isProjectManager = role === "Nirmaan Project Manager Profile";
+
+    // --- Date/Duration State (Local) ---
+    const activeDurationParam = useUrlParam("planningDuration");
+    
+    const activeDuration = useMemo(() => {
+        if (activeDurationParam === "All") return "All";
+        const num = Number(activeDurationParam);
+        if (!isNaN(num) && [3, 7, 14].includes(num)) return num;
+        if (activeDurationParam === "custom") return "custom";
+        return "All"; 
+    }, [activeDurationParam]);
+
+    const startDateParam = useUrlParam("startDate");
+    const endDateParam = useUrlParam("endDate");
+
+    const dateRange = useMemo<DateRange | undefined>(() => {
+        const today = startOfDay(new Date());
+
+        if (activeDuration === "All") return undefined;
+        
+        if (typeof activeDuration === 'number') {
+             return { from: today, to: addDays(today, activeDuration) };
+        }
+
+        if (activeDuration === 'custom') {
+            if (startDateParam && endDateParam) {
+                return { from: parseISO(startDateParam), to: parseISO(endDateParam) };
+            }
+             return undefined;
+        }
+        return undefined;
+    }, [activeDuration, startDateParam, endDateParam]);
+
+    const setDaysRange = (days: number | "All" | "custom", customRange?: DateRange) => {
+        urlStateManager.updateParam("planningDuration", days.toString());
+        if (days === "custom" && customRange?.from && customRange?.to) {
+            urlStateManager.updateParam("startDate", format(customRange.from, 'yyyy-MM-dd'));
+            urlStateManager.updateParam("endDate", format(customRange.to, 'yyyy-MM-dd'));
+        } else {
+            urlStateManager.updateParam("startDate", null);
+            urlStateManager.updateParam("endDate", null);
+        }
+    };
+
+    const startDate = dateRange?.from;
+    const endDate = dateRange?.to;
 
     const [isBufferDialogOpen, setIsBufferDialogOpen] = useState(false);
     // Track which zone we are doing the buffer export for (undefined = All, string = specific zone)
@@ -954,6 +999,17 @@ export const SevendaysWorkPlan = ({
 
     return (
         <div className="space-y-4 md:space-y-6">
+            {/* Header Section */}
+            {setDaysRange && activeDuration && (
+                    <div className="mb-6">
+                    <SevenDayPlanningHeader
+                        isOverview={isOverview}
+                        dateRange={dateRange}
+                        activeDuration={activeDuration}
+                        setDaysRange={setDaysRange}
+                    />
+                </div>
+            )}
             <div className="overflow-hidden bg-white">
                 {
                     <div
@@ -963,32 +1019,32 @@ export const SevendaysWorkPlan = ({
                             <h3 className="text-lg sm:text-xl font-bold text-gray-900">Work Plan</h3>
                         </div>
                         {/* GLOBAL EXPORT BUTTONS (ALL ZONES) */}
-                        <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pb-1 sm:pb-0">
                             <Button
                                 variant="outline"
                                 size="sm"
-                                className="gap-1.5 sm:gap-2 h-7 sm:h-8 text-[10px] sm:text-xs border-gray-300 text-gray-700 whitespace-nowrap flex-shrink-0"
+                                className="justify-center gap-1.5 sm:gap-2 h-8 sm:h-8 text-xs border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-300 border bg-white whitespace-nowrap"
                                 onClick={(e) => openBufferDialog(e, undefined)}
                                 disabled={isDownloading}
-                                title="Export Buffered plan for ALL zones"
+                                title="Client Export Buffered plan for ALL zones"
                             >
-                                <Download className="h-3 sm:h-3.5 w-3 sm:w-3.5" />
-                                <span className="hidden xs:inline">Buffer</span> Export (All)
+                                <Download className="h-3.5 w-3.5" />
+                                <span>Client Download (All)</span>
                             </Button>
                             <Button
                                 variant="outline"
                                 size="sm"
-                                className="gap-1.5 sm:gap-2 h-7 sm:h-8 text-[10px] sm:text-xs border-gray-300 text-gray-700 whitespace-nowrap flex-shrink-0"
+                                className="justify-center gap-1.5 sm:gap-2 h-8 sm:h-8 text-xs border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-300 border bg-white whitespace-nowrap"
                                 onClick={handleDownloadAll}
                                 disabled={isDownloading}
-                                title="Export plan for ALL zones"
+                                title="Internal Export plan for ALL zones"
                             >
                                 {isDownloading ? (
-                                    <Loader2 className="h-3 sm:h-3.5 w-3 sm:w-3.5 animate-spin" />
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                 ) : (
-                                    <Download className="h-3 sm:h-3.5 w-3 sm:w-3.5" />
+                                    <Download className="h-3.5 w-3.5" />
                                 )}
-                                Export (All)
+                                <span>Internal Download (All)</span>
                             </Button>
                         </div>
                     </div>
@@ -1029,32 +1085,32 @@ export const SevendaysWorkPlan = ({
                     </div>
 
                     {/* Zone-specific Export Buttons */}
-                    <div className="flex items-center justify-end gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 bg-gray-50/50 rounded-b">
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center sm:justify-end gap-2 px-3 sm:px-4 py-2 bg-gray-50/50 rounded-b">
                         <Button
                             variant="outline"
                             size="sm"
-                            className="h-7 text-[9px] sm:text-[10px] text-gray-600 gap-1 sm:gap-1.5 px-2 border-gray-300"
+                            className="justify-center h-8 text-xs text-gray-600 gap-1.5 px-3 border-gray-300"
                             onClick={(e) => openBufferDialog(e, activeZone)}
                             disabled={isDownloading}
-                            title={`Buffer Export ${activeZone}`}
+                            title={`Client Buffer Export ${activeZone}`}
                         >
-                            <Download className="h-3 w-3" />
-                            <span className="hidden xs:inline">Buffer</span> Export
+                            <Download className="h-3.5 w-3.5" />
+                            <span>Client Download <span className="text-red-600 font-medium">{activeZone}</span></span>
                         </Button>
                         <Button
                             variant="outline"
                             size="sm"
-                            className="h-7 text-[9px] sm:text-[10px] text-gray-600 hover:text-blue-600 gap-1 sm:gap-1.5 px-2"
+                            className="justify-center h-8 text-xs text-gray-600 hover:text-blue-600 gap-1.5 px-3"
                             onClick={handleDownloadZone}
                             disabled={isDownloading}
-                            title={`Export ${activeZone} data`}
+                            title={`Internal Export ${activeZone} data`}
                         >
                             {isDownloading ? (
                                 <Loader2 className="h-3 w-3 animate-spin" />
                             ) : (
                                 <Download className="h-3 w-3" />
                             )}
-                            Export
+                            <span>Internal Download <span className="text-red-600 font-medium">{activeZone}</span></span>
                         </Button>
                     </div>
                 </div>
