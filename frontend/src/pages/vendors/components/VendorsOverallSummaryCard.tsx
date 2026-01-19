@@ -6,7 +6,7 @@ import { TailSpin } from "react-loader-spinner";
 import { VENDOR_DOCTYPE } from '../vendors.constants';
 
 export const VendorsOverallSummaryCard: React.FC = () => {
-    const { data: totalVendors, isLoading, error } = useFrappeGetDocCount(VENDOR_DOCTYPE, undefined, true, false, `${VENDOR_DOCTYPE}_overall_total`);
+    const { data: totalVendors, isLoading, error } = useFrappeGetDocCount(VENDOR_DOCTYPE, undefined, false, `${VENDOR_DOCTYPE}_overall_total`);
     return (
         <Card className="hover:animate-shadow-drop-center">
             <CardHeader className="flex flex-row items-center justify-between pb-2">

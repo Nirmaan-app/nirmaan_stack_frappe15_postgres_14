@@ -425,7 +425,6 @@ export const Accountant = () => {
     ...useFrappeGetDocCount(
       config.doctype,
       config.filters,
-      true,
       false,
       `accountant_${config.id}_count`
     ),

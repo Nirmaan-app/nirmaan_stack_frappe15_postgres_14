@@ -162,7 +162,6 @@ const UsersSummaryCard: React.FC = () => {
     useFrappeGetDocCount(
       USER_DOCTYPE,
       undefined,
-      true,
       false,
       `${USER_DOCTYPE}_total_count`
     );

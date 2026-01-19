@@ -144,7 +144,6 @@ export const CustomersSummaryCard: React.FC = () => {
     const { data: totalCountData, isLoading: totalCountLoading } = useFrappeGetDocCount(
         CUSTOMER_DOCTYPE,
         undefined,
-        true,
         false,
         `${CUSTOMER_DOCTYPE}_total_summary`
     );

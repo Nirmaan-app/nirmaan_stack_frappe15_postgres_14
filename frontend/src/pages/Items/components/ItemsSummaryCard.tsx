@@ -7,7 +7,7 @@ import { TailSpin } from "react-loader-spinner";
 import { ITEM_DOCTYPE } from '../items.constants';
 
 export const ItemsSummaryCard: React.FC = () => {
-    const { data: totalItemsCount, isLoading, error } = useFrappeGetDocCount(ITEM_DOCTYPE, undefined, true, false, `${ITEM_DOCTYPE}_total_summary`);
+    const { data: totalItemsCount, isLoading, error } = useFrappeGetDocCount(ITEM_DOCTYPE, undefined, false, `${ITEM_DOCTYPE}_total_summary`);
     return (
         <Card className="hover:animate-shadow-drop-center">
             <CardHeader className="flex flex-row items-center justify-between pb-2">

@@ -20,7 +20,6 @@ export const AssetsSummaryCards: React.FC = () => {
         ASSET_CATEGORY_DOCTYPE,
         undefined,
         false,
-        false,
         ASSET_CACHE_KEYS.CATEGORIES_COUNT
     );
 
@@ -33,7 +32,6 @@ export const AssetsSummaryCards: React.FC = () => {
         ASSET_MASTER_DOCTYPE,
         undefined,
         false,
-        false,
         ASSET_CACHE_KEYS.TOTAL_ASSETS_COUNT
     );
 
@@ -44,7 +42,6 @@ export const AssetsSummaryCards: React.FC = () => {
     } = useFrappeGetDocCount(
         ASSET_MASTER_DOCTYPE,
         [["current_assignee", "!=", ""]],
-        false,
         false,
         ASSET_CACHE_KEYS.ASSIGNED_ASSETS_COUNT
     );
@@ -57,7 +54,6 @@ export const AssetsSummaryCards: React.FC = () => {
         ASSET_MASTER_DOCTYPE,
         [["current_assignee", "in", ["", null]]],
         false,
-        false,
         ASSET_CACHE_KEYS.UNASSIGNED_ASSETS_COUNT
     );
 
@@ -68,7 +64,6 @@ export const AssetsSummaryCards: React.FC = () => {
     } = useFrappeGetDocCount(
         ASSET_MANAGEMENT_DOCTYPE,
         [["asset_declaration_attachment", "in", ["", null]]],
-        false,
         false,
         ASSET_CACHE_KEYS.PENDING_DECLARATION_COUNT
     );

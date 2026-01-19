@@ -303,7 +303,6 @@ export default function DefaultDashboard() {
     ...useFrappeGetDocCount(
       metric.doctype,
       undefined,
-      true,
       false,
       `${metric.doctype}_total_count`
     ),

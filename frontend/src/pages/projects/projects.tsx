@@ -125,7 +125,6 @@ export const Projects: React.FC<ProjectsProps> = ({
   const { data: all_projects_count } = useFrappeGetDocCount(
     "Projects",
     undefined,
-    true,
     false,
     "all_projects_count"
   );
