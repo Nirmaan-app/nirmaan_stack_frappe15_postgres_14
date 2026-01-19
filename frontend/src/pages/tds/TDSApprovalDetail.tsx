@@ -5,10 +5,11 @@ import { ArrowLeft, CheckCircle2, XCircle, FileText, Pencil, MessageSquare } fro
 import { 
     Tooltip, 
     TooltipContent, 
-    TooltipProvider, 
+    TooltipProvider,
     TooltipTrigger 
 } from "@/components/ui/tooltip";
 import { useFrappeGetDocList, useFrappeUpdateDoc, useFrappeDeleteDoc } from "frappe-react-sdk";
+import { useUserData } from "@/hooks/useUserData";
 import { 
     useReactTable, 
     getCoreRowModel, 
@@ -208,6 +209,17 @@ export const TDSApprovalDetail: React.FC = () => {
     const [editingItem, setEditingItem] = useState<TDSItem | null>(null);
     const [processing, setProcessing] = useState(false);
 
+    // Use custom hook for user data and role
+    const { user_id, role } = useUserData();
+
+    const ALLOWED_APPROVER_ROLES = [
+        "Nirmaan Admin Profile",
+        "Nirmaan Project Lead Profile", 
+        "Nirmaan PMO Executive Profile",
+    ];
+
+    const canApprove = user_id === "Administrator" || (role && ALLOWED_APPROVER_ROLES.includes(role));
+
     // Fetch items for this request ID
     const { data: allItems, isLoading, mutate } = useFrappeGetDocList<TDSItem>("Project TDS Item List", {
         fields: ["*"],
@@ -266,98 +278,110 @@ export const TDSApprovalDetail: React.FC = () => {
     const selectedCount = Object.keys(rowSelection).filter(k => rowSelection[k]).length;
 
     // Pending items columns (with checkbox and actions)
-    const pendingColumns = useMemo<ColumnDef<TDSItem>[]>(() => [
-        {
-            id: "select",
-            header: () => null,
-            cell: ({ row }) => (
-                <Checkbox
-                    checked={rowSelection[row.id] || false}
-                    onCheckedChange={(value) => {
-                        setRowSelection(prev => ({
-                            ...prev,
-                            [row.id]: !!value
-                        }));
-                    }}
-                />
-            ),
-            enableSorting: false,
-            size: 40,
-        },
-        {
-            accessorKey: "tds_work_package",
-            header: "Work Package",
-            size: 150,
-        },
-        {
-            accessorKey: "tds_category",
-            header: "Category",
-            size: 180,
-        },
-        {
-            accessorKey: "tds_item_name",
-            header: "Item Name",
-            size: 180,
-        },
-        {
-            accessorKey: "tds_description",
-            header: "Description",
-            cell: ({ row }) => (
-                <div 
-                    className="truncate max-w-[200px] text-gray-500" 
-                    title={row.original.tds_description}
-                >
-                    {row.original.tds_description || "--"}
-                </div>
-            ),
-            size: 200,
-        },
-        {
-            accessorKey: "tds_make",
-            header: "Make",
-            cell: ({ row }) => <MakePill make={row.original.tds_make} />,
-            size: 100,
-        },
-        {
-            id: "doc",
-            header: "Doc.",
-            cell: ({ row }) => (
-                row.original.tds_attachment ? (
+    const pendingColumns = useMemo<ColumnDef<TDSItem>[]>(() => {
+        const cols: ColumnDef<TDSItem>[] = [];
+        
+        if (canApprove) {
+            cols.push({
+                id: "select",
+                header: () => null,
+                cell: ({ row }) => (
+                    <Checkbox
+                        checked={rowSelection[row.id] || false}
+                        onCheckedChange={(value) => {
+                            setRowSelection(prev => ({
+                                ...prev,
+                                [row.id]: !!value
+                            }));
+                        }}
+                    />
+                ),
+                enableSorting: false,
+                size: 40,
+            });
+        }
+
+        cols.push(
+            {
+                accessorKey: "tds_work_package",
+                header: "Work Package",
+                size: 150,
+            },
+            {
+                accessorKey: "tds_category",
+                header: "Category",
+                size: 180,
+            },
+            {
+                accessorKey: "tds_item_name",
+                header: "Item Name",
+                size: 180,
+            },
+            {
+                accessorKey: "tds_description",
+                header: "Description",
+                cell: ({ row }) => (
+                    <div 
+                        className="truncate max-w-[200px] text-gray-500" 
+                        title={row.original.tds_description}
+                    >
+                        {row.original.tds_description || "--"}
+                    </div>
+                ),
+                size: 200,
+            },
+            {
+                accessorKey: "tds_make",
+                header: "Make",
+                cell: ({ row }) => <MakePill make={row.original.tds_make} />,
+                size: 100,
+            },
+            {
+                id: "doc",
+                header: "Doc.",
+                cell: ({ row }) => (
+                    row.original.tds_attachment ? (
+                        <Button 
+                            variant="ghost" 
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => window.open(row.original.tds_attachment, '_blank')}
+                        >
+                            <FileText className="h-4 w-4 text-gray-500" />
+                        </Button>
+                    ) : (
+                        <Button variant="ghost" size="icon" className="h-8 w-8" disabled>
+                            <FileText className="h-4 w-4 text-gray-300" />
+                        </Button>
+                    )
+                ),
+                size: 60,
+            }
+        );
+
+        if (canApprove) {
+            cols.push({
+                id: "actions",
+                header: "Actions",
+                cell: ({ row }) => (
                     <Button 
                         variant="ghost" 
-                        size="icon"
+                        size="icon" 
                         className="h-8 w-8"
-                        onClick={() => window.open(row.original.tds_attachment, '_blank')}
+                        onClick={() => {
+                            setEditingItem(row.original);
+                            setIsEditModalOpen(true);
+                        }}
                     >
-                        <FileText className="h-4 w-4 text-gray-500" />
+                        <Pencil className="h-4 w-4" style={{ color: COLORS.primaryRed }} />
                     </Button>
-                ) : (
-                    <Button variant="ghost" size="icon" className="h-8 w-8" disabled>
-                        <FileText className="h-4 w-4 text-gray-300" />
-                    </Button>
-                )
-            ),
-            size: 60,
-        },
-        {
-            id: "actions",
-            header: "Actions",
-            cell: ({ row }) => (
-                <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    className="h-8 w-8"
-                    onClick={() => {
-                        setEditingItem(row.original);
-                        setIsEditModalOpen(true);
-                    }}
-                >
-                    <Pencil className="h-4 w-4" style={{ color: COLORS.primaryRed }} />
-                </Button>
-            ),
-            size: 60,
-        },
-    ], [rowSelection]);
+                ),
+                size: 60,
+            });
+        }
+
+        return cols;
+    }, [rowSelection, canApprove]);
 
     // Read-only columns for Approved/Rejected sections
     const readOnlyColumns = useMemo<ColumnDef<TDSItem>[]>(() => [
@@ -683,25 +707,28 @@ export const TDSApprovalDetail: React.FC = () => {
                                     emptyMessage="No pending items"
                                 />
                                 
-                                {/* Action Buttons */}
-                                <div className="flex justify-end gap-3 p-4 border-t border-gray-100">
-                                    <Button 
-                                        variant="outline" 
-                                        className="border-red-300 text-red-600 hover:bg-red-50"
-                                        onClick={onRejectClick}
-                                        disabled={selectedCount === 0 || processing}
-                                    >
-                                        <XCircle className="w-4 h-4 mr-2" /> Reject
-                                    </Button>
-                                    <Button 
-                                        className="text-white"
-                                        style={{ backgroundColor: COLORS.primaryRed }}
-                                        onClick={handleApprove}
-                                        disabled={selectedCount === 0 || processing}
-                                    >
-                                        <CheckCircle2 className="w-4 h-4 mr-2" /> Approve
-                                    </Button>
-                                </div>
+                                
+                                {/* Action Buttons - Only for authorized users */}
+                                {canApprove && (
+                                    <div className="flex justify-end gap-3 p-4 border-t border-gray-100">
+                                        <Button 
+                                            variant="outline" 
+                                            className="border-red-300 text-red-600 hover:bg-red-50"
+                                            onClick={onRejectClick}
+                                            disabled={selectedCount === 0 || processing}
+                                        >
+                                            <XCircle className="w-4 h-4 mr-2" /> Reject
+                                        </Button>
+                                        <Button 
+                                            className="text-white"
+                                            style={{ backgroundColor: COLORS.primaryRed }}
+                                            onClick={handleApprove}
+                                            disabled={selectedCount === 0 || processing}
+                                        >
+                                            <CheckCircle2 className="w-4 h-4 mr-2" /> Approve
+                                        </Button>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
