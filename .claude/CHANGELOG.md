@@ -4,6 +4,52 @@ Changes made by Claude Code sessions.
 
 ---
 
+### 2026-01-20: Credits API Refactoring with Row-Level Filtering
+
+**Summary:** Created custom Credits API that filters PO Payment Terms at the child row level (not parent level), removed deprecated "Scheduled" status, and implemented date-based "Due" logic.
+
+**Backend Files Created:**
+- `nirmaan_stack/api/credits/__init__.py` - Credits API module
+- `nirmaan_stack/api/credits/get_credits_list.py` - Custom API with row-level filtering
+- `nirmaan_stack/patches/v2_9/remove_scheduled_status_and_cleanup.py` - Migration patch
+
+**Backend Files Modified:**
+- `nirmaan_stack/api/approve_amend_po.py` - Updated payment term status handling
+- `nirmaan_stack/api/approve_vendor_quotes.py` - Updated payment term creation
+- `nirmaan_stack/api/payments/project_payments.py` - Removed scheduled status logic
+- `nirmaan_stack/api/sidebar_counts.py` - Updated "due" count calculation using date logic
+- `nirmaan_stack/integrations/controllers/project_payments.py` - Simplified status handling
+- `nirmaan_stack/hooks.py` - Removed scheduled task reference
+- `po_payment_terms.json` - Removed "Scheduled" from status options
+
+**Backend Files Deleted:**
+- `nirmaan_stack/tasks/payment_term_worker.py` - No longer needed (scheduled status removed)
+
+**Frontend Files Modified:**
+- `frontend/src/pages/credits/hooks/useCredits.ts` - Rewritten to use custom API
+- `frontend/src/pages/credits/CreditsPage.tsx` - Updated for new hook interface
+- `frontend/src/pages/credits/components/CreditsTableColumns.tsx` - Added display_status column
+- `frontend/src/pages/credits/credits.constant.ts` - Updated status options (Due/Requested/Approved/Paid)
+- `frontend/src/types/NirmaanStack/POPaymentTerms.ts` - Added display_status field
+- `frontend/src/pages/projects/hooks/useProjectAllCredits.ts` - Updated with date-based due logic
+- `frontend/src/pages/reports/hooks/useProjectReportCalculations.ts` - Updated CreditDueAmount calculation
+- `frontend/src/zustand/useDocCountStore.ts` - Track due/created counts
+- `frontend/src/pages/ProcurementOrders/purchase-order/components/POPaymentTermsCard.tsx` - UI updates
+
+**Key Technical Details:**
+- Custom SQL API filters at CHILD ROW level, not parent document level
+- "Due" tab shows: Created terms (due_date <= today) + Requested + Approved
+- Computed `display_status` field: Shows "Due" for eligible Created terms
+- Permission-aware based on user's project access
+- TanStack filter support with special handling for "Due" status
+
+**Credits API Endpoint:**
+```
+nirmaan_stack.api.credits.get_credits_list.get_credits_list
+```
+
+---
+
 ### 2026-01-19: SR Finalization Workflow
 
 **Summary:** Implemented finalization feature for approved Service Requests (Work Orders) that locks editing, amendments, and deletion. Includes system-generated audit comments that are undeletable.

@@ -86,6 +86,7 @@ nirmaan_stack/
 5. **Administrator user:** Has non-email name "Administrator" - handle explicitly in rename/delete
 6. **Link vs Data fields:** `rename_doc()` only updates Link fields, Data fields need manual SQL
 7. **Email configuration:** User creation/password reset can fail due to email server misconfiguration (encryption key issues). Use `api/users.create_user` and `api/users.reset_password` which separate email sending from the critical operation
+8. **Child table filtering:** `frappe.get_all()` and `useFrappeGetDocList` filter at PARENT document level. If ANY child row matches, ALL child rows from that parent are returned. For row-level filtering on child tables (e.g., "only show payment terms with status=Due"), use custom SQL APIs with JOINs. See `api/credits/get_credits_list.py` for the pattern.
 
 ---
 
