@@ -384,7 +384,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
               </p>
             </CardDescription> */}
             <CardDescription className="space-y-2 md:text-end">
-              <span>Project GST(s)</span>
+              <span>Nirmaan GST(s) for billing</span>
               <ul className="list-disc list-inside space-y-1">
                 {(typeof projectData?.project_gst_number === "string" ? JSON.parse(projectData?.project_gst_number) : projectData?.project_gst_number)?.list?.map((item) => (
                   <li key={item?.location}>
