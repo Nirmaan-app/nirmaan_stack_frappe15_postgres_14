@@ -157,11 +157,15 @@ def sidebar_counts(user: str) -> str:
     credit_counts = {item.term_status.lower(): item.count for item in credit_counts_raw}
     credit_counts["all"] = sum(credit_counts.values())
 
-    # Calculate "due" count: Created terms with due_date <= today
-    # This replaces the old "Scheduled" concept with real-time date-based calculation
+    # Calculate "due" count for the Due tab:
+    # - Created terms with due_date <= today (overdue/due for payment)
+    # - Requested terms (payment has been requested)
+    # - Approved terms (payment approved, pending disbursement)
     from datetime import date
     today = date.today().isoformat()
-    due_count = frappe.db.count(
+
+    # Count Created terms with past due_date
+    created_due_count = frappe.db.count(
         "PO Payment Terms",
         filters={
             "payment_type": "Credit",
@@ -170,7 +174,15 @@ def sidebar_counts(user: str) -> str:
             "parent": ["in", valid_po_names]
         }
     )
-    credit_counts["due"] = due_count
+
+    # Count Requested terms
+    requested_count = credit_counts.get("requested", 0)
+
+    # Count Approved terms
+    approved_count = credit_counts.get("approved", 0)
+
+    # Total "due" count = Created (past due) + Requested + Approved
+    credit_counts["due"] = created_due_count + requested_count + approved_count
 
     return json.dumps({
         "po": po_map,
