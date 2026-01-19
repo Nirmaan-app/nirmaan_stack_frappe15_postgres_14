@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+
 import {
     Dialog,
     DialogContent,
@@ -68,9 +70,10 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
     // Reset downstream fields when Work Package changes
     useEffect(() => {
         if (selectedWP !== prevWPRef.current) {
-            form.resetField("category");
-            form.resetField("tds_item_id");
-            form.resetField("make");
+            form.setValue("category", "");
+            form.setValue("tds_item_id", "");
+            form.setValue("make", "");
+            form.setValue("item_description", "");
             prevWPRef.current = selectedWP;
         }
     }, [selectedWP, form]);
@@ -78,8 +81,9 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
     // Reset downstream fields when Category changes
     useEffect(() => {
         if (selectedCategory !== prevCatRef.current) {
-            form.resetField("tds_item_id");
-            form.resetField("make");
+            form.setValue("tds_item_id", "");
+            form.setValue("make", "");
+            form.setValue("item_description", "");
             prevCatRef.current = selectedCategory;
         }
     }, [selectedCategory, form]);
@@ -87,10 +91,23 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
     // Reset Make when Item changes
     useEffect(() => {
         if (watchedTdsItemId !== prevItemRef.current) {
-            form.resetField("make");
+            form.setValue("make", "");
+            form.setValue("item_description", "");
             prevItemRef.current = watchedTdsItemId;
         }
     }, [watchedTdsItemId, form]);
+    
+    // Track previous Make to detect changes
+    const prevMakeRef = useRef(form.watch("make"));
+    const watchedMake = form.watch("make");
+
+    // Reset Description when Make changes
+    useEffect(() => {
+        if (watchedMake !== prevMakeRef.current) {
+             form.setValue("item_description", "");
+             prevMakeRef.current = watchedMake;
+        }
+    }, [watchedMake, form]);
     
     // Reset form when dialog closes
     useEffect(() => {
@@ -261,8 +278,10 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                                         <FormLabel className="text-sm font-semibold flex items-center">
                                             Item Description <span className="text-gray-400 font-normal ml-1">(Optional)</span>
                                         </FormLabel>
+
+
                                         <FormControl>
-                                            <Input placeholder="Type Description" {...field} className="bg-white border-gray-200 focus:ring-1 focus:ring-gray-300 h-10" />
+                                            <Textarea placeholder="Type Description" {...field} className="bg-white border-gray-200 focus:ring-1 focus:ring-gray-300 min-h-[100px]" />
                                         </FormControl>
                                         <FormMessage className="text-xs" />
                                     </FormItem>

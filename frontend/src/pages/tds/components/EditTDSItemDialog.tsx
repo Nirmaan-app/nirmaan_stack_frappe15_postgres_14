@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
     Dialog,
     DialogContent,
@@ -114,9 +115,32 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
         if (currentId !== prevId) {
             // It's a real change (not the initial reset)
             form.setValue("make", "");
+            form.setValue("item_description", "");
             previousItemIdRef.current = currentId;
         }
     }, [watchedTdsItemId, form.setValue]);
+
+    // Track previous Make to detect changes
+    const prevMakeRef = useRef<string | null>(null);
+    const watchedMake = form.watch("make");
+
+    // Initialize prevMakeRef when item loads
+    useEffect(() => {
+        if (open && item) {
+            prevMakeRef.current = item.make;
+        }
+    }, [open, item]);
+
+    // Reset Description when Make changes
+    useEffect(() => {
+        const currentMake = watchedMake || "";
+        const prevMake = prevMakeRef.current || "";
+
+        if (currentMake !== prevMake) {
+             form.setValue("item_description", "");
+             prevMakeRef.current = currentMake;
+        }
+    }, [watchedMake, form.setValue]);
     
 
     const handleNewFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -306,7 +330,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                             Item Description <span className="text-gray-400 font-normal ml-1">(Optional)</span>
                                         </FormLabel>
                                         <FormControl>
-                                            <Input placeholder="Type Description" {...field} className="bg-white border-gray-200 focus:ring-1 focus:ring-gray-300 h-10" />
+                                            <Textarea placeholder="Type Description" {...field} className="bg-white border-gray-200 focus:ring-1 focus:ring-gray-300 min-h-[100px]" />
                                         </FormControl>
                                         <FormMessage className="text-xs" />
                                     </FormItem>
