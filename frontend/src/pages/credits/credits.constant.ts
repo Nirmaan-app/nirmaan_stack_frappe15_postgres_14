@@ -18,37 +18,33 @@ export const TERM_SEARCHABLE_FIELDS: SearchFieldOption[] = [
 export const TERM_DATE_COLUMNS = ["due_date"];
 
 // Define the options for the high-level status filter.
+// "Due" now means: term_status = "Created" AND due_date <= today
+// (calculated in useCredits.ts additionalFilters)
 export const PAYMENT_TERM_STATUS_OPTIONS = [
-    { label: "Due", value: "Scheduled" },
+    { label: "Due", value: "Due" },  // Semantic filter: Created + due_date <= today
     { label: "All Credits", value: "All" },
-    // { label:"Requested", value:"Requested"},
-
-    // { label:"Approved", value:"Approved"},
-    // { label:"Paid", value:"Paid"},
-    // { label:"Return", value:"Return"},
-    // { label:"Rejected", value:"Rejected"},
-
 ];
 
 export type FacetOption = { label: string; value: string };
 export type FacetConfig = { title: string; options: FacetOption[]; isLoading?: boolean };
 
+// Status facet filter options
+// "Due" = Created terms with due_date <= today (computed display_status)
+// The backend translates "Due" filter to the correct SQL condition
 export const CREDIT_FACET_FILTER_OPTIONS: Record<string, FacetConfig> = {
-    'term_status': {
+    'display_status': {
         title: "Status",
         options: [
-            { label: "Due", value: "Scheduled" },
+            { label: "Due", value: "Due" },  // Created + past due_date
             { label: "Requested", value: "Requested" },
             { label: "Approved", value: "Approved" },
             { label: "Paid", value: "Paid" },
-            { label: "Created", value: "Created" },
         ],
     },
     "project_name": {
         title: "Project",
         options: [], // We will populate this dynamically
     },
-    // This key MUST match the field name on the PARENT table
     "vendor_name": {
         title: "Vendor",
         options: [], // We will populate this dynamically
