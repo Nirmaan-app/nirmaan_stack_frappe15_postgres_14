@@ -5,7 +5,7 @@ import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ChevronDown, ChevronUp, AlertCircle, Info, MapPin, MessagesSquare, FileText, Download, Eye, EyeOff } from 'lucide-react';
+import { ChevronDown, ChevronUp, AlertCircle, Info, MapPin, MessagesSquare, FileText, Download, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { TailSpin } from 'react-loader-spinner';
 import { Card, CardContent } from '@/components/ui/card';
 import OverallMilestonesReportPDF from './OverallMilestonesReportPDF';
@@ -86,12 +86,14 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   const [allExpanded, setAllExpanded] = useState(false);
   const [showPrintHeader, setShowPrintHeader] = useState(true);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   // PDF Download handler
   const handleDownloadReport = async () => {
     if (!selectedProject) return;
 
     try {
+      setIsDownloading(true);
       // Note: toast is not imported, so we'll use console/alert for now
       // If toast is needed, import from '@/components/ui/use-toast'
       
@@ -121,6 +123,8 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
     } catch (e) {
       console.error("PDF Download Error:", e);
       alert("Failed to download report. Please try again.");
+    } finally {
+      setIsDownloading(false);
     }
   };
 
@@ -760,10 +764,20 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
             </div>
             <Button
               onClick={handleDownloadReport}
-              className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white"
+              disabled={isDownloading}
+              className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white disabled:bg-red-400"
             >
-              <Download className="w-4 h-4" />
-              Download Report
+              {isDownloading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Generating PDF...
+                </>
+              ) : (
+                <>
+                  <Download className="w-4 h-4" />
+                  Download Report
+                </>
+              )}
             </Button>
           </>
         )}
