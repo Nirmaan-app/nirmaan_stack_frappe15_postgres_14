@@ -1,26 +1,14 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Separator } from "@/components/ui/separator";
-import { NirmaanComments as NirmaanCommentsType } from "@/types/NirmaanStack/NirmaanComments";
-import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { Timeline } from "antd";
-import {
-  ChevronDown,
-  Eye,
-  FileText,
-  MessageSquare,
-  PencilRuler,
-  Printer,
-  Trash2,
-} from "lucide-react";
-import { useMemo, useState } from "react";
+import { Eye, FileText, PencilRuler, Printer, Trash2 } from "lucide-react";
+import { useMemo } from "react";
 
 interface SRDetailsCardProps {
   orderData: ServiceRequests | undefined;
@@ -30,8 +18,6 @@ interface SRDetailsCardProps {
   getTotal: number;
   amountPaid: number;
   isRestrictedRole: boolean;
-  usersList?: NirmaanUsersType[];
-  universalComments?: NirmaanCommentsType[];
   // Action callbacks
   onPrint?: () => void;
   onDelete?: () => void;
@@ -55,8 +41,7 @@ interface SRDetailsCardProps {
  * 2. Info - Project, Package, Vendor (with separators)
  * 3. Amounts - Total, Paid, Pending, GST status (color-coded)
  * 4. Timeline - Created, Modified, Approved dates
- * 5. Comments - Collapsible timeline of comments
- * 6. Actions - Role-conditional action buttons
+ * 5. Actions - Role-conditional action buttons
  */
 export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
   orderData,
@@ -66,8 +51,6 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
   getTotal,
   amountPaid,
   isRestrictedRole,
-  usersList,
-  universalComments,
   onPrint,
   onDelete,
   onAmend,
@@ -79,13 +62,6 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
   deleteDisabled = false,
   isDeleting = false,
 }) => {
-  const [commentsExpanded, setCommentsExpanded] = useState(false);
-
-  // Get full name from user ID
-  const getFullName = (id: string) => {
-    return usersList?.find((user) => user.name === id)?.full_name;
-  };
-
   // Get status badge variant
   const getStatusVariant = (status: string | undefined): "green" | "red" | "orange" | "outline" => {
     switch (status) {
@@ -105,36 +81,6 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
     const totalWithGst = gstEnabled ? getTotal * 1.18 : getTotal;
     return Math.max(0, Math.floor(totalWithGst) - amountPaid);
   }, [getTotal, gstEnabled, amountPaid]);
-
-  // Build comments timeline
-  const itemsTimelineList = useMemo(() => {
-    return universalComments?.map((cmt) => ({
-      label: (
-        <span className="max-sm:text-wrap text-xs m-0 p-0">
-          {formatDate(cmt.creation?.split(" ")[0])} {cmt.creation?.split(" ")[1]?.substring(0, 5)}
-        </span>
-      ),
-      children: (
-        <div className="bg-gray-50 rounded-md p-2 border border-gray-100">
-          <div className="text-sm font-medium text-gray-700">
-            {cmt.comment_by === "Administrator" ? (
-              <span>Administrator</span>
-            ) : (
-              <span>{getFullName(cmt.comment_by || "") || cmt.comment_by}</span>
-            )}
-          </div>
-          <div className="text-sm text-gray-600 mt-1">{cmt.content}</div>
-        </div>
-      ),
-      color: cmt.subject
-        ? cmt.subject === "creating pr"
-          ? "green"
-          : cmt.subject === "rejecting pr"
-          ? "red"
-          : "blue"
-        : "gray",
-    }));
-  }, [universalComments, usersList]);
 
   return (
     <Card className="rounded-sm shadow-md overflow-x-auto">
@@ -197,9 +143,9 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
         </div>
 
         {/* ═══════════════════════════════════════════════════════════════════
-            SECTION 3: AMOUNTS - Financial figures (only when approved)
+            SECTION 3: AMOUNTS - Financial figures (only when approved, hidden for PM)
         ═══════════════════════════════════════════════════════════════════ */}
-        {orderData?.status === "Approved" && (
+        {orderData?.status === "Approved" && !isRestrictedRole && (
           <div className="pb-3 border-b border-gray-100">
             <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
               Amounts
@@ -273,128 +219,90 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
         </div>
 
         {/* ═══════════════════════════════════════════════════════════════════
-            SECTION 5: COMMENTS - Collapsible
+            SECTION 5: ACTIONS - All action buttons (hidden for PM role)
         ═══════════════════════════════════════════════════════════════════ */}
-        {itemsTimelineList && itemsTimelineList.length > 0 && (
-          <div className="pb-3 border-b border-gray-100">
-            <Collapsible open={commentsExpanded} onOpenChange={setCommentsExpanded}>
-              <CollapsibleTrigger className="flex items-center gap-2 text-sm font-medium hover:text-primary transition-colors w-full justify-between">
-                <div className="flex items-center gap-2">
-                  <MessageSquare className="h-4 w-4" />
-                  <span>Comments ({itemsTimelineList.length})</span>
-                </div>
-                <ChevronDown
-                  className={`h-4 w-4 transition-transform ${
-                    commentsExpanded ? "rotate-180" : ""
-                  }`}
-                />
-              </CollapsibleTrigger>
-              <CollapsibleContent className="mt-3">
-                <Timeline className="w-full" mode={"left"} items={itemsTimelineList} />
-              </CollapsibleContent>
-            </Collapsible>
+        {!isRestrictedRole && (
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 sm:flex-wrap sm:justify-end">
+            {/* Delete Button */}
+            {onDelete && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={deleteDisabled || isDeleting}
+                onClick={onDelete}
+                className="flex items-center gap-1 border-primary text-primary shrink-0"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete
+              </Button>
+            )}
+
+            {/* Amend Button */}
+            {onAmend && !summaryPage && !accountsPage && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onAmend}
+                className="flex items-center gap-1 border-primary text-primary shrink-0"
+              >
+                <PencilRuler className="h-3.5 w-3.5" />
+                Amend
+              </Button>
+            )}
+
+            {/* Add Invoice Button */}
+            {onAddInvoice && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onAddInvoice}
+                className="flex items-center gap-1 border-primary text-primary shrink-0"
+              >
+                <FileText className="h-3.5 w-3.5" />
+                Add Invoice
+              </Button>
+            )}
+
+            {/* Request Payment Button */}
+            {onRequestPayment && !summaryPage && !accountsPage && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onRequestPayment}
+                className="flex items-center gap-1 border-primary text-primary shrink-0"
+              >
+                Request Payment
+              </Button>
+            )}
+
+            {/* Preview Button */}
+            {onPreview && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!orderData?.project_gst}
+                onClick={onPreview}
+                className="flex items-center gap-1 border-primary text-primary shrink-0"
+              >
+                <Eye className="h-3.5 w-3.5" />
+                Preview
+              </Button>
+            )}
+
+            {/* Print Button */}
+            {onPrint && orderData?.status === "Approved" && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onPrint}
+                className="flex items-center gap-1 border-primary text-primary shrink-0"
+              >
+                <Printer className="h-3.5 w-3.5" />
+                Print
+              </Button>
+            )}
           </div>
         )}
-
-        {/* ═══════════════════════════════════════════════════════════════════
-            SECTION 6: ACTIONS - All action buttons
-        ═══════════════════════════════════════════════════════════════════ */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 sm:flex-wrap sm:justify-end">
-          {/* For restricted roles (PM, Estimates Executive), only show Preview button */}
-          {isRestrictedRole ? (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!orderData?.project_gst}
-              onClick={onPreview}
-              className="flex items-center gap-1 border-primary text-primary shrink-0"
-            >
-              <Eye className="h-3.5 w-3.5" />
-              Preview
-            </Button>
-          ) : (
-            <>
-              {/* Delete Button */}
-              {onDelete && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={deleteDisabled || isDeleting}
-                  onClick={onDelete}
-                  className="flex items-center gap-1 border-primary text-primary shrink-0"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Delete
-                </Button>
-              )}
-
-              {/* Amend Button */}
-              {onAmend && !summaryPage && !accountsPage && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={onAmend}
-                  className="flex items-center gap-1 border-primary text-primary shrink-0"
-                >
-                  <PencilRuler className="h-3.5 w-3.5" />
-                  Amend
-                </Button>
-              )}
-
-              {/* Add Invoice Button */}
-              {onAddInvoice && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={onAddInvoice}
-                  className="flex items-center gap-1 border-primary text-primary shrink-0"
-                >
-                  <FileText className="h-3.5 w-3.5" />
-                  Add Invoice
-                </Button>
-              )}
-
-              {/* Request Payment Button */}
-              {onRequestPayment && !summaryPage && !accountsPage && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={onRequestPayment}
-                  className="flex items-center gap-1 border-primary text-primary shrink-0"
-                >
-                  Request Payment
-                </Button>
-              )}
-
-              {/* Preview Button */}
-              {onPreview && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!orderData?.project_gst}
-                  onClick={onPreview}
-                  className="flex items-center gap-1 border-primary text-primary shrink-0"
-                >
-                  <Eye className="h-3.5 w-3.5" />
-                  Preview
-                </Button>
-              )}
-
-              {/* Print Button */}
-              {onPrint && orderData?.status === "Approved" && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={onPrint}
-                  className="flex items-center gap-1 border-primary text-primary shrink-0"
-                >
-                  <Printer className="h-3.5 w-3.5" />
-                  Print
-                </Button>
-              )}
-            </>
-          )}
-        </div>
       </CardContent>
     </Card>
   );

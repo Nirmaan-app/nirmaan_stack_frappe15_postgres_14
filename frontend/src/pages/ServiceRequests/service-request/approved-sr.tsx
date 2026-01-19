@@ -12,9 +12,8 @@ import { Pencil2Icon } from "@radix-ui/react-icons";
 import logo from "@/assets/logo-svg.svg";
 import { AddressView } from "@/components/address-view";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
-import { NirmaanComments as NirmaanCommentsType } from "@/types/NirmaanStack/NirmaanComments";
-import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 import { SRDetailsCard } from "./components/SRDetailsCard";
+import { SRComments } from "./components/SRComments";
 import {
     AlertDialog,
     AlertDialogCancel,
@@ -154,28 +153,6 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
         filters: [["document_name", "=", id]],
         limit: 100
     })
-
-    // Fetch comments for the SR (for SRDetailsCard comments section)
-    const { data: universalComments, isLoading: universalCommentsLoading } = useFrappeGetDocList<NirmaanCommentsType>(
-        "Nirmaan Comments",
-        {
-            fields: ["*"],
-            filters: [["reference_name", "=", id]],
-            orderBy: { field: "creation", order: "desc" },
-            limit: 100,
-        },
-        id ? `Nirmaan Comments for SR ${id}` : null
-    );
-
-    // Fetch users list for displaying commenter names
-    const { data: usersList, isLoading: usersListLoading } = useFrappeGetDocList<NirmaanUsersType>(
-        "Nirmaan Users",
-        {
-            fields: ["name", "full_name"],
-            limit: 1000,
-        },
-        "Nirmaan Users"
-    );
 
     const getAmountPaid = useMemo(() => getTotalAmountPaid(projectPayments?.filter(i => i?.status === "Paid") || []), [projectPayments]);
 
@@ -400,9 +377,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
         service_request_loading ||
         service_vendor_loading ||
         project_loading ||
-        projectPaymentsLoading ||
-        universalCommentsLoading ||
-        usersListLoading
+        projectPaymentsLoading
     )
         return (
             <LoadingFallback />
@@ -434,8 +409,6 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 getTotal={getTotal}
                 amountPaid={getAmountPaid}
                 isRestrictedRole={isRestrictedRole}
-                usersList={usersList}
-                universalComments={universalComments}
                 onPrint={handlePrint}
                 onDelete={() => setDeleteDialog(true)}
                 onAmend={toggleAmendDialog}
@@ -901,7 +874,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                 <th className="w-[5%] text-left ">
                                     S.No.
                                 </th>
-                                <th className="w-[50%] text-left px-2">
+                                <th className={isRestrictedRole ? "w-[60%] text-left px-2" : "w-[50%] text-left px-2"}>
                                     Service Description
                                 </th>
                                 <th className="w-[10%]  text-center px-2">
@@ -910,12 +883,16 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                 <th className="w-[10%]  text-center px-2">
                                     Quantity
                                 </th>
-                                <th className="w-[10%]  text-center px-2">
-                                    Rate
-                                </th>
-                                <th className="w-[10%]  text-center px-2">
-                                    Amount
-                                </th>
+                                {!isRestrictedRole && (
+                                    <>
+                                        <th className="w-[10%]  text-center px-2">
+                                            Rate
+                                        </th>
+                                        <th className="w-[10%]  text-center px-2">
+                                            Amount
+                                        </th>
+                                    </>
+                                )}
                             </tr>
                         </thead>
                         <tbody className="max-sm:text-xs text-sm">
@@ -924,7 +901,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                     <td className="w-[5%] text-start ">
                                         {index + 1}
                                     </td>
-                                    <td className="w-[50%] text-left py-1">
+                                    <td className={isRestrictedRole ? "w-[60%] text-left py-1" : "w-[50%] text-left py-1"}>
                                         <p className="font-semibold">{item?.category}</p>
                                         <span className="whitespace-pre-wrap">{item?.description}</span>
                                     </td>
@@ -934,18 +911,29 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                     <td className="w-[10%]  text-center">
                                         {item.quantity}
                                     </td>
-                                    <td className="w-[10%]  text-center">
-                                        {formatToIndianRupee(item?.rate)}
-                                    </td>
-                                    <td className="w-[10%]  text-center">
-                                        {formatToIndianRupee(parseNumber(item.rate) * parseNumber(item.quantity))}
-                                    </td>
+                                    {!isRestrictedRole && (
+                                        <>
+                                            <td className="w-[10%]  text-center">
+                                                {formatToIndianRupee(item?.rate)}
+                                            </td>
+                                            <td className="w-[10%]  text-center">
+                                                {formatToIndianRupee(parseNumber(item.rate) * parseNumber(item.quantity))}
+                                            </td>
+                                        </>
+                                    )}
                                 </tr>
                             ))}
                         </tbody>
                     </table>
                 </CardContent>
             </Card>
+
+            {/* SR Comments Card */}
+            {id && (
+                <Card className="rounded-sm shadow-md p-2">
+                    <SRComments srId={id} />
+                </Card>
+            )}
 
             {/* SR PDF Sheet */}
             <SRPdf

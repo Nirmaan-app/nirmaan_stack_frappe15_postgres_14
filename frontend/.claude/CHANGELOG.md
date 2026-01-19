@@ -4,6 +4,36 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-19: Hide Financial Information from Project Manager in PO Details View
+
+### Summary
+Extended role-based financial data hiding to the PO Details view for users with "Nirmaan Project Manager Profile" role. Follows the pattern established in commit `53594079` (WO/PO Summary tabs).
+
+### Files Modified
+- `src/pages/ProcurementOrders/purchase-order/components/PODetails.tsx`:
+  - Added `isProjectManager` check
+  - Wrapped Amounts section (PO Amount Incl/Excl GST, Total Invoiced, Amount Paid, Amount Delivered) with conditional
+
+- `src/pages/ProcurementOrders/purchase-order/components/POPdf.tsx`:
+  - Hide PO render/preview section for Project Manager (Print, Download buttons were already hidden)
+  - Keep "Download Without Rate" button visible for all roles
+
+- `src/pages/ProcurementOrders/purchase-order/PurchaseOrder.tsx`:
+  - Added `isProjectManager` useMemo check
+  - Hide Payment Details accordion (TransactionDetailsCard, POPaymentTermsCard) entirely
+  - Hide financial columns in Order Details desktop table: Rate, Tax, Amount, Amount (incl.GST)
+  - Hide financial fields in Order Details mobile view: Rate, Tax, Total (incl. GST)
+
+### What Project Managers See
+| Section | Visible | Hidden |
+|---------|---------|--------|
+| PO Details Card | Vendor, Package, Status, Timeline | Amounts section |
+| Preview Sheet | "Download Without Rate" button | Print, Download, PO render |
+| Payment Details | - | Entire accordion hidden |
+| Order Details | S.No., Item Name, Unit, Qty, Delivered Qty | Rate, Tax, Amount, Amount (incl.GST) |
+
+---
+
 ## 2026-01-19: SR Summary and ApprovedSR Consolidation
 
 ### Summary
