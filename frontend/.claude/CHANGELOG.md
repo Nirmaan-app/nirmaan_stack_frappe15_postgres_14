@@ -4,6 +4,50 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-19: SR Summary and ApprovedSR Consolidation
+
+### Summary
+Consolidated the separate sr-summary.tsx and ApprovedSR components into a unified view with role-based feature visibility. Users no longer need to click "View Order" to access full features.
+
+### Files Created
+- `src/pages/ServiceRequests/service-request/components/SRDetailsCard.tsx` - Reusable sectioned card component with Header, Info (Project|Package|Vendor), Amounts (color-coded), Timeline, Comments (collapsible), and Actions sections
+
+### Files Modified
+- `src/pages/ServiceRequests/service-request/approved-sr.tsx`:
+  - Integrated SRDetailsCard component
+  - Added Nirmaan Comments fetch for comments section
+  - Added Nirmaan Users fetch for commenter names
+  - Cleaned up unused imports (Badge, VendorHoverCard, Eye, PencilRuler, etc.)
+
+- `src/components/helpers/routesConfig.tsx`:
+  - Changed index route for `:srId` to use ApprovedSR directly
+  - Removed `/order-view` route (no longer needed)
+
+- `src/pages/ServiceRequests/service-request/list-sr.tsx`:
+  - Updated link from `${item.name}/order-view` to `${item.name}`
+
+- `src/pages/projects/components/ProjectSRSummaryTable.tsx`:
+  - Updated link from `/service-requests-list/${sr.name}/order-view` to `/service-requests-list/${sr.name}`
+
+- `src/pages/vendors/components/LedgerTableRow.tsx`:
+  - Updated SR links to remove `/order-view`
+
+### Files Retired
+- `src/pages/Retired Components/sr-summary.tsx` - Original component with all code commented out and documentation header
+
+### Route Changes
+- **Before:** `/service-requests-list/:srId` → sr-summary.tsx (read-only), `/service-requests-list/:srId/order-view` → ApprovedSR (full management)
+- **After:** `/service-requests-list/:srId` → ApprovedSR (unified view with role-based features)
+
+### Role-Based Access (preserved from ApprovedSR)
+| Feature | PM / Estimates | Admin / PMO / Others |
+|---------|---------------|---------------------|
+| View SR Details | ✓ | ✓ |
+| PDF Preview | ✓ | ✓ |
+| Delete/Amend/Invoice/Payment | ✗ | ✓ |
+
+---
+
 ## 2026-01-17: Customer Page UI Revamp & Nickname Feature
 
 ### Summary
