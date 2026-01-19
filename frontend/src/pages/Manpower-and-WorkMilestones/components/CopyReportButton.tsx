@@ -858,7 +858,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                        </div>
                     ) : (
                         <div className="text-center py-6 border-2 border-dashed border-gray-300 rounded-lg bg-gray-50">
-                            <p className="text-xs text-gray-500">No work photos added for today yet. Add at least 3 photos.</p>
+                            <p className="text-xs text-gray-500">No work photos added for today yet. Add at least 4 photos.</p>
                         </div>
                     )}
                 </div>
