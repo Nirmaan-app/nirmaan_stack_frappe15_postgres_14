@@ -4,6 +4,46 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-19: SR Comments Standalone Card with Add/Delete
+
+### Summary
+Extracted comments functionality from SRDetailsCard into a dedicated SRComments component with role-based comment creation and deletion capabilities. Uses the existing `sr_remarks` backend API.
+
+### Files Created
+- `src/pages/ServiceRequests/service-request/hooks/useSRRemarks.ts` - Hooks for SR remarks API:
+  - `useSRRemarks()` - Fetch remarks with optional filter
+  - `useAddSRRemark()` - Add new remark
+  - `useDeleteSRRemark()` - Delete own remarks
+
+- `src/pages/ServiceRequests/service-request/components/SRComments.tsx` - Standalone comments card with:
+  - Role-based filter pills (All, Accountant, Procurement, Admin) with counts
+  - Add comment form with Ctrl+Enter submit
+  - Delete own comments capability
+  - Timeline display with avatars and relative time
+
+### Files Modified
+- `src/pages/ServiceRequests/service-request/approved-sr.tsx`:
+  - Removed `universalComments` and `usersList` data fetching
+  - Removed comments props from SRDetailsCard
+  - Added SRComments card after Order Details section
+
+- `src/pages/ServiceRequests/service-request/components/SRDetailsCard.tsx`:
+  - Removed Comments section (Section 5)
+  - Removed `usersList`, `universalComments` props
+  - Removed helper functions: `getFullName`, `getInitials`, `formatRelativeTime`, `getSubjectDotColor`
+
+### Role-Based Comment Access
+| Role | Can Add | Subject Category |
+|------|---------|------------------|
+| Accountant | Yes | `accountant_remark` |
+| Procurement Executive | Yes | `procurement_remark` |
+| Admin/PMO/Project Lead | Yes | `admin_remark` |
+| Others | No | - |
+
+All users can delete their own comments.
+
+---
+
 ## 2026-01-19: Hide Financial Information from Project Manager in PO Details View
 
 ### Summary
