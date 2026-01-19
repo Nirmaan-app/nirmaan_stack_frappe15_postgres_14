@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from "react";
-import { MessageCircle, Send, Loader2, Trash2 } from "lucide-react";
+import React, { useState, useMemo, useEffect } from "react";
+import { MessageCircle, Send, Loader2, Trash2, Bot } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -36,6 +36,8 @@ import {
 
 interface SRCommentsProps {
   srId: string;
+  /** Optional trigger to refresh comments - increment to refetch */
+  refreshTrigger?: number;
 }
 
 type FilterValue = "all" | "accountant" | "procurement" | "admin";
@@ -72,7 +74,7 @@ const getAvatarBgColor = (subject: RemarkSubject): string => {
   }
 };
 
-export const SRComments: React.FC<SRCommentsProps> = ({ srId }) => {
+export const SRComments: React.FC<SRCommentsProps> = ({ srId, refreshTrigger }) => {
   const { toast } = useToast();
   const { role, user_id } = useUserData();
 
@@ -83,6 +85,13 @@ export const SRComments: React.FC<SRCommentsProps> = ({ srId }) => {
   const { remarks, counts, isLoading, mutate } = useSRRemarks(srId, subjectFilter);
   const { addRemark, isLoading: isAdding } = useAddSRRemark();
   const { deleteRemark, isLoading: isDeleting } = useDeleteSRRemark();
+
+  // Refresh comments when refreshTrigger changes (e.g., after finalize/revert)
+  useEffect(() => {
+    if (refreshTrigger !== undefined && refreshTrigger > 0) {
+      mutate();
+    }
+  }, [refreshTrigger, mutate]);
 
   const canAddRemarks = useMemo(() => {
     const allowedRoles = [
@@ -96,6 +105,9 @@ export const SRComments: React.FC<SRCommentsProps> = ({ srId }) => {
   }, [role]);
 
   const canDeleteRemark = (remark: SRRemarkData): boolean => {
+    // System-generated comments cannot be deleted by anyone
+    if (remark.is_system_generated) return false;
+
     if (user_id === "Administrator") return true;
     const currentUserLower = user_id?.toLowerCase() || "";
     const remarkOwnerLower = remark.comment_by?.toLowerCase() || "";
@@ -251,7 +263,12 @@ export const SRComments: React.FC<SRCommentsProps> = ({ srId }) => {
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-medium text-sm text-slate-800">{remark.comment_by_name}</span>
                             <span className="text-xs text-slate-400">{formatRelativeTime(remark.creation)}</span>
-                            {canDeleteRemark(remark) && (
+                            {remark.is_system_generated ? (
+                              <span className="ml-auto inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-50 text-amber-700 border border-amber-200">
+                                <Bot className="h-3 w-3" />
+                                Auto
+                              </span>
+                            ) : canDeleteRemark(remark) ? (
                               <AlertDialog>
                                 <AlertDialogTrigger asChild>
                                   <button className="ml-auto p-1 text-slate-400 hover:text-red-500 transition-colors" disabled={isDeleting}>
@@ -269,7 +286,7 @@ export const SRComments: React.FC<SRCommentsProps> = ({ srId }) => {
                                   </AlertDialogFooter>
                                 </AlertDialogContent>
                               </AlertDialog>
-                            )}
+                            ) : null}
                           </div>
                           <p className="text-sm text-slate-600 mt-0.5 whitespace-pre-wrap break-words">{remark.content}</p>
                         </div>

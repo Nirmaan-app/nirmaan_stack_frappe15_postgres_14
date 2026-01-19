@@ -9,6 +9,7 @@
   "comment_type",
   "content",
   "subject",
+  "is_system_generated",
   "links_section",
   "reference_doctype",
   "reference_name",
@@ -34,6 +35,13 @@
    "fieldname": "subject",
    "fieldtype": "Data",
    "label": "Subject"
+  },
+  {
+   "fieldname": "is_system_generated",
+   "fieldtype": "Check",
+   "label": "Is System Generated",
+   "default": "0",
+   "read_only": 1
   },
   {
    "fieldname": "links_section",

@@ -11,6 +11,7 @@ export interface SRRemarkData {
   comment_by: string;
   comment_by_name: string;
   creation: string;
+  is_system_generated?: boolean;
 }
 
 export interface SRRemarksCounts {
