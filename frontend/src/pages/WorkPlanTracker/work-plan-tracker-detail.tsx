@@ -51,8 +51,6 @@ const WorkPlanTrackerDetail: React.FC = () => {
       {/* Work Plan Content - Show all work plans (no date filter) */}
       <SevendaysWorkPlan
         projectId={projectId!}
-        startDate={undefined}
-        endDate={undefined}
         isOverview={false}
         projectName={project.project_name}
       />

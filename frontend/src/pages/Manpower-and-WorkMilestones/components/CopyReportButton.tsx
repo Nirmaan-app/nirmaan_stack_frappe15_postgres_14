@@ -639,10 +639,10 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
     try {
       // Validate photos - require at least 3 Work type photos
       const workPhotosCount = localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').length;
-      if (workPhotosCount < 3) {
+      if (workPhotosCount < 4) {
         toast({
           title: "Work Photos Required 📷",
-          description: `You have added ${workPhotosCount} work photos. Please add at least 3 work photos to proceed.`,
+          description: `You have added ${workPhotosCount} work photos. Please add at least 4 work photos to proceed.`,
           variant: "destructive",
         });
         setIsCopying(false);
@@ -911,14 +911,14 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                     <AlertTriangle className="w-4 h-4 text-orange-600" /> Client / Clearance Issues
                   </h3>
                   
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1  gap-4">
                     
                     {/* Drawing Issues Card */}
                     <div className="bg-white rounded-xl shadow-sm border border-orange-200 overflow-hidden flex flex-col h-full">
                       <div className="bg-gradient-to-r from-orange-50 to-orange-100 px-3 py-2 border-b border-orange-200 flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             <div className="p-1 bg-orange-500 rounded-md shadow-sm"><FileText className="w-3 h-3 text-white"/></div>
-                            <h4 className="font-semibold text-orange-900 text-sm">Drawing Remarks</h4>
+                            <h4 className="font-semibold text-orange-900 text-sm">Drawing Approval Remarks</h4>
                         </div>
                         <Button 
                           variant="ghost" 
@@ -975,6 +975,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                           )}
 
                           {/* Photos */}
+                          {drawingRemarkPoints.length > 0 && (
                            <div className="pt-3 mt-auto border-t border-orange-100">
                               <div className="flex flex-col gap-2 mb-2">
                                   <p className="text-[10px] font-bold text-orange-400 uppercase tracking-wider">Attached Photos</p>
@@ -999,6 +1000,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                                 <p className="text-[10px] text-gray-400 italic">No photos attached</p>
                               )}
                            </div>
+                          )}
                       </div>
                     </div>
 
@@ -1007,7 +1009,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                       <div className="bg-gradient-to-r from-red-50 to-red-100 px-3 py-2 border-b border-red-200 flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             <div className="p-1 bg-red-500 rounded-md shadow-sm"><MapPin className="w-3 h-3 text-white"/></div>
-                            <h4 className="font-semibold text-red-900 text-sm">Site Remarks</h4>
+                            <h4 className="font-semibold text-red-900 text-sm">Site Clearence Remarks</h4>
                         </div>
                         <Button 
                           variant="ghost" 
@@ -1064,6 +1066,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                           )}
 
                           {/* Photos */}
+                          {siteRemarkPoints.length > 0 && (
                            <div className="pt-3 mt-auto border-t border-red-100">
                               <div className="flex flex-col gap-2 mb-2">
                                   <p className="text-[10px] font-bold text-red-400 uppercase tracking-wider">Attached Photos</p>
@@ -1088,6 +1091,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                                 <p className="text-[10px] text-gray-400 italic">No photos attached</p>
                               )}
                            </div>
+                          )}
                       </div>
                     </div>
                   </div>

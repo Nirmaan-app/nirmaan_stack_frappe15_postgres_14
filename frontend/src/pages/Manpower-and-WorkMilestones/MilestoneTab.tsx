@@ -1298,6 +1298,21 @@ console.log(user)
 
     saveCurrentTabData();
 
+    // --- Validation: Manpower Count must be >= 1 ---
+    if (isCalledFromManpowerDialog || activeTabValue === "Work force") {
+        const totalManpowerCount = dialogManpowerRoles.reduce((sum, item) => sum + (item.count || 0), 0);
+        if (totalManpowerCount < 1) {
+            setIsLocalSaving(false);
+            toast({
+                title: "Validation Error 🚫",
+                description: "Manpower total count should be at least one.",
+                variant: "destructive",
+            });
+            return;
+        }
+    }
+    // -----------------------------------------------
+
     const allTabs = getAllAvailableTabs();
     const currentIndex = allTabs.findIndex(tab => tab.project_work_header_name === activeTabValue);
     const isLastTab = currentIndex === allTabs.length - 1;
@@ -1318,11 +1333,11 @@ console.log(user)
       const payloadToCheckPhotos = collectAllTabData('Draft');
       const workPhotosCount = (payloadToCheckPhotos.attachments || []).filter(p => !p.attach_type || p.attach_type === 'Work').length;
       
-      if (workPhotosCount < 3) {
+      if (workPhotosCount < 4) {
         setIsLocalSaving(false);
         toast({
           title: "Submission Validation Error 🚫",
-          description: "Please upload at least Three WORK photos before final submission.",
+          description: "Please upload at least 4 WORK photos before final submission.",
           variant: "destructive",
         });
         return;
@@ -2110,8 +2125,9 @@ console.log(user)
                     )}
 
                     {/* Drawing Photos */}
-                    <div className="pt-3 border-t border-orange-100">
-                      <div className="flex justify-between items-center mb-3">
+                    {drawingRemarksList.length > 0 && (
+                     <div className="pt-3 border-t border-orange-100">
+                      <div className="flex flex-col items-start gap-2 mb-3">
                         <div className="flex items-center gap-2">
                           {/* <Camera className="h-4 w-4 text-orange-500" /> */}
                           {/* <h4 className="text-sm font-semibold text-gray-700">Drawing Photos</h4> */}
@@ -2121,15 +2137,17 @@ console.log(user)
                             </span>
                           )}
                         </div>
-                        <PhotoPermissionChecker
-                          isBlockedByDraftOwnership={isBlockedByDraftOwnership}
-                          onAddPhotosClick={() => {
-                            setCurrentCaptureType('Drawing');
-                            setIsCaptureDialogOpen(true);
-                          }}
-                          GEO_API={apiData?.api_key}
-                          triggerLabel="Add Photo"
-                        />
+                        <div className="w-full">
+                            <PhotoPermissionChecker
+                            isBlockedByDraftOwnership={isBlockedByDraftOwnership}
+                            onAddPhotosClick={() => {
+                                setCurrentCaptureType('Drawing');
+                                setIsCaptureDialogOpen(true);
+                            }}
+                            GEO_API={apiData?.api_key}
+                            triggerLabel="Add Photo"
+                            />
+                        </div>
                       </div>
                       
                       {localPhotos.filter(p => p.attach_type === 'Drawing').length > 0 ? (
@@ -2167,6 +2185,7 @@ console.log(user)
                         </div>
                       )}
                     </div>
+                   )}
                   </div>
                 </div>
 
@@ -2252,8 +2271,9 @@ console.log(user)
                     )}
 
                     {/* Site Photos */}
-                    <div className="pt-3 border-t border-red-100">
-                      <div className="flex justify-between items-center mb-3">
+                    {siteRemarksList.length > 0 && (
+                     <div className="pt-3 border-t border-red-100">
+                      <div className="flex flex-col items-start gap-2 mb-3">
                         <div className="flex items-center gap-2">
                           {/* <Camera className="h-4 w-4 text-red-500" /> */}
                           {/* <h4 className="text-sm font-semibold text-gray-700"> Photos</h4> */}
@@ -2263,15 +2283,17 @@ console.log(user)
                             </span>
                           )}
                         </div>
-                        <PhotoPermissionChecker
-                          isBlockedByDraftOwnership={isBlockedByDraftOwnership}
-                          onAddPhotosClick={() => {
-                            setCurrentCaptureType('Site');
-                            setIsCaptureDialogOpen(true);
-                          }}
-                          GEO_API={apiData?.api_key}
-                          triggerLabel="Add Photo"
-                        />
+                        <div className="w-full">
+                            <PhotoPermissionChecker
+                            isBlockedByDraftOwnership={isBlockedByDraftOwnership}
+                            onAddPhotosClick={() => {
+                                setCurrentCaptureType('Site');
+                                setIsCaptureDialogOpen(true);
+                            }}
+                            GEO_API={apiData?.api_key}
+                            triggerLabel="Add Photo"
+                            />
+                        </div>
                       </div>
                       
                       {localPhotos.filter(p => p.attach_type === 'Site').length > 0 ? (
@@ -2309,6 +2331,7 @@ console.log(user)
                         </div>
                       )}
                     </div>
+                   )}
                   </div>
                 </div>
 
