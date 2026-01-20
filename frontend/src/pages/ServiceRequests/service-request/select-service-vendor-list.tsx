@@ -131,7 +131,7 @@ export const SelectServiceVendorList: React.FC = () => {
       {
         accessorKey: "name",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="#sO" />
+          <DataTableColumnHeader column={column} title="#WO" />
         ),
         cell: ({ row }) => {
           const data = row.original;
@@ -147,7 +147,7 @@ export const SelectServiceVendorList: React.FC = () => {
               {/* Adapt ItemsHoverCard or create ServiceItemsHoverCard if structure differs significantly */}
               <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                 <ItemsHoverCard
-                  parentDocId={data}
+                  parentDoc={data}
                   parentDoctype="Service Requests"
                   childTableName="service_order_list"
                   isSR
