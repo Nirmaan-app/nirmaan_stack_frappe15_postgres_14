@@ -71,6 +71,9 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
     selectedProject ? undefined : null
   );
 
+
+
+
   // Fetch Work Milestones to get the order and weightage for milestones
   const { data: workMilestonesList } = useFrappeGetDocList("Work Milestones", {
       fields: ["work_milestone_name", "work_milestone_order", "work_header", "weightage"],
@@ -82,6 +85,22 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
   const [latestReport, setLatestReport] = useState<ReportDoc | null>(null);
   const [report7DaysAgo, setReport7DaysAgo] = useState<ReportDoc | null>(null);
   const [report14DaysAgo, setReport14DaysAgo] = useState<ReportDoc | null>(null);
+
+  // --- Filter Photos for Specific Comparison Dates ---
+  const currentWorkPhotos = useMemo(() => {
+     if (!latestReport?.attachments) return [];
+     return latestReport.attachments.filter((a: any) => a.attach_type === 'Work');
+  }, [latestReport]);
+
+  const sevenDaysAgoWorkPhotos = useMemo(() => {
+     if (!report7DaysAgo?.attachments) return [];
+     return report7DaysAgo.attachments.filter((a: any) => a.attach_type === 'Work');
+  }, [report7DaysAgo]);
+
+  const fourteenDaysAgoWorkPhotos = useMemo(() => {
+     if (!report14DaysAgo?.attachments) return [];
+     return report14DaysAgo.attachments.filter((a: any) => a.attach_type === 'Work');
+  }, [report14DaysAgo]);
 
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   const [allExpanded, setAllExpanded] = useState(false);
@@ -410,100 +429,117 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
         </div>
       )}
 
-      {/* Client / Clearance Issues Section (Latest Report) */}
-      <div className="mb-6">
-        <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
-          Client / Clearance Issues
-          <Badge variant="outline" className="text-xs font-normal text-muted-foreground ml-2">Latest Report</Badge>
-        </h3>
-        
-        <div className="flex flex-col gap-4">
-          {/* Drawing Issues Card */}
-          <div className="bg-white rounded-xl shadow-sm border border-orange-200 overflow-hidden flex flex-col h-full">
-            <div className="bg-gradient-to-r from-orange-50 to-orange-100 px-4 py-3 border-b border-orange-200 flex items-center gap-2">
-              <div className="p-1.5 bg-orange-500 rounded-lg">
-                <FileText className="h-4 w-4 text-white" />
-              </div>
-              <h4 className="font-semibold text-orange-900">Drawing Approvals Remarks</h4>
-            </div>
-            
-            <div className="p-4 flex-1 flex flex-col gap-4">
-              {/* Remarks */}
-              <div className="flex-1">
-                {latestReport.drawing_remarks && latestReport.drawing_remarks.trim() !== "" ? (
-                  <ul className="space-y-2">
-                    {latestReport.drawing_remarks.split("$#,,,").filter((item: string) => item.trim() !== "").map((remark: string, idx: number) => (
-                      <li key={`drawing-${idx}`} className="flex items-start gap-2 text-sm text-gray-700 bg-orange-50/50 p-2 rounded-md border border-orange-100">
-                        <span className="flex-shrink-0 w-5 h-5 bg-orange-200 text-orange-800 text-xs font-bold rounded-full flex items-center justify-center mt-0.5">
-                          {idx + 1}
+      {/* Client / Clearance Issues Section (Compariso) */}
+      <div className="mb-8 space-y-8">
+        <h3 className="text-xl font-bold border-b pb-2">Client / Clearance Issues Comparison</h3>
+
+        {/* Helper function to render issues for a specific report */}
+        {[
+            { report: latestReport, title: "Current Report" },
+            { report: report7DaysAgo, title: "7 Days Ago" },
+            { report: report14DaysAgo, title: "14 Days Ago" }
+        ].map(({ report, title }) => {
+            if (!report) return null;
+
+            return (
+                <div key={title}>
+                    <h4 className="font-semibold text-lg text-gray-800 mb-3 flex items-center gap-2">
+                        {title}
+                        <span className="text-sm font-normal text-gray-500">
+                            ({report.report_date ? formatDate(report.report_date, { month: 'short', day: 'numeric'}) : '--'})
                         </span>
-                        <span className="break-words">{remark.trim()}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div className="text-center py-6 px-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
-                    <p className="text-sm text-gray-400 italic">No drawing issues reported</p>
-                  </div>
-                )}
-              </div>
+                    </h4>
+                    
+                    <div className="flex flex-col gap-4">
+                      {/* Drawing Issues Card */}
+                      <div className="bg-white rounded-xl shadow-sm border border-orange-200 overflow-hidden flex flex-col h-full">
+                        <div className="bg-gradient-to-r from-orange-50 to-orange-100 px-4 py-3 border-b border-orange-200 flex items-center gap-2">
+                          <div className="p-1.5 bg-orange-500 rounded-lg">
+                            <FileText className="h-4 w-4 text-white" />
+                          </div>
+                          <h4 className="font-semibold text-orange-900">Drawing Approvals Remarks</h4>
+                        </div>
+                        
+                        <div className="p-4 flex-1 flex flex-col gap-4">
+                          {/* Remarks */}
+                          <div className="flex-1">
+                            {report.drawing_remarks && report.drawing_remarks.trim() !== "" ? (
+                              <ul className="space-y-2">
+                                {report.drawing_remarks.split("$#,,,").filter((item: string) => item.trim() !== "").map((remark: string, idx: number) => (
+                                  <li key={`drawing-${idx}`} className="flex items-start gap-2 text-sm text-gray-700 bg-orange-50/50 p-2 rounded-md border border-orange-100">
+                                    <span className="flex-shrink-0 w-5 h-5 bg-orange-200 text-orange-800 text-xs font-bold rounded-full flex items-center justify-center mt-0.5">
+                                      {idx + 1}
+                                    </span>
+                                    <span className="break-words">{remark.trim()}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <div className="text-center py-6 px-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                                <p className="text-sm text-gray-400 italic">No drawing issues reported</p>
+                              </div>
+                            )}
+                          </div>
 
-              {/* Photos */}
-              {latestReport.attachments?.filter((a: any) => a.attach_type === 'Drawing').length > 0 && (
-                <div className="mt-auto pt-4 border-t border-orange-100">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Attached Photos</p>
-                  <ImageBentoGrid
-                    images={(latestReport.attachments || []).filter((a: any) => a.attach_type === 'Drawing')}
-                    forPdf={false}
-                  />
+                          {/* Photos */}
+                          {report.attachments?.filter((a: any) => a.attach_type === 'Drawing').length > 0 && (
+                            <div className="mt-auto pt-4 border-t border-orange-100">
+                              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Attached Photos</p>
+                              <ImageBentoGrid
+                                images={(report.attachments || []).filter((a: any) => a.attach_type === 'Drawing')}
+                                forPdf={false}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Site Issues Card */}
+                      <div className="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden flex flex-col h-full">
+                        <div className="bg-gradient-to-r from-red-50 to-red-100 px-4 py-3 border-b border-red-200 flex items-center gap-2">
+                          <div className="p-1.5 bg-red-500 rounded-lg">
+                            <MapPin className="h-4 w-4 text-white" />
+                          </div>
+                          <h4 className="font-semibold text-red-900">Site Clearence Remarks</h4>
+                        </div>
+                        
+                        <div className="p-4 flex-1 flex flex-col gap-4">
+                          {/* Remarks */}
+                          <div className="flex-1">
+                            {report.site_remarks && report.site_remarks.trim() !== "" ? (
+                              <ul className="space-y-2">
+                                {report.site_remarks.split("$#,,,").filter((item: string) => item.trim() !== "").map((remark: string, idx: number) => (
+                                  <li key={`site-${idx}`} className="flex items-start gap-2 text-sm text-gray-700 bg-red-50/50 p-2 rounded-md border border-red-100">
+                                    <span className="flex-shrink-0 w-5 h-5 bg-red-200 text-red-800 text-xs font-bold rounded-full flex items-center justify-center mt-0.5">
+                                      {idx + 1}
+                                    </span>
+                                    <span className="break-words">{remark.trim()}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <div className="text-center py-6 px-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                                <p className="text-sm text-gray-400 italic">No site issues reported</p>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Photos */}
+                          {report.attachments?.filter((a: any) => a.attach_type === 'Site').length > 0 && (
+                            <div className="mt-auto pt-4 border-t border-red-100">
+                              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Attached Photos</p>
+                              <ImageBentoGrid
+                                images={(report.attachments || []).filter((a: any) => a.attach_type === 'Site')}
+                                forPdf={false}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                 </div>
-              )}
-            </div>
-          </div>
-
-          {/* Site Issues Card */}
-          <div className="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden flex flex-col h-full">
-            <div className="bg-gradient-to-r from-red-50 to-red-100 px-4 py-3 border-b border-red-200 flex items-center gap-2">
-              <div className="p-1.5 bg-red-500 rounded-lg">
-                <MapPin className="h-4 w-4 text-white" />
-              </div>
-              <h4 className="font-semibold text-red-900">Site Clearence Remarks</h4>
-            </div>
-            
-            <div className="p-4 flex-1 flex flex-col gap-4">
-              {/* Remarks */}
-              <div className="flex-1">
-                {latestReport.site_remarks && latestReport.site_remarks.trim() !== "" ? (
-                  <ul className="space-y-2">
-                    {latestReport.site_remarks.split("$#,,,").filter((item: string) => item.trim() !== "").map((remark: string, idx: number) => (
-                      <li key={`site-${idx}`} className="flex items-start gap-2 text-sm text-gray-700 bg-red-50/50 p-2 rounded-md border border-red-100">
-                        <span className="flex-shrink-0 w-5 h-5 bg-red-200 text-red-800 text-xs font-bold rounded-full flex items-center justify-center mt-0.5">
-                          {idx + 1}
-                        </span>
-                        <span className="break-words">{remark.trim()}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div className="text-center py-6 px-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
-                    <p className="text-sm text-gray-400 italic">No site issues reported</p>
-                  </div>
-                )}
-              </div>
-
-              {/* Photos */}
-              {latestReport?.attachments?.filter((a: any) => a.attach_type === 'Site').length > 0 && (
-                <div className="mt-auto pt-4 border-t border-red-100">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Attached Photos</p>
-                  <ImageBentoGrid
-                    images={(latestReport.attachments || []).filter((a: any) => a.attach_type === 'Site')}
-                    forPdf={false}
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+            );
+        })}
       </div>
 
       {/* Expand/Collapse All Button */}
@@ -739,12 +775,57 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
         );
       })}
        
-      <div className="mt-6">
-        <h3 className="text-base md:text-lg font-bold mb-3">Most recent Work Images</h3>
-        <ImageBentoGrid
-            images={(latestReport.attachments || [])?.filter((a: any) => a.attach_type === 'Work')}
-            forPdf={false}
-        />
+      <div className="mt-8 space-y-8">
+        <h3 className="text-xl font-bold border-b pb-2">Work Images Comparison</h3>
+        
+        {/* Current Photos */}
+        <div>
+           <h4 className="font-semibold text-lg text-gray-800 mb-3 flex items-center gap-2">
+              Current Report
+              <span className="text-sm font-normal text-gray-500">
+                 ({latestReport?.report_date ? formatDate(latestReport.report_date, { month: 'short', day: 'numeric'}) : '--'})
+              </span>
+           </h4>
+           {currentWorkPhotos.length > 0 ? (
+                <ImageBentoGrid images={currentWorkPhotos} forPdf={false} />
+           ) : (
+                <div className="text-center py-6 bg-gray-50 border border-dashed rounded text-gray-400 text-sm">No work images for current report</div>
+           )}
+        </div>
+
+        {/* 7 Days Ago Photos */}
+        {report7DaysAgo && (
+            <div>
+               <h4 className="font-semibold text-lg text-gray-800 mb-3 flex items-center gap-2">
+                  7 Days Ago
+                  <span className="text-sm font-normal text-gray-500">
+                     ({formatDate(report7DaysAgo.report_date, { month: 'short', day: 'numeric'})})
+                  </span>
+               </h4>
+               {sevenDaysAgoWorkPhotos.length > 0 ? (
+                    <ImageBentoGrid images={sevenDaysAgoWorkPhotos} forPdf={false} />
+               ) : (
+                    <div className="text-center py-6 bg-gray-50 border border-dashed rounded text-gray-400 text-sm">No work images for 7 days ago</div>
+               )}
+            </div>
+        )}
+
+        {/* 14 Days Ago Photos */}
+        {report14DaysAgo && (
+            <div>
+               <h4 className="font-semibold text-lg text-gray-800 mb-3 flex items-center gap-2">
+                  14 Days Ago
+                  <span className="text-sm font-normal text-gray-500">
+                     ({formatDate(report14DaysAgo.report_date, { month: 'short', day: 'numeric'})})
+                  </span>
+               </h4>
+               {fourteenDaysAgoWorkPhotos.length > 0 ? (
+                    <ImageBentoGrid images={fourteenDaysAgoWorkPhotos} forPdf={false} />
+               ) : (
+                    <div className="text-center py-6 bg-gray-50 border border-dashed rounded text-gray-400 text-sm">No work images for 14 days ago</div>
+               )}
+            </div>
+        )}
       </div>
       
       {/* PDF Download Button */}
