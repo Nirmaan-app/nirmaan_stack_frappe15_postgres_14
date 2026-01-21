@@ -321,13 +321,13 @@ export const PODetails: React.FC<PODetailsProps> = ({
     setEmail(e.target.value);
   }, []);
 
-  const handleDispatchPO = async (linkCriticalTask: boolean = false) => {
+  const handleDispatchPO = async (linkCriticalTasks: boolean = false) => {
     try {
-      // If linking to critical task, do that first
-      if (linkCriticalTask && criticalPOLinking.selectedTask) {
-        const linkSuccess = await criticalPOLinking.linkPOToTask();
-        if (!linkSuccess) {
-          // Linking failed, don't proceed with dispatch
+      // If linking to critical tasks, do that first (now supports multiple)
+      if (linkCriticalTasks && criticalPOLinking.selectedTasks.length > 0) {
+        const linkResult = await criticalPOLinking.linkPOToTasks();
+        if (!linkResult.success) {
+          // Linking failed (at least one task failed), don't proceed with dispatch
           return;
         }
       }
@@ -1278,14 +1278,14 @@ export const PODetails: React.FC<PODetailsProps> = ({
 
             {/* Footer - Sticky Actions */}
             <div className="px-5 py-4 border-t border-slate-200 bg-white">
-              {/* Disabled State Warning */}
+              {/* Disabled State Warning - now checks for multi-select */}
               {criticalPOLinking.hasCriticalPOSetup &&
-                !criticalPOLinking.selectedTask &&
+                criticalPOLinking.selectedTasks.length === 0 &&
                 !criticalPOLinking.isPoAlreadyLinked && (
                 <div className="mb-3 flex items-center justify-center gap-2 p-2 bg-red-50 border border-red-200 rounded-md">
                   <TriangleAlert className="w-3.5 h-3.5 text-red-500" />
                   <span className="text-xs font-medium text-red-600">
-                    Select a Critical PO Task above to enable dispatch
+                    Select at least one Critical PO Task above to enable dispatch
                   </span>
                 </div>
               )}
@@ -1298,7 +1298,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   size="sm"
                   className={`h-9 shadow-sm ${
                     criticalPOLinking.hasCriticalPOSetup &&
-                    !criticalPOLinking.selectedTask &&
+                    criticalPOLinking.selectedTasks.length === 0 &&
                     !criticalPOLinking.isPoAlreadyLinked
                       ? "bg-slate-300 text-slate-500 cursor-not-allowed"
                       : "bg-amber-500 hover:bg-amber-600 text-white"
@@ -1306,7 +1306,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   onClick={handleMarkAsDispatchedClick}
                   disabled={
                     criticalPOLinking.hasCriticalPOSetup &&
-                    !criticalPOLinking.selectedTask &&
+                    criticalPOLinking.selectedTasks.length === 0 &&
                     !criticalPOLinking.isPoAlreadyLinked
                   }
                 >
@@ -1321,19 +1321,19 @@ export const PODetails: React.FC<PODetailsProps> = ({
           </SheetContent>
         </Sheet>
 
-        {/* Dispatch Confirmation Dialog */}
+        {/* Dispatch Confirmation Dialog - now supports multiple tasks */}
         <Dialog open={dispatchConfirmDialog} onOpenChange={setDispatchConfirmDialog}>
           <DialogContent className="sm:max-w-[450px]">
             <DialogHeader>
               <DialogTitle>
-                {criticalPOLinking.selectedTask
-                  ? "Confirm Critical PO Task Linking"
+                {criticalPOLinking.selectedTasks.length > 0
+                  ? `Confirm Linking to ${criticalPOLinking.selectedTasks.length} Task${criticalPOLinking.selectedTasks.length > 1 ? 's' : ''}`
                   : "Confirm PO Dispatch"}
               </DialogTitle>
               <DialogDescription>
-                {criticalPOLinking.selectedTask ? (
+                {criticalPOLinking.selectedTasks.length > 0 ? (
                   <span>
-                    Are you sure you want to link this PO to the following Critical PO Task and dispatch?
+                    Are you sure you want to link this PO to the following Critical PO Task{criticalPOLinking.selectedTasks.length > 1 ? 's' : ''} and dispatch?
                   </span>
                 ) : (
                   <span>
@@ -1343,40 +1343,49 @@ export const PODetails: React.FC<PODetailsProps> = ({
               </DialogDescription>
             </DialogHeader>
 
-            {/* Selected Task Details (if linking) */}
-            {criticalPOLinking.selectedTaskDetails && (
+            {/* Selected Tasks Details (now shows multiple) */}
+            {criticalPOLinking.selectedTasksDetails.length > 0 && (
               <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-md">
                 <div className="mb-2">
                   <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">
-                    Linking To Task
+                    Linking To {criticalPOLinking.selectedTasksDetails.length} Task{criticalPOLinking.selectedTasksDetails.length > 1 ? 's' : ''}
                   </span>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div>
-                    <span className="text-slate-500">Item</span>
-                    <p className="font-medium text-slate-800">
-                      {criticalPOLinking.selectedTaskDetails.item_name}
-                    </p>
+                {criticalPOLinking.selectedTasksDetails.length <= 3 ? (
+                  // Show full details for 1-3 tasks
+                  <div className="space-y-2">
+                    {criticalPOLinking.selectedTasksDetails.map((task) => (
+                      <div key={task.name} className="p-2 bg-white rounded border border-emerald-200 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium text-slate-800">{task.item_name}</span>
+                          <span className="text-slate-500">{task.critical_po_category}</span>
+                        </div>
+                        {task.sub_category && (
+                          <span className="text-slate-400">({task.sub_category})</span>
+                        )}
+                        <div className="mt-1 text-slate-500">
+                          Due: {formatDate(task.po_release_date)}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  <div>
-                    <span className="text-slate-500">Category</span>
-                    <p className="font-medium text-slate-800">
-                      {criticalPOLinking.selectedTaskDetails.critical_po_category}
+                ) : (
+                  // Show summary for 4+ tasks
+                  <div className="text-xs">
+                    <p className="text-slate-600 mb-2">
+                      Across {new Set(criticalPOLinking.selectedTasksDetails.map(t => t.critical_po_category)).size} categories
                     </p>
+                    <div className="max-h-32 overflow-y-auto space-y-1">
+                      {criticalPOLinking.selectedTasksDetails.map((task) => (
+                        <div key={task.name} className="flex items-center gap-2 text-slate-700">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                          <span className="truncate">{task.item_name}</span>
+                          <span className="text-slate-400 text-[10px]">({task.critical_po_category})</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-slate-500">Sub-Category</span>
-                    <p className="font-medium text-slate-800">
-                      {criticalPOLinking.selectedTaskDetails.sub_category || "-"}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-slate-500">Deadline</span>
-                    <p className="font-medium text-slate-800">
-                      {formatDate(criticalPOLinking.selectedTaskDetails.po_release_date)}
-                    </p>
-                  </div>
-                </div>
+                )}
               </div>
             )}
 
@@ -1394,11 +1403,13 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   Cancel
                 </Button>
                 <Button
-                  onClick={() => handleDispatchPO(!!criticalPOLinking.selectedTask)}
+                  onClick={() => handleDispatchPO(criticalPOLinking.selectedTasks.length > 0)}
                   className="bg-amber-500 hover:bg-amber-600"
                 >
                   <CheckCheck className="h-4 w-4 mr-1" />
-                  {criticalPOLinking.selectedTask ? "Link & Dispatch" : "Dispatch"}
+                  {criticalPOLinking.selectedTasks.length > 0
+                    ? `Link to ${criticalPOLinking.selectedTasks.length} Task${criticalPOLinking.selectedTasks.length > 1 ? 's' : ''} & Dispatch`
+                    : "Dispatch"}
                 </Button>
               </DialogFooter>
             )}
