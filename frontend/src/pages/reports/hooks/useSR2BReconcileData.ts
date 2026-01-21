@@ -7,7 +7,8 @@ import { NirmaanUsers } from '@/types/NirmaanStack/NirmaanUsers';
 import { NirmaanAttachment } from '@/types/NirmaanStack/NirmaanAttachment';
 
 // Reconciliation status type (matches invoices tab)
-type ReconciliationStatus = "" | "partial" | "full";
+// "na" = Not Applicable (for invoices that don't require 2B reconciliation)
+type ReconciliationStatus = "" | "partial" | "full" | "na";
 
 // Interface for individual invoice item from API
 interface InvoiceItem {

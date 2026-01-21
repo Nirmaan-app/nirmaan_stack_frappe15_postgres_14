@@ -120,6 +120,8 @@ export default function PO2BReconcileReport() {
                 pendingReconciliation: 0,
                 totalNotReconciledAmount: 0,
                 pendingReconciliationAmount: 0,
+                totalNotApplicable: 0,
+                totalNotApplicableAmount: 0,
             };
         }
 
@@ -132,6 +134,8 @@ export default function PO2BReconcileReport() {
         let totalFullyReconciled = 0;
         let totalPartiallyReconciled = 0;
         let pendingReconciliation = 0;
+        let totalNotApplicable = 0;
+        let totalNotApplicableAmount = 0;
 
         fullyFilteredData.forEach(row => {
             const invoiceAmount = row.invoiceAmount || 0;
@@ -147,6 +151,10 @@ export default function PO2BReconcileReport() {
                 totalPartiallyReconciled++;
                 totalPartiallyReconciledAmount += invoiceAmount;
                 totalPartialReconciledValue += reconciledAmount; // Track actual reconciled amount
+            } else if (row.reconciliationStatus === "na") {
+                // N/A invoices are excluded from reconciliation metrics
+                totalNotApplicable++;
+                totalNotApplicableAmount += invoiceAmount;
             } else {
                 pendingReconciliation++;
                 totalNotReconciledAmount += invoiceAmount;
@@ -165,6 +173,8 @@ export default function PO2BReconcileReport() {
             pendingReconciliation,
             totalNotReconciledAmount,
             pendingReconciliationAmount: totalPartiallyReconciledAmount + totalNotReconciledAmount,
+            totalNotApplicable,
+            totalNotApplicableAmount,
         };
     }, [fullyFilteredData]);
 
@@ -249,6 +259,7 @@ export default function PO2BReconcileReport() {
             let status = "None";
             if (row.reconciliationStatus === "full") status = "Full";
             else if (row.reconciliationStatus === "partial") status = "Partial";
+            else if (row.reconciliationStatus === "na") status = "N/A";
 
             return {
                 invoice_date: row.invoiceDate ? formatDate(row.invoiceDate.slice(0, 10)) : '-',
@@ -350,7 +361,7 @@ export default function PO2BReconcileReport() {
                             </div>
                         </div>
                         {/* Reconciliation Status compact */}
-                        <div className="flex items-center gap-2 bg-green-50 dark:bg-green-950/30 rounded-md p-2 border border-green-100 dark:border-green-900/50">
+                        <div className="flex flex-wrap items-center gap-2 bg-green-50 dark:bg-green-950/30 rounded-md p-2 border border-green-100 dark:border-green-900/50">
                             <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
                             <span className="text-[10px] font-medium text-green-600 dark:text-green-400 uppercase">Reconciled:</span>
                             <span className="text-sm font-bold text-green-700 dark:text-green-400 tabular-nums">
@@ -359,6 +370,11 @@ export default function PO2BReconcileReport() {
                             <span className="text-[9px] text-amber-600 dark:text-amber-500">
                                 | {dynamicSummary.pendingReconciliation + dynamicSummary.totalPartiallyReconciled} pending
                             </span>
+                            {dynamicSummary.totalNotApplicable > 0 && (
+                                <span className="text-[9px] text-slate-500 dark:text-slate-400 italic">
+                                    | {dynamicSummary.totalNotApplicable} N/A
+                                </span>
+                            )}
                         </div>
                     </CardContent>
                 </div>
@@ -408,6 +424,11 @@ export default function PO2BReconcileReport() {
                                         <span className="text-lg font-semibold text-green-600 dark:text-green-400 tabular-nums">{formatToRoundedIndianRupee(dynamicSummary.totalReconciledAmount)}</span>
                                     </div>
                                 </div>
+                                {dynamicSummary.totalNotApplicable > 0 && (
+                                    <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-2 italic">
+                                        ({dynamicSummary.totalNotApplicable} N/A excluded)
+                                    </div>
+                                )}
                             </div>
 
                             {/* Card 3: Pending Reconciliation */}
