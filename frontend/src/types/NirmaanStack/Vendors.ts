@@ -15,6 +15,8 @@ export interface Vendors{
 	idx?: number
 	/**	Vendor Name : Data	*/
 	vendor_name: string
+	/**	Vendor Nickname : Data	*/
+	vendor_nickname?: string
 	/**	Vendor Type : Select	*/
 	vendor_type: "Material" | "Service" | "Material & Service"
 	/**	Vendor Category : JSON	*/
