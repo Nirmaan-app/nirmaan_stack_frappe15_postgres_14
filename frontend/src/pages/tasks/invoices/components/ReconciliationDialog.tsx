@@ -28,13 +28,14 @@ import { ReconciliationStatus } from "../constants";
 import SITEURL from "@/constants/siteURL";
 
 // Internal select value type - uses "none" instead of "" for Radix UI compatibility
-type InternalSelectValue = "none" | "partial" | "full";
+type InternalSelectValue = "none" | "partial" | "full" | "na";
 
 // Options for the Select component (using "none" instead of "")
 const INTERNAL_STATUS_OPTIONS = [
     { label: "Not Reconciled", value: "none" as const },
     { label: "Partially Reconciled", value: "partial" as const },
     { label: "Fully Reconciled", value: "full" as const },
+    { label: "Not Applicable", value: "na" as const },
 ];
 
 // Convert between internal select value and API reconciliation status
@@ -131,13 +132,13 @@ export const ReconciliationDialog: React.FC<ReconciliationDialogProps> = ({
 
     const handleStatusChange = (value: InternalSelectValue) => {
         setInternalStatus(value);
-        if (value === "none") {
-            // Clearing status - clear proof and reconciled amount
+        if (value === "none" || value === "na") {
+            // Clearing status or setting to N/A - clear proof and reconciled amount
             setProofFile(null);
             setShowExistingProof(false);
             setReconciledAmount("");
         } else if (!reconciledDate) {
-            // Setting status - ensure date is set
+            // Setting reconciled status - ensure date is set
             setReconciledDate(dayjs().format("YYYY-MM-DD"));
         }
     };
@@ -189,7 +190,8 @@ export const ReconciliationDialog: React.FC<ReconciliationDialogProps> = ({
                             </SelectContent>
                         </Select>
                         <p className="text-xs text-muted-foreground">
-                            Select the GST 2B reconciliation status for this invoice
+                            Select the GST 2B reconciliation status for this invoice.
+                            Use "Not Applicable" for invoices that don't require 2B reconciliation.
                         </p>
                     </div>
 

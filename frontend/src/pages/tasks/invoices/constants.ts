@@ -17,12 +17,14 @@ export const API_UPDATE_INVOICE_TASK_STATUS = "nirmaan_stack.api.tasks.update_ta
 
 export const API_UPDATE_INVOICE_RECONCILIATION = "nirmaan_stack.api.invoices.update_invoice_reconciliation.update_invoice_reconciliation";
 
-// Reconciliation status options for the three-state dropdown
+// Reconciliation status options for the four-state dropdown
 export const RECONCILIATION_STATUS_OPTIONS = [
     { label: "Not Reconciled", value: "" },
     { label: "Partially Reconciled", value: "partial" },
     { label: "Fully Reconciled", value: "full" },
+    { label: "Not Applicable", value: "na" },
 ] as const;
 
 // Type for reconciliation status values
-export type ReconciliationStatus = "" | "partial" | "full";
+// "na" = Not Applicable (for invoices that don't require 2B reconciliation)
+export type ReconciliationStatus = "" | "partial" | "full" | "na";
