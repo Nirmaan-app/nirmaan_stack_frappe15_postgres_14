@@ -72,6 +72,7 @@ import {
     ASSET_CONDITION_OPTIONS,
     ASSET_CACHE_KEYS,
 } from './assets.constants';
+import { getAssetPermissions } from './utils/permissions';
 
 interface AssetMaster {
     name: string;
@@ -251,8 +252,10 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
     const { updateDoc, loading: isUpdating } = useFrappeUpdateDoc();
     const { upload } = useFrappeFileUpload();
 
-    const canManageAssets = userData?.user_id === 'Administrator' ||
-        ['Nirmaan Admin Profile', 'Nirmaan PMO Executive Profile', 'Nirmaan HR Executive Profile'].includes(userData?.role || '');
+    // Get granular permissions for current user
+    const { canEditAsset, canAssignAsset } = getAssetPermissions(userData?.user_id, userData?.role);
+    // For backward compatibility with existing canManageAssets usage in this file
+    const canManageAssets = canEditAsset || canAssignAsset;
 
     // Check if current user can view credentials (admin roles OR assigned to the asset)
     const canViewCredentials = useMemo(() => {

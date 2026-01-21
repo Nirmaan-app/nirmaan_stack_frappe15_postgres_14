@@ -21,6 +21,7 @@ import {
     ASSET_MANAGEMENT_DOCTYPE,
 } from '../assets.constants';
 import { useAssetDataRefresh } from '../hooks/useAssetDataRefresh';
+import { getRoleLabel } from '../utils/permissions';
 
 interface AssignAssetDialogProps {
     isOpen: boolean;
@@ -33,6 +34,7 @@ interface AssignAssetDialogProps {
 interface NirmaanUser {
     name: string;
     full_name: string;
+    role_profile: string | null;
 }
 
 export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
@@ -53,22 +55,27 @@ export const AssignAssetDialog: React.FC<AssignAssetDialogProps> = ({
     const { updateDoc } = useFrappeUpdateDoc();
     const { refreshSummaryCards } = useAssetDataRefresh();
 
-    // Fetch Nirmaan Users
+    // Fetch Nirmaan Users with role information
     const { data: usersList } = useFrappeGetDocList<NirmaanUser>(
         'Nirmaan Users',
         {
-            fields: ['name', 'full_name'],
+            fields: ['name', 'full_name', 'role_profile'],
             orderBy: { field: 'full_name', order: 'asc' },
             limit: 0,
         },
         isOpen ? 'nirmaan_users_for_assignment' : null
     );
 
+    // Format user options with role display (e.g., "John Doe (Procurement Executive)")
     const userOptions = useMemo(() =>
-        usersList?.map((user) => ({
-            value: user.name,
-            label: user.full_name || user.name,
-        })) || [],
+        usersList?.map((user) => {
+            const displayName = user.full_name || user.name;
+            const roleLabel = getRoleLabel(user.role_profile);
+            return {
+                value: user.name,
+                label: roleLabel ? `${displayName} (${roleLabel})` : displayName,
+            };
+        }) || [],
         [usersList]
     );
 
