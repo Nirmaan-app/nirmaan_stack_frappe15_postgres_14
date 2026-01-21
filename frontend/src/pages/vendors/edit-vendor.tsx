@@ -89,6 +89,16 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNum
             .min(3, {
                 message: "Must be at least 3 characters.",
             }),
+        vendor_nickname: z
+            .string({
+                required_error: "Must provide Vendor Nickname"
+            })
+            .min(2, {
+                message: "Must be at least 2 characters.",
+            })
+            .max(30, {
+                message: "Must not exceed 30 characters.",
+            }),
         address_line_1: z
             .string({
                 required_error: "Address Line 1 Required"
@@ -252,6 +262,7 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
       form.reset({
         vendor_contact_person_name: data?.vendor_contact_person_name,
         vendor_name: data?.vendor_name,
+        vendor_nickname: data?.vendor_nickname,
         address_line_1: vendorAddress?.address_line1,
         address_line_2: vendorAddress?.address_line2,
         pin: vendorAddress?.pincode,
@@ -372,6 +383,7 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
         vendor_gst: values.vendor_gst,
         vendor_mobile: values.vendor_mobile,
         vendor_name: values.vendor_name,
+        vendor_nickname: values.vendor_nickname,
         vendor_state: state,
         account_number: values.account_number,
         account_name: values.account_name,
@@ -436,6 +448,24 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
                 </FormLabel>
                 <FormControl>
                   <Input id="vendorShopName" placeholder="enter shop name..." {...field}
+                      value={field.value || ""}
+                      onChange={(e) => field.onChange(e.target.value === "" ? undefined : e.target.value)}
+                    />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="vendor_nickname"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>
+                  Nickname<sup className="text-sm text-red-600">*</sup>
+                </FormLabel>
+                <FormControl>
+                  <Input placeholder="Short, memorable name (e.g. Nirmaan, ABC Steel)" {...field}
                       value={field.value || ""}
                       onChange={(e) => field.onChange(e.target.value === "" ? undefined : e.target.value)}
                     />
