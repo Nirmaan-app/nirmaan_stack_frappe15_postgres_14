@@ -347,31 +347,34 @@ export const getTaskTableColumns = (
             maxSize: 50,
             meta: { excludeFromExport: true },
         },
-        {
-            id: "actions",
-            header: () => <div className="text-center text-[10px]">Edit</div>,
-            cell: ({ row }) => {
-                const canEdit = !isProjectManager &&
-                    (!isDesignExecutive || (isDesignExecutive && checkIfUserAssigned(row.original)));
+        // Actions column (hidden for Project Managers)
+        ...(isProjectManager
+            ? []
+            : [{
+                id: "actions",
+                header: () => <div className="text-center text-[10px]">Edit</div>,
+                cell: ({ row }: { row: any }) => {
+                    const canEdit = !isDesignExecutive ||
+                        (isDesignExecutive && checkIfUserAssigned(row.original));
 
-                return (
-                    <div className="flex justify-center">
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => canEdit && handleEditClick(row.original)}
-                            className={`h-6 px-1.5 ${!canEdit ? 'opacity-50 cursor-not-allowed' : ''}`}
-                            disabled={!canEdit}
-                        >
-                            <Edit className="h-3 w-3" />
-                        </Button>
-                    </div>
-                );
-            },
-            size: 45,
-            minSize: 40,
-            maxSize: 55,
-            meta: { excludeFromExport: true },
-        },
+                    return (
+                        <div className="flex justify-center">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => canEdit && handleEditClick(row.original)}
+                                className={`h-6 px-1.5 ${!canEdit ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                disabled={!canEdit}
+                            >
+                                <Edit className="h-3 w-3" />
+                            </Button>
+                        </div>
+                    );
+                },
+                size: 45,
+                minSize: 40,
+                maxSize: 55,
+                meta: { excludeFromExport: true },
+            }] as ColumnDef<DesignTrackerTask>[]),
     ];
 };
