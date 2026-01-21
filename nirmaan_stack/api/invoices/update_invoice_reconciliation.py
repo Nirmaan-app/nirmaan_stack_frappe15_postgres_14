@@ -5,7 +5,8 @@ from typing import Optional
 
 
 # Valid reconciliation status values
-RECONCILIATION_STATUS_VALUES = ("", "partial", "full")
+# "na" = Not Applicable (for invoices that don't require 2B reconciliation)
+RECONCILIATION_STATUS_VALUES = ("", "partial", "full", "na")
 
 
 @frappe.whitelist()
@@ -53,8 +54,9 @@ def update_invoice_reconciliation(
 
     # Validate reconciliation_status
     if reconciliation_status not in RECONCILIATION_STATUS_VALUES:
-        frappe.throw(_("Invalid reconciliation status. Must be one of: '', 'partial', 'full'."))
+        frappe.throw(_("Invalid reconciliation status. Must be one of: '', 'partial', 'full', 'na'."))
 
+    # "na" is NOT considered reconciled - it's a separate category for invoices that don't need reconciliation
     is_reconciled = reconciliation_status in ("partial", "full")
 
     # Note: Proof validation is deferred until we can check if there's existing proof
@@ -138,10 +140,11 @@ def update_invoice_reconciliation(
         if status_changing_to_reconciled and not reconciliation_proof_url and not existing_proof_attachment_id:
             frappe.throw(_("Reconciliation proof attachment is required when initially setting reconciliation status."))
 
-        # 3. Handle existing proof attachment deletion if clearing status
+        # 3. Handle existing proof attachment deletion if clearing status or setting to N/A
         new_proof_attachment_id = None
+        is_clearing_status = reconciliation_status in ("", "na")
 
-        if not is_reconciled and existing_proof_attachment_id:
+        if is_clearing_status and existing_proof_attachment_id:
             # Delete existing proof attachment when clearing status
             try:
                 frappe.delete_doc("Nirmaan Attachments", existing_proof_attachment_id, ignore_permissions=True, force=True)
