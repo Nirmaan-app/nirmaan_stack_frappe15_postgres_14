@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 import { useFrappePostCall, useFrappeCreateDoc } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
@@ -98,6 +99,7 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
     const [deliveryDate, setDeliveryDate] = useState<string>("");
     
     // Item Search State
+    const [poSearchInput, setPoSearchInput] = useState("");
     const [itemSearchInput, setItemSearchInput] = useState("");
     const [selectedItems, setSelectedItems] = useState<Record<string, any>>({});
     const [isDropdownOpen, setDropdownOpen] = useState(false);
@@ -220,13 +222,23 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
     };
     
     const handlePOSelect = (po: POItem) => {
-        // Toggle PO selection
-        const isSelected = selectedPOs.some(p => p.name === po.name);
-        if (isSelected) {
-            setSelectedPOs(prev => prev.filter(p => p.name !== po.name));
-        } else {
-            setSelectedPOs(prev => [...prev, po]);
-        }
+        // Toggle PO selection? No, Single Select for Search Mode now.
+        // But we keep this toggler for internal logic if needed, OR replace it.
+        // User requested: "select only on po".
+        
+        setSelectedPOs([po]);
+        // Auto-select ALL items for this PO
+        const newSelectedItems: Record<string, any> = {};
+        (po.items || []).forEach((item: any) => {
+            newSelectedItems[item.name] = item;
+        });
+        setSelectedItems(newSelectedItems);
+        setPoSearchInput(""); // Clear search
+    };
+    
+    const unselectPO = () => {
+        setSelectedPOs([]);
+        setSelectedItems({});
     };
     
     const handleAllPOsConfirm = (pos: POItem[]) => {
@@ -239,6 +251,15 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
             description: `${pos.length} PO(s) selected. Setting up review...`,
             variant: "default"
         });
+        
+        // Auto-select items for all selected POs (to match new flow)
+        const newSelectedItems: Record<string, any> = {};
+        pos.forEach(po => {
+            (po.items || []).forEach((item: any) => {
+                newSelectedItems[item.name] = item;
+            });
+        });
+        setSelectedItems(newSelectedItems);
         
         // Build plans for review with all items pre-selected
         const plans: POPlan[] = pos.map(po => {
@@ -285,7 +306,11 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                     poId: po.name,
                     poName: po.name,
                     items: po.items || [],
-                    selectedItems: new Set((po.items || []).map((i: any) => i.name)),
+                    selectedItems: new Set(
+                        (po.items || [])
+                            .filter((i: any) => selectedItems[i.name])
+                            .map((i: any) => i.name)
+                    ),
                     deliveryDate: "",
                     isCritical: assocTasks.length > 0 || isLocal,
                     category: assocTasks.length > 0 ? assocTasks[0].category : (isLocal ? selectedCategory : undefined),
@@ -431,7 +456,8 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
     
     const canContinueToReview = useMemo(() => {
         if (searchMode === "po") {
-            return selectedPOs.length > 0;
+            // Require at least one PO and at least one item selected
+            return selectedPOs.length > 0 && Object.keys(selectedItems).length > 0;
         } else {
             return Object.keys(selectedItems).length > 0;
         }
@@ -515,154 +541,242 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                     {/* Show Search Mode Toggle only if task has associated POs */}
                     {associatedPOs.length > 0 && (
                         <>
-                            {/* Search Mode Toggle */}
-                            <div className="mb-4">
-                                <Label className="mb-2 block">Search By</Label>
-                                <div className="flex gap-2">
-                                    <Button
-                                        variant={searchMode === "po" ? "default" : "outline"}
-                                        size="sm"
-                                        onClick={() => handleSearchModeChange("po")}
-                                    >
-                                        PO ID
-                                    </Button>
-                                    <Button
-                                        variant={searchMode === "item" ? "default" : "outline"}
-                                        size="sm"
-                                        onClick={() => handleSearchModeChange("item")}
-                                    >
-                                        Items in POs
-                                    </Button>
-                                </div>
-                            </div>
-
-                            {/* PO ID Mode */}
-                            {searchMode === "po" && (
-                                <div className="mb-4">
-                                    <div className="flex items-center justify-between mb-2">
-                                        <Label>Select POs</Label>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => setShowAllPOsModal(true)}
-                                            className="text-xs"
-                                        >
-                                            <ExternalLink className="h-3 w-3 mr-1" />
-                                            See All POs
-                                        </Button>
+                            {/* Search & Selection Container - ERP Style Card */}
+                            <div className="bg-white border rounded-lg p-3 md:p-4 mb-4 shadow-sm">
+                                {/* Header Section */}
+                                <div className="flex flex-col md:flex-row md:items-start justify-between gap-2 mb-4">
+                                    <div className="space-y-1">
+                                        <h3 className="text-sm font-semibold text-gray-900 leading-none">Search / Select Materials and PO ID</h3>
+                                        <p className="text-xs text-gray-500 max-w-2xl">
+                                            Materials you list must exist in the PO you link. A PO can only be linked if it contains those materials.
+                                        </p>
                                     </div>
-                                    
-                                    {isLoadingDataV2 ? (
-                                        <div className="space-y-2">
-                                            <Skeleton className="h-10 w-full" />
-                                            <Skeleton className="h-10 w-full" />
-                                        </div>
-                                    ) : (
-                                        <div className="border rounded-md max-h-[200px] overflow-y-auto">
-                                            {taskPOs.map((po: POItem) => (
-                                                <div
-                                                    key={po.name}
-                                                    className={`flex items-center gap-3 p-3 border-b last:border-b-0 cursor-pointer hover:bg-accent ${
-                                                        selectedPOs.some(p => p.name === po.name) ? "bg-accent" : ""
-                                                    }`}
-                                                    onClick={() => handlePOSelect(po)}
-                                                >
-                                                    <Checkbox
-                                                        checked={selectedPOs.some(p => p.name === po.name)}
-                                                        onClick={(e) => e.stopPropagation()}
-                                                        onCheckedChange={() => handlePOSelect(po)}
-                                                    />
-                                                    <div className="flex-1">
-                                                        <span className="font-medium">{po.name}</span>
-                                                        <span className="text-sm text-muted-foreground ml-2">
-                                                            ({po.items_count} items)
-                                                        </span>
-                                                    </div>
-                                                    {po.is_critical && (
-                                                        <Badge className="bg-blue-500">Critical</Badge>
-                                                    )}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                    
-                                    {selectedPOs.length > 0 && (
-                                        <div className="mt-2 text-sm text-muted-foreground">
-                                            {selectedPOs.length} PO(s) selected
-                                        </div>
-                                    )}
+                                    <Button
+                                        variant="link"
+                                        size="sm"
+                                        onClick={() => setShowAllPOsModal(true)}
+                                        className="text-xs font-medium text-blue-600 h-auto p-0 whitespace-nowrap self-start md:self-auto"
+                                    >
+                                        See All POs
+                                    </Button>
                                 </div>
-                            )}
 
-                            {/* Items in POs Mode */}
-                            {searchMode === "item" && (
-                        <div className="mb-4" ref={searchWrapperRef}>
-                            <Label className="mb-2 block">Search Items</Label>
-                            <div className="relative">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                <input
-                                    type="text"
-                                    placeholder="Search items..."
-                                    value={itemSearchInput}
-                                    onChange={(e) => {
-                                        setItemSearchInput(e.target.value);
-                                        setDropdownOpen(true);
-                                    }}
-                                    onFocus={() => setDropdownOpen(true)}
-                                    className="w-full pl-9 pr-4 py-2 border rounded-md"
-                                />
+                                {/* Inputs Row - Single Row Layout */}
+                                <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center">
+                                    {/* Search Mode Selector (Left) */}
+                                    <div className="w-full md:w-[140px] shrink-0">
+                                        <Select
+                                            value={searchMode}
+                                            onValueChange={(val: "po" | "item") => handleSearchModeChange(val)}
+                                        >
+                                            <SelectTrigger className="h-[40px] w-full text-sm bg-gray-50/50 border-gray-200">
+                                                <SelectValue placeholder="Search Mode" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="po" className="text-sm">PO ID</SelectItem>
+                                                <SelectItem value="item" className="text-sm">Items In POs</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    {/* Search Input (Right - Expands) */}
+                                    <div className="flex-1 min-w-0">
+                                        {searchMode === "po" ? (
+                                            <ReactSelect
+                                                options={taskPOs.map(po => ({
+                                                    label: po.name,
+                                                    value: po.name,
+                                                    original: po
+                                                }))}
+                                                value={selectedPOs.length > 0 ? {
+                                                    label: selectedPOs[0].name,
+                                                    value: selectedPOs[0].name,
+                                                    original: selectedPOs[0]
+                                                } : null}
+                                                onChange={(option) => {
+                                                    if (option) handlePOSelect(option.original);
+                                                    else unselectPO();
+                                                }}
+                                                placeholder="Select PO (e.g. PO/2024/001)..."
+                                                className="text-sm"
+                                                styles={{
+                                                    control: (base, state) => ({
+                                                        ...base,
+                                                        borderColor: state.isFocused ? "#3b82f6" : "#e5e7eb",
+                                                        backgroundColor: "#ffffff",
+                                                        borderRadius: "0.5rem",
+                                                        minHeight: "40px",
+                                                        height: "40px",
+                                                        boxShadow: state.isFocused ? "0 0 0 1px #3b82f6" : "none",
+                                                        "&:hover": { borderColor: "#cbd5e1" }
+                                                    }),
+                                                    menu: (base) => ({ ...base, zIndex: 50 }),
+                                                    option: (base, state) => ({
+                                                        ...base,
+                                                        backgroundColor: state.isSelected ? "#eff6ff" : state.isFocused ? "#f8fafc" : "white",
+                                                        color: state.isSelected ? "#1e40af" : "#1e293b",
+                                                        fontSize: "0.875rem"
+                                                    })
+                                                }}
+                                                formatOptionLabel={(option: any) => (
+                                                    <div className="flex items-center justify-between">
+                                                        <span>{option.label}</span>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-xs text-gray-500">
+                                                                {option.original.items_count} items
+                                                            </span>
+                                                            {option.original.is_critical && (
+                                                                <Badge className="bg-blue-500 text-[10px] py-0 h-5">Critical</Badge>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                isClearable
+                                                isLoading={isLoadingDataV2}
+                                            />
+                                        ) : (
+                                            <ReactSelect
+                                                options={taskItems.map(item => ({
+                                                    label: item.item_name,
+                                                    value: item.name,
+                                                    original: item
+                                                }))}
+                                                value={null}
+                                                onChange={(option) => {
+                                                    if (option) handleItemToggle(option.original);
+                                                }}
+                                                placeholder="Type to search items..."
+                                                className="text-sm"
+                                                styles={{
+                                                    control: (base, state) => ({
+                                                        ...base,
+                                                        borderColor: state.isFocused ? "#3b82f6" : "#e5e7eb",
+                                                        backgroundColor: "#ffffff",
+                                                        borderRadius: "0.5rem",
+                                                        minHeight: "40px",
+                                                        height: "40px",
+                                                        boxShadow: state.isFocused ? "0 0 0 1px #3b82f6" : "none",
+                                                        "&:hover": { borderColor: "#cbd5e1" }
+                                                    }),
+                                                    menu: (base) => ({ ...base, zIndex: 50 }),
+                                                    option: (base, state) => ({
+                                                        ...base,
+                                                        backgroundColor: state.isSelected ? "#eff6ff" : state.isFocused ? "#f8fafc" : "white",
+                                                        color: state.isSelected ? "#1e40af" : "#1e293b",
+                                                        fontSize: "0.875rem"
+                                                    })
+                                                }}
+                                                formatOptionLabel={(option: any) => (
+                                                    <div>
+                                                        <div className="font-medium text-gray-800">{option.label}</div>
+                                                        <div className="text-xs text-gray-500 flex gap-2">
+                                                            <span>{option.original.parent}</span>
+                                                            {option.original.selected && <span className="text-blue-500 font-bold">(Selected)</span>}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                isLoading={isLoadingDataV2}
+                                            />
+                                        )}
+                                    </div>
+                                </div>
                             </div>
-                            
-                            {isDropdownOpen && (
-                                <div className="border rounded-md mt-1 max-h-[200px] overflow-y-auto bg-white shadow-lg">
-                                    {isLoadingDataV2 ? (
-                                        <div className="p-4 text-center text-muted-foreground">Loading...</div>
-                                    ) : taskItems.length === 0 ? (
-                                        <div className="p-4 text-center text-muted-foreground">No items found</div>
-                                    ) : (
-                                        taskItems
-                                            .filter((item: any) => 
-                                                !itemSearchInput || 
-                                                item.item_name?.toLowerCase().includes(itemSearchInput.toLowerCase())
-                                            )
-                                            .slice(0, 50)
-                                            .map((item: any) => (
-                                                <div
-                                                    key={item.name}
-                                                    className={`flex items-center gap-3 p-2 border-b last:border-b-0 cursor-pointer hover:bg-accent ${
-                                                        selectedItems[item.name] ? "bg-accent" : ""
-                                                    }`}
-                                                    onClick={() => handleItemToggle(item)}
-                                                >
-                                                    <Checkbox checked={!!selectedItems[item.name]} />
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="truncate">{item.item_name}</div>
-                                                        <div className="text-xs text-muted-foreground">{item.parent}</div>
+
+                            {/* Selection Results Area (Full Width below inputs) */}
+                            <div className="mb-4">
+                                {/* Selected PO Detail View */}
+                                {searchMode === "po" && selectedPOs.length > 0 && (
+                                    <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+                                        {selectedPOs.map((po) => (
+                                            <div key={po.name} className="border rounded-lg bg-gray-50/50 overflow-hidden">
+                                                <div className="flex items-center justify-between p-3 bg-white border-b">
+                                                    <div className="flex items-center gap-2">
+                                                        <Package className="h-4 w-4 text-blue-600" />
+                                                        <span className="font-bold text-gray-800 text-sm">{po.name}</span>
+                                                        {po.is_critical && <Badge className="bg-blue-500 text-[10px] h-5">Critical</Badge>}
                                                     </div>
                                                 </div>
-                                            ))
-                                    )}
-                                </div>
-                            )}
-                            
-                            {Object.keys(selectedItems).length > 0 && (
-                                <div className="mt-3">
-                                    <Label className="mb-2 block">Selected Items ({Object.keys(selectedItems).length})</Label>
-                                    <div className="flex flex-wrap gap-2">
-                                        {Object.values(selectedItems).map((item: any) => (
-                                            <Badge key={item.name} variant="secondary" className="gap-1">
-                                                {item.item_name}
-                                                <X 
-                                                    className="h-3 w-3 cursor-pointer" 
-                                                    onClick={() => handleItemToggle(item)}
-                                                />
-                                            </Badge>
+                                                
+                                                {/* Item Selection for this PO */}
+                                                <div className="p-3">
+                                                    <div className="flex items-center justify-between mb-2">
+                                                        <Label className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">Select Items ({(po.items || []).filter((i: any) => selectedItems[i.name]).length}/{po.items?.length || 0})</Label>
+                                                        <Button 
+                                                            variant="ghost" 
+                                                            size="sm" 
+                                                            onClick={() => {
+                                                                const allSelected = (po.items || []).every((i: any) => selectedItems[i.name]);
+                                                                const newSelectedItems = { ...selectedItems };
+                                                                
+                                                                (po.items || []).forEach((item: any) => {
+                                                                    if (allSelected) {
+                                                                        delete newSelectedItems[item.name];
+                                                                    } else {
+                                                                        newSelectedItems[item.name] = item;
+                                                                    }
+                                                                });
+                                                                setSelectedItems(newSelectedItems);
+                                                            }}
+                                                            className="h-6 text-[10px] px-2"
+                                                        >
+                                                            {(po.items || []).every((i: any) => selectedItems[i.name]) ? "Unselect All" : "Select All"}
+                                                        </Button>
+                                                    </div>
+                                                    
+                                                    <div className="border rounded-md bg-white max-h-[220px] overflow-y-auto shadow-sm">
+                                                        {(po.items || []).map((item: any) => (
+                                                            <div 
+                                                                key={item.name}
+                                                                className={`flex items-start gap-3 p-2.5 border-b last:border-b-0 cursor-pointer hover:bg-gray-50 transition-colors ${selectedItems[item.name] ? 'bg-blue-50/40' : ''}`}
+                                                                onClick={() => handleItemToggle(item)}
+                                                            >
+                                                                <Checkbox 
+                                                                    checked={!!selectedItems[item.name]}
+                                                                    onCheckedChange={() => handleItemToggle(item)}
+                                                                    className="mt-0.5"
+                                                                />
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className="font-medium text-sm text-gray-800 break-words">{item.item_name}</div>
+                                                                    <div className="flex gap-2 items-center text-[10px] text-gray-400 mt-0.5">
+                                                                        <span>{item.item_code}</span>
+                                                                        {item.category && <span className="bg-gray-100 px-1 rounded">{item.category}</span>}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
                                         ))}
                                     </div>
-                                </div>
-                            )}
-                        </div>
-                            )}
+                                )}
+
+                                {/* Selected Items Chips (Item Mode) */}
+                                {searchMode === "item" && Object.keys(selectedItems).length > 0 && (
+                                    <div className="mt-2">
+                                        <Label className="mb-2 block text-xs font-semibold text-gray-500 uppercase tracking-wide">Selected ({Object.keys(selectedItems).length})</Label>
+                                        <div className="flex flex-wrap gap-2">
+                                            {Object.values(selectedItems).map((item: any) => (
+                                                <Badge key={item.name} variant="secondary" className="gap-1 pl-2 pr-1 py-1 bg-white border shadow-sm">
+                                                    <span className="truncate max-w-[200px]">{item.item_name}</span>
+                                                    <div 
+                                                        className="cursor-pointer hover:bg-gray-200 rounded-full p-0.5" 
+                                                        onClick={() => handleItemToggle(item)}
+                                                    >
+                                                        <X className="h-3 w-3 text-gray-500" />
+                                                    </div>
+                                                </Badge>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                {searchMode === "item" && Object.keys(selectedItems).length === 0 && (
+                                    <div className="text-center py-6 text-gray-400 bg-gray-50/50 rounded-lg border border-dashed text-xs">
+                                        Search and select items or POs above
+                                    </div>
+                                )}
+                            </div>
                         </>
                     )}
 

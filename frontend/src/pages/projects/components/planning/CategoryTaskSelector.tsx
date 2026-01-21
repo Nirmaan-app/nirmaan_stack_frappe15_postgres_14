@@ -117,46 +117,45 @@ export const CategoryTaskSelector: React.FC<CategoryTaskSelectorProps> = ({
 
     return (
         <div className="space-y-4">
-            {/* Category Selector */}
-            <div className="space-y-2">
-                <Label className="flex items-center gap-2">
-                    <Folder className="h-4 w-4" />
-                    Critical PO Category
-                </Label>
-                <ReactSelect
-                    value={categoryOptions.find(opt => opt.value === selectedCategory)}
-                    onChange={handleCategoryChange}
-                    options={categoryOptions}
-                    isDisabled={disabled || isLoading}
-                    isLoading={isLoading}
-                    placeholder="Select a category (optional)"
-                    isClearable
-                    styles={selectStyles}
-                />
-            </div>
+            <div className="flex flex-col md:flex-row md:items-start gap-4">
+                {/* Category Selection */}
+                <div className="flex-1 min-w-0 space-y-2">
+                    <Label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+                        <Folder className="h-4 w-4 text-blue-500" />
+                        Critical PO Category
+                    </Label>
+                    <ReactSelect
+                        options={categoryOptions}
+                        value={categoryOptions.find(opt => opt.value === selectedCategory) || null}
+                        onChange={handleCategoryChange}
+                        placeholder="Select Category..."
+                        isDisabled={disabled || isLoading}
+                        styles={selectStyles}
+                        isClearable
+                    />
+                </div>
 
-            {/* Task Selector */}
-            <div className="space-y-2">
-                <Label className="flex items-center gap-2">
-                    <ListTodo className="h-4 w-4" />
-                    Critical PO Task
-                    <span className="text-muted-foreground text-xs">(optional)</span>
-                </Label>
-                <ReactSelect
-                    value={taskOptions.find(opt => opt.value === selectedTask)}
-                    onChange={handleTaskChange}
-                    options={taskOptions}
-                    isDisabled={disabled || isLoading}
-                    isLoading={isLoading}
-                    placeholder="Select a task"
-                    isClearable
-                    styles={selectStyles}
-                    noOptionsMessage={() => 
-                        filteredTasks.length === 0 
-                            ? `No tasks available${selectedCategory ? ' for this category' : ''}`
-                            : 'No options'
-                    }
-                />
+                {/* Task Selection */}
+                <div className="flex-1 min-w-0 space-y-2">
+                    <Label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+                        <ListTodo className="h-4 w-4 text-orange-500" />
+                        Critical PO Task
+                    </Label>
+                    <ReactSelect
+                        options={taskOptions}
+                        value={taskOptions.find(opt => opt.value === selectedTask) || null}
+                        onChange={handleTaskChange}
+                        placeholder="Select Task (Optional)..."
+                        isDisabled={disabled || isLoading}
+                        styles={selectStyles}
+                        isClearable
+                        noOptionsMessage={() => 
+                            filteredTasks.length === 0 
+                                ? `No tasks available${selectedCategory ? ' for this category' : ''}`
+                                : 'No options'
+                        }
+                    />
+                </div>
             </div>
 
             {/* Selected task info */}
@@ -167,10 +166,12 @@ export const CategoryTaskSelector: React.FC<CategoryTaskSelectorProps> = ({
                         if (!task) return null;
                         return (
                             <div className="space-y-1">
-                                <div className="font-medium">{task.item_name}</div>
+                                {/* <div className="font-medium"></div> */}
                                 <div className="flex items-center gap-2 text-muted-foreground">
+                                  <span>{task.item_name}</span>
+                                  <span>|</span>
                                     <span>Category: {task.critical_po_category || "None"}</span>
-                                    <span>•</span>
+                                    <span>|</span>
                                     <span>
                                         {task.associated_pos_count > 0
                                             ? `${task.associated_pos_count} Associated POs`
