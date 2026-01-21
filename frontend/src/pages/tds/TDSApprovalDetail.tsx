@@ -8,7 +8,7 @@ import {
     TooltipProvider,
     TooltipTrigger 
 } from "@/components/ui/tooltip";
-import { useFrappeGetDocList, useFrappeUpdateDoc, useFrappeDeleteDoc } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappeGetDoc, useFrappeUpdateDoc, useFrappeDeleteDoc } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
 import { 
     useReactTable, 
@@ -276,6 +276,14 @@ export const TDSApprovalDetail: React.FC = () => {
         (allItems || []).filter(item => item.tds_status === "Rejected"), 
     [allItems]);
 
+    // Fetch owner's full name from Nirmaan Users
+    const ownerEmail = allItems?.[0]?.owner || '';
+    const { data: ownerData } = useFrappeGetDoc<{ full_name: string }>(
+        'Nirmaan Users', 
+        ownerEmail,
+        ownerEmail ? undefined : null
+    );
+
     const { updateDoc } = useFrappeUpdateDoc();
     const { deleteDoc } = useFrappeDeleteDoc();
 
@@ -301,7 +309,7 @@ export const TDSApprovalDetail: React.FC = () => {
         return {
             request_id: first.tds_request_id,
             project: first.tdsi_project_name,
-            created_by: first.owner,
+            created_by: ownerData?.full_name || first.owner,
             creation: first.creation,
             count: allItems.length,
             status: overallStatus,
@@ -309,7 +317,7 @@ export const TDSApprovalDetail: React.FC = () => {
             approvedCount: approvedItems.length,
             rejectedCount: rejectedItems.length,
         };
-    }, [allItems, pendingItems, approvedItems, rejectedItems]);
+    }, [allItems, pendingItems, approvedItems, rejectedItems, ownerData]);
 
     const selectedCount = Object.keys(rowSelection).filter(k => rowSelection[k]).length;
 

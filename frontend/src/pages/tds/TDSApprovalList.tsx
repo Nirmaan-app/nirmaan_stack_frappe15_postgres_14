@@ -29,6 +29,7 @@ interface TDSRequest {
     rejected_count: number;
     approved_count: number;
     created_by: string;
+    created_by_full_name: string;
     status: string;
 }
 
@@ -252,9 +253,9 @@ export const TDSApprovalList: React.FC = () => {
                 size: 100,
             },
             {
-                accessorKey: "created_by",
-                header: ({ column }) => <DataTableColumnHeader column={column} title="Submitted By" />,
-                cell: ({ row }) => <span className="text-sm text-slate-600">{row.getValue("created_by")}</span>,
+                accessorKey: "created_by_full_name",
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Creted By" />,
+                cell: ({ row }) => <span className="text-sm text-slate-600">{row.getValue("created_by_full_name")}</span>,
                 size: 180,
                 filterFn: (row, id, filterValue) => {
                     if (!filterValue || filterValue.length === 0) return true;
@@ -304,13 +305,13 @@ export const TDSApprovalList: React.FC = () => {
         const uniqueProjects = [...new Set(data.map(d => d.project).filter(Boolean))];
         const projectOptions = uniqueProjects.map(p => ({ label: p, value: p }));
 
-        const uniqueCreatedBy = [...new Set(data.map(d => d.created_by).filter(Boolean))];
+        const uniqueCreatedBy = [...new Set(data.map(d => d.created_by_full_name).filter(Boolean))];
         const createdByOptions = uniqueCreatedBy.map(c => ({ label: c, value: c }));
 
         return {
             request_id: { title: "TDS ID", options: tdsOptions, isLoading: isLoading },
             project: { title: "Project", options: projectOptions, isLoading: isLoading },
-            created_by: { title: "Submitted By", options: createdByOptions, isLoading: isLoading },
+            created_by_full_name: { title: "Submitted By", options: createdByOptions, isLoading: isLoading },
         };
     }, [data, isLoading]);
 
