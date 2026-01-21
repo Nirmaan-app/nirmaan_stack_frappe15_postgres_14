@@ -403,6 +403,12 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId }) => {
                                         <CircleDashed className="w-3 h-3 mr-1" /> Partial
                                     </Badge>
                                 );
+                            case "na":
+                                return (
+                                    <Badge className="bg-slate-100 text-slate-600 hover:bg-slate-100">
+                                        N/A
+                                    </Badge>
+                                );
                             default:
                                 return (
                                     <Badge variant="outline" className="text-gray-500">
@@ -546,6 +552,8 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId }) => {
                 pendingReconciliation: 0,
                 totalNotReconciledAmount: 0,
                 pendingReconciliationAmount: 0,
+                totalNotApplicable: 0,
+                totalNotApplicableAmount: 0,
             };
         }
 
@@ -558,6 +566,8 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId }) => {
         let totalFullyReconciled = 0;
         let totalPartiallyReconciled = 0;
         let pendingReconciliation = 0;
+        let totalNotApplicable = 0;
+        let totalNotApplicableAmount = 0;
 
         fullyFilteredData.forEach(entry => {
             const invoiceAmount = entry.amount || 0;
@@ -573,6 +583,10 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId }) => {
                 totalPartiallyReconciled++;
                 totalPartiallyReconciledAmount += invoiceAmount;
                 totalPartialReconciledValue += reconciledAmount;
+            } else if (entry.reconciliation_status === "na") {
+                // N/A invoices are excluded from reconciliation metrics
+                totalNotApplicable++;
+                totalNotApplicableAmount += invoiceAmount;
             } else {
                 pendingReconciliation++;
                 totalNotReconciledAmount += invoiceAmount;
@@ -591,6 +605,8 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId }) => {
             pendingReconciliation,
             totalNotReconciledAmount,
             pendingReconciliationAmount: totalPartiallyReconciledAmount + totalNotReconciledAmount,
+            totalNotApplicable,
+            totalNotApplicableAmount,
         };
     }, [fullyFilteredData]);
 
@@ -656,7 +672,8 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId }) => {
             totalPartiallyReconciledAmount,
             totalPartialReconciledValue,
             totalNotReconciledAmount,
-            pendingReconciliationAmount
+            pendingReconciliationAmount,
+            totalNotApplicable,
         } = dynamicSummary;
 
         const hasFilters = columnFilters.length > 0 || !!searchTerm;
@@ -703,7 +720,7 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId }) => {
                             </div>
                         </div>
                         {/* Reconciliation Status compact */}
-                        <div className="flex items-center gap-2 bg-green-50 dark:bg-green-950/30 rounded-md p-2 border border-green-100 dark:border-green-900/50">
+                        <div className="flex flex-wrap items-center gap-2 bg-green-50 dark:bg-green-950/30 rounded-md p-2 border border-green-100 dark:border-green-900/50">
                             <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
                             <span className="text-[10px] font-medium text-green-600 dark:text-green-400 uppercase">Reconciled:</span>
                             <span className="text-sm font-bold text-green-700 dark:text-green-400 tabular-nums">
@@ -712,6 +729,11 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId }) => {
                             <span className="text-[9px] text-amber-600 dark:text-amber-500">
                                 | {pendingReconciliation} pending
                             </span>
+                            {totalNotApplicable > 0 && (
+                                <span className="text-[9px] text-slate-500 dark:text-slate-400 italic">
+                                    | {totalNotApplicable} N/A
+                                </span>
+                            )}
                         </div>
                     </CardContent>
                 </div>
@@ -770,6 +792,11 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId }) => {
                                 <dd className="text-lg font-semibold text-green-600 dark:text-green-400 tabular-nums mt-1">
                                     {formatToRoundedIndianRupee(totalReconciledAmount)}
                                 </dd>
+                                {totalNotApplicable > 0 && (
+                                    <dd className="text-[10px] text-slate-500 dark:text-slate-400 mt-2 italic">
+                                        ({totalNotApplicable} N/A excluded)
+                                    </dd>
+                                )}
                             </div>
                             {/* Card 3: Pending Reconciliation */}
                             <div className="bg-gradient-to-br from-amber-50 to-orange-50/50 dark:from-amber-950/40 dark:to-orange-950/30 rounded-lg p-4 border border-amber-100 dark:border-amber-900/50">
