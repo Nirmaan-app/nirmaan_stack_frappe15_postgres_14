@@ -4,6 +4,20 @@ Changes made by Claude Code sessions.
 
 ---
 
+### 2026-01-21: Invoice Reconciliation N/A Status
+
+**Summary:** Added "Not Applicable" (N/A) as a fourth reconciliation status for invoices where GST 2B matching is not required (e.g., unregistered vendors, exempt supplies).
+
+**Backend Files Modified:**
+- `nirmaan_stack/api/invoices/update_invoice_reconciliation.py` - Added "na" to RECONCILIATION_STATUS_VALUES
+
+**Key Behavior:**
+- N/A status clears reconciliation fields (reconciled_amount = 0)
+- N/A is NOT considered reconciled - excluded from reconciliation metrics
+- N/A invoices don't count toward "pending" reconciliation totals
+
+---
+
 ### 2026-01-20: Credits API Refactoring with Row-Level Filtering
 
 **Summary:** Created custom Credits API that filters PO Payment Terms at the child row level (not parent level), removed deprecated "Scheduled" status, and implemented date-based "Due" logic.
