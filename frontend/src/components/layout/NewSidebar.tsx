@@ -267,6 +267,11 @@ export function NewSidebar() {
           icon: Store,
           label: "Vendors",
         },
+        {
+          key: "/asset-management",
+          icon: Package,
+          label: "Assets",
+        },
       ]
       : []),
     ...(role == "Nirmaan Accountant Profile"
@@ -657,6 +662,7 @@ export function NewSidebar() {
       if (selectedKeys === "products") return "/products";
       if (selectedKeys === "vendors") return "/vendors";
       if (selectedKeys === "customers") return "/customers";
+      if (selectedKeys === "asset-management") return "/asset-management";
     }
 
     for (const [group, keys] of Object.entries(groupMappings)) {

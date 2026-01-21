@@ -459,6 +459,7 @@ export const appRoutes: RouteObject[] = [
             children: [
               { index: true, element: <AssetsPage /> },
               { path: ":assetId", lazy: () => import("@/pages/Assets/AssetOverview") },
+              { path: "category/:categoryId", lazy: () => import("@/pages/Assets/AssetCategoryView") },
             ],
           },
 
