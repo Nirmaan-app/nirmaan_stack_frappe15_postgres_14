@@ -14,6 +14,7 @@ export interface ProjectWithCriticalPOStats {
  * Status count breakdown for Critical PO Tasks
  */
 export interface StatusCounts {
+  "PR Not Released"?: number;
   "Not Released"?: number;
   "Partially Released"?: number;
   "Released"?: number;
@@ -23,6 +24,7 @@ export interface StatusCounts {
  * Valid status values for Critical PO Tasks
  */
 export type CriticalPOTaskStatus =
+  | "PR Not Released"
   | "Not Released"
   | "Partially Released"
   | "Released"
