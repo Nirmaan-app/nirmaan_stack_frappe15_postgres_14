@@ -420,7 +420,7 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
             )}
 
             {/* Zone Selector - Only show if tracking is enabled and zones exist */}
-            {isMilestoneTrackingEnabled && Boolean(projectDataWithZones?.project_zones?.length) && (
+            {/* {isMilestoneTrackingEnabled && Boolean(projectDataWithZones?.project_zones?.length) && (
                 <div className="border border-gray-200 rounded bg-white mb-4">
                     <div className="flex items-center gap-3 px-4 py-3">
                         <span className="text-xs font-medium text-gray-500 uppercase tracking-wide flex-shrink-0">
@@ -445,7 +445,7 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
                         </div>
                     </div>
                 </div>
-            )}
+            )} */}
 
             {/* Setup Dialog */}
             <SetupProgressTrackingDialog
@@ -465,7 +465,7 @@ export const ProjectWorkReportTab: React.FC<ProjectWorkReportTabProps> = ({
                 <MilestonesSummary
                     workReport={true}
                     projectIdForWorkReport={projectData?.name}
-                    parentSelectedZone={selectedZone as any}
+                    // parentSelectedZone={selectedZone as any}
                 />
             )}
         </>

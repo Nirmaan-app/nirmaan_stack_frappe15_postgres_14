@@ -1,5 +1,5 @@
 import React, { useContext, useEffect, useState, useMemo, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useFrappeDeleteDoc } from 'frappe-react-sdk';
 import { Trash2 } from 'lucide-react';
 
@@ -35,17 +35,16 @@ export { MilestoneProgress } from './components/MilestoneProgress';
 interface MilestonesSummaryProps {
   workReport?: boolean;
   projectIdForWorkReport?: string;
-  parentSelectedZone?: string | null;
+  // parentSelectedZone?: string | null;
 }
 
 export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
   workReport = false,
   projectIdForWorkReport,
-  parentSelectedZone = null,
+  // parentSelectedZone = null,
 }) => {
   const { selectedProject, setSelectedProject } = useContext(UserContext);
   const navigate = useNavigate();
-  const location = useLocation();
   const { role, user_id } = useUserData();
 
   const [searchParams] = useState(new URLSearchParams(window.location.search));
@@ -105,10 +104,10 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
     }
 
     // Parent control for work report mode
-    if (workReport && parentSelectedZone !== null) {
-      setSelectedZone(parentSelectedZone);
-      return;
-    }
+    // if (workReport && parentSelectedZone !== null) {
+    //   setSelectedZone(parentSelectedZone);
+    //   return;
+    // }
 
     const currentProjectZones = projectData.project_zones?.map((z: any) => z.zone_name) || [];
 
@@ -133,7 +132,7 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
         setSelectedZone(firstZoneName);
       }
     }
-  }, [projectData, selectedProject, workReport, parentSelectedZone, selectedZone, searchParams]);
+  }, [projectData, selectedProject, workReport, selectedZone, searchParams]);
 
   // Handle project selection change
   const handleProjectChange = useCallback((selectedItem: any) => {
@@ -145,14 +144,12 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
     }
   }, [setSelectedProject]);
 
-  // Handle zone selection (updates state and URL)
+  // Handle zone selection (updates state and sessionStorage only)
+  // Note: We don't navigate/update URL because it causes component remount which resets displayDate
   const handleZoneChange = useCallback((zoneName: string) => {
     setSelectedZone(zoneName);
-    const params = new URLSearchParams(location.search);
-    params.set('zone', zoneName);
     sessionStorage.setItem("selectedZone", JSON.stringify(zoneName));
-    navigate(`?${params.toString()}`);
-  }, [location.search, navigate]);
+  }, []);
 
   // Handler for deleting today's report
   const handleDeleteReport = useCallback(async () => {
@@ -222,6 +219,45 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
   return (
     <div className="flex-1 space-y-4">
       {/* Project Selector and Zone Actions (only when not in workReport mode) */}
+
+      {workReport &&(
+          <div className="border border-gray-200 rounded bg-white">
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <span className="text-xs font-medium text-gray-500 uppercase tracking-wide flex-shrink-0">
+                    Zone
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {projectData?.project_zones?.length === 0 ? (
+                      <div className="text-red-500 text-xs px-3 py-1.5 bg-red-50 border border-red-300 rounded">
+                        Define Zones
+                      </div>
+                    ) : (
+                      projectData?.project_zones?.map((zone: any) => {
+                        const zoneStatus = validationZoneProgress.get(zone.zone_name);
+                        const statusData = getZoneStatusIndicator(zoneStatus ? zoneStatus.status : null);
+                        return (
+                          <button
+                            key={zone.zone_name}
+                            type="button"
+                            onClick={() => handleZoneChange(zone.zone_name)}
+                            className={`px-3 py-1.5 text-sm rounded transition-colors flex items-center gap-1.5 ${
+                              selectedZone === zone.zone_name
+                                ? "bg-sky-500 text-white"
+                                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                            }`}
+                          >
+                            {zone.zone_name}
+                            <Badge variant="secondary" className={`p-0 ${statusData.color}`}>
+                              {statusData.icon}
+                            </Badge>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </div>
+      )}
       {!workReport && (
         <div className="flex flex-col gap-4 mb-2 w-full">
           {/* Project Select */}
@@ -236,33 +272,40 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
           {selectedProject && (
             <div className="flex flex-col w-full gap-4">
               {/* Zone Tab Section */}
-              <div className="flex items-center gap-2 w-full overflow-x-auto pb-1 flex-shrink-0">
-                <span className="font-semibold text-gray-700 whitespace-nowrap flex-shrink-0 hidden md:block">Zone:</span>
-                <div className="flex rounded-md border border-gray-300 overflow-hidden flex-shrink-0">
-                  {projectData?.project_zones?.length === 0 ? (
-                    <div className="text-red-500 text-xs p-1.5 bg-gray-50 border border-red-300 rounded-md">Define Zones</div>
-                  ) : (
-                    projectData?.project_zones?.map((zone: any) => {
-                      const zoneStatus = validationZoneProgress.get(zone.zone_name);
-                      const statusData = getZoneStatusIndicator(zoneStatus ? zoneStatus.status : null);
-                      return (
-                        <button
-                          key={zone.zone_name}
-                          className={`px-2 py-1 text-xs font-medium transition-colors md:text-sm md:px-3 md:py-1.5 ${
-                            selectedZone === zone.zone_name
-                              ? 'bg-blue-600 text-white shadow-inner'
-                              : 'bg-white text-blue-600 hover:bg-blue-50'
-                          }`}
-                          onClick={() => handleZoneChange(zone.zone_name)}
-                        >
-                          <span className="text-xs md:text-sm">{zone.zone_name}</span>
-                          <Badge variant="secondary" className={`p-0 ${statusData.color}`}>
-                            {statusData.icon}
-                          </Badge>
-                        </button>
-                      );
-                    })
-                  )}
+              <div className="border border-gray-200 rounded bg-white">
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <span className="text-xs font-medium text-gray-500 uppercase tracking-wide flex-shrink-0">
+                    Zone
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {projectData?.project_zones?.length === 0 ? (
+                      <div className="text-red-500 text-xs px-3 py-1.5 bg-red-50 border border-red-300 rounded">
+                        Define Zones
+                      </div>
+                    ) : (
+                      projectData?.project_zones?.map((zone: any) => {
+                        const zoneStatus = validationZoneProgress.get(zone.zone_name);
+                        const statusData = getZoneStatusIndicator(zoneStatus ? zoneStatus.status : null);
+                        return (
+                          <button
+                            key={zone.zone_name}
+                            type="button"
+                            onClick={() => handleZoneChange(zone.zone_name)}
+                            className={`px-3 py-1.5 text-sm rounded transition-colors flex items-center gap-1.5 ${
+                              selectedZone === zone.zone_name
+                                ? "bg-sky-500 text-white"
+                                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                            }`}
+                          >
+                            {zone.zone_name}
+                            <Badge variant="secondary" className={`p-0 ${statusData.color}`}>
+                              {statusData.icon}
+                            </Badge>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
               </div>
 

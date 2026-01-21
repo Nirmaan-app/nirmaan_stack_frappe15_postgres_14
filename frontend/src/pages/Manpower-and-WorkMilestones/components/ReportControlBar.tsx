@@ -58,32 +58,35 @@ export const ReportControlBar: React.FC<ReportControlBarProps> = ({
 
       {/* Zone Tabs (with status badges) */}
       {projectData?.project_zones?.length > 0 && (
-        <div className="flex flex-row md:items-center gap-2 overflow-x-auto pb-1 flex-shrink-0">
-          <span className="font-semibold text-gray-700 whitespace-nowrap flex-shrink-0 hidden md:block">
-            Zone:
-          </span>
-          <div className="flex rounded-md border border-gray-300 overflow-hidden flex-shrink-0">
-            {projectData.project_zones.map((zone: ProjectZoneEntry) => {
-              const zoneStatus = validationZoneProgress.get(zone.zone_name);
-              const statusData = getZoneStatusIndicator(zoneStatus ? zoneStatus.status : null);
+        <div className="border border-gray-200 rounded bg-white">
+          <div className="flex items-center gap-3 px-4 py-3">
+            <span className="text-xs font-medium text-gray-500 uppercase tracking-wide flex-shrink-0">
+              Zone
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              {projectData.project_zones.map((zone: ProjectZoneEntry) => {
+                const zoneStatus = validationZoneProgress.get(zone.zone_name);
+                const statusData = getZoneStatusIndicator(zoneStatus ? zoneStatus.status : null);
 
-              return (
-                <button
-                  key={zone.zone_name}
-                  className={`px-2 py-1 text-xs font-medium transition-colors md:text-sm md:px-3 md:py-1.5 ${
-                    selectedZone === zone.zone_name
-                      ? 'bg-blue-600 text-white shadow-inner'
-                      : 'bg-white text-blue-600 hover:bg-blue-50'
-                  }`}
-                  onClick={() => onZoneChange(zone.zone_name)}
-                >
-                  <span className="text-xs md:text-sm">{zone.zone_name}</span>
-                  <Badge variant="secondary" className={`p-0 ${statusData.color}`}>
-                    {statusData.icon}
-                  </Badge>
-                </button>
-              );
-            })}
+                return (
+                  <button
+                    key={zone.zone_name}
+                    type="button"
+                    onClick={() => onZoneChange(zone.zone_name)}
+                    className={`px-3 py-1.5 text-sm rounded transition-colors flex items-center gap-1.5 ${
+                      selectedZone === zone.zone_name
+                        ? "bg-sky-500 text-white"
+                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    }`}
+                  >
+                    {zone.zone_name}
+                    <Badge variant="secondary" className={`p-0 ${statusData.color}`}>
+                      {statusData.icon}
+                    </Badge>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
