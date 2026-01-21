@@ -9,6 +9,7 @@ export const CATEGORY_DOCTYPE = 'Category';
 export const VENDOR_LIST_FIELDS_TO_FETCH: (keyof VendorsType | 'name' | 'vendor_city' | 'vendor_state' | 'vendor_category')[] = [
     'name',
     'vendor_name',
+    'vendor_nickname',
     'creation',
     'vendor_type',
     'vendor_email',
@@ -20,6 +21,7 @@ export const VENDOR_LIST_FIELDS_TO_FETCH: (keyof VendorsType | 'name' | 'vendor_
 
 export const VENDOR_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "vendor_name", label: "Vendor Name", placeholder: "Search by name...", default: true },
+    { value: "vendor_nickname", label: "Nickname", placeholder: "Search by nickname..." },
     { value: "name", label: "Vendor ID", placeholder: "Search by ID..." },
     { value: "vendor_email", label: "Email", placeholder: "Search by email..." },
     { value: "vendor_gst", label: "GST No.", placeholder: "Search by GST No...." },
