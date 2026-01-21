@@ -16,6 +16,7 @@ export const PO_INVOICE_RECONCILIATION_STATUS_OPTIONS = [
     { label: "Not Reconciled", value: "" },
     { label: "Partially Reconciled", value: "partial" },
     { label: "Fully Reconciled", value: "full" },
+    { label: "Not Applicable", value: "na" },
 ];
 
 // @deprecated - Use PO_INVOICE_RECONCILIATION_STATUS_OPTIONS instead
