@@ -155,9 +155,16 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
         <div className="flex-1 space-y-2 md:space-y-4">
             {/* Header with Vendor Name and Edit Button can be its own component */}
             <div className="flex items-center gap-1 mb-4">
-                <h2 className="text-2xl md:text-3xl font-bold tracking-tight ml-4">
-                    {vendor?.vendor_name || "Vendor Details"}
-                </h2>
+                <div className="flex items-baseline gap-2 ml-4">
+                    <h2 className="text-2xl md:text-3xl font-bold tracking-tight text-primary">
+                        {vendor?.vendor_nickname || vendor?.vendor_name}
+                    </h2>
+                    {vendor?.vendor_nickname && (
+                        <span className="text-sm md:text-base text-muted-foreground">
+                            ({vendor?.vendor_name})
+                        </span>
+                    )}
+                </div>
                 {role !== "Nirmaan Project Manager Profile" &&
                     (<Button variant="ghost" size="icon" onClick={toggleEditSheet} aria-label="Edit Vendor Details">
                         <FilePenLine className="h-5 w-5 text-blue-500 hover:text-blue-700" />
