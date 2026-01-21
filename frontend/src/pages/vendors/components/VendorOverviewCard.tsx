@@ -64,6 +64,7 @@ export const VendorOverviewCard: React.FC<VendorOverviewCardProps> = ({
                  <div className="flex lg:justify-between max-lg:flex-col max-lg:gap-10">
                    <div className="space-y-6 max-sm:space-y-4">
                     <InfoItem label="Vendor ID" value={vendor?.name} />
+                    <InfoItem label="Nickname" value={vendor?.vendor_nickname} />
                     <InfoItem label="Contact Person" value={vendor?.vendor_contact_person_name} />
                     <InfoItem label="Contact Number" value={vendor?.vendor_mobile} />
                     <InfoItem label="GST Number" value={vendor?.vendor_gst} />
