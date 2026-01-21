@@ -176,6 +176,7 @@ export const useInvoiceReconciliation = ({
                     "": "Not Reconciled",
                     "partial": "Partially Reconciled",
                     "full": "Fully Reconciled",
+                    "na": "Not Applicable",
                 };
 
                 toast({
