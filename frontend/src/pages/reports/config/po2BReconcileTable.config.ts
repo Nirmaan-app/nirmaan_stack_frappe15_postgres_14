@@ -13,4 +13,5 @@ export const PO_2B_STATUS_OPTIONS = [
     { label: "Full", value: "Full" },
     { label: "Partial", value: "Partial" },
     { label: "None", value: "None" },
+    { label: "N/A", value: "N/A" },
 ];
