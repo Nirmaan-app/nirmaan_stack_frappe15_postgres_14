@@ -27,6 +27,7 @@ const MAX_HEIGHT = 1000;
 interface DeliveryHistoryTableProps {
   deliveryData: DeliveryDataType | null;
   onPrintHistory: (date: string, historyEntryData: DeliveryDataType[string]) => void; // Updated to accept date
+  showHeader?: boolean; // When false, renders without Card wrapper (for use inside accordions)
 }
 
 interface ExpandableRowProps {
@@ -118,61 +119,95 @@ const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, data, isExpa
 };
 
 
-const DeliveryHistoryTable: React.FC<DeliveryHistoryTableProps> = ({ deliveryData, onPrintHistory }) => {
+const DeliveryHistoryTable: React.FC<DeliveryHistoryTableProps> = ({
+  deliveryData,
+  onPrintHistory,
+  showHeader = true, // Default to true for backwards compatibility
+}) => {
   const [expandedRows, setExpandedRows] = useState<string[]>([]);
 
-
-
   const handleToggle = useCallback((date: string) => {
-    setExpandedRows(prev => prev.includes(date)
-      ? prev.filter(d => d !== date)
-      : [...prev, date]
+    setExpandedRows((prev) =>
+      prev.includes(date) ? prev.filter((d) => d !== date) : [...prev, date]
     );
   }, []);
-  const hasHistory = deliveryData && Object.keys(deliveryData).length > 0; ''
 
+  // Shared table content - used in both wrapped and unwrapped versions
+  const tableContent = (
+    <>
+      {/* For Desktop */}
+      <div className="overflow-auto hidden sm:block">
+        <Table>
+          <TableHeader className="bg-red-100">
+            <TableRow>
+              <TableHead>Date</TableHead>
+              <TableHead>DN ID</TableHead>
+              <TableHead>No. of Items</TableHead>
+              <TableHead>Change Type</TableHead>
+              <TableHead>Updated By</TableHead>
+              <TableHead>Print</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {deliveryData && Object.keys(deliveryData).length > 0 ? (
+              Object.entries(deliveryData).map(([date, data], index) => (
+                <ExpandableRow
+                  key={date}
+                  index={index}
+                  date={date}
+                  data={data}
+                  isExpanded={expandedRows.includes(date)}
+                  onToggle={handleToggle}
+                  onPrint={onPrintHistory}
+                />
+              ))
+            ) : (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center py-4 text-gray-500">
+                  No delivery history available
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
+      {/* For Mobile */}
+      <div className="block sm:hidden">
+        {deliveryData && Object.keys(deliveryData).length > 0 ? (
+          <div className="divide-y">
+            {Object.entries(deliveryData).map(([date, data], index) => (
+              <ExpandableRow
+                key={date}
+                index={index}
+                date={date}
+                data={data}
+                isExpanded={expandedRows.includes(date)}
+                onToggle={handleToggle}
+                onPrint={onPrintHistory}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="text-center p-4 text-gray-500">
+            No delivery history available
+          </p>
+        )}
+      </div>
+    </>
+  );
 
+  // When showHeader is false, render without Card wrapper (for use in accordions)
+  if (!showHeader) {
+    return <div className="w-full">{tableContent}</div>;
+  }
+
+  // Default: render with Card wrapper and header
   return (
     <Card>
-      <CardHeader className="font-semibold text-lg text-red-600 pl-6"><CardTitle>Delivery History</CardTitle></CardHeader>
-      <CardContent className="p-0"> {/* Remove padding on mobile, add it back for desktop table */}
-        {/* For Desktop */}
-        <div className="overflow-auto hidden sm:block">
-          <Table>
-            <TableHeader className="bg-red-100">
-              <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>DN ID</TableHead>
-                <TableHead>No. of Items</TableHead>
-                <TableHead>Change Type</TableHead>
-                <TableHead>Updated By</TableHead>
-                <TableHead>Print</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {deliveryData && Object.keys(deliveryData).length > 0 ? (
-                Object.entries(deliveryData).map(([date, data], index) => (
-                  <ExpandableRow key={date} index={index} date={date} data={data} isExpanded={expandedRows.includes(date)} onToggle={handleToggle} onPrint={onPrintHistory} />
-                ))
-              ) : (
-                <TableRow><TableCell colSpan={5} className="text-center py-4 text-gray-500">No delivery history available</TableCell></TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
-        {/* For Mobile */}
-        <div className="block sm:hidden">
-          {deliveryData && Object.keys(deliveryData).length > 0 ? (
-            <div className="divide-y">
-              {Object.entries(deliveryData).map(([date, data], index) => (
-                <ExpandableRow key={date} index={index} date={date} data={data} isExpanded={expandedRows.includes(date)} onToggle={handleToggle} onPrint={onPrintHistory} />
-              ))}
-            </div>
-          ) : (
-            <p className="text-center p-4 text-gray-500">No delivery history available</p>
-          )}
-        </div>
-      </CardContent>
+      <CardHeader className="font-semibold text-lg text-red-600 pl-6">
+        <CardTitle>Delivery History</CardTitle>
+      </CardHeader>
+      <CardContent className="p-0">{tableContent}</CardContent>
     </Card>
   );
 };
