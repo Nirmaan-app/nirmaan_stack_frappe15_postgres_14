@@ -23,23 +23,28 @@ import {
   useFrappeGetDoc,
   useFrappePostCall,
   useFrappeUpdateDoc,
+  useFrappeFileUpload,
 } from "frappe-react-sdk";
+import { mutate as globalMutate } from "swr";
 import {
   CheckCheck,
   ChevronDown,
   ChevronRight,
+  CirclePlus,
   CircleX,
   Download,
   Eye,
   FileText,
   Mail,
   MessageSquare,
+  Pencil,
   Phone,
   Printer,
   Send,
   Trash2Icon,
   TriangleAlert,
   Undo2,
+  Upload,
 } from "lucide-react";
 import { useCriticalPOTaskLinking } from "../hooks/useCriticalPOTaskLinking";
 import { CriticalPOTaskLinkingSection } from "./CriticalPOTaskLinkingSection";
@@ -93,6 +98,7 @@ import { ValidationMessages } from "@/components/validations/ValidationMessages"
 import { DeliveryNotePrintLayout } from "@/pages/DeliveryNotes/components/DeliveryNotePrintLayout";
 import { useReactToPrint } from "react-to-print";
 import { usePrintHistory } from "@/pages/DeliveryNotes/hooks/usePrintHistroy";
+import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 
 interface PODetailsProps {
   po: ProcurementOrder | null;
@@ -169,6 +175,116 @@ export const PODetails: React.FC<PODetailsProps> = ({
   const toggleDeliveryNoteSheet = useCallback(() => {
     setDeliveryNoteSheet((prevState) => !prevState);
   }, []);
+
+  // Upload DC/MIR state and handlers
+  const [uploadDialog, setUploadDialog] = useState<{
+    open: boolean;
+    type: "DC" | "MIR" | null;
+  }>({
+    open: false,
+    type: null,
+  });
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
+  // Upload hooks
+  const { upload, loading: uploadLoading } = useFrappeFileUpload();
+  const { call: createAttachmentDoc, loading: createAttachmentLoading } =
+    useFrappePostCall("frappe.client.insert");
+
+  const handleOpenUploadDialog = useCallback((type: "DC" | "MIR") => {
+    setUploadDialog({ open: true, type });
+    setSelectedFile(null);
+  }, []);
+
+  const handleCloseUploadDialog = useCallback(() => {
+    setUploadDialog({ open: false, type: null });
+    setSelectedFile(null);
+  }, []);
+
+  const handleUploadFile = useCallback(async () => {
+    if (!selectedFile || !uploadDialog.type || !po?.name) {
+      toast({
+        title: "No File Selected",
+        description: "Please select a file to upload",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      // Step 1: Upload file to Frappe
+      const uploadResult = await upload(selectedFile, {
+        doctype: "Procurement Orders",
+        docname: po.name,
+        fieldname: "attachment",
+        isPrivate: true,
+      });
+
+      if (!uploadResult?.file_url) {
+        throw new Error("File upload failed");
+      }
+
+      // Step 2: Create Nirmaan Attachments record
+      const attachmentType =
+        uploadDialog.type === "DC"
+          ? "po delivery challan"
+          : "material inspection report";
+
+      const attachmentDoc = {
+        doctype: "Nirmaan Attachments",
+        project: po.project,
+        attachment: uploadResult.file_url,
+        attachment_type: attachmentType,
+        associated_doctype: "Procurement Orders",
+        associated_docname: po.name,
+        attachment_link_doctype: "Vendors",
+        attachment_link_docname: po.vendor,
+      };
+
+      await createAttachmentDoc({ doc: attachmentDoc });
+
+      // Success
+      toast({
+        title: "Upload Successful",
+        description: `${uploadDialog.type} uploaded successfully`,
+        variant: "success",
+      });
+
+      // Refresh data
+      await poMutate();
+
+      // Refresh all attachment queries globally
+      await globalMutate(
+        (key) => {
+          if (Array.isArray(key)) {
+            return JSON.stringify(key).includes("Nirmaan Attachments");
+          }
+          return false;
+        },
+        undefined,
+        { revalidate: true }
+      );
+
+      handleCloseUploadDialog();
+    } catch (error: any) {
+      console.error("Upload error:", error);
+      toast({
+        title: "Upload Failed",
+        description: error.message || "Failed to upload file",
+        variant: "destructive",
+      });
+    }
+  }, [
+    selectedFile,
+    uploadDialog.type,
+    po,
+    upload,
+    createAttachmentDoc,
+    poMutate,
+    handleCloseUploadDialog,
+  ]);
+
+  const isUploading = uploadLoading || createAttachmentLoading;
 
   const [dispatchPODialog, setDispatchPODialog] = useState(false);
   const toggleDispatchPODialog = useCallback(() => {
@@ -592,20 +708,68 @@ export const PODetails: React.FC<PODetailsProps> = ({
           </div>
 
           {/* ═══════════════════════════════════════════════════════════════════
-              SECTION 5: ACTIONS - All action buttons
+              SECTION 5: ACTIONS - Compact minimalist buttons
           ═══════════════════════════════════════════════════════════════════ */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 sm:flex-wrap sm:justify-end">
-            {/* Add Invoice Button */}
-            {po?.status !== "PO Approved" && po?.status !== "Inactive" &&
-              role !== "Nirmaan Accountant Profile" && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-primary border-primary shrink-0"
-                onClick={toggleNewInvoiceDialog}
-              >
-                Add Invoice
-              </Button>
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 sm:flex-wrap sm:justify-end">
+            {/* Document Actions - Only shown for non-approved statuses */}
+            {po?.status !== "PO Approved" && po?.status !== "Inactive" && (
+              <>
+                {/* Upload DC - shown for delivered statuses */}
+                {["Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) &&
+                  ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 px-2.5 border-primary text-primary shrink-0"
+                          onClick={() => handleOpenUploadDialog("DC")}
+                        >
+                          <CirclePlus className="h-3.5 w-3.5 sm:mr-1.5" />
+                          <span className="hidden sm:inline text-xs">Upload DC</span>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent className="sm:hidden">Upload DC</TooltipContent>
+                    </Tooltip>
+                  )}
+
+                {/* Upload MIR - shown for delivered statuses */}
+                {["Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) &&
+                  ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 px-2.5 border-primary text-primary shrink-0"
+                          onClick={() => handleOpenUploadDialog("MIR")}
+                        >
+                          <Upload className="h-3.5 w-3.5 sm:mr-1.5" />
+                          <span className="hidden sm:inline text-xs">Upload MIR</span>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent className="sm:hidden">Upload MIR</TooltipContent>
+                    </Tooltip>
+                  )}
+
+                {/* Add Invoice - hidden for Project Manager and Accountant */}
+                {!isProjectManager && role !== "Nirmaan Accountant Profile" && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 px-2.5 border-primary text-primary shrink-0"
+                        onClick={toggleNewInvoiceDialog}
+                      >
+                        <FileText className="h-3.5 w-3.5 sm:mr-1.5" />
+                        <span className="hidden sm:inline text-xs">Add Invoice</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent className="sm:hidden">Add Invoice</TooltipContent>
+                  </Tooltip>
+                )}
+              </>
             )}
 
             {/* Revert Button */}
@@ -615,28 +779,39 @@ export const PODetails: React.FC<PODetailsProps> = ({
               po?.status === "Dispatched" &&
               !((poPayments || [])?.length > 0) &&
               ["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={toggleRevertDialog}
-                  className="flex items-center gap-1 border-primary text-primary shrink-0"
-                >
-                  <Undo2 className="w-3.5 h-3.5" />
-                  Revert
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={toggleRevertDialog}
+                      className="h-8 px-2.5 border-primary text-primary shrink-0"
+                    >
+                      <Undo2 className="h-3.5 w-3.5 sm:mr-1.5" />
+                      <span className="hidden sm:inline text-xs">Revert</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent className="sm:hidden">Revert</TooltipContent>
+                </Tooltip>
               )}
 
-            {/* Update DN Button */}
+            {/* Update Delivery Button */}
             {["Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) &&
               ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) && (
-                <Button
-                  onClick={toggleDeliveryNoteSheet}
-                  variant="outline"
-                  size="sm"
-                  className="flex items-center gap-1 border-primary text-primary shrink-0"
-                >
-                  Update Delivery
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      onClick={toggleDeliveryNoteSheet}
+                      variant="outline"
+                      size="sm"
+                      className="h-8 px-2.5 border-primary text-primary shrink-0"
+                    >
+                      <Pencil className="h-3.5 w-3.5 sm:mr-1.5" />
+                      <span className="hidden sm:inline text-xs">Update Delivery</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent className="sm:hidden">Update Delivery</TooltipContent>
+                </Tooltip>
               )}
 
             {/* Preview Button */}
@@ -652,13 +827,13 @@ export const PODetails: React.FC<PODetailsProps> = ({
                       size="sm"
                       disabled={!isValid}
                       onClick={isValid ? togglePoPdfSheet : undefined}
-                      className="flex items-center gap-1 border-primary text-primary shrink-0"
+                      className="h-8 px-2.5 border-primary text-primary shrink-0"
                     >
-                      <Eye className="w-3.5 h-3.5" />
-                      Preview
+                      <Eye className="h-3.5 w-3.5 sm:mr-1.5" />
+                      <span className="hidden sm:inline text-xs">Preview</span>
                     </Button>
                   </TooltipTrigger>
-                  {!isValid && (
+                  {!isValid ? (
                     <TooltipContent
                       side="bottom"
                       className="bg-background border border-border text-foreground w-80"
@@ -668,6 +843,8 @@ export const PODetails: React.FC<PODetailsProps> = ({
                         errors={errors}
                       />
                     </TooltipContent>
+                  ) : (
+                    <TooltipContent className="sm:hidden">Preview</TooltipContent>
                   )}
                 </Tooltip>
               )}
@@ -680,15 +857,20 @@ export const PODetails: React.FC<PODetailsProps> = ({
               po?.status === "PO Approved" &&
               !((poPayments || [])?.length > 0) &&
               ["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
-                <Button
-                  onClick={toggleDeleteDialog}
-                  variant="destructive"
-                  size="sm"
-                  className="flex items-center gap-1 shrink-0"
-                >
-                  <Trash2Icon className="w-3.5 h-3.5" />
-                  Delete
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      onClick={toggleDeleteDialog}
+                      variant="destructive"
+                      size="sm"
+                      className="h-8 px-2.5 shrink-0"
+                    >
+                      <Trash2Icon className="h-3.5 w-3.5 sm:mr-1.5" />
+                      <span className="hidden sm:inline text-xs">Delete</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent className="sm:hidden">Delete</TooltipContent>
+                </Tooltip>
               )}
 
             {/* Dispatch PO Button */}
@@ -703,13 +885,13 @@ export const PODetails: React.FC<PODetailsProps> = ({
                       size="sm"
                       disabled={!isValid}
                       onClick={isValid ? toggleDispatchPODialog : undefined}
-                      className="flex items-center gap-1 shrink-0"
+                      className="h-8 px-2.5 shrink-0"
                     >
-                      <Send className="h-3.5 w-3.5" />
-                      Dispatch PO
+                      <Send className="h-3.5 w-3.5 sm:mr-1.5" />
+                      <span className="hidden sm:inline text-xs">Dispatch PO</span>
                     </Button>
                   </TooltipTrigger>
-                  {!isValid && (
+                  {!isValid ? (
                     <TooltipContent
                       side="bottom"
                       className="bg-background border border-border text-foreground w-80"
@@ -719,6 +901,8 @@ export const PODetails: React.FC<PODetailsProps> = ({
                         errors={errors}
                       />
                     </TooltipContent>
+                  ) : (
+                    <TooltipContent className="sm:hidden">Dispatch PO</TooltipContent>
                   )}
                 </Tooltip>
               )}
@@ -732,15 +916,20 @@ export const PODetails: React.FC<PODetailsProps> = ({
               (po?.amount_paid ?? 0) <= 100 &&
               !PoPaymentTermsValidationSafe &&
               (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile"].includes(role)) && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={toggleInactiveDialog}
-                  className="text-destructive border-destructive hover:bg-destructive hover:text-white shrink-0"
-                >
-                  <CircleX className="w-3.5 h-3.5 mr-1" />
-                  Mark Inactive
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={toggleInactiveDialog}
+                      className="h-8 px-2.5 text-destructive border-destructive hover:bg-destructive hover:text-white shrink-0"
+                    >
+                      <CircleX className="h-3.5 w-3.5 sm:mr-1.5" />
+                      <span className="hidden sm:inline text-xs">Mark Inactive</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent className="sm:hidden">Mark Inactive</TooltipContent>
+                </Tooltip>
               )}
           </div>
         </CardContent>
@@ -1249,6 +1438,51 @@ export const PODetails: React.FC<PODetailsProps> = ({
               </>
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Upload DC/MIR Dialog */}
+      <Dialog open={uploadDialog.open} onOpenChange={handleCloseUploadDialog}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>
+              Upload{" "}
+              {uploadDialog.type === "DC"
+                ? "Delivery Challan"
+                : "Material Inspection Report"}
+            </DialogTitle>
+            <DialogDescription>
+              Upload {uploadDialog.type} for{" "}
+              {po?.name ? `PO-${po.name.split("/")[1]}` : "this Purchase Order"}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4">
+            <CustomAttachment
+              selectedFile={selectedFile}
+              onFileSelect={setSelectedFile}
+              label={`Select ${uploadDialog.type} File`}
+              maxFileSize={20 * 1024 * 1024}
+              acceptedTypes={["application/pdf", "image/*"]}
+            />
+          </div>
+
+          <DialogFooter>
+            {isUploading ? (
+              <div className="flex justify-center w-full">
+                <TailSpin color="#3b82f6" width={40} height={40} />
+              </div>
+            ) : (
+              <>
+                <Button variant="outline" onClick={handleCloseUploadDialog}>
+                  Cancel
+                </Button>
+                <Button onClick={handleUploadFile} disabled={!selectedFile}>
+                  Upload
+                </Button>
+              </>
+            )}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

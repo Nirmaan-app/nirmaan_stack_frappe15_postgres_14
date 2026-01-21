@@ -61,7 +61,8 @@ interface DocumentAttachmentsProps<T extends DocumentType> {
   docMutate: KeyedMutator<T[]>; // Use 'any' for flexibility or define a more specific SWRResponse type if possible
   project?: FrappeDoc<Projects>;
   isPMUserChallans?: boolean;
-  disabledAddInvoice?:boolean;
+  disabledAddInvoice?: boolean;
+  isProjectManager?: boolean;
 }
 
 interface SrInvoiceDialogData {
@@ -87,6 +88,7 @@ export const DocumentAttachments = <T extends DocumentType>({
   project,
   isPMUserChallans,
   disabledAddInvoice,
+  isProjectManager = false,
 }: DocumentAttachmentsProps<T>) => {
 //   console.log("DocumentAttachments", project, documentData);
 
@@ -519,13 +521,11 @@ export const DocumentAttachments = <T extends DocumentType>({
   return (
     <div
       className={`grid gap-4 lg:grid-cols-2 ${
-        showDcTable ? "lg:grid-cols-2" : "lg:grid-cols-1"
+        showDcTable && !isProjectManager ? "lg:grid-cols-2" : "lg:grid-cols-1"
       }`}
     >
-     
-      
-      {/* Dynamic grid */}
-      {/* Invoice Card */}
+      {/* Invoice Card - Hidden for Project Manager */}
+      {!isProjectManager && (
       <Card className="rounded-md shadow-sm border border-gray-200 overflow-hidden">
         {" "}
         {/* Subtle styling */}
@@ -587,6 +587,7 @@ export const DocumentAttachments = <T extends DocumentType>({
           </div>
         </CardContent>
       </Card>
+      )}
       {/* Delivery Challan Card (Conditional) */}
       
       {
