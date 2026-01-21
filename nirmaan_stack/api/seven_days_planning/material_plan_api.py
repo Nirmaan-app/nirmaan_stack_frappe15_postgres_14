@@ -142,3 +142,308 @@ def get_po_items(po):
         fields=["name", "item_name", "item_code", "quantity", "uom", "rate"]
     )
     return items
+
+
+# =============================================================================
+# MATERIAL PLAN V2 APIs
+# =============================================================================
+
+@frappe.whitelist()
+def get_material_plan_data_v2(project=None, task_id=None, search_type="po"):
+    """
+    V2 API: Fetch POs or items based on Critical PO Task's associated_pos.
+    
+    Parameters:
+        - project: Project ID
+        - task_id: Critical PO Tasks document name
+        - search_type: "po" (returns PO list) or "item" (returns flat item list)
+    
+    Returns:
+        If search_type="po":
+            { "has_pos": bool, "pos": [...], "associated_pos": [...] }
+        If search_type="item":
+            { "has_pos": bool, "po_list": [...], "items": [...], "associated_pos": [...] }
+    """
+    import json
+    
+    if not project or not task_id:
+        if search_type == "po":
+            return {"has_pos": False, "pos": [], "associated_pos": []}
+        else:
+            return {"has_pos": False, "po_list": [], "items": [], "associated_pos": []}
+    
+    try:
+        task = frappe.get_doc("Critical PO Tasks", task_id)
+    except frappe.DoesNotExistError:
+        if search_type == "po":
+            return {"has_pos": False, "pos": [], "associated_pos": []}
+        else:
+            return {"has_pos": False, "po_list": [], "items": [], "associated_pos": []}
+    
+    # Parse associated_pos - Frappe may auto-parse JSON fields
+    # Handle: already dict, string, or None
+    raw_associated = task.associated_pos
+    associated_pos = []
+    
+    if raw_associated:
+        # If still a string, parse it
+        if isinstance(raw_associated, str):
+            try:
+                raw_associated = json.loads(raw_associated)
+            except:
+                raw_associated = []
+        
+        # Now handle dict or list
+        if isinstance(raw_associated, dict):
+            associated_pos = raw_associated.get("pos", [])
+        elif isinstance(raw_associated, list):
+            associated_pos = raw_associated
+    
+    if not associated_pos:
+        if search_type == "po":
+            return {"has_pos": False, "pos": [], "associated_pos": []}
+        else:
+            return {"has_pos": False, "po_list": [], "items": [], "associated_pos": []}
+    
+    # SEARCH TYPE: "item" - Return flat item list
+    if search_type == "item":
+        all_items = []
+        po_list = []
+        
+        for po_id in associated_pos:
+            try:
+                doc = frappe.get_doc("Procurement Orders", po_id)
+                po_list.append({
+                    "name": doc.name,
+                    "items_count": len(doc.items) if doc.items else 0,
+                    "is_critical": True
+                })
+                
+                if doc.items:
+                    for item in doc.items:
+                        item_dict = item.as_dict()
+                        item_dict["parent"] = po_id
+                        item_dict["is_critical_po"] = True
+                        all_items.append(item_dict)
+                        
+            except Exception as e:
+                frappe.log_error(f"Error fetching PO items for {po_id}: {str(e)}")
+                continue
+        
+        return {
+            "has_pos": True,
+            "po_list": po_list,
+            "items": all_items,
+            "associated_pos": associated_pos
+        }
+    
+    # SEARCH TYPE: "po" - Return PO list with items
+    pos = []
+    for po_id in associated_pos:
+        try:
+            doc = frappe.get_doc("Procurement Orders", po_id)
+            pos.append({
+                "name": doc.name,
+                "items_count": len(doc.items) if doc.items else 0,
+                "creation": str(doc.creation),
+                "status": doc.status,
+                "items": [item.as_dict() for item in doc.items] if doc.items else [],
+                "is_critical": True
+            })
+        except Exception as e:
+            frappe.log_error(f"Error fetching PO {po_id}: {str(e)}")
+            continue
+    
+    return {"has_pos": True, "pos": pos, "associated_pos": associated_pos}
+
+
+@frappe.whitelist()
+def get_all_project_pos(project):
+    """
+    Fetch ALL POs for a project. Used for "See All POs" modal.
+    
+    Returns:
+        {
+            "pos": [
+                {
+                    "name": "PO-001",
+                    "items_count": 5,
+                    "creation": "2026-01-15",
+                    "work_package": "Electrical",
+                    "items": [...]
+                },
+                ...
+            ]
+        }
+    """
+    if not project:
+        return {"pos": []}
+    
+    # Fetch all active POs for the project
+    filters = {
+        "project": project, 
+        "status": ["not in", ["Cancelled", "Merged", "Inactive", "PO Amendment"]]
+    }
+    
+    po_list = frappe.get_list("Procurement Orders", 
+        filters=filters, 
+        fields=["name", "procurement_request", "creation", "custom", "status"],
+        order_by="creation desc"
+    )
+    
+    if not po_list:
+        return {"pos": []}
+    
+    # Map PR -> Work Package for display
+    pr_ids = [p.procurement_request for p in po_list if p.procurement_request]
+    pr_package_map = {}
+    
+    if pr_ids:
+        prs = frappe.get_all("Procurement Requests",
+            filters={"name": ["in", pr_ids]},
+            fields=["name", "work_package"]
+        )
+        for pr in prs:
+            pr_package_map[pr.name] = pr.work_package
+    
+    import json
+
+    # Fetch global critical POs for the project to flag them
+    critical_tasks = frappe.get_all("Critical PO Tasks",
+        filters={"project": project},
+        fields=["name", "item_name", "critical_po_category", "associated_pos"]
+    )
+    
+    # Map PO Name (trimmed) -> List of Task Details
+    po_critical_map = {}
+    
+    for t in critical_tasks:
+        raw = t.associated_pos
+        vals = []
+        if raw:
+            if isinstance(raw, str):
+                try:
+                    raw = json.loads(raw)
+                except:
+                    raw = []
+            
+            if isinstance(raw, dict):
+                vals = raw.get("pos", [])
+            elif isinstance(raw, list):
+                vals = raw
+        
+        for v in vals:
+            if isinstance(v, str):
+                po_id = v.strip()
+                if po_id not in po_critical_map:
+                    po_critical_map[po_id] = []
+                
+                po_critical_map[po_id].append({
+                    "task_name": t.name,
+                    "item_name": t.item_name,
+                    "category": t.critical_po_category
+                })
+
+    pos = []
+    for p in po_list:
+        try:
+            # Determine work package
+            if p.custom:
+                work_pkg = "Custom"
+            else:
+                work_pkg = pr_package_map.get(p.procurement_request, "Uncategorized")
+            
+            doc = frappe.get_doc("Procurement Orders", p.name)
+            po_name_trimmed = doc.name.strip()
+            associated_tasks = po_critical_map.get(po_name_trimmed, [])
+            
+            pos.append({
+                "name": doc.name,
+                "items_count": len(doc.items) if doc.items else 0,
+                "creation": str(doc.creation),
+                "status": doc.status,
+                "work_package": work_pkg,
+                "is_critical": len(associated_tasks) > 0,
+                "associated_tasks": associated_tasks,
+                "items": [item.as_dict() for item in doc.items] if doc.items else []
+            })
+        except Exception as e:
+            frappe.log_error(f"Error fetching PO {p.name}: {str(e)}")
+            continue
+    
+    return {"pos": pos}
+
+
+@frappe.whitelist()
+def get_categories_and_tasks(project):
+    """
+    Fetch all Critical PO Categories and Tasks for a project.
+    Used for Category/Task dropdowns in V2.
+    
+    Returns:
+        {
+            "categories": ["Structural", "Electrical", ...],
+            "tasks": [
+                {
+                    "name": "task-001",
+                    "item_name": "Foundation Materials",
+                    "critical_po_category": "Structural",
+                    "associated_pos": ["PO-001", "PO-002"],
+                    "associated_pos_count": 2
+                },
+                ...
+            ]
+        }
+    """
+    import json
+    
+    if not project:
+        return {"categories": [], "tasks": []}
+    
+    # Fetch all tasks for this project
+    tasks = frappe.get_all("Critical PO Tasks",
+        filters={"project": project},
+        fields=["name", "item_name", "critical_po_category", "associated_pos", "status", "sub_category"]
+    )
+    
+    # Extract unique categories and parse associated_pos
+    categories = set()
+    task_list = []
+    
+    for task in tasks:
+        if task.critical_po_category:
+            categories.add(task.critical_po_category)
+        
+        # Parse associated_pos - Frappe may auto-parse JSON fields
+        # Handle: already dict, string, or None
+        raw_associated = task.associated_pos
+        associated_pos = []
+        
+        if raw_associated:
+            # If still a string, parse it
+            if isinstance(raw_associated, str):
+                try:
+                    raw_associated = json.loads(raw_associated)
+                except:
+                    raw_associated = []
+            
+            # Now handle dict or list
+            if isinstance(raw_associated, dict):
+                associated_pos = raw_associated.get("pos", [])
+            elif isinstance(raw_associated, list):
+                associated_pos = raw_associated
+        
+        task_list.append({
+            "name": task.name,
+            "item_name": task.item_name,
+            "critical_po_category": task.critical_po_category,
+            "associated_pos": associated_pos,
+            "associated_pos_count": len(associated_pos),
+            "status": task.status,
+            "sub_category": task.sub_category
+        })
+    
+    return {
+        "categories": sorted(list(categories)),
+        "tasks": task_list
+    }

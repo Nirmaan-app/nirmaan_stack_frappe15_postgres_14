@@ -181,18 +181,37 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
             <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
                 
                 {/* Header */}
-                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                    <div>
-                        <h2 className="text-lg font-bold text-gray-900">Edit Materials - Plan {plan.idx || ""}</h2>
-                        <div className="flex items-center gap-4 text-sm text-gray-500 mt-1">
-                            <span className="font-medium text-gray-700">{plan.package_name}</span>
-                            <span className="border-l border-gray-300 pl-4">PO ID: {plan.po_link || "N/A"}</span>
-                            <span className="border-l border-gray-300 pl-4">PO Type: {plan.po_type}</span>
-                        </div>
+                <div className="flex flex-col px-6 py-4 border-b border-gray-100">
+                    <div className="flex items-center justify-between w-full mb-1">
+                        <h2 className="text-xl font-bold text-gray-900">Edit Materials- Plan {plan.idx || ""}</h2>
+                        <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-full transition-colors">
+                            <X className="w-5 h-5 text-gray-500" />
+                        </button>
                     </div>
-                    <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-                        <X className="w-5 h-5 text-gray-500" />
-                    </button>
+                    
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px]">
+                        {/* Category */}
+                        <span className={`font-medium ${!plan.critical_po_category ? "text-red-500" : "text-gray-400"}`}>
+                            {plan.critical_po_category || "Not Defined"}
+                        </span>
+
+                        <div className="h-5 w-[1px] bg-red-400/60 shrink-0"></div>
+
+                        {/* Task */}
+                        <span className={`font-medium ${!plan.critical_po_task ? "text-red-500" : "text-gray-400"}`}>
+                            {plan.critical_po_task || "Not Defined"}
+                        </span>
+
+                        <div className="h-5 w-[1px] bg-red-400/60 shrink-0"></div>
+
+                        {/* PO ID */}
+                        <span className="text-gray-400 font-medium whitespace-nowrap">PO ID: {plan.po_link || "N/A"}</span>
+
+                        <div className="h-5 w-[1px] bg-red-400/60 shrink-0"></div>
+
+                        {/* PO Type */}
+                        <span className="text-gray-400 font-medium whitespace-nowrap">PO Type: {plan.po_type || "--"}</span>
+                    </div>
                 </div>
 
                 {/* Body */}

@@ -216,9 +216,9 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
 
     // 2. Fetch Existing Material Delivery Plans
     const { data: existingPlans, isLoading: isLoadingPlans, mutate: refreshPlans } = useFrappeGetDocList("Material Delivery Plan", {
-        fields: ["name", "po_link", "package_name", "delivery_date", "mp_items", "creation", "po_type"],
+        fields: ["name", "po_link", "package_name", "critical_po_category", "critical_po_task", "delivery_date", "mp_items", "creation", "po_type"],
         filters: docListFilters,
-        orderBy: { field: "creation", order: "desc" }
+        orderBy: { field: "creation", order: "asc" }
     });
 
     // Extract unique packages from child table for Options
@@ -380,16 +380,18 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                     const itemsCount = itemsList.length;
 
                     // Calculate Plan Number (Oldest is Plan 1 if we sort desc)
-                    const planNum = existingPlans.length - index;
+                    const planNum = index+1;
                     const isExpanded = isOverview || expandedPlans.includes(plan.name);
 
                     // Parse items for display in expanded view
                     // const itemsList = getMaterialItems(plan); // Already parsed above
-                    // Re-using itemsList from above scope if I can, but wait it's in the same scope?
-                    // Yes, I defined itemsList in the first replacement chunk. So I can just remove this block.
+                    
+                    const isMissingCriticalInfo = (plan.po_type === "Existing PO" || plan.po_type === "New PO") && (!plan.critical_po_category || !plan.critical_po_task);
 
                     return (
-                        <div key={plan.name} className="border border-gray-100 rounded-lg overflow-hidden shadow-sm transition-all bg-[#F5F7F9]">
+                        <div key={plan.name} className={`border rounded-lg overflow-hidden shadow-sm transition-all ${
+                            isMissingCriticalInfo ? "bg-red-50 border-red-200" : "bg-[#F5F7F9] border-gray-100"
+                        }`}>
                             {/* Main Row */}
                             <div className={`flex flex-col md:flex-row items-center p-3 gap-4 md:gap-0 ${!isOverview ? "min-h-[4.5rem]" : ""}`}>
                                 
@@ -398,7 +400,7 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                                     {!isOverview && (
                                         <button 
                                             onClick={() => togglePlan(plan.name)}
-                                            className={`h-9 w-9 flex items-center justify-center rounded bg-white border border-gray-200 shadow-sm transition-colors hover:bg-gray-50 shrink-0 ${isExpanded ? "text-gray-900" : "text-gray-400"}`}
+                                            className={`h-5 w-5 flex items-center justify-center rounded bg-white border border-gray-200 shadow-sm transition-colors hover:bg-gray-50 shrink-0 ${isExpanded ? "text-gray-900" : "text-gray-400"}`}
                                         >
                                             <ChevronDown className={`h-5 w-5 transition-transform duration-200 ${isExpanded ? "rotate-0" : "-rotate-90"}`} />
                                         </button>
@@ -414,27 +416,46 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                                 </div>
 
                                 {/* Right Section: Grid Details */}
-                                <div className="w-full grid grid-cols-2 md:grid-cols-12 items-center gap-y-4 gap-x-4">
-                                    <div className="col-span-2 md:col-span-3 flex flex-col justify-center">
-                                        <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">Work Package</span>
-                                        <span className="text-sm font-semibold text-gray-800 break-words leading-tight">{plan.package_name}</span>
-                                    </div>
+                                <div className="w-full grid grid-cols-2 md:grid-cols-12 items-center gap-y-4 gap-x-3">
+                                    {plan.critical_po_category || plan.critical_po_task || plan.po_type ? (
+                                        <>
+                                            <div className="col-span-1 md:col-span-2 flex flex-col justify-center">
+                                                <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">Critical PO Category</span>
+                                                <span className={`text-sm font-semibold break-words leading-tight ${!plan.critical_po_category ? "text-red-500" : "text-gray-800"}`}>
+                                                    {plan.critical_po_category || "Not Defined"}
+                                                </span>
+                                            </div>
+                                            <div className="col-span-1 md:col-span-2 flex flex-col justify-center">
+                                                <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">Task</span>
+                                                <span className={`text-xs font-semibold break-words leading-tight ${!plan.critical_po_task ? "text-red-500" : "text-gray-800"}`}>
+                                                    {plan.critical_po_task || "Not Defined"}
+                                                </span>
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <div className="col-span-2 md:col-span-4 flex flex-col justify-center">
+                                            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">Work Package</span>
+                                            <span className="text-sm font-semibold text-gray-800 break-words leading-tight">
+                                                {plan.package_name || '--'}
+                                            </span>
+                                        </div>
+                                    )}
                                     <div className="col-span-1 md:col-span-2 flex flex-col justify-center">
                                         <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">PO ID</span>
                                         <span className="text-sm text-gray-700 truncate font-medium" title={plan.po_link}>
                                             {plan.po_link || "--"}
                                         </span>
                                     </div>
-                                    <div className="col-span-1 md:col-span-2 flex flex-col justify-center">
+                                    <div className="col-span-1 md:col-span-1 flex flex-col justify-center">
                                         <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">PO Type</span>
                                         <span className="text-sm text-gray-700 whitespace-nowrap font-medium">
-                                            {plan.po_type}
+                                            {plan.po_type || "--"}
                                         </span>
                                     </div>
-                                    <div className="col-span-1 md:col-span-2 flex flex-col justify-center items-center">
-                                        <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1">Materials</span>
-                                        <div className="bg-white border border-gray-200 rounded-full px-3 py-0.5 text-xs font-bold text-gray-700 shadow-sm min-w-[4rem] text-center">
-                                            {itemsCount} Items
+                                    <div className="col-span-1 md:col-span-1 flex flex-col justify-center items-center">
+                                        <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1">Items</span>
+                                        <div className="bg-white border border-gray-200 rounded-full px-2 py-0.5 text-[11px] font-bold text-gray-700 shadow-sm min-w-[3rem] text-center">
+                                            {itemsCount}
                                         </div>
                                     </div>
                                     <div className={`${isOverview ? "col-span-1 md:col-span-3" : "col-span-1 md:col-span-2"} flex flex-col justify-center`}>
