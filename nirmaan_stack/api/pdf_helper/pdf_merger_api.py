@@ -6,8 +6,7 @@ import concurrent.futures
 from pypdf import PdfWriter, PdfReader
 from PIL import Image
 from nirmaan_stack.api.frappe_s3_attachment import get_s3_temp_url
-
-
+# // Po Merge fetch 
 def fetch_content_worker(task):
     """
     Thread-safe worker.
@@ -43,7 +42,7 @@ def fetch_content_worker(task):
 
     return original_url, None
 
-
+# // Po Merge 
 @frappe.whitelist()
 def merge_pdfs(main_pdf_content: bytes, attachment_urls: list = None) -> bytes:
     """
@@ -159,6 +158,9 @@ def merge_pdfs(main_pdf_content: bytes, attachment_urls: list = None) -> bytes:
         return main_pdf_content
 
 
+
+# // TDS  interval Merge PDfs
+
 @frappe.whitelist()
 def merge_pdfs_interleaved(main_pdf_content: bytes, items: list) -> bytes:
     """
@@ -260,6 +262,7 @@ def merge_pdfs_interleaved(main_pdf_content: bytes, items: list) -> bytes:
         frappe.log_error(f"Interleaved PDF merge failed: {e}")
         return main_pdf_content
 
+# // TDS fetch they file from s3url 
 
 def fetch_attachment_content(original_url: str) -> bytes:
     """Fetch attachment content from URL or filesystem."""

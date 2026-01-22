@@ -27,6 +27,7 @@ import { useMilestoneReportData } from './hooks/useMilestoneReportData';
 import { DailyReportView } from './components/DailyReportView';
 import OverallMilestonesReport from './components/OverallMilestonesReport';
 import { CopyReportButton } from './components/CopyReportButton';
+import { PDFDownloadButtons } from './components/PDFDownloadButtons';
 import { getZoneStatusIndicator, formatDateForInput, isDateToday } from './utils/milestoneHelpers';
 
 // Re-export for backwards compatibility
@@ -222,38 +223,52 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
 
       {workReport &&(
           <div className="border border-gray-200 rounded bg-white">
-                <div className="flex items-center gap-3 px-4 py-3">
-                  <span className="text-xs font-medium text-gray-500 uppercase tracking-wide flex-shrink-0">
-                    Zone
-                  </span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {projectData?.project_zones?.length === 0 ? (
-                      <div className="text-red-500 text-xs px-3 py-1.5 bg-red-50 border border-red-300 rounded">
-                        Define Zones
-                      </div>
-                    ) : (
-                      projectData?.project_zones?.map((zone: any) => {
-                        const zoneStatus = validationZoneProgress.get(zone.zone_name);
-                        const statusData = getZoneStatusIndicator(zoneStatus ? zoneStatus.status : null);
-                        return (
-                          <button
-                            key={zone.zone_name}
-                            type="button"
-                            onClick={() => handleZoneChange(zone.zone_name)}
-                            className={`px-3 py-1.5 text-sm rounded transition-colors flex items-center gap-1.5 ${
-                              selectedZone === zone.zone_name
-                                ? "bg-sky-500 text-white"
-                                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                            }`}
-                          >
-                            {zone.zone_name}
-                            <Badge variant="secondary" className={`p-0 ${statusData.color}`}>
-                              {statusData.icon}
-                            </Badge>
-                          </button>
-                        );
-                      })
-                    )}
+                <div className="flex flex-col md:flex-row md:items-center gap-3 px-4 py-3">
+                  <div className="flex items-center gap-3 flex-wrap flex-1">
+                    <span className="text-xs font-medium text-gray-500 uppercase tracking-wide flex-shrink-0">
+                      Zone
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {projectData?.project_zones?.length === 0 ? (
+                        <div className="text-red-500 text-xs px-3 py-1.5 bg-red-50 border border-red-300 rounded">
+                          Define Zones
+                        </div>
+                      ) : (
+                        projectData?.project_zones?.map((zone: any) => {
+                          const zoneStatus = validationZoneProgress.get(zone.zone_name);
+                          const statusData = getZoneStatusIndicator(zoneStatus ? zoneStatus.status : null);
+                          return (
+                            <button
+                              key={zone.zone_name}
+                              type="button"
+                              onClick={() => handleZoneChange(zone.zone_name)}
+                              className={`px-3 py-1.5 text-sm rounded transition-colors flex items-center gap-1.5 ${
+                                selectedZone === zone.zone_name
+                                  ? "bg-sky-500 text-white"
+                                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                              }`}
+                            >
+                              {zone.zone_name}
+                              <Badge variant="secondary" className={`p-0 ${statusData.color}`}>
+                                {statusData.icon}
+                              </Badge>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* PDF Download Button - below zones on mobile */}
+                  <div className="w-full md:w-auto md:ml-auto">
+                    <PDFDownloadButtons
+                      projectId={selectedProject || ''}
+                      projectName={projectData?.project_name}
+                      reportDate={displayDate}
+                      selectedZone={selectedZone}
+                      zones={projectData?.project_zones?.map((z: any) => z.zone_name) || []}
+                      zoneProgress={validationZoneProgress}
+                    />
                   </div>
                 </div>
               </div>
@@ -273,38 +288,52 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
             <div className="flex flex-col w-full gap-4">
               {/* Zone Tab Section */}
               <div className="border border-gray-200 rounded bg-white">
-                <div className="flex items-center gap-3 px-4 py-3">
-                  <span className="text-xs font-medium text-gray-500 uppercase tracking-wide flex-shrink-0">
-                    Zone
-                  </span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {projectData?.project_zones?.length === 0 ? (
-                      <div className="text-red-500 text-xs px-3 py-1.5 bg-red-50 border border-red-300 rounded">
-                        Define Zones
-                      </div>
-                    ) : (
-                      projectData?.project_zones?.map((zone: any) => {
-                        const zoneStatus = validationZoneProgress.get(zone.zone_name);
-                        const statusData = getZoneStatusIndicator(zoneStatus ? zoneStatus.status : null);
-                        return (
-                          <button
-                            key={zone.zone_name}
-                            type="button"
-                            onClick={() => handleZoneChange(zone.zone_name)}
-                            className={`px-3 py-1.5 text-sm rounded transition-colors flex items-center gap-1.5 ${
-                              selectedZone === zone.zone_name
-                                ? "bg-sky-500 text-white"
-                                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                            }`}
-                          >
-                            {zone.zone_name}
-                            <Badge variant="secondary" className={`p-0 ${statusData.color}`}>
-                              {statusData.icon}
-                            </Badge>
-                          </button>
-                        );
-                      })
-                    )}
+                <div className="flex flex-col md:flex-row md:items-center gap-3 px-4 py-3">
+                  <div className="flex items-center gap-3 flex-wrap flex-1">
+                    <span className="text-xs font-medium text-gray-500 uppercase tracking-wide flex-shrink-0">
+                      Zone
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {projectData?.project_zones?.length === 0 ? (
+                        <div className="text-red-500 text-xs px-3 py-1.5 bg-red-50 border border-red-300 rounded">
+                          Define Zones
+                        </div>
+                      ) : (
+                        projectData?.project_zones?.map((zone: any) => {
+                          const zoneStatus = validationZoneProgress.get(zone.zone_name);
+                          const statusData = getZoneStatusIndicator(zoneStatus ? zoneStatus.status : null);
+                          return (
+                            <button
+                              key={zone.zone_name}
+                              type="button"
+                              onClick={() => handleZoneChange(zone.zone_name)}
+                              className={`px-3 py-1.5 text-sm rounded transition-colors flex items-center gap-1.5 ${
+                                selectedZone === zone.zone_name
+                                  ? "bg-sky-500 text-white"
+                                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                              }`}
+                            >
+                              {zone.zone_name}
+                              <Badge variant="secondary" className={`p-0 ${statusData.color}`}>
+                                {statusData.icon}
+                              </Badge>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* PDF Download Button - below zones on mobile */}
+                  <div className="w-full md:w-auto md:ml-auto">
+                    <PDFDownloadButtons
+                      projectId={selectedProject || ''}
+                      projectName={projectData?.project_name}
+                      reportDate={displayDate}
+                      selectedZone={selectedZone}
+                      zones={projectData?.project_zones?.map((z: any) => z.zone_name) || []}
+                      zoneProgress={validationZoneProgress}
+                    />
                   </div>
                 </div>
               </div>

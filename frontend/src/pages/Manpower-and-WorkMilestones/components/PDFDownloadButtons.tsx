@@ -1,0 +1,341 @@
+import React, { useState, useMemo } from 'react';
+import { Button } from '@/components/ui/button';
+import { Download, Loader2 } from 'lucide-react';
+import { toast } from '@/components/ui/use-toast';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { format } from 'date-fns';
+
+interface ZoneProgressInfo {
+  status: string | null;
+}
+
+interface PDFDownloadButtonsProps {
+  projectId: string;
+  projectName?: string;
+  reportDate: Date;
+  selectedZone: string | null;
+  zones: string[];
+  zoneProgress?: Map<string, ZoneProgressInfo>;
+  disabled?: boolean;
+}
+
+// Helper to format date as YYYY-MM-DD for API
+const formatDateForAPI = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+// Helper to generate filename
+const generateFileName = (projectName: string, zone: string, date: Date): string => {
+  const pName = (projectName || "Project").replace(/\s+/g, '_');
+  const zoneSuffix = zone.replace(/\s+/g, '_');
+  const dStr = format(date, "dd-MMM-yyyy");
+  return `${pName}-${zoneSuffix}-${dStr}_DPR.pdf`;
+};
+
+// Force download helper using fetch
+const forceDownload = async (url: string, filename: string): Promise<void> => {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error('Download failed');
+  
+  const blob = await response.blob();
+  const blobUrl = window.URL.createObjectURL(blob);
+  
+  const link = document.createElement('a');
+  link.href = blobUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(blobUrl);
+};
+
+export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
+  projectId,
+  projectName = 'Project',
+  reportDate,
+  selectedZone,
+  zones,
+  zoneProgress,
+  disabled = false,
+}) => {
+  const [isDownloadingZone, setIsDownloadingZone] = useState(false);
+  const [isDownloadingAll, setIsDownloadingAll] = useState(false);
+  const [isDownloadingOverall, setIsDownloadingOverall] = useState(false);
+
+  // Check if selected zone has a completed report
+  const isSelectedZoneCompleted = useMemo(() => {
+    if (!selectedZone || !zoneProgress) return false;
+    const status = zoneProgress.get(selectedZone);
+    return status?.status?.toLowerCase() === 'completed';
+  }, [selectedZone, zoneProgress]);
+
+  // Check if at least one zone has completed report
+  const hasAnyCompletedZone = useMemo(() => {
+    if (!zoneProgress) return false;
+    for (const [_, info] of zoneProgress) {
+      if (info?.status?.toLowerCase() === 'completed') return true;
+    }
+    return false;
+  }, [zoneProgress]);
+
+  // Count completed zones
+  const completedZonesCount = useMemo(() => {
+    if (!zoneProgress) return 0;
+    let count = 0;
+    for (const [_, info] of zoneProgress) {
+      if (info?.status?.toLowerCase() === 'completed') count++;
+    }
+    return count;
+  }, [zoneProgress]);
+
+  // // Download single zone PDF
+  // const handleDownloadZone = async () => {
+  //   if (!selectedZone) {
+  //     toast({
+  //       title: 'No Zone Selected',
+  //       description: 'Please select a zone first.',
+  //       variant: 'destructive',
+  //     });
+  //     return;
+  //   }
+
+  //   setIsDownloadingZone(true);
+
+  //   try {
+  //     // First get the report document name
+  //     const dateStr = formatDateForAPI(reportDate);
+  //     const response = await fetch(
+  //       `/api/method/nirmaan_stack.api.milestone.print_milestone_reports.get_report_doc_name?` +
+  //       `project_id=${encodeURIComponent(projectId)}&` +
+  //       `report_date=${dateStr}&` +
+  //       `zone=${encodeURIComponent(selectedZone)}`
+  //     );
+      
+  //     const result = await response.json();
+      
+  //     if (!result.message?.report_name) {
+  //       toast({
+  //         title: 'No Report Found',
+  //         description: `No completed report found for ${selectedZone} on ${dateStr}`,
+  //         variant: 'destructive',
+  //       });
+  //       return;
+  //     }
+
+  //     // Generate filename and download URL
+  //     const fileName = generateFileName(projectName, selectedZone, reportDate);
+  //     const pdfUrl = `/api/method/frappe.utils.print_format.download_pdf?` +
+  //       `doctype=Project Progress Reports&` +
+  //       `name=${encodeURIComponent(result.message.report_name)}&` +
+  //       `format=Milestone Report&` +
+  //       `no_letterhead=0`;
+
+  //     // Force download with proper filename
+  //     await forceDownload(pdfUrl, fileName);
+
+  //     toast({
+  //       title: 'Download Complete',
+  //       description: `Downloaded DPR for ${selectedZone}`,
+  //       variant: 'default',
+  //     });
+  //   } catch (error) {
+  //     console.error('Download failed:', error);
+  //     toast({
+  //       title: 'Download Failed',
+  //       description: 'Failed to download the report. Please try again.',
+  //       variant: 'destructive',
+  //     });
+  //   } finally {
+  //     setIsDownloadingZone(false);
+  //   }
+  // };
+
+  // Download all zones merged PDF
+  const handleDownloadAllZones = async () => {
+    if (!zones.length) {
+      toast({
+        title: 'No Zones Available',
+        description: 'No zones found for this project.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsDownloadingAll(true);
+
+    try {
+      const dateStr = formatDateForAPI(reportDate);
+      
+      // Generate filename with "All_Zones"
+      const fileName = generateFileName(projectName, 'All_Zones', reportDate);
+      
+      // Call the merge API endpoint
+      const pdfUrl = `/api/method/nirmaan_stack.api.milestone.print_milestone_reports.get_merged_zone_reports_pdf?` +
+        `project_id=${encodeURIComponent(projectId)}&` +
+        `report_date=${dateStr}`;
+
+      // Force download with proper filename
+      await forceDownload(pdfUrl, fileName);
+
+      toast({
+        title: 'Download Complete',
+        description: 'Downloaded merged DPR for all zones',
+        variant: 'default',
+      });
+    } catch (error) {
+      console.error('Download failed:', error);
+      toast({
+        title: 'Download Failed',
+        description: 'Failed to download the merged report. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsDownloadingAll(false);
+    }
+  };
+
+
+  // Download "All Zones 14 Days" merged PDF
+  const handleDownloadOverall = async () => {
+      // Logic for All Zones 14 Days
+      setIsDownloadingOverall(true);
+      try {
+          const fileName = `${(projectName || 'Project').replace(/\s+/g, '_')}_Overall_14Days_AllZones.pdf`;
+          
+          const pdfUrl = `/api/method/nirmaan_stack.api.milestone.print_milestone_reports.get_all_zones_overall_report_pdf?` +
+              `project_id=${encodeURIComponent(projectId)}`;
+              
+          await forceDownload(pdfUrl, fileName);
+
+          toast({
+              title: "Download Complete",
+              description: "Downloaded 14-Days Overall Report for All Zones",
+              variant: "default",
+          });
+
+      } catch (e) {
+          console.error("Download failed:", e);
+          toast({
+              title: "Download Failed",
+              description: "Failed to download the report. Please try again.",
+              variant: "destructive",
+          });
+      } finally {
+          setIsDownloadingOverall(false);
+      }
+  };
+
+  // Disable zone button if no zone selected OR zone not completed
+  const isZoneButtonDisabled = disabled || isDownloadingZone || !selectedZone || !isSelectedZoneCompleted;
+  
+  // Disable all zones button if no completed zones
+  const isAllZonesButtonDisabled = disabled || isDownloadingAll || !hasAnyCompletedZone;
+
+  // Disable overall button if no zones available
+  const isOverallButtonDisabled = disabled || isDownloadingOverall || !zones || zones.length === 0;
+
+  // Truncate zone name for button if too long
+  const zoneButtonLabel = selectedZone 
+    ? (selectedZone.length > 12 ? `${selectedZone.slice(0, 10)}..` : selectedZone) + ' DPR'
+    : 'Zone DPR';
+
+  return (
+    <div className="flex items-center gap-2">
+      {/* Zone DPR Button - shows current zone name */}
+      {/* <TooltipProvider>
+        <Tooltip delayDuration={200}>
+          <TooltipTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs gap-1 border-gray-300 text-gray-700 hover:bg-gray-100"
+              onClick={handleDownloadZone}
+              disabled={isZoneButtonDisabled}
+            >
+              {isDownloadingZone ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Download className="h-3 w-3" />
+              )}
+              {zoneButtonLabel}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="text-xs">
+            {!selectedZone 
+              ? 'Select a zone first'
+              : !isSelectedZoneCompleted 
+                ? `No completed report for ${selectedZone}`
+                : `Download DPR for ${selectedZone}`
+            }
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider> */}
+
+      {/* All Zones DPR Button */}
+      <TooltipProvider>
+        <Tooltip delayDuration={200}>
+          <TooltipTrigger asChild>
+            <Button
+              variant="default"
+              size="sm"
+              className="h-8 text-xs gap-1 bg-red-600 hover:bg-red-700"
+              onClick={handleDownloadAllZones}
+              disabled={isAllZonesButtonDisabled}
+            >
+              {isDownloadingAll ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Download className="h-3 w-3" />
+              )}
+              All Zones DPR
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="text-xs">
+            {!hasAnyCompletedZone 
+              ? 'No zones have completed reports'
+              : `Download merged DPR for ${completedZonesCount} completed zone(s)`
+            }
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+
+      {/* All Zones 14 Days Report Button */}
+      <TooltipProvider>
+        <Tooltip delayDuration={200}>
+          <TooltipTrigger asChild>
+            <Button
+              variant="default"
+              size="sm"
+              className="h-8 text-xs gap-1 bg-blue-600 hover:bg-blue-700"
+              onClick={handleDownloadOverall}
+              disabled={isOverallButtonDisabled}
+            >
+              {isDownloadingOverall ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Download className="h-3 w-3" />
+              )}
+              All Zones 14 Days
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="text-xs">
+            Download merged 14-days overall report for all zones
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    </div>
+  );
+};
+
+export default PDFDownloadButtons;
+
+
+
