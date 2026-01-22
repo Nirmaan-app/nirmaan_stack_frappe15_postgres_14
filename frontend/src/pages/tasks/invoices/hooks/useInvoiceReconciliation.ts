@@ -1,27 +1,38 @@
+/**
+ * Hook for managing invoice reconciliation.
+ *
+ * Updated to use invoice_id directly instead of (doctype, docname, date_key).
+ */
 import { useState, useCallback } from 'react';
 import { useFrappePostCall, useFrappeFileUpload } from 'frappe-react-sdk';
 import { useToast } from "@/components/ui/use-toast";
-import { API_UPDATE_INVOICE_RECONCILIATION, ReconciliationStatus } from '../constants';
+import { API_UPDATE_INVOICE_RECONCILIATION, ReconciliationStatus, VENDOR_INVOICES_DOCTYPE } from '../constants';
 
 interface ReconciliationDialogState {
     isOpen: boolean;
-    doctype: "Procurement Orders" | "Service Requests" | null;
-    docname: string | null;
-    dateKey: string | null;
+    invoiceId: string | null;
     invoiceNo: string | null;
+    documentType: "Procurement Orders" | "Service Requests" | null;
+    documentName: string | null;
     currentReconciliationStatus: ReconciliationStatus;
     currentReconciledDate: string | null;
     currentProofAttachmentUrl: string | null;
     currentInvoiceAmount: number;
     currentReconciledAmount: number | null;
+    /** @deprecated Use invoiceId instead */
+    dateKey?: string | null;
+    /** @deprecated Use documentType instead */
+    doctype?: "Procurement Orders" | "Service Requests" | null;
+    /** @deprecated Use documentName instead */
+    docname?: string | null;
 }
 
 const initialDialogState: ReconciliationDialogState = {
     isOpen: false,
-    doctype: null,
-    docname: null,
-    dateKey: null,
+    invoiceId: null,
     invoiceNo: null,
+    documentType: null,
+    documentName: null,
     currentReconciliationStatus: "",
     currentReconciledDate: null,
     currentProofAttachmentUrl: null,
@@ -30,15 +41,23 @@ const initialDialogState: ReconciliationDialogState = {
 };
 
 interface InvoiceForReconciliation {
+    /** Vendor Invoice ID (name) */
+    name?: string;
+    /** @deprecated Use name instead */
     procurement_order?: string;
+    /** @deprecated Use name instead */
     service_request?: string;
-    date: string;
+    /** @deprecated Not needed with Vendor Invoices */
+    date?: string;
     invoice_no: string;
     amount: number;
     reconciliation_status?: ReconciliationStatus;
     reconciled_date?: string | null;
     reconciliation_proof_attachment_id?: string | null;
     reconciled_amount?: number | null;
+    /** Document type for display purposes */
+    document_type?: "Procurement Orders" | "Service Requests";
+    document_name?: string;
 }
 
 interface UseInvoiceReconciliationProps {
@@ -61,16 +80,19 @@ export const useInvoiceReconciliation = ({
 
     // Open the reconciliation dialog for a specific invoice
     const openReconciliationDialog = useCallback((invoice: InvoiceForReconciliation) => {
-        const doctype = invoiceType === 'po' ? "Procurement Orders" : "Service Requests";
-        const docname = invoiceType === 'po' ? invoice.procurement_order : invoice.service_request;
+        // Determine the invoice ID
+        let invoiceId = invoice.name;
+        let documentType: "Procurement Orders" | "Service Requests" = invoiceType === 'po' ? "Procurement Orders" : "Service Requests";
+        let documentName = invoice.document_name || (invoiceType === 'po' ? invoice.procurement_order : invoice.service_request);
 
-        if (!docname) {
+        if (!invoiceId) {
+            // Backward compatibility: if no invoice name, we'll use the old parameters
+            // The backend API supports both
             toast({
-                title: "Error",
-                description: "Could not identify the document.",
-                variant: "destructive",
+                title: "Warning",
+                description: "Using legacy invoice reference. Consider updating the data.",
+                variant: "default",
             });
-            return;
         }
 
         // Get the existing proof attachment URL if available
@@ -81,15 +103,19 @@ export const useInvoiceReconciliation = ({
 
         setDialogState({
             isOpen: true,
-            doctype,
-            docname,
-            dateKey: invoice.date,
+            invoiceId: invoiceId || null,
             invoiceNo: invoice.invoice_no,
+            documentType,
+            documentName: documentName || null,
             currentReconciliationStatus: invoice.reconciliation_status || "",
             currentReconciledDate: invoice.reconciled_date || null,
             currentProofAttachmentUrl: proofAttachmentUrl,
             currentInvoiceAmount: invoice.amount,
             currentReconciledAmount: invoice.reconciled_amount ?? null,
+            // Legacy fields for backward compatibility
+            dateKey: invoice.date || null,
+            doctype: documentType,
+            docname: documentName || null,
         });
     }, [invoiceType, toast, getAttachmentUrl]);
 
@@ -124,14 +150,15 @@ export const useInvoiceReconciliation = ({
         }
     }, [upload, toast]);
 
-    // Update reconciliation status (called from dialog confirm)
+    // Update reconciliation status
     const updateReconciliation = useCallback(async (
         reconciliationStatus: ReconciliationStatus,
         reconciledDate: string | null,
         proofFile: File | null,
         reconciledAmount: number | null
     ) => {
-        if (!dialogState.doctype || !dialogState.docname || !dialogState.dateKey) {
+        // Validate we have enough info to proceed
+        if (!dialogState.invoiceId && (!dialogState.documentType || !dialogState.documentName || !dialogState.dateKey)) {
             toast({
                 title: "Error",
                 description: "Missing required information.",
@@ -148,28 +175,35 @@ export const useInvoiceReconciliation = ({
             const isReconciled = reconciliationStatus === "partial" || reconciliationStatus === "full";
 
             if (isReconciled && proofFile) {
-                proofUrl = await uploadProofFile(
-                    proofFile,
-                    dialogState.doctype,
-                    dialogState.docname
-                );
+                // Upload to Vendor Invoices doctype if we have invoice_id
+                const uploadDoctype = dialogState.invoiceId ? VENDOR_INVOICES_DOCTYPE : dialogState.documentType!;
+                const uploadDocname = dialogState.invoiceId || dialogState.documentName!;
+
+                proofUrl = await uploadProofFile(proofFile, uploadDoctype, uploadDocname);
                 if (!proofUrl) {
-                    // Upload failed, error already shown
                     setIsProcessing(false);
                     return;
                 }
             }
 
-            // Call the API
-            const response = await updateReconciliationApi({
-                doctype: dialogState.doctype,
-                docname: dialogState.docname,
-                date_key: dialogState.dateKey,
+            // Build API parameters
+            const apiParams: Record<string, any> = {
                 reconciliation_status: reconciliationStatus,
                 reconciled_date: reconciledDate,
                 reconciliation_proof_url: proofUrl,
                 reconciled_amount: reconciledAmount,
-            });
+            };
+
+            // Use invoice_id if available (preferred), otherwise fall back to legacy params
+            if (dialogState.invoiceId) {
+                apiParams.invoice_id = dialogState.invoiceId;
+            } else {
+                apiParams.doctype = dialogState.documentType;
+                apiParams.docname = dialogState.documentName;
+                apiParams.date_key = dialogState.dateKey;
+            }
+
+            const response = await updateReconciliationApi(apiParams);
 
             if (response.message?.status === 200) {
                 const statusLabels: Record<ReconciliationStatus, string> = {

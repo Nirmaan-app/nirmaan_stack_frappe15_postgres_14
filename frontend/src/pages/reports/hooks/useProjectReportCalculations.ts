@@ -7,7 +7,8 @@ import { ServiceRequests } from '@/types/NirmaanStack/ServiceRequests';
 import { ProjectInflows } from '@/types/NirmaanStack/ProjectInflows';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
 import { ProjectExpenses } from '@/types/NirmaanStack/ProjectExpenses'; // --- (Indicator) NEW: Import ProjectExpenses type ---
-import { getPOTotal, getSRTotal, getTotalInvoiceAmount } from '@/utils/getAmounts';
+import { VendorInvoice } from '@/types/NirmaanStack/VendorInvoice';
+import { getPOTotal, getSRTotal } from '@/utils/getAmounts';
 import { parseNumber } from '@/utils/parseNumber';
 import {
     queryKeys,
@@ -110,6 +111,14 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
             fields: ['projects', 'amount', 'payment_date'], // Only fields needed for this calculation
             limit: 0,
         }, 'AllProjectExpensesForReports');
+
+    // --- Fetch all Vendor Invoices for project report calculations ---
+    const { data: vendorInvoicesData, isLoading: isLoadingVendorInvoices, error: errorVendorInvoices } =
+        useFrappeGetDocList<VendorInvoice>('Vendor Invoices', {
+            filters: [["status", "=", "Approved"]],
+            fields: ['name', 'project', 'invoice_date', 'invoice_amount'],
+            limit: 0,
+        }, 'AllVendorInvoicesForProjectReports');
 
     // --- KEY CHANGE: Calculate once in the hook scope ---
     const shouldFilterByDate = useMemo(() => !!(startDate && endDate), [startDate, endDate]);
@@ -265,33 +274,26 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
     
 
 
-     const totalPoSrInvoicedByProject = useMemo(() => {
+     // Calculate PO/SR invoice totals using Vendor Invoices doctype
+    const totalPoSrInvoicedByProject = useMemo(() => {
         const projectTotals = new Map<string, number>();
 
-        // Process Purchase Orders and Service Requests (from the full, UNFILTERED lists)
-        // We MUST use the original purchaseOrders/serviceRequests and filter the invoice lines individually
-        [...(purchaseOrders || []), ...(serviceRequests || [])].forEach(doc => {
-            const project = doc.project || doc.project;
-            const invoiceData = doc.invoice_data?.data;
+        // Process Vendor Invoices directly (grouped by project)
+        (vendorInvoicesData || []).forEach(invoice => {
+            const project = invoice.project;
+            if (!project) return;
 
-            if (project && invoiceData) {
-                let invoiceSum = 0;
-                for (const dateStr in invoiceData) {
-                    // Filter the actual invoice date - only if we have a date range
-                    const shouldInclude = !shouldFilterByDate || isDateInPeriod(dateStr, startDate, endDate);
-                    if (shouldInclude) {
-                        invoiceSum += parseNumber(invoiceData[dateStr].amount);
-                    }
-                }
-                if (invoiceSum > 0) {
-                    const currentTotal = projectTotals.get(project) || 0;
-                    projectTotals.set(project, currentTotal + invoiceSum);
-                }
+            // Filter by date range if applicable
+            const shouldInclude = !shouldFilterByDate || isDateInPeriod(invoice.invoice_date, startDate || null, endDate || null);
+
+            if (shouldInclude) {
+                const currentTotal = projectTotals.get(project) || 0;
+                projectTotals.set(project, currentTotal + parseNumber(invoice.invoice_amount));
             }
         });
 
         return projectTotals;
-    }, [purchaseOrders, serviceRequests, startDate, endDate, shouldFilterByDate]); // <--- ADDED shouldFilterByDate
+    }, [vendorInvoicesData, startDate, endDate, shouldFilterByDate]);
     
 
          // Note: getProjectCreditAndDue's memoization logic:
@@ -356,7 +358,7 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
         (projectId: string): ProjectCalculatedFields | null => {
             // Important: If any of the dependent global data is still loading,
             // we cannot reliably calculate. The component using this should check `isLoadingGlobalDeps`.
-            if (isLoadingPOs || isLoadingSRs || isLoadingInflows || isLoadingProjectInvoice || isLoadingPayments || isLoadingProjectExpenses) {
+            if (isLoadingPOs || isLoadingSRs || isLoadingInflows || isLoadingProjectInvoice || isLoadingPayments || isLoadingProjectExpenses || isLoadingVendorInvoices) {
                 return null; // Indicate that data isn't ready for this calculation
             }
 
@@ -415,8 +417,8 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
         ]
     );
 
-    const isLoadingGlobalDeps = isLoadingPOs || isLoadingSRs || isLoadingInflows || isLoadingProjectInvoice || isLoadingPayments;
-    const globalDepsError = errorPOs || errorSRs || errorInflows || errorProjectInvoice || errorPayments || errorProjectExpenses;
+    const isLoadingGlobalDeps = isLoadingPOs || isLoadingSRs || isLoadingInflows || isLoadingProjectInvoice || isLoadingPayments || isLoadingVendorInvoices;
+    const globalDepsError = errorPOs || errorSRs || errorInflows || errorProjectInvoice || errorPayments || errorProjectExpenses || errorVendorInvoices;
 
     return {
         getProjectCalculatedFields,
@@ -427,6 +429,7 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
         mutateInflows,
         mutateProjectInvoice,
         mutatePayments,
+        mutatePaymentTerms: async () => {}, // Placeholder - payment terms are from useProjectAllCredits
         mutateProjectExpenses
     };
 };

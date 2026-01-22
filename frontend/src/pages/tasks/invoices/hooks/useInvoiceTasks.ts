@@ -1,102 +1,132 @@
-// src/features/invoice-reconciliation/hooks/useInvoiceTasks.ts
+/**
+ * Hook for fetching vendor invoices.
+ *
+ * Renamed from useInvoiceTasks but kept the same file name for backward compatibility.
+ * Now fetches from Vendor Invoices doctype instead of Task.
+ */
 import { Filter, FrappeDoc, useFrappeGetDocList } from 'frappe-react-sdk';
-import { InvoiceApprovalTask } from '@/types/NirmaanStack/Task'; // Adjust path
-import { INVOICE_TASK_TYPE } from '../constants';
+import { VendorInvoice } from '@/types/NirmaanStack/VendorInvoice';
 import { NirmaanAttachment } from '@/types/NirmaanStack/NirmaanAttachment';
 import { useMemo } from 'react';
 import { useUserData } from '@/hooks/useUserData';
+import { VENDOR_INVOICES_DOCTYPE } from '../constants';
 
-type StatusFilter = 'Pending' | '!= Pending'; // Define possible status filters
+type StatusFilter = 'Pending' | '!= Pending';
 
-interface UseInvoiceTasksResult {
-    tasks: InvoiceApprovalTask[] | null;
+interface UseVendorInvoicesResult {
+    invoices: VendorInvoice[] | null;
+    /** @deprecated Use invoices instead */
+    tasks: VendorInvoice[] | null;
     isLoading: boolean;
     error: Error | null;
     attachmentsMap?: Record<string, string>;
-    mutateTasks: () => Promise<any>; // Or more specific type from useFrappeGetDocList
+    mutateInvoices: () => Promise<any>;
+    /** @deprecated Use mutateInvoices instead */
+    mutateTasks: () => Promise<any>;
 }
 
-export const useInvoiceTasks = (statusFilter: StatusFilter): UseInvoiceTasksResult => {
-
+/**
+ * Hook to fetch vendor invoices with optional status filtering.
+ *
+ * @param statusFilter - 'Pending' for pending invoices, '!= Pending' for history
+ */
+export const useInvoiceTasks = (statusFilter: StatusFilter): UseVendorInvoicesResult => {
     const { role, user_id } = useUserData();
     const isProcurementUser = role === "Nirmaan Procurement Executive Profile";
 
-
-    const taskFilters: Filter<FrappeDoc<InvoiceApprovalTask>>[] = [
-        ["task_type", "=", INVOICE_TASK_TYPE],
+    // Build filters for Vendor Invoices
+    const invoiceFilters: Filter<FrappeDoc<VendorInvoice>>[] = [
         statusFilter === 'Pending'
             ? ["status", "=", "Pending"]
             : ["status", "in", ["Pending", "Approved", "Rejected"]],
     ];
 
-    // Conditionally add the owner filter
+    // Conditionally add the owner filter for procurement users
     if (isProcurementUser && user_id) {
-        taskFilters.push(["owner", "=", user_id]);
+        invoiceFilters.push(["owner", "=", user_id]);
     }
-    // --- End of filter building ---
+
     const {
         data,
         isLoading,
         error,
         mutate,
-    } = useFrappeGetDocList<InvoiceApprovalTask>("Task", {
+    } = useFrappeGetDocList<VendorInvoice>(VENDOR_INVOICES_DOCTYPE, {
         fields: [
-            // List all fields needed by *both* pending and history tables
-            "name", "creation", "modified", "owner",
-            "task_doctype", "task_docname", "status",
-            "reference_value_1", "reference_value_2", "reference_value_3", "reference_value_4",
-            "task_type", "assignee",
+            "name",
+            "creation",
+            "modified",
+            "owner",
+            "document_type",
+            "document_name",
+            "project",
+            "vendor",
+            "invoice_no",
+            "invoice_date",
+            "invoice_amount",
+            "invoice_attachment",
+            "status",
+            "uploaded_by",
+            "approved_by",
+            "approved_on",
+            "rejection_reason",
         ],
-        filters: taskFilters,
-        limit: 100000, // Consider pagination for production
-        orderBy: { field: "modified", order: "desc" } // Sort by modified for recency
+        filters: invoiceFilters,
+        limit: 100000,
+        orderBy: { field: "modified", order: "desc" }
     });
 
-    // --- Prepare Attachment Filters Safely ---
+    // Prepare attachment filters
     const attachmentIds = useMemo<string[]>(() => {
         return (data
-            ?.map(task => task?.reference_value_4)
+            ?.map(invoice => invoice?.invoice_attachment)
             .filter((id): id is string => typeof id === 'string' && id.length > 0)
             ?? []) as string[];
     }, [data]);
 
-    // Determine if the attachments query should run
     const shouldFetchAttachments = attachmentIds.length > 0;
 
-    // Define the filter only when needed
     const attachmentFilters = shouldFetchAttachments
-        ? [["name", "in", attachmentIds] as Filter<FrappeDoc<NirmaanAttachment>>] // Assert type here
-        : []; // Provide an empty array if not fetching (or handle conditionally below)
+        ? [["name", "in", attachmentIds] as Filter<FrappeDoc<NirmaanAttachment>>]
+        : [];
 
-
-    const {data: attachments, isLoading: attachmentsLoading} = useFrappeGetDocList<NirmaanAttachment>("Nirmaan Attachments", {
-        fields: ["name", "attachment", "attachment_link_doctype", "attachment_link_docname"],
-        filters: attachmentFilters,
-        limit: 1000,
-    }, `attachments_for_${statusFilter}_tasks`);
+    const { data: attachments, isLoading: attachmentsLoading } = useFrappeGetDocList<NirmaanAttachment>(
+        "Nirmaan Attachments",
+        {
+            fields: ["name", "attachment", "attachment_link_doctype", "attachment_link_docname"],
+            filters: attachmentFilters,
+            limit: 1000,
+        },
+        `attachments_for_${statusFilter}_invoices`
+    );
 
     const attachmentsMap = useMemo(() => {
-        // Ensure attachments is not null/undefined before reducing
         if (!attachments) {
-            return {}; // Return empty map if no attachments fetched/available
+            return {};
         }
         return attachments.reduce((acc, item) => {
-            if (item?.name && item.attachment) { // Add checks for safety
+            if (item?.name && item.attachment) {
                 acc[item.name] = item.attachment;
             }
             return acc;
         }, {} as Record<string, string>);
     }, [attachments]);
-    
 
-    // Ensure error is always an Error object
     const typedError = error instanceof Error ? error : null;
 
     return {
-        tasks: data || null,
+        invoices: data || null,
+        tasks: data || null, // Backward compatibility
         attachmentsMap,
-        isLoading : isLoading || attachmentsLoading,
+        isLoading: isLoading || attachmentsLoading,
         error: typedError,
-        mutateTasks: mutate,
+        mutateInvoices: mutate,
+        mutateTasks: mutate, // Backward compatibility
     };
 };
+
+/**
+ * Alias for useInvoiceTasks with a more descriptive name.
+ * @param statusFilter - 'Pending' for pending invoices, '!= Pending' for history
+ */
+export const useVendorInvoices = useInvoiceTasks;

@@ -14,14 +14,22 @@ import React, { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 
 interface InvoiceItem {
-    amount: number,
-    invoice_no: string,
-    date: string,
-    updated_by: string,
-    invoice_attachment_id: string,
-    procurement_order: string
-    vendor: string
-    vendor_name: string
+    // New Vendor Invoice fields
+    name: string;
+    invoice_amount: number;
+    invoice_no: string;
+    invoice_date: string;
+    uploaded_by: string;
+    invoice_attachment_id: string;
+    document_name: string; // PO or SR ID
+    document_type: "Procurement Orders" | "Service Requests";
+    vendor: string;
+    vendor_name: string;
+    // Legacy field mappings (for backward compatibility)
+    amount?: number;
+    date?: string;
+    updated_by?: string;
+    procurement_order?: string;
 }
 
 interface InvoicesDataCallResponse {
@@ -80,12 +88,13 @@ const getAttachmentUrl = useMemo(() => memoize((id: string) => {
 const invoiceColumns: ColumnDef<InvoiceItem>[] =
     useMemo(() => [
       {
-        accessorKey: "date",
+        accessorKey: "invoice_date",
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Invoice Date" />
         ),
         cell: ({ row }) => {
-          const dateValue = row.original.date?.slice(0, 10);
+          // Use new field with fallback to legacy field
+          const dateValue = (row.original.invoice_date || row.original.date)?.slice(0, 10);
           return (
             <div className="font-medium">
               {dateValue ? formatDate(dateValue) : '-'}
@@ -126,12 +135,13 @@ const invoiceColumns: ColumnDef<InvoiceItem>[] =
         },
       },
       {
-        accessorKey: "amount",
+        accessorKey: "invoice_amount",
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Amount" />
         ),
         cell: ({ row }) => {
-          const amount = row.original.amount;
+          // Use new field with fallback to legacy field
+          const amount = row.original.invoice_amount ?? row.original.amount ?? 0;
           return (
             <div className="font-medium text-green-600">
               {formatToRoundedIndianRupee(amount)}
@@ -140,38 +150,49 @@ const invoiceColumns: ColumnDef<InvoiceItem>[] =
         },
       },
       {
-        accessorKey: "updated_by",
+        accessorKey: "uploaded_by",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Updated By" />
+          <DataTableColumnHeader column={column} title="Uploaded By" />
         ),
         cell: ({ row }) => {
+          // Use new field with fallback to legacy field
           return (
             <div className="font-medium">
-              {row.original.updated_by}
+              {row.original.uploaded_by || row.original.updated_by || "-"}
             </div>
           );
         },
       },
       {
-        accessorKey: "procurement_order",
+        accessorKey: "document_name",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Procurement Order" />
+          <DataTableColumnHeader column={column} title="Document" />
         ),
         cell: ({ row }) => {
-          const po = row.original.procurement_order;
-          // Optionally, use a helper to transform or fetch PO details.
+          // Use new field with fallback to legacy field
+          const docName = row.original.document_name || row.original.procurement_order;
+          const docType = row.original.document_type;
+          const isPO = docType === "Procurement Orders" || row.original.procurement_order;
+
+          if (!docName) return <div className="font-medium">-</div>;
+
+          // Navigate to appropriate page based on document type
+          const navigatePath = isPO
+            ? `po/${docName.replace(/\//g, "&=")}`
+            : `/service-requests/${docName}`;
+
           return (
             <div className="font-medium flex items-center">
-              {po}
+              {docName}
               <HoverCard>
                 <HoverCardTrigger>
                   <Info
-                    onClick={() => navigate(`po/${po.replaceAll('/', "&=")}`)}
+                    onClick={() => navigate(navigatePath)}
                     className="w-4 h-4 text-blue-600 cursor-pointer inline-block ml-1"
                   />
                 </HoverCardTrigger>
                 <HoverCardContent className="w-auto rounded-md shadow-lg">
-                  Click to view Procurement Order details.
+                  Click to view {isPO ? "Procurement Order" : "Service Request"} details.
                 </HoverCardContent>
               </HoverCard>
             </div>

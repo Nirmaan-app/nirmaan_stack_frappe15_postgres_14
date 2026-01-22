@@ -5,12 +5,13 @@ import { ServiceRequests } from '@/types/NirmaanStack/ServiceRequests';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
 import { Projects } from '@/types/NirmaanStack/Projects';
 import { Vendors } from '@/types/NirmaanStack/Vendors';
-import { getSRTotal, getTotalInvoiceAmount } from '@/utils/getAmounts';
+import { VendorInvoice } from '@/types/NirmaanStack/VendorInvoice';
+import { getSRTotal } from '@/utils/getAmounts';
 import { parseNumber } from '@/utils/parseNumber';
 import {
     queryKeys,
     getSRReportListOptions,
-    getPaymentReportListOptions, // Parameterized
+    getPaymentReportListOptions,
 } from '@/config/queryKeys';
 
 export interface SRReportRowData {
@@ -51,8 +52,8 @@ export const useSRReportsData = (): UseSRReportsDataResult => {
     const paymentOptions = getPaymentReportListOptions(['Service Requests']);
 
     const srQueryKey = queryKeys.serviceRequests.list(srOptions);
-    // Adjust paymentQueryKey for uniqueness
-    const paymentQueryKey = queryKeys.projectPayments.list({ ...paymentOptions, docTypesFilter: ['Service Requests'] });
+    // Use a unique key suffix for SR-specific payments
+    const paymentQueryKey = ["Project Payments", "SR-Reports", JSON.stringify(paymentOptions)];
 
 
     const {
@@ -68,6 +69,32 @@ export const useSRReportsData = (): UseSRReportsDataResult => {
         error: paymentsError,
         mutate: mutatePayments,
     } = useFrappeGetDocList<ProjectPayments>(paymentQueryKey[0], paymentOptions as GetDocListArgs<FrappeDoc<ProjectPayments>>, paymentQueryKey);
+
+    // --- Fetch ALL Approved Vendor Invoices for SRs ---
+    // Note: We don't filter by document_name to avoid URL length limits with large IN clauses.
+    // Instead, we fetch all approved SR invoices and filter client-side.
+    const {
+        data: vendorInvoices,
+        isLoading: invoicesLoading,
+        error: invoicesError,
+    } = useFrappeGetDocList<VendorInvoice>(
+        "Vendor Invoices",
+        {
+            filters: [
+                ["document_type", "=", "Service Requests"],
+                ["status", "=", "Approved"],
+            ],
+            fields: ["name", "document_name", "invoice_amount"],
+            limit: 0,
+        } as GetDocListArgs<FrappeDoc<VendorInvoice>>,
+        "VendorInvoices-SR-Reports-All"
+    );
+
+    // Create a Set of SR names for efficient lookup
+    const srNamesSet = useMemo(
+        () => new Set(serviceRequests?.map(sr => sr.name) || []),
+        [serviceRequests]
+    );
 
     const allProjectsOptions = getAllProjectsMinimalOptions();
     const allVendorsOptions = getAllVendorsMinimalOptions();
@@ -107,8 +134,20 @@ export const useSRReportsData = (): UseSRReportsDataResult => {
         }, {} as Record<string, number>) ?? {};
     }, [payments]);
 
+    // Group Vendor Invoice Totals by Document Name (only for SRs in our list)
+    const invoiceTotalsMap = useMemo(() => {
+        return vendorInvoices?.reduce((acc, invoice) => {
+            // Only include invoices for SRs in our current dataset
+            if (invoice.document_name && srNamesSet.has(invoice.document_name)) {
+                const currentTotal = acc[invoice.document_name] || 0;
+                acc[invoice.document_name] = currentTotal + parseNumber(invoice.invoice_amount);
+            }
+            return acc;
+        }, {} as Record<string, number>) ?? {};
+    }, [vendorInvoices, srNamesSet]);
+
     const reportData = useMemo<SRReportRowData[] | null>(() => {
-        if (srLoading || paymentsLoading || projectsLoading || vendorsLoading) {
+        if (srLoading || paymentsLoading || projectsLoading || vendorsLoading || invoicesLoading) {
             return null;
         }
         if (!serviceRequests) {
@@ -121,33 +160,32 @@ export const useSRReportsData = (): UseSRReportsDataResult => {
             const total = getSRTotal(sr);
             const totalWithTax = sr.gst === "true" ? total * 1.18 : total;
             if(sr.amount_paid){
-srData.push({
-                name: sr.name,
-                creation: sr.creation,
-                project: sr.project,
-                projectName: projectMap[sr.project] || sr.project, // SRs might not have project_name directly
-                vendor: sr.vendor,
-                vendorName: vendorMap[sr.vendor] || sr.vendor, // SRs might not have vendor_name directly
-                totalAmount: parseNumber(totalWithTax),
-                invoiceAmount: getTotalInvoiceAmount(sr.invoice_data),
-                amountPaid: paymentsMap[sr.name] || 0,
-                originalDoc: sr,
-            });
+                srData.push({
+                    name: sr.name,
+                    creation: sr.creation,
+                    project: sr.project,
+                    projectName: projectMap[sr.project] || sr.project,
+                    vendor: sr.vendor,
+                    vendorName: vendorMap[sr.vendor] || sr.vendor,
+                    totalAmount: parseNumber(totalWithTax),
+                    invoiceAmount: invoiceTotalsMap[sr.name] || 0, // Use Vendor Invoices lookup
+                    amountPaid: paymentsMap[sr.name] || 0,
+                    originalDoc: sr,
+                });
             }
-            
         });
 
         srData.sort((a, b) => new Date(b.creation).getTime() - new Date(a.creation).getTime());
         return srData;
 
     }, [
-        serviceRequests, payments, projects, vendors,
-        srLoading, paymentsLoading, projectsLoading, vendorsLoading,
-        projectMap, vendorMap, paymentsMap,
+        serviceRequests, payments, projects, vendors, vendorInvoices,
+        srLoading, paymentsLoading, projectsLoading, vendorsLoading, invoicesLoading,
+        projectMap, vendorMap, paymentsMap, invoiceTotalsMap,
     ]);
 
-    const isLoading = srLoading || paymentsLoading || projectsLoading || vendorsLoading;
-    const error = srError || paymentsError || projectsError || vendorsError;
+    const isLoading = srLoading || paymentsLoading || projectsLoading || vendorsLoading || invoicesLoading;
+    const error = srError || paymentsError || projectsError || vendorsError || invoicesError;
 
     return {
         reportData,

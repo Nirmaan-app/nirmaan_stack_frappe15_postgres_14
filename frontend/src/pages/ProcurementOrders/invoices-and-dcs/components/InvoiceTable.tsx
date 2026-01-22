@@ -8,25 +8,27 @@ import {
     TableRow
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge"; // Import Badge
-import { Trash2 } from 'lucide-react'; // Added Eye icon for view
+import { Badge } from "@/components/ui/badge";
+import { Trash2 } from 'lucide-react';
 import { formatDate } from 'date-fns';
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice"; // Assuming this utility exists
-import { InvoiceDataType, InvoiceItem } from '@/types/NirmaanStack/ProcurementOrders'; // Adjust import path
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { VendorInvoice } from '@/types/NirmaanStack/VendorInvoice';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { TailSpin } from 'react-loader-spinner';
 
 interface InvoiceTableProps {
-    /** The invoice data object (key: dateKey, value: InvoiceItem) */
-    items: InvoiceDataType | undefined | null;
+    /** Array of Vendor Invoice documents */
+    items: VendorInvoice[] | undefined | null;
     /** Function called when the view/invoice number link is clicked */
     onViewAttachment: (attachmentId: string | undefined) => void;
     /** Function called when the delete button is clicked */
-    onDeleteEntry?: (dateKey: string) => void; // Optional delete handler
+    onDeleteEntry?: (invoiceId: string) => void;
     /** Loading state of the delete button */
     isLoading?: boolean;
     /** Function to determine if a specific entry can be deleted */
-    canDeleteEntry?: (item: InvoiceItem) => boolean;
+    canDeleteEntry?: (item: VendorInvoice) => boolean;
+    /** Function to convert user ID to display name */
+    getUserName?: (userId: string | undefined) => string;
 }
 
 export const InvoiceTable: React.FC<InvoiceTableProps> = ({
@@ -35,24 +37,22 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
     onDeleteEntry,
     isLoading,
     canDeleteEntry,
+    getUserName,
 }) => {
-    const invoiceEntries = items ? Object.entries(items) : [];
-
-    // console.log("Invoicedata",items,invoiceEntries)
+    const invoiceList = items || [];
 
     // Determine if the delete column should be shown at all
-    const showDeleteColumn = onDeleteEntry && canDeleteEntry && invoiceEntries.some(([_, item]) => canDeleteEntry(item));
+    const showDeleteColumn = onDeleteEntry && canDeleteEntry && invoiceList.some((item) => canDeleteEntry(item));
 
     // Function to get status badge variant
-    const getStatusBadgeVariant = (status?: InvoiceItem['status']): 'default' | 'secondary' | 'destructive' | 'outline' | 'red' | 'green' => {
+    const getStatusBadgeVariant = (status?: VendorInvoice['status']): 'default' | 'secondary' | 'destructive' | 'outline' | 'red' | 'green' => {
         switch (status) {
             case 'Pending': return 'red';
             case 'Approved': return 'green';
             case 'Rejected': return 'destructive';
-            default: return 'secondary'; // Default or unknown status
+            default: return 'secondary';
         }
     };
-
 
     return (
         <Table>
@@ -62,85 +62,74 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
                     <TableHead className="w-[150px] text-black font-bold">Amount</TableHead>
                     <TableHead className="text-black font-bold">Invoice No.</TableHead>
                     <TableHead className="w-[120px] text-black font-bold">Status</TableHead>
-                    {/* Conditionally render action headers */}
+                    <TableHead className="w-[150px] text-black font-bold">Uploaded By</TableHead>
                     <TableHead className="w-[100px] text-center text-black font-bold">Actions</TableHead>
                 </TableRow>
             </TableHeader>
             <TableBody>
-                {invoiceEntries.length > 0 ? (
-                    invoiceEntries.map(([dateKey, invoice]) => {
+                {invoiceList.length > 0 ? (
+                    invoiceList.map((invoice) => {
                         const showDeleteButton = showDeleteColumn && canDeleteEntry?.(invoice);
-                        
-                        const displayDate = dateKey.includes('_') ? dateKey.split('_')[0] : dateKey; // Show only date part if timestamp exists
 
                         return (
-                            <TableRow key={dateKey}>
-                                <TableCell>{formatDate(new Date(displayDate), "dd-MMM-yyyy")}</TableCell> {/* Consistent date format */}
-                                <TableCell>{formatToRoundedIndianRupee(invoice?.amount)}</TableCell>
+                            <TableRow key={invoice.name}>
+                                <TableCell>{formatDate(new Date(invoice.invoice_date), "dd-MMM-yyyy")}</TableCell>
+                                <TableCell>{formatToRoundedIndianRupee(invoice.invoice_amount)}</TableCell>
                                 <TableCell>
-                                    {invoice?.invoice_attachment_id ? (
+                                    {invoice.invoice_attachment ? (
                                         <Button
                                             variant="link"
                                             className="p-0 h-auto text-blue-600 hover:underline"
-                                            onClick={() => onViewAttachment(invoice.invoice_attachment_id)}
+                                            onClick={() => onViewAttachment(invoice.invoice_attachment)}
                                             title={`View Invoice ${invoice.invoice_no}`}
                                         >
-                                            {invoice?.invoice_no || 'View'}
+                                            {invoice.invoice_no || 'View'}
                                         </Button>
                                     ) : (
-                                        <span className="text-gray-600">{invoice?.invoice_no || '--'}</span> // Show number even without link
+                                        <span className="text-gray-600">{invoice.invoice_no || '--'}</span>
                                     )}
                                 </TableCell>
                                 <TableCell>
-                                     <Badge variant={getStatusBadgeVariant(invoice?.status || "Approved")}>
-                                         {invoice?.status || 'Approved'}
-                                     </Badge>
+                                    <Badge variant={getStatusBadgeVariant(invoice.status)}>
+                                        {invoice.status || 'Approved'}
+                                    </Badge>
+                                </TableCell>
+                                <TableCell className="text-gray-600 text-sm">
+                                    {getUserName ? getUserName(invoice.uploaded_by) : invoice.uploaded_by || '--'}
                                 </TableCell>
                                 <TableCell className="text-center space-x-1">
-                                    {/* View Button (optional, if link isn't enough) */}
-                                     {/* <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="text-blue-600 hover:text-blue-800"
-                                        onClick={() => onViewAttachment(invoice?.invoice_attachment_id)}
-                                        disabled={!invoice?.invoice_attachment_id}
-                                        title="View Attachment"
-                                    >
-                                        <Eye className="h-4 w-4" />
-                                    </Button> */}
-                                    {/* Delete Button */}
-                                    {(showDeleteButton) ? (
-                                      <Dialog>
-                                        <DialogTrigger asChild>
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="text-red-600 hover:text-red-800"
-                                            disabled={isLoading}
-                                            title={`Delete Invoice Entry ${invoice.invoice_no}`}
-                                        >
-                                            <Trash2 className="h-4 w-4" />
-                                        </Button>
-                                        </DialogTrigger>
-                                        <DialogContent>
-                                          <DialogHeader>
-                                            <DialogTitle>Are you sure?</DialogTitle>
-                                          </DialogHeader>
-                                          <DialogDescription className="text-primary">
-                                              Click on Confirm to delete this invoice entry!
-                                          </DialogDescription>
-                                          <div className="flex items-center justify-end gap-2">
-                                            {isLoading ? <TailSpin color="red" height={40} width={40} /> : (
-                                              <>
-                                                <DialogClose asChild>
-                                                  <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
-                                                </DialogClose>
-                                                <Button disabled={isLoading} onClick={() => onDeleteEntry(dateKey)}>Confirm</Button>
-                                              </>
-                                            )}
-                                          </div>  
-                                        </DialogContent>
-                                      </Dialog>
+                                    {showDeleteButton ? (
+                                        <Dialog>
+                                            <DialogTrigger asChild>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="text-red-600 hover:text-red-800"
+                                                    disabled={isLoading}
+                                                    title={`Delete Invoice Entry ${invoice.invoice_no}`}
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                            </DialogTrigger>
+                                            <DialogContent>
+                                                <DialogHeader>
+                                                    <DialogTitle>Are you sure?</DialogTitle>
+                                                </DialogHeader>
+                                                <DialogDescription className="text-primary">
+                                                    Click on Confirm to delete this invoice entry!
+                                                </DialogDescription>
+                                                <div className="flex items-center justify-end gap-2">
+                                                    {isLoading ? <TailSpin color="red" height={40} width={40} /> : (
+                                                        <>
+                                                            <DialogClose asChild>
+                                                                <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
+                                                            </DialogClose>
+                                                            <Button disabled={isLoading} onClick={() => onDeleteEntry?.(invoice.name)}>Confirm</Button>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </DialogContent>
+                                        </Dialog>
                                     ) : "--"}
                                 </TableCell>
                             </TableRow>
@@ -148,7 +137,7 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
                     })
                 ) : (
                     <TableRow>
-                        <TableCell colSpan={showDeleteColumn ? 5 : 4} className="text-center py-4 text-gray-500">
+                        <TableCell colSpan={6} className="text-center py-4 text-gray-500">
                             No Invoices Found
                         </TableCell>
                     </TableRow>

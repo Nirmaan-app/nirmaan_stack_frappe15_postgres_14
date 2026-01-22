@@ -1,4 +1,5 @@
 import { InvoiceDataType, PurchaseOrderItem, POTotals, ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
+import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { ServiceItemType, ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
@@ -154,13 +155,34 @@ export const getTotalProjectInvoiceAmount = memoize(
 
 /**
  * Calculates the total invoice amount from a procurement order's invoice data
- * with currency-safe precision handling and error protection
- * 
- * @param order - The procurement order containing invoice data
+ * with currency-safe precision handling and error protection.
+ *
+ * @deprecated This function parses the old JSON-based `invoice_data` field stored
+ * directly in PO/SR documents. Use one of these alternatives instead:
+ *
+ * - **For pre-fetched Vendor Invoice data:** Use `getTotalVendorInvoiceAmount(vendorInvoices)`
+ *   from this same file.
+ *
+ * - **For React components:** Use `useDocumentInvoiceTotals` hook from
+ *   `@/hooks/useDocumentInvoiceTotals.ts` which fetches from Vendor Invoices doctype.
+ *
+ * The Vendor Invoices doctype provides:
+ * - Better queryability and filtering
+ * - Consistent data across all views
+ * - Support for multi-vendor invoicing
+ *
+ * This function will be removed in a future version.
+ *
+ * @param data - The invoice_data JSON from a procurement order
  * @returns The total invoice amount formatted as a number with 2 decimal places
- * 
+ *
  * @example
- * const total = getTotalInvoiceAmount(procurementOrder);
+ * // OLD (deprecated):
+ * const total = getTotalInvoiceAmount(procurementOrder.invoice_data);
+ *
+ * // NEW (recommended):
+ * const { totalsMap } = useDocumentInvoiceTotals("Procurement Orders", poNames);
+ * const total = totalsMap.get(poName) ?? 0;
  */
 export const getTotalInvoiceAmount = memoize(
   (data: any): number => {
@@ -200,6 +222,42 @@ export const getTotalInvoiceAmount = memoize(
       return 0;
     }
   }, (order: any) => JSON.stringify(order));
+
+
+/**
+ * Calculate total approved invoice amount from Vendor Invoices array.
+ * This replaces getTotalInvoiceAmount() for the new Vendor Invoices doctype.
+ *
+ * @param invoices - Array of VendorInvoice documents
+ * @returns The total approved invoice amount formatted as a number with 2 decimal places
+ *
+ * @example
+ * const total = getTotalVendorInvoiceAmount(vendorInvoices);
+ */
+export const getTotalVendorInvoiceAmount = memoize(
+  (invoices: VendorInvoice[] | undefined): number => {
+    if (!invoices || !Array.isArray(invoices)) return 0;
+
+    // Calculate total with currency-safe operations
+    const total = invoices.reduce((acc, invoice) => {
+      // Only count approved invoices
+      if (invoice?.status !== "Approved") return acc;
+
+      const amount = invoice?.invoice_amount;
+
+      // Handle valid numbers only
+      if (Number.isFinite(amount)) {
+        // Use currency-safe arithmetic (cents)
+        return acc + Math.round(amount * 100);
+      }
+      return acc;
+    }, 0);
+
+    // Convert back to rupees with proper rounding
+    return Number((total / 100).toFixed(2));
+  },
+  (invoices: VendorInvoice[] | undefined) => JSON.stringify(invoices)
+);
 
 
 // --- THIS IS THE NEW, SIMPLIFIED FUNCTION --- its specially for frontend caculation to 

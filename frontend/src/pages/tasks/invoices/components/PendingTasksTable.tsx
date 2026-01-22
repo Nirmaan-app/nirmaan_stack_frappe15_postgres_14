@@ -1,19 +1,25 @@
+/**
+ * Table for displaying pending vendor invoices awaiting approval.
+ *
+ * Updated to use Vendor Invoices doctype.
+ */
 import React, { useEffect, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { useInvoiceTaskActions } from "../hooks/useInvoiceTaskActions";
 import { getPendingTaskColumns } from "./columns";
-// import { DataTable } from '@/components/data-table/data-table'; // Adjust path
 import { ConfirmationDialog } from "@/pages/ProcurementRequests/ApproveVendorQuotes/components/ConfirmationDialog";
+import { InvoiceRejectionDialog } from "./InvoiceRejectionDialog";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { NirmaanAttachment } from "@/types/NirmaanStack/NirmaanAttachment";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
-import { InvoiceApprovalTask } from "@/types/NirmaanStack/Task";
+import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import {
-  DEFAULT_INVOICE_TASK_FIELDS_TO_FETCH,
-  getInvoiceTaskStaticFilters,
-  INVOICE_TASK_DATE_COLUMNS,
-  INVOICE_TASK_SEARCHABLE_FIELDS,
+    DEFAULT_VENDOR_INVOICE_FIELDS_TO_FETCH,
+    getVendorInvoiceStaticFilters,
+    VENDOR_INVOICE_DATE_COLUMNS,
+    VENDOR_INVOICE_SEARCHABLE_FIELDS,
 } from "../config/InvoiceTaskTable.config";
+import { VENDOR_INVOICES_DOCTYPE } from "../constants";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { useUserData } from "@/hooks/useUserData";
@@ -21,229 +27,211 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { useOrderTotals } from "@/hooks/useOrderTotals";
 import { useOrderPayments } from "@/hooks/useOrderPayments";
 
-// --- Constants ---
-const DOCTYPE = "Task";
-const URL_SYNC_KEY = "inv_pending_tasks"; // Unique key for this table
+const URL_SYNC_KEY = "inv_pending";
 
 export const PendingTasksTable: React.FC = () => {
-  const { role, user_id } = useUserData();
-  // const { tasks, isLoading, error, mutateTasks, attachmentsMap } = useInvoiceTasks('Pending');
+    const { role, user_id } = useUserData();
 
-  // --- Fetch Attachments (Supporting Data) ---
-  // This logic remains, but its data will be passed to columns.
-  // We need the main task list first to know which attachment IDs to fetch.
-  const [attachmentIds, setAttachmentIds] = React.useState<string[]>([]);
-  const {
-    data: attachmentsData,
-    isLoading: attachmentsLoading,
-    error: attachmentsError,
-  } = useFrappeGetDocList<NirmaanAttachment>(
-    "Nirmaan Attachments",
-    {
-      fields: ["name", "attachment"], // Fetch only what's needed
-      filters: attachmentIds.length > 0 ? [["name", "in", attachmentIds]] : [],
-      limit: attachmentIds.length || 1, // Fetch all relevant, or 1 if none to avoid error
-    },
-    attachmentIds.length > 0
-      ? `attachments_for_invoice_tasks_${attachmentIds.join("_")}`
-      : null
-  );
+    // --- Fetch Attachments (Supporting Data) ---
+    const [attachmentIds, setAttachmentIds] = React.useState<string[]>([]);
+    const {
+        data: attachmentsData,
+        isLoading: attachmentsLoading,
+        error: attachmentsError,
+    } = useFrappeGetDocList<NirmaanAttachment>(
+        "Nirmaan Attachments",
+        {
+            fields: ["name", "attachment"],
+            filters: attachmentIds.length > 0 ? [["name", "in", attachmentIds]] : [],
+            limit: attachmentIds.length || 1,
+        },
+        attachmentIds.length > 0
+            ? `attachments_for_pending_invoices_${attachmentIds.join("_")}`
+            : null
+    );
 
-  const attachmentsMap = useMemo(() => {
-    if (!attachmentsData) return {};
-    return attachmentsData.reduce((acc, item) => {
-      if (item.name && item.attachment) acc[item.name] = item.attachment;
-      return acc;
-    }, {} as Record<string, string>);
-  }, [attachmentsData]);
+    const attachmentsMap = useMemo(() => {
+        if (!attachmentsData) return {};
+        return attachmentsData.reduce((acc, item) => {
+            if (item.name && item.attachment) acc[item.name] = item.attachment;
+            return acc;
+        }, {} as Record<string, string>);
+    }, [attachmentsData]);
 
-  // --- Action Handling ---
-  const {
-    openConfirmationDialog,
-    closeConfirmationDialog,
-    onConfirmAction,
-    confirmationState,
-    loadingTaskId,
-    isProcessing,
-  } = useInvoiceTaskActions({
-    // onActionSuccess: refetch, // Pass the refetch function from useServerDataTable
-  });
-
-  const { getTotalAmount, getDeliveredAmount, getVendorName } =
-    useOrderTotals();
-  const { getAmount } = useOrderPayments();
-
-  // --- Column Definitions (Memoized with dependencies) ---
-  const columns = React.useMemo(
-    () =>
-      getPendingTaskColumns(
+    // --- Action Handling ---
+    const {
         openConfirmationDialog,
-        loadingTaskId,
+        closeConfirmationDialog,
+        onConfirmAction,
+        confirmationState,
+        loadingInvoiceId,
         isProcessing,
-        attachmentsMap,
-        getTotalAmount,
-        getAmount,
-        getDeliveredAmount,
-        getVendorName
-      ),
-    [
-      openConfirmationDialog,
-      loadingTaskId,
-      isProcessing,
-      attachmentsMap,
-      getTotalAmount,
-      getAmount,
-      getDeliveredAmount,
-      getVendorName,
-    ]
-  );
+    } = useInvoiceTaskActions({});
 
-  const staticFilters = useMemo(
-    () => getInvoiceTaskStaticFilters("Pending", role, user_id),
-    [role, user_id]
-  );
+    const { getTotalAmount, getDeliveredAmount, getVendorName } = useOrderTotals();
+    const { getAmount } = useOrderPayments();
 
-  const fetchFields = useMemo(() => DEFAULT_INVOICE_TASK_FIELDS_TO_FETCH, []);
+    // --- Column Definitions ---
+    const columns = React.useMemo(
+        () =>
+            getPendingTaskColumns(
+                openConfirmationDialog,
+                loadingInvoiceId,
+                isProcessing,
+                attachmentsMap,
+                getTotalAmount,
+                getAmount,
+                getDeliveredAmount,
+                getVendorName
+            ),
+        [
+            openConfirmationDialog,
+            loadingInvoiceId,
+            isProcessing,
+            attachmentsMap,
+            getTotalAmount,
+            getAmount,
+            getDeliveredAmount,
+            getVendorName,
+        ]
+    );
 
-  const invoiceTaskSearchableFeilds = useMemo(
-    () => INVOICE_TASK_SEARCHABLE_FIELDS,
-    []
-  );
+    const staticFilters = useMemo(
+        () => getVendorInvoiceStaticFilters("Pending", role, user_id),
+        [role, user_id]
+    );
 
-  // --- Main Data Table Hook ---
-  const {
-    table,
-    data: tasks,
-    totalCount,
-    isLoading: listIsLoading,
-    error: listError,
-    searchTerm,
-    setSearchTerm,
-    selectedSearchField,
-    setSelectedSearchField,
-    isRowSelectionActive,
-    refetch,
-  } = useServerDataTable<InvoiceApprovalTask>({
-    doctype: DOCTYPE,
-    columns: columns, // Columns passed dynamically later, including actions
-    fetchFields: fetchFields,
-    searchableFields: invoiceTaskSearchableFeilds,
-    urlSyncKey: URL_SYNC_KEY,
-    defaultSort: "modified desc",
-    additionalFilters: staticFilters,
-    enableRowSelection: false, // No bulk actions defined for pending tasks yet
-  });
+    const fetchFields = useMemo(() => DEFAULT_VENDOR_INVOICE_FIELDS_TO_FETCH, []);
+    const searchableFields = useMemo(() => VENDOR_INVOICE_SEARCHABLE_FIELDS, []);
 
-  // Effect to extract attachment IDs from fetched tasks
-  useEffect(() => {
-    if (tasks && tasks.length > 0) {
-      const ids = tasks
-        .map((task) => task?.reference_value_4) // reference_value_4 is attachment_id
-        .filter((id): id is string => typeof id === "string" && id.length > 0);
-      if (ids.length > 0) {
-        // Avoid setting if identical to prevent re-renders
-        setAttachmentIds((currentIds) => {
-          const newIdsSet = new Set(ids);
-          const currentIdsSet = new Set(currentIds);
-          if (
-            newIdsSet.size === currentIdsSet.size &&
-            [...newIdsSet].every((id) => currentIdsSet.has(id))
-          ) {
-            return currentIds;
-          }
-          return ids;
-        });
-      } else {
-        setAttachmentIds([]);
-      }
-    } else {
-      setAttachmentIds([]);
-    }
-  }, [tasks]);
+    // --- Main Data Table Hook ---
+    const {
+        table,
+        data: invoices,
+        totalCount,
+        isLoading: listIsLoading,
+        error: listError,
+        searchTerm,
+        setSearchTerm,
+        selectedSearchField,
+        setSelectedSearchField,
+        refetch,
+    } = useServerDataTable<VendorInvoice>({
+        doctype: VENDOR_INVOICES_DOCTYPE,
+        columns: columns,
+        fetchFields: fetchFields,
+        searchableFields: searchableFields,
+        urlSyncKey: URL_SYNC_KEY,
+        defaultSort: "modified desc",
+        additionalFilters: staticFilters,
+        enableRowSelection: false,
+    });
 
-  // --- Combined Loading & Error State ---
-  const isLoadingOverall = attachmentsLoading; // Consider attachments loading
-  const combinedError = listError || attachmentsError; // Primary error from task list fetch
-
-  if (combinedError) {
-    // Display prominent error from data fetching/processing
-    return <AlertDestructive error={combinedError} />;
-  }
-
-  return (
-    <div
-      className={cn(
-        "flex flex-col gap-2 mt-6 overflow-hidden",
-        totalCount > 10
-          ? "h-[calc(100vh-150px)]"
-          : totalCount > 0
-          ? "h-auto"
-          : ""
-      )}
-    >
-      {isLoadingOverall && !tasks?.length ? ( // Show skeleton if main list is loading and no data yet
-        <TableSkeleton />
-      ) : (
-        <DataTable<InvoiceApprovalTask>
-          table={table}
-          columns={columns} // Pass the memoized columns
-          isLoading={listIsLoading} // Loading state for the table data itself
-          error={listError}
-          totalCount={totalCount}
-          searchFieldOptions={invoiceTaskSearchableFeilds}
-          selectedSearchField={selectedSearchField}
-          onSelectedSearchFieldChange={setSelectedSearchField}
-          searchTerm={searchTerm}
-          onSearchTermChange={setSearchTerm}
-          // No facet filters defined for this view currently
-          dateFilterColumns={INVOICE_TASK_DATE_COLUMNS}
-          showExportButton={true}
-          onExport={"default"}
-          exportFileName="Pending_Invoice_Tasks"
-        />
-      )}
-
-      <ConfirmationDialog
-        isOpen={confirmationState.isOpen}
-        onClose={closeConfirmationDialog}
-        onConfirm={async () => {
-          await onConfirmAction();
-          refetch();
-        }}
-        isLoading={loadingTaskId === confirmationState.taskId}
-        title={
-          confirmationState.action === "Approved"
-            ? "Confirm Approval"
-            : "Confirm Rejection"
-        }
-        confirmText={
-          confirmationState.action === "Approved" ? "Approve" : "Reject"
-        }
-        confirmVariant={
-          confirmationState.action === "Approved" ? "default" : "destructive"
-        }
-      >
-        <p className="text-sm text-muted-foreground text-center pt-2">
-          Are you sure you want to{" "}
-          <strong
-            className={
-              confirmationState.action === "Rejected"
-                ? "text-destructive"
-                : "text-primary"
+    // Effect to extract attachment IDs from fetched invoices
+    useEffect(() => {
+        if (invoices && invoices.length > 0) {
+            const ids = invoices
+                .map((invoice) => invoice?.invoice_attachment)
+                .filter((id): id is string => typeof id === "string" && id.length > 0);
+            if (ids.length > 0) {
+                setAttachmentIds((currentIds) => {
+                    const newIdsSet = new Set(ids);
+                    const currentIdsSet = new Set(currentIds);
+                    if (
+                        newIdsSet.size === currentIdsSet.size &&
+                        [...newIdsSet].every((id) => currentIdsSet.has(id))
+                    ) {
+                        return currentIds;
+                    }
+                    return ids;
+                });
+            } else {
+                setAttachmentIds([]);
             }
-          >
-            {confirmationState.action === "Approved" ? "Approve" : "Reject"}
-          </strong>{" "}
-          invoice for task referencing{" "}
-          <strong>
-            {confirmationState.taskInvoiceNo ||
-              `Task ID ${confirmationState.taskId}`}
-          </strong>
-          ?
-        </p>
-      </ConfirmationDialog>
-    </div>
-  );
+        } else {
+            setAttachmentIds([]);
+        }
+    }, [invoices]);
+
+    const isLoadingOverall = attachmentsLoading;
+    const combinedError = listError || attachmentsError;
+
+    if (combinedError) {
+        return <AlertDestructive error={combinedError} />;
+    }
+
+    return (
+        <div
+            className={cn(
+                "flex flex-col gap-2 mt-6 overflow-hidden",
+                totalCount > 10
+                    ? "h-[calc(100vh-150px)]"
+                    : totalCount > 0
+                        ? "h-auto"
+                        : ""
+            )}
+        >
+            {isLoadingOverall && !invoices?.length ? (
+                <TableSkeleton />
+            ) : (
+                <DataTable<VendorInvoice>
+                    table={table}
+                    columns={columns}
+                    isLoading={listIsLoading}
+                    error={listError}
+                    totalCount={totalCount}
+                    searchFieldOptions={searchableFields}
+                    selectedSearchField={selectedSearchField}
+                    onSelectedSearchFieldChange={setSelectedSearchField}
+                    searchTerm={searchTerm}
+                    onSearchTermChange={setSearchTerm}
+                    dateFilterColumns={VENDOR_INVOICE_DATE_COLUMNS}
+                    showExportButton={true}
+                    onExport={"default"}
+                    exportFileName="Pending_Vendor_Invoices"
+                />
+            )}
+
+            {/* Approval Dialog */}
+            {confirmationState.action === "Approved" && (
+                <ConfirmationDialog
+                    isOpen={confirmationState.isOpen}
+                    onClose={closeConfirmationDialog}
+                    onConfirm={async () => {
+                        await onConfirmAction();
+                        refetch();
+                    }}
+                    isLoading={loadingInvoiceId === confirmationState.invoiceId}
+                    title="Confirm Approval"
+                    confirmText="Approve"
+                    confirmVariant="default"
+                >
+                    <p className="text-sm text-muted-foreground text-center pt-2">
+                        Are you sure you want to{" "}
+                        <strong className="text-primary">Approve</strong> invoice{" "}
+                        <strong>
+                            {confirmationState.invoiceNo || confirmationState.invoiceId}
+                        </strong>
+                        ?
+                    </p>
+                </ConfirmationDialog>
+            )}
+
+            {/* Rejection Dialog */}
+            {confirmationState.action === "Rejected" && (
+                <InvoiceRejectionDialog
+                    isOpen={confirmationState.isOpen}
+                    onClose={closeConfirmationDialog}
+                    onConfirm={async (rejectionReason) => {
+                        await onConfirmAction(rejectionReason);
+                        refetch();
+                    }}
+                    isLoading={loadingInvoiceId === confirmationState.invoiceId}
+                    invoiceNo={confirmationState.invoiceNo}
+                />
+            )}
+        </div>
+    );
 };
 
 export default PendingTasksTable;

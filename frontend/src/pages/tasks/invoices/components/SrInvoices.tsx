@@ -49,7 +49,7 @@ interface SrInvoiceItem {
     reconciled_amount: number;
     invoice_no: string;
     date: string;
-    updated_by: string;
+    uploaded_by: string;
     invoice_attachment_id: string;
     service_request: string;
     project?: string;
@@ -182,7 +182,8 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId }) => {
         return user?.label || userId;
     }), [userValues]);
 
-    // --- Invoice entries from API (with generated name field) ---
+    // --- Invoice entries from API ---
+    // Note: The backend returns the actual Vendor Invoice `name` field - do NOT overwrite it
     const invoiceEntries = useMemo(() => {
         let entries = invoicesData?.message?.message?.invoice_entries || [];
 
@@ -191,10 +192,7 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId }) => {
             entries = entries.filter(entry => entry.vendor === vendorId);
         }
 
-        return entries.map((entry, index) => ({
-            ...entry,
-            name: `${entry.service_request}-${entry.invoice_no}-${index}` // Generate unique name
-        }));
+        return entries;
     }, [invoicesData, vendorId]);
 
     // --- Column Definitions ---
@@ -285,10 +283,10 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId }) => {
                 size: 130,
             },
             {
-                accessorKey: "updated_by",
+                accessorKey: "uploaded_by",
                 header: ({ column }) => <DataTableColumnHeader column={column} title={<span className="whitespace-normal leading-tight">Invoice Uploaded By</span>} />,
                 cell: ({ row }) => {
-                    const userId = row.original.updated_by;
+                    const userId = row.original.uploaded_by;
                     const fullName = getUserFullName(userId);
                     return <div className="font-medium">{fullName}</div>;
                 },
@@ -613,7 +611,7 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId }) => {
     // --- Facet Filter Options from Client Data ---
     const facetFilterOptions = useMemo(() => {
         const uniqueProjects = [...new Set(invoiceEntries.map((i: SrInvoiceItem) => i.project).filter(Boolean))];
-        const uniqueUpdatedBy = [...new Set(invoiceEntries.map((i: SrInvoiceItem) => i.updated_by).filter(Boolean))];
+        const uniqueUpdatedBy = [...new Set(invoiceEntries.map((i: SrInvoiceItem) => i.uploaded_by).filter(Boolean))];
 
         const uniqueReconciledBy = [...new Set(invoiceEntries.map((i: SrInvoiceItem) => i.reconciled_by).filter(Boolean))];
 
@@ -625,7 +623,7 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId }) => {
                     value: p as string
                 }))
             },
-            updated_by: {
+            uploaded_by: {
                 title: "Invoice Uploaded By",
                 options: uniqueUpdatedBy.map(u => ({
                     label: getUserFullName(u as string),

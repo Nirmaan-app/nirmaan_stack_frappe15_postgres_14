@@ -78,3 +78,5 @@ nirmaan_stack.patches.v2_8.fix_credit_payment_term_status
 nirmaan_stack.patches.v2_9.migrate_invoice_reconciliation_status
 nirmaan_stack.patches.v2_9.add_reconciled_amount_field
 nirmaan_stack.patches.v2_9.remove_scheduled_status_and_cleanup
+
+nirmaan_stack.patches.v3_0.migrate_invoices_to_vendor_invoices #v5

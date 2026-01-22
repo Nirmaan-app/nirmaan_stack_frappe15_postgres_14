@@ -9,12 +9,15 @@ import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { Badge } from "@/components/ui/badge";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
+import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { useServerDataTable } from "@/hooks/useServerDataTable"; // Your main hook
+import { useFrappeGetDocList, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
 import { formatDate } from "@/utils/FormatDate";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
+import { parseNumber } from "@/utils/parseNumber";
 
 // src/components/cells/OrderCategoriesCell.tsx
 
@@ -73,6 +76,31 @@ export const VendorMaterialOrdersTable: React.FC<
       ["status", "not in", ["Merged", "Inactive", "PO Amendment"]],
     ];
   }, [vendorId]);
+
+  // Fetch Vendor Invoices for this vendor to calculate total invoiced per PO
+  const { data: vendorInvoices } = useFrappeGetDocList<VendorInvoice>(
+    "Vendor Invoices",
+    {
+      filters: [
+        ["vendor", "=", vendorId],
+        ["document_type", "=", "Procurement Orders"],
+        ["status", "=", "Approved"],
+      ],
+      fields: ["name", "document_name", "invoice_amount"],
+      limit: 0,
+    } as GetDocListArgs<FrappeDoc<VendorInvoice>>,
+    `VendorInvoices-PO-${vendorId}`
+  );
+
+  // Group invoice totals by PO name
+  const invoiceTotalsMap = useMemo(() => {
+    if (!vendorInvoices) return new Map<string, number>();
+    return vendorInvoices.reduce((acc, inv) => {
+      const current = acc.get(inv.document_name) ?? 0;
+      acc.set(inv.document_name, current + parseNumber(inv.invoice_amount));
+      return acc;
+    }, new Map<string, number>());
+  }, [vendorInvoices]);
 
   // --- Dynamic Facet Values ---
   const {
@@ -298,16 +326,26 @@ export const VendorMaterialOrdersTable: React.FC<
         ),
         size: 180,
       },
-      // {
-      //     accessorKey: "po_amount_delivered",
-      //     header: ({ column }) => <DataTableColumnHeader column={column} title="Amount Paid" className="justify-end" />,
-      //     cell: ({ row }) => (
-      //         <div className="text-center font-medium text-green-700">
-      //             {formatToRoundedIndianRupee(row.original.po_amount_delivered)}
-      //         </div>
-      //     ),
-      //     size: 180,
-      // },
+      {
+        id: "total_invoiced",
+        header: ({ column }) => (
+          <DataTableColumnHeader
+            column={column}
+            title="Total Invoiced"
+            className="justify-end"
+          />
+        ),
+        cell: ({ row }) => {
+          const invoiceTotal = invoiceTotalsMap.get(row.original.name) ?? 0;
+          return (
+            <div className="text-center font-medium text-blue-600">
+              {formatToRoundedIndianRupee(invoiceTotal)}
+            </div>
+          );
+        },
+        size: 150,
+        enableSorting: false,
+      },
       {
         accessorKey: "amount_paid",
         header: ({ column }) => (
@@ -341,7 +379,7 @@ export const VendorMaterialOrdersTable: React.FC<
       //     }, size: 220,
       // }
     ],
-    [projectOptions, procurementRequests, getWorkPackage]
+    [projectOptions, procurementRequests, getWorkPackage, invoiceTotalsMap]
   );
 
   const {

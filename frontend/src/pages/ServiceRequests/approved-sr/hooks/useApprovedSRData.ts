@@ -4,6 +4,7 @@ import { ServiceRequests, ServiceItemType, ServiceCategoryType } from '@/types/N
 import { Vendors } from '@/types/NirmaanStack/Vendors';
 import { Projects } from '@/types/NirmaanStack/Projects';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
+import { VendorInvoice } from '@/types/NirmaanStack/VendorInvoice';
 import { toast } from '@/components/ui/use-toast';
 import { getSRTotal, getTotalAmountPaid } from '@/utils/getAmounts';
 
@@ -27,7 +28,7 @@ export interface ServiceRequestsExtended extends ServiceRequests {
     parsed_notes?: { id: string; note: string }[];
     parsed_service_order_list?: { list: ServiceItemType[] };
     parsed_service_category_list?: { list: ServiceCategoryType[] };
-    parsed_invoice_data?: ServiceRequests['invoice_data'];
+    // Note: invoice_data parsing removed - now using Vendor Invoices doctype
 }
 
 
@@ -36,10 +37,13 @@ export interface ApprovedSRData {
     vendor?: Vendors;
     project?: Projects;
     payments?: ProjectPayments[];
+    vendorInvoices?: VendorInvoice[];
+    vendorInvoicesCount: number;
     isLoading: boolean;
-    error: Error | null;
+    error: any;
     mutateSR: () => Promise<any>; // Mutate for the main SR document
     mutatePayments: () => Promise<any>; // Mutate for payments list
+    mutateVendorInvoices: () => Promise<any>; // Mutate for vendor invoices list
     totalExclusiveGST: number;
     totalInclusiveGST: number;
     amountPaid: number;
@@ -77,7 +81,16 @@ export const useApprovedSRData = (srId: string): ApprovedSRData => {
             filters: [["document_name", "=", srId], ["document_type", "=", "Service Requests"]],
             limit: 0, // Get all payments for this SR
             orderBy: { field: "creation", order: "desc" }
-        }, { enabled: !!srId });
+        }, srId ? `ProjectPayments-SR-${srId}` : null);
+
+    // Fetch Vendor Invoices for this SR
+    const { data: vendorInvoicesList, isLoading: vendorInvoicesLoading, error: vendorInvoicesError, mutate: mutateVendorInvoices } =
+        useFrappeGetDocList<VendorInvoice>("Vendor Invoices", {
+            fields: ["name", "invoice_no", "invoice_date", "invoice_amount", "status"],
+            filters: [["document_type", "=", "Service Requests"], ["document_name", "=", srId]],
+            orderBy: { field: "invoice_date", order: "desc" },
+            limit: 1000
+        }, srId ? `VendorInvoices-SR-${srId}` : null);
 
     const serviceRequestWithParsedJSON = useMemo(() => {
         if (!srDoc) return undefined;
@@ -86,7 +99,7 @@ export const useApprovedSRData = (srId: string): ApprovedSRData => {
             parsed_notes: parseJsonField(srDoc, 'notes', { list: [] }).list,
             parsed_service_order_list: parseJsonField(srDoc, 'service_order_list'),
             parsed_service_category_list: parseJsonField(srDoc, 'service_category_list'),
-            parsed_invoice_data: parseJsonField(srDoc, 'invoice_data', { data: {} }), // Assuming default {data:{}}
+            // Note: invoice_data parsing removed - now using Vendor Invoices doctype
         };
     }, [srDoc]);
 
@@ -105,18 +118,21 @@ export const useApprovedSRData = (srId: string): ApprovedSRData => {
     [paymentsList]);
 
 
-    const isLoading = srLoading || (!!srDoc?.vendor && vendorLoading) || (!!srDoc?.project && projectLoading) || paymentsLoading;
-    const error = srError || vendorError || projectError || paymentsError;
+    const isLoading = srLoading || (!!srDoc?.vendor && vendorLoading) || (!!srDoc?.project && projectLoading) || paymentsLoading || vendorInvoicesLoading;
+    const error = srError || vendorError || projectError || paymentsError || vendorInvoicesError;
 
     return {
         serviceRequest: serviceRequestWithParsedJSON,
         vendor: vendorDoc,
         project: projectDoc,
         payments: paymentsList,
+        vendorInvoices: vendorInvoicesList,
+        vendorInvoicesCount: vendorInvoicesList?.length || 0,
         isLoading,
         error: error || null,
         mutateSR,
         mutatePayments,
+        mutateVendorInvoices,
         totalExclusiveGST,
         totalInclusiveGST,
         amountPaid,

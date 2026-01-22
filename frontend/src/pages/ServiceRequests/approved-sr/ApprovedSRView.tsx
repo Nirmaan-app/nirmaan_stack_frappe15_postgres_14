@@ -94,10 +94,13 @@ export const ApprovedSRView: React.FC<ApprovedSRViewProps> = ({
     const canRecordPaidEntry = accountsPage && serviceRequest?.status === "Approved"; // Only accounts can record "Paid"
     const canAddInvoice = !summaryPage && serviceRequest?.status === "Approved"; // Or other relevant statuses
     const canAmend = !summaryPage && !accountsPage && serviceRequest?.status === "Approved"; // Conditions for amend
+    // Note: vendorInvoicesCount should be passed from parent via dataProps
+    const vendorInvoicesCount = (dataProps as any).vendorInvoicesCount ?? 0;
+
     const canDeleteSR = !summaryPage && !accountsPage &&
         (serviceRequest?.owner === useUserData().user_id || currentUserRole === "Nirmaan Admin Profile" || currentUserRole === "Nirmaan PMO Executive Profile") &&
         (!payments || payments.length === 0) && // Cannot delete if payments exist
-        (!serviceRequest?.invoice_data?.data || Object.keys(serviceRequest.invoice_data.data).length === 0); // Cannot delete if invoices exist
+        (vendorInvoicesCount === 0); // Cannot delete if invoices exist (from Vendor Invoices doctype)
 
     const isPageActionLoading = isSavingTerms || isSubmittingPaidEntry || isDeleting || isAmending;
 
@@ -234,6 +237,7 @@ export const ApprovedSRView: React.FC<ApprovedSRViewProps> = ({
                     docType="Service Requests"
                     docName={serviceRequest.name}
                     docMutate={mutateSR} // Mutate SR after invoice addition
+                    vendor={serviceRequest.vendor}
                 // isOpen and onOpenChange are managed by useDialogStore for InvoiceDialog
                 />
             )}
