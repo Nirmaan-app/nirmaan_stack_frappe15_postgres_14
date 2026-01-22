@@ -127,7 +127,7 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
       const dStr = format(new Date(), "dd-MMM-yyyy");
       const zoneSuffix = selectedZone ? `${selectedZone.replace(/\s+/g, '_')}` : "";
 
-      const fileName = `${pName}-${zoneSuffix}-${dStr}_OverallReport.pdf`;
+      const fileName = `${pName}-${zoneSuffix}-${dStr}_14Days_Report.pdf`;
 
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -353,7 +353,7 @@ const OverallMilestonesReport: React.FC<OverallMilestonesReportProps> = ({ selec
     <div className="bg-white ">
       {/* Overall Report Summary Header */}
       <div className="p-4 rounded-t-lg mb-4">
-        <h2 className="text-xl font-bold mb-2">Overall Work Report</h2>
+        <h2 className="text-xl font-bold mb-2">14 Days Work Report</h2>
         <div className="grid grid-cols-1 gap-2 mt-4 text-sm md:text-base">
           <p>Overall Completed: <span className="font-semibold">{latestReport.total_completed_works || 0}</span></p>
           <p>Number of packages: <span className="font-semibold">{latestReport.number_of_work_headers || 0}</span></p>
