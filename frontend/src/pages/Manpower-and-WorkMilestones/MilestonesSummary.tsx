@@ -356,12 +356,12 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
                 </button>
                 {role !== 'Nirmaan Project Manager Profile' && (
                   <button
-                    className={`flex-1 px-4 py-2 text-sm font-medium ${
+                    className={`flex-1 px-4 py-2  text-sm font-medium whitespace-nowrap ${
                       reportType === 'Overall' ? 'bg-blue-600 text-white' : 'bg-white text-blue-600'
                     }`}
                     onClick={() => setReportType('Overall')}
                   >
-                    Overall
+                    14 Days
                   </button>
                 )}
               </div>
