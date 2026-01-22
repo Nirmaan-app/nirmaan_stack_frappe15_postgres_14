@@ -423,6 +423,11 @@ const [currentCaptureType, setCurrentCaptureType] = useState<'Work' | 'Site' | '
 const getClientClearanceStorageKey = (dateString: string) => `project_${projectId}_date_${dateString}_zone_${reportZone}_tab_Client_Clearance_Issues`;
 // --- END STATE FOR CLIENT/CLEARANCE ISSUES TAB ---
 
+// --- STATE FOR SAVE AS-IS CONFIRMATION ---
+const [isSaveAsIsConfirmOpen, setIsSaveAsIsConfirmOpen] = useState(false);
+const [milestoneForSaveAsIs, setMilestoneForSaveAsIs] = useState<LocalMilestoneData | null>(null);
+// --- END STATE FOR SAVE AS-IS ---
+
   const [currentTabMilestones, setCurrentTabMilestones] = useState<LocalMilestoneData[]>([]);
 
   const fullManpowerDetails: ManpowerRole[] = [
@@ -1621,6 +1626,70 @@ console.log(user)
     });
   };
 
+  // --- SAVE AS-IS HANDLERS ---
+  const handleSaveAsIsClick = (milestone: LocalMilestoneData) => {
+    // Only show confirmation if:
+    // 1. Milestone is WIP or Not Started AND
+    // 2. Previous milestone had work_plan_ratio === 'Plan Required' OR had existing work_plan
+    const isWIPOrNotStarted = milestone.status === 'WIP' || milestone.status === 'Not Started';
+    const hadPreviousWorkPlan = milestone.work_plan_ratio === 'Plan Required' || (milestone.work_plan && milestone.work_plan.trim() !== '');
+    
+    if (isWIPOrNotStarted && hadPreviousWorkPlan) {
+      // Open the update milestone dialog instead (so user can review/update activities)
+      openUpdateMilestoneDialog(milestone);
+    } else {
+      // Directly save as-is (no confirmation needed)
+      executeSaveAsIs(milestone);
+    }
+  };
+
+  const executeSaveAsIs = (milestone: LocalMilestoneData) => {
+    if (!activeTabValue) return;
+
+    const updatedLocalMilestone: LocalMilestoneData = {
+      ...milestone,
+      is_updated_for_current_report: true,
+      // Keep work_plan_ratio as-is but set to 'Plan Not Required' if empty
+      work_plan_ratio: milestone.work_plan_ratio || 'Plan Not Required',
+    };
+
+    const updatedMilestonesForCurrentTab = [...currentTabMilestones];
+    const existingIndex = updatedMilestonesForCurrentTab.findIndex(
+      m => m.name === updatedLocalMilestone.name && m.work_header === updatedLocalMilestone.work_header
+    );
+
+    if (existingIndex !== -1) {
+      updatedMilestonesForCurrentTab[existingIndex] = updatedLocalMilestone;
+    } else {
+      updatedMilestonesForCurrentTab.push(updatedLocalMilestone);
+    }
+
+    setCurrentTabMilestones(updatedMilestonesForCurrentTab);
+    saveCurrentTabData(updatedMilestonesForCurrentTab);
+
+    // Close confirmation if open
+    setIsSaveAsIsConfirmOpen(false);
+    setMilestoneForSaveAsIs(null);
+
+    toast({
+      title: "Saved As-Is ✅",
+      description: `${milestone.work_milestone_name} marked as updated with no changes.`,
+      variant: "default",
+    });
+  };
+
+  const handleConfirmSaveAsIs = () => {
+    if (milestoneForSaveAsIs) {
+      executeSaveAsIs(milestoneForSaveAsIs);
+    }
+  };
+
+  const handleCancelSaveAsIs = () => {
+    setIsSaveAsIsConfirmOpen(false);
+    setMilestoneForSaveAsIs(null);
+  };
+  // --- END SAVE AS-IS HANDLERS ---
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'Not Started':
@@ -2595,7 +2664,8 @@ console.log(user)
                                   <p >
                                     <span className="font-semibold test-md">{milestone.progress}%</span> <span className="test-sm text-gray-600">completed</span>
                                   </p>
-                                   <div className="flex justify-between items-end w-full mt-2">
+                                   <div className="flex flex-col w-full mt-2 gap-3">
+                                    {/* Expected Date Row */}
                                     {milestone?.status !== 'Not Applicable' && milestone.status!=="Completed" &&( 
                                         <div className="text-sm text-gray-600 flex flex-col items-start">
                                             <span>
@@ -2607,26 +2677,38 @@ console.log(user)
                                                 {milestone.status === 'Not Started' ? (milestone.expected_starting_date || '--') : (milestone.expected_completion_date || '--')}
                                             </span>
                                         </div>)}
-                                            <div className="flex-shrink-0 ml-auto">
+                                        
+                                    {/* Buttons Row */}
+                                    <div className="flex items-center justify-end gap-2 w-full">
   {milestone.is_updated_for_current_report ? (
     // Button for 'EDIT' (when milestone is updated)
     <Button
       onClick={() => openUpdateMilestoneDialog(milestone)}
-      className="bg-gray-200 text-gray-800 hover:bg-gray-300 flex items-center gap-1" // Gray background, dark text, hover, and flex for icon
+      className="bg-gray-200 text-gray-800 hover:bg-gray-300 flex items-center gap-1"
       disabled={isBlockedByDraftOwnership}
     >
-      <CheckCircle className="h-4 w-4 text-green-700 mr-1" /> {/* Green tick icon */}
+      <CheckCircle className="h-4 w-4 text-green-700 mr-1" />
       EDIT
     </Button>
   ) : (
-    // Button for 'UPDATE' (when milestone is not updated)
-    <Button
-      onClick={() => openUpdateMilestoneDialog(milestone)}
-      className="bg-red-600 text-white border border-gray-300 hover:bg-red-700" // Red background, white text, gray border, hover
-      disabled={isBlockedByDraftOwnership}
-    >
-      UPDATE
-    </Button>
+    // Buttons for 'UPDATE' and 'SAME AS BEFORE' (when milestone is not updated)
+    <>
+      <Button
+        onClick={() => handleSaveAsIsClick(milestone)}
+        variant="outline"
+        className="bg-gray-100 text-gray-700 hover:bg-gray-200 border-gray-300 text-sm px-4 py-2"
+        disabled={isBlockedByDraftOwnership}
+      >
+        Same As Before
+      </Button>
+      <Button
+        onClick={() => openUpdateMilestoneDialog(milestone)}
+        className="bg-red-600 text-white border border-gray-300 hover:bg-red-700 text-sm px-4 py-2"
+        disabled={isBlockedByDraftOwnership}
+      >
+        UPDATE
+      </Button>
+    </>
   )}
 </div>
                                    </div>
@@ -3150,6 +3232,39 @@ console.log(user)
         </div>
     </DialogContent>
 </Dialog>
+
+{/* --- SAVE AS-IS CONFIRMATION DIALOG --- */}
+<Dialog open={isSaveAsIsConfirmOpen} onOpenChange={setIsSaveAsIsConfirmOpen}>
+  <DialogContent className="max-w-[350px]">
+    <DialogHeader>
+      <DialogTitle className="text-lg font-bold text-gray-900">Confirm Save As-Is</DialogTitle>
+      <DialogDescription className="text-sm text-gray-600">
+        This milestone ({milestoneForSaveAsIs?.work_milestone_name}) is marked as <span className="font-semibold">{milestoneForSaveAsIs?.status}</span>.
+      </DialogDescription>
+    </DialogHeader>
+    <div className="py-4">
+      <p className="text-sm text-gray-700">
+        Are you sure you want to save this milestone <span className="font-semibold">without recording any activities planned for today</span>?
+      </p>
+    </div>
+    <div className="flex justify-end gap-3">
+      <Button
+        variant="outline"
+        onClick={handleCancelSaveAsIs}
+        className="border-gray-300"
+      >
+        Cancel
+      </Button>
+      <Button
+        onClick={handleConfirmSaveAsIs}
+        className="bg-red-600 hover:bg-red-700 text-white"
+      >
+        Yes, Save As-Is
+      </Button>
+    </div>
+  </DialogContent>
+</Dialog>
+{/* --- END SAVE AS-IS CONFIRMATION DIALOG --- */}
 
         <Dialog open={isCaptureDialogOpen} onOpenChange={setIsCaptureDialogOpen}>
     <DialogContent className=" max-w-[70vh] max-w-[600px] lg:max-w-[90vw] lg:max-w-[600px] p-0 border-none bg-transparent">
