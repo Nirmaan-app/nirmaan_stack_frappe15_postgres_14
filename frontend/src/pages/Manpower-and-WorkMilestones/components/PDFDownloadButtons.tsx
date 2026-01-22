@@ -9,6 +9,16 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { format } from 'date-fns';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface ZoneProgressInfo {
   status: string | null;
@@ -69,6 +79,11 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
   const [isDownloadingZone, setIsDownloadingZone] = useState(false);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
   const [isDownloadingOverall, setIsDownloadingOverall] = useState(false);
+  
+  // Dialog state
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [pendingAction, setPendingAction] = useState<'all_zones' | 'overall' | null>(null);
+  const [missingZonesList, setMissingZonesList] = useState<string[]>([]);
 
   // Check if selected zone has a completed report
   const isSelectedZoneCompleted = useMemo(() => {
@@ -77,14 +92,7 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
     return status?.status?.toLowerCase() === 'completed';
   }, [selectedZone, zoneProgress]);
 
-  // Check if at least one zone has completed report
-  const hasAnyCompletedZone = useMemo(() => {
-    if (!zoneProgress) return false;
-    for (const [_, info] of zoneProgress) {
-      if (info?.status?.toLowerCase() === 'completed') return true;
-    }
-    return false;
-  }, [zoneProgress]);
+
 
   // Count completed zones
   const completedZonesCount = useMemo(() => {
@@ -233,14 +241,54 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
       }
   };
 
+  // Check for missing reports and trigger download or dialog
+  const handleCheckAndDownload = (type: 'all_zones' | 'overall') => {
+    if (!zoneProgress) return;
+
+    const missing: string[] = [];
+    zones.forEach(zone => {
+      const info = zoneProgress.get(zone);
+      if (info?.status?.toLowerCase() !== 'completed') {
+        missing.push(zone);
+      }
+    });
+
+    if (missing.length > 0) {
+      setMissingZonesList(missing);
+      setPendingAction(type);
+      setShowConfirmDialog(true);
+    } else {
+      // Proceed directly if no missing zones
+      if (type === 'all_zones') handleDownloadAllZones();
+      else handleDownloadOverall();
+    }
+  };
+
+  const handleConfirmDownload = () => {
+    setShowConfirmDialog(false);
+    if (pendingAction === 'all_zones') {
+        handleDownloadAllZones();
+    } else if (pendingAction === 'overall') {
+        handleDownloadOverall();
+    }
+    setPendingAction(null);
+  };
+
+
+  // Validation Checks
+  const isSingleZone = zones.length <= 1;
+  const isEnoughCompleted = completedZonesCount >= 2;
+
   // Disable zone button if no zone selected OR zone not completed
   const isZoneButtonDisabled = disabled || isDownloadingZone || !selectedZone || !isSelectedZoneCompleted;
   
-  // Disable all zones button if no completed zones
-  const isAllZonesButtonDisabled = disabled || isDownloadingAll || !hasAnyCompletedZone;
+  // Disable all zones button checks
+  // 1. Must have multiple zones
+  // 2. Must have at least 2 completed zones
+  const isAllZonesButtonDisabled = disabled || isDownloadingAll || isSingleZone || !isEnoughCompleted;
 
-  // Disable overall button if no zones available
-  const isOverallButtonDisabled = disabled || isDownloadingOverall || !zones || zones.length === 0;
+  // Disable overall button checks (same logic as All Zones DPR)
+  const isOverallButtonDisabled = disabled || isDownloadingOverall || isSingleZone || !isEnoughCompleted;
 
   // Truncate zone name for button if too long
   const zoneButtonLabel = selectedZone 
@@ -287,7 +335,7 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
               variant="default"
               size="sm"
               className="h-8 text-xs gap-1 bg-red-600 hover:bg-red-700"
-              onClick={handleDownloadAllZones}
+              onClick={() => handleCheckAndDownload('all_zones')}
               disabled={isAllZonesButtonDisabled}
             >
               {isDownloadingAll ? (
@@ -299,9 +347,11 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
             </Button>
           </TooltipTrigger>
           <TooltipContent side="bottom" className="text-xs">
-            {!hasAnyCompletedZone 
-              ? 'No zones have completed reports'
-              : `Download merged DPR for ${completedZonesCount} completed zone(s)`
+            {isSingleZone 
+              ? 'All Zones report is available only when multiple zones exist.'
+              : !isEnoughCompleted
+                ? 'At least 2 zones must have completed reports.'
+                : `Download merged DPR for ${completedZonesCount} completed zone(s)`
             }
           </TooltipContent>
         </Tooltip>
@@ -315,7 +365,7 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
               variant="default"
               size="sm"
               className="h-8 text-xs gap-1 bg-blue-600 hover:bg-blue-700"
-              onClick={handleDownloadOverall}
+              onClick={() => handleCheckAndDownload('overall')}
               disabled={isOverallButtonDisabled}
             >
               {isDownloadingOverall ? (
@@ -331,6 +381,30 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
+
+
+      <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Some Zones Have Incomplete Reports</AlertDialogTitle>
+            <AlertDialogDescription>
+              Reports are missing for the following zones:
+              <ul className="list-disc pl-5 mt-2 mb-2">
+                {missingZonesList.map(zone => (
+                  <li key={zone}>{zone}</li>
+                ))}
+              </ul>
+              Do you want to proceed and download the report for the completed zones only?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPendingAction(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmDownload}>
+              Confirm / Download
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
