@@ -384,7 +384,7 @@ export const ReleasePOSelect: React.FC = () => {
                         ) : (
                             <p>{row.original.name}</p>
                         )}
-                        <ItemsHoverCard parentDocId={row.original} parentDoctype={"Procurement Orders"} childTableName="items" />
+                        <ItemsHoverCard parentDoc={row.original} parentDoctype={"Procurement Orders"} childTableName="items" />
                     </div>
                     {row.original?.custom === "true" && (
                         <Badge className="w-[100px] flex items-center justify-center">Custom</Badge>

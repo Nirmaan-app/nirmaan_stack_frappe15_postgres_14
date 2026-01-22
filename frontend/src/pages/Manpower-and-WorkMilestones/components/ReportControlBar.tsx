@@ -3,11 +3,13 @@ import { Trash2 } from 'lucide-react';
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatDateForInput, getZoneStatusIndicator, ProjectZoneEntry, ZoneProgressInfo } from '../utils/milestoneHelpers';
+import { PDFDownloadButtons } from './PDFDownloadButtons';
 
 interface ReportControlBarProps {
   // Project data
   projectData: any;
   projectName?: string;
+  projectId: string;  // Added for PDF download
 
   // Zone state
   selectedZone: string | null;
@@ -35,6 +37,7 @@ interface ReportControlBarProps {
 export const ReportControlBar: React.FC<ReportControlBarProps> = ({
   projectData,
   projectName,
+  projectId,
   selectedZone,
   validationZoneProgress,
   onZoneChange,
@@ -49,50 +52,93 @@ export const ReportControlBar: React.FC<ReportControlBarProps> = ({
   onDeleteClick,
 }) => {
   return (
-    <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-4 p-4 shadow-sm border border-gray-300 rounded-md gap-3">
-      {/* Project Name */}
-      <div className="font-bold text-lg text-gray-800 flex items-center gap-2">
-        <span className="font-semibold text-gray-700 whitespace-nowrap">Project:</span>
-        {projectName || projectData?.project_name || "Daily Report Summary"}
-      </div>
-
-      {/* Zone Tabs (with status badges) */}
+    <>
+      {/* Zone Tabs Card (Separate Top Card) */}
       {projectData?.project_zones?.length > 0 && (
-        <div className="flex flex-row md:items-center gap-2 overflow-x-auto pb-1 flex-shrink-0">
-          <span className="font-semibold text-gray-700 whitespace-nowrap flex-shrink-0 hidden md:block">
-            Zone:
-          </span>
-          <div className="flex rounded-md border border-gray-300 overflow-hidden flex-shrink-0">
-            {projectData.project_zones.map((zone: ProjectZoneEntry) => {
-              const zoneStatus = validationZoneProgress.get(zone.zone_name);
-              const statusData = getZoneStatusIndicator(zoneStatus ? zoneStatus.status : null);
+        <div className="mb-3 border border-gray-200 rounded-md bg-white shadow-sm">
+          <div className="flex flex-col md:flex-row md:items-center gap-3 px-4 py-3">
+            <div className="flex items-center gap-3 flex-wrap flex-1">
+              <span className="text-xs font-medium text-gray-500 uppercase tracking-wide flex-shrink-0">
+                Zone
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {projectData.project_zones.map((zone: ProjectZoneEntry) => {
+                  const zoneStatus = validationZoneProgress.get(zone.zone_name);
+                  const statusData = getZoneStatusIndicator(zoneStatus ? zoneStatus.status : null);
 
-              return (
-                <button
-                  key={zone.zone_name}
-                  className={`px-2 py-1 text-xs font-medium transition-colors md:text-sm md:px-3 md:py-1.5 ${
-                    selectedZone === zone.zone_name
-                      ? 'bg-blue-600 text-white shadow-inner'
-                      : 'bg-white text-blue-600 hover:bg-blue-50'
-                  }`}
-                  onClick={() => onZoneChange(zone.zone_name)}
-                >
-                  <span className="text-xs md:text-sm">{zone.zone_name}</span>
-                  <Badge variant="secondary" className={`p-0 ${statusData.color}`}>
-                    {statusData.icon}
-                  </Badge>
-                </button>
-              );
-            })}
+                  return (
+                    <button
+                      key={zone.zone_name}
+                      type="button"
+                      onClick={() => onZoneChange(zone.zone_name)}
+                      className={`px-3 py-1.5 text-sm rounded transition-colors flex items-center gap-1.5 ${
+                        selectedZone === zone.zone_name
+                          ? "bg-sky-500 text-white"
+                          : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                      }`}
+                    >
+                      {zone.zone_name}
+                      <Badge variant="secondary" className={`p-0 ${statusData.color}`}>
+                        {statusData.icon}
+                      </Badge>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            
+            {/* PDF Download Button - below zones on mobile, right side on desktop */}
+            <div className="w-full md:w-auto md:ml-auto">
+              <PDFDownloadButtons
+                projectId={projectId}
+                projectName={projectName || projectData?.project_name}
+                reportDate={displayDate}
+                selectedZone={selectedZone}
+                zones={projectData.project_zones?.map((z: ProjectZoneEntry) => z.zone_name) || []}
+                zoneProgress={validationZoneProgress}
+              />
+            </div>
           </div>
         </div>
       )}
 
-      {/* Right side controls: Delete, Date, Report Type Toggle */}
-      <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
-        {/* Date picker and Delete button (only for Daily) */}
+      {/* Main Control Bar */}
+      <div className="flex flex-col items-center md:flex-row md:items-center md:justify-between mb-4 p-4 shadow-sm border border-gray-300 rounded-md gap-3">
+        {/* Left side: Project Name + Report Type Toggle */}
+        <div className="flex flex-col items-center md:flex-row md:items-center gap-3">
+          {/* Project Name */}
+          <div className="font-bold text-lg text-gray-800 flex items-center gap-2">
+            <span className="font-semibold text-gray-700 whitespace-nowrap">Project:</span>
+            {projectName || projectData?.project_name || "Daily Report Summary"}
+          </div>
+
+          {/* Report Type Toggle */}
+          <div className="flex rounded-md border border-gray-300 overflow-hidden">
+            <button
+              className={`px-4 py-2 text-sm font-medium ${
+                reportType === 'Daily' ? 'bg-blue-600 text-white' : 'bg-white text-blue-600'
+              }`}
+              onClick={() => onReportTypeChange('Daily')}
+            >
+              Daily
+            </button>
+            {/* Hide Overall for Project Manager role */}
+            {userRole !== 'Nirmaan Project Manager Profile' && (
+              <button
+                className={`px-4 py-2 text-sm font-medium whitespace-nowrap ${
+                  reportType === 'Overall' ? 'bg-blue-600 text-white' : 'bg-white text-blue-600'
+                }`}
+                onClick={() => onReportTypeChange('Overall')}
+              >
+                14 Days
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Right side: Date picker and Delete button (only for Daily) */}
         {reportType === 'Daily' && (
-          <>
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
             {/* Delete button */}
             {showDeleteButton && canDelete && (
               <Button
@@ -116,33 +162,10 @@ export const ReportControlBar: React.FC<ReportControlBarProps> = ({
                 className="pl-3 pr-10 py-2 border border-gray-300 rounded-md text-sm cursor-pointer w-full"
               />
             </div>
-          </>
+          </div>
         )}
-
-        {/* Report Type Toggle */}
-        <div className="flex rounded-md border border-gray-300 overflow-hidden w-full md:w-auto">
-          <button
-            className={`flex-1 px-4 py-2 text-sm font-medium ${
-              reportType === 'Daily' ? 'bg-blue-600 text-white' : 'bg-white text-blue-600'
-            }`}
-            onClick={() => onReportTypeChange('Daily')}
-          >
-            Daily
-          </button>
-          {/* Hide Overall for Project Manager role */}
-          {userRole !== 'Nirmaan Project Manager Profile' && (
-            <button
-              className={`flex-1 px-4 py-2 text-sm font-medium ${
-                reportType === 'Overall' ? 'bg-blue-600 text-white' : 'bg-white text-blue-600'
-              }`}
-              onClick={() => onReportTypeChange('Overall')}
-            >
-              Overall
-            </button>
-          )}
-        </div>
       </div>
-    </div>
+    </>
   );
 };
 

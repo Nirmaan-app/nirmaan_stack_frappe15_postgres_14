@@ -196,7 +196,7 @@ export const ApproveSelectSR: React.FC = () => {
               </Link>
               <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                 <ItemsHoverCard
-                  parentDocId={data}
+                  parentDoc={data}
                   parentDoctype="Service Requests"
                   childTableName="service_order_list"
                   isSR

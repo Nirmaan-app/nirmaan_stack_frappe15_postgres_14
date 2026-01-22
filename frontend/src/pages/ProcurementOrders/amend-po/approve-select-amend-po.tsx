@@ -211,7 +211,7 @@ export const ApproveSelectAmendPO: React.FC = () => {
               {/* Ensure order_list structure is correct for hover card */}
               <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                 <ItemsHoverCard
-                  parentDocId={data}
+                  parentDoc={data}
                   parentDoctype={"Procurement Orders"}
                   childTableName="items"
                 />

@@ -320,7 +320,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                                 <Link to={projectId ? (isPO ? `po/${poId}` : `/service-requests-list/${poId}`) : `${poId}`} className="underline hover:underline-offset-2">
                                     {id}
                                 </Link>
-                                {isPO ? (<ItemsHoverCard parentDocId={data} parentDoctype={"Procurement Orders"} childTableName="items" />) : (<ItemsHoverCard parentDocId={data} parentDoctype="Service Requests" childTableName="service_order_list" isSR />)}
+                                {isPO ? (<ItemsHoverCard parentDoc={data} parentDoctype={"Procurement Orders"} childTableName="items" />) : (<ItemsHoverCard parentDoc={data} parentDoctype="Service Requests" childTableName="service_order_list" isSR />)}
 
                             </div>
                         </div>

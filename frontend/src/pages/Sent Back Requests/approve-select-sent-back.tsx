@@ -186,7 +186,7 @@ export const ApproveSelectSentBack: React.FC = () => {
               <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                 {/* Pass correct item structure to hover card */}
                 <ItemsHoverCard
-                  parentDocId={data}
+                  parentDoc={data}
                   parentDoctype={DOCTYPE}
                   childTableName={"order_list"}
                   isSB
