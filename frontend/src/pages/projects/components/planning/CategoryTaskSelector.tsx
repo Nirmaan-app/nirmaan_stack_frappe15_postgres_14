@@ -22,6 +22,7 @@ interface CategoryTaskSelectorProps {
     onTaskChange: (taskId: string, taskDoc: Task | null) => void;
     isLoading?: boolean;
     disabled?: boolean;
+    required?: boolean;
 }
 
 // Custom styles for React-Select
@@ -56,6 +57,7 @@ export const CategoryTaskSelector: React.FC<CategoryTaskSelectorProps> = ({
     onTaskChange,
     isLoading = false,
     disabled = false,
+    required = false,
 }) => {
     // Filter tasks based on selected category
     const filteredTasks = useMemo(() => {
@@ -65,22 +67,15 @@ export const CategoryTaskSelector: React.FC<CategoryTaskSelectorProps> = ({
 
     // Category options for React-Select
     const categoryOptions = useMemo(() => {
-        return [
-            { value: "", label: "All Categories" },
-            ...categories.map(cat => ({ value: cat, label: cat }))
-        ];
+        return categories.map(cat => ({ value: cat, label: cat }));
     }, [categories]);
 
     // Task options for React-Select
     const taskOptions = useMemo(() => {
-        const options = [
-            { value: "", label: "No task selected" },
-            ...filteredTasks.map(task => ({
-                value: task.name,
-                label: `${task.item_name}${task.associated_pos_count > 0 ? ` (${task.associated_pos_count} POs)` : ''}`
-            }))
-        ];
-        return options;
+        return filteredTasks.map(task => ({
+            value: task.name,
+            label: `${task.item_name}${task.associated_pos_count > 0 ? ` (${task.associated_pos_count} POs)` : ''}`
+        }));
     }, [filteredTasks]);
 
     // Auto-fill category when task is selected
@@ -123,6 +118,7 @@ export const CategoryTaskSelector: React.FC<CategoryTaskSelectorProps> = ({
                     <Label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
                         <Folder className="h-4 w-4 text-blue-500" />
                         Critical PO Category
+                        {required && <span className="text-red-500">*</span>}
                     </Label>
                     <ReactSelect
                         options={categoryOptions}
@@ -130,7 +126,30 @@ export const CategoryTaskSelector: React.FC<CategoryTaskSelectorProps> = ({
                         onChange={handleCategoryChange}
                         placeholder="Select Category..."
                         isDisabled={disabled || isLoading}
-                        styles={selectStyles}
+                        styles={{
+                            ...selectStyles,
+                            control: (base: any, state: any) => ({
+                                ...base,
+                                minHeight: '40px',
+                                borderColor: required && !selectedCategory 
+                                    ? '#ef4444' 
+                                    : state.isFocused ? '#3b82f6' : '#e2e8f0',
+                                boxShadow: state.isFocused 
+                                    ? required && !selectedCategory 
+                                        ? '0 0 0 2px rgba(239, 68, 68, 0.2)' 
+                                        : '0 0 0 2px rgba(59, 130, 246, 0.2)' 
+                                    : 'none',
+                                '&:hover': {
+                                    borderColor: required && !selectedCategory ? '#ef4444' : '#3b82f6'
+                                }
+                            }),
+                            option: (base: any, state: any) => ({
+                                ...base,
+                                backgroundColor: state.isSelected ? '#3b82f6' : state.isFocused ? '#f1f5f9' : 'white',
+                                color: state.isSelected ? 'white' : '#1e293b',
+                                cursor: 'pointer'
+                            })
+                        }}
                         isClearable
                     />
                 </div>
@@ -140,14 +159,38 @@ export const CategoryTaskSelector: React.FC<CategoryTaskSelectorProps> = ({
                     <Label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
                         <ListTodo className="h-4 w-4 text-orange-500" />
                         Critical PO Task
+                        {required && <span className="text-red-500">*</span>}
                     </Label>
                     <ReactSelect
                         options={taskOptions}
                         value={taskOptions.find(opt => opt.value === selectedTask) || null}
                         onChange={handleTaskChange}
-                        placeholder="Select Task (Optional)..."
+                        placeholder="Select Task..."
                         isDisabled={disabled || isLoading}
-                        styles={selectStyles}
+                        styles={{
+                            ...selectStyles,
+                            control: (base: any, state: any) => ({
+                                ...base,
+                                minHeight: '40px',
+                                borderColor: required && !selectedTask 
+                                    ? '#ef4444' 
+                                    : state.isFocused ? '#3b82f6' : '#e2e8f0',
+                                boxShadow: state.isFocused 
+                                    ? required && !selectedTask 
+                                        ? '0 0 0 2px rgba(239, 68, 68, 0.2)' 
+                                        : '0 0 0 2px rgba(59, 130, 246, 0.2)' 
+                                    : 'none',
+                                '&:hover': {
+                                    borderColor: required && !selectedTask ? '#ef4444' : '#3b82f6'
+                                }
+                            }),
+                            option: (base: any, state: any) => ({
+                                ...base,
+                                backgroundColor: state.isSelected ? '#3b82f6' : state.isFocused ? '#f1f5f9' : 'white',
+                                color: state.isSelected ? 'white' : '#1e293b',
+                                cursor: 'pointer'
+                            })
+                        }}
                         isClearable
                         noOptionsMessage={() => 
                             filteredTasks.length === 0 

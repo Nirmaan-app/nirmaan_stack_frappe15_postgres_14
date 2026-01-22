@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CalendarIcon, X, Package, CheckCircle2 } from "lucide-react";
+import { CalendarIcon, X, Package, CheckCircle2, Pencil } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import {
@@ -48,6 +48,7 @@ interface ReviewPlansPageProps {
     taskName?: string;
     availablePOs?: POItem[];
     associatedPOIds?: string[];
+    allTasks?: any[]; // Tasks list for editing
 }
 
 export const ReviewPlansPage: React.FC<ReviewPlansPageProps> = ({
@@ -61,6 +62,7 @@ export const ReviewPlansPage: React.FC<ReviewPlansPageProps> = ({
     taskName,
     availablePOs = [],
     associatedPOIds = [],
+    allTasks = [],
 }) => {
     // Generate options for ReactSelect
     const poOptions = useMemo(() => 
@@ -79,7 +81,11 @@ export const ReviewPlansPage: React.FC<ReviewPlansPageProps> = ({
         const updatedPlans = [...plans];
         const assocTasks = newPO.associated_tasks || [];
         const isLocal = associatedPOIds.includes(newPO.name);
-        const isCritical = assocTasks.length > 0 || isLocal;
+        
+        // Fallback logic: if no intrinsic data, use form's selected category/task
+        const hasFormContext = !!(categoryName && taskName);
+        const isFallback = !assocTasks.length && !isLocal && hasFormContext;
+        const isCritical = assocTasks.length > 0 || isLocal || isFallback;
         
         updatedPlans[planIndex] = {
             ...updatedPlans[planIndex],
@@ -88,8 +94,8 @@ export const ReviewPlansPage: React.FC<ReviewPlansPageProps> = ({
             items: newPO.items || [],
             selectedItems: new Set(), // Reset selection as items changed
             isCritical: isCritical,
-            category: assocTasks.length > 0 ? assocTasks[0].category : (isLocal ? categoryName : undefined),
-            task: assocTasks.length > 0 ? assocTasks[0].item_name : (isLocal ? taskName : undefined)
+            category: assocTasks.length > 0 ? assocTasks[0].category : ((isLocal || isFallback) ? categoryName : undefined),
+            task: assocTasks.length > 0 ? assocTasks[0].item_name : ((isLocal || isFallback) ? taskName : undefined)
         };
         
         onPlansChange(updatedPlans);
@@ -229,19 +235,19 @@ export const ReviewPlansPage: React.FC<ReviewPlansPageProps> = ({
                                         menuPortalTarget={document.body}
                                         styles={{
                                             menuPortal: (base) => ({ ...base, zIndex: 9999 }),
-                                            control: (base) => ({ ...base, height: '30px', minHeight: '30px' })
+                                            // control: (base) => ({ ...base, height: '30px', minHeight: '30px' })
                                         }}
                                         className="text-sm font-normal"
                                     />
                                 </div>
-                                {plan.isCritical ? (
+                                {/* {plan.isCritical ? (
                                     <Badge className="bg-blue-500 whitespace-nowrap">
                                         <CheckCircle2 className="h-3 w-3 mr-1" />
                                         Critical PO
                                     </Badge>
                                 ) : (
                                     <Badge className="bg-red-500 whitespace-nowrap">Not Critical PO</Badge>
-                                )}
+                                )} */}
                             </CardTitle>
                             {(() => {
                                 const currentPO = availablePOs.find(p => p.name === plan.poId);
@@ -255,30 +261,181 @@ export const ReviewPlansPage: React.FC<ReviewPlansPageProps> = ({
                                         category: t.category
                                     }));
                                     
-                                    // If current task is not in options, or distinct, render Select
+                                    // Check if editing mode
+                                    const isEditingIntrinsic = (plan as any)._isEditingIntrinsic;
+                                    const currentTask = taskOptions.find(o => o.value === plan.task);
+                                    
+                                    // Intrinsic PO Data - Green styling
+                                    if (isEditingIntrinsic) {
+                                        // Show dropdown when editing
+                                        return (
+                                            <div className="mt-2 flex items-center gap-2">
+                                                <Badge className="bg-green-500 whitespace-nowrap text-xs">
+                                                    <CheckCircle2 className="h-3 w-3 mr-1" />
+                                                    Critical PO 
+                                                    {/* (Intrinsic) */}
+                                                </Badge>
+                                                <div className="w-[350px]" onClick={e => e.stopPropagation()}>
+                                                    <ReactSelect
+                                                        options={taskOptions}
+                                                        value={currentTask || null}
+                                                        onChange={(opt) => {
+                                                            handleTaskChange(planIndex, opt);
+                                                            // Turn off edit mode
+                                                            const updated = [...plans];
+                                                            (updated[planIndex] as any)._isEditingIntrinsic = false;
+                                                            onPlansChange(updated);
+                                                        }}
+                                                        placeholder="Select Critical Task..."
+                                                        menuPortalTarget={document.body}
+                                                        styles={{
+                                                            menuPortal: (base: any) => ({ ...base, zIndex: 9999 }),
+                                                            control: (base: any) => ({ 
+                                                                ...base, 
+                                                                minHeight: '30px', 
+                                                                fontSize: '0.875rem',
+                                                                borderColor: '#22c55e',
+                                                                '&:hover': { borderColor: '#16a34a' }
+                                                            }),
+                                                            singleValue: (base: any) => ({
+                                                                ...base,
+                                                                color: '#16a34a',
+                                                                fontWeight: 500
+                                                            })
+                                                        }}
+                                                    />
+                                                </div>
+                                                <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => {
+                                                    const updated = [...plans];
+                                                    (updated[planIndex] as any)._isEditingIntrinsic = false;
+                                                    onPlansChange(updated);
+                                                }}>
+                                                    <X className="h-4 w-4" />
+                                                </Button>
+                                            </div>
+                                        );
+                                    }
+                                    
+                                    // Show text with edit icon by default
                                     return (
-                                        <div className="mt-2 w-[400px]" onClick={e => e.stopPropagation()}>
-                                            <ReactSelect
-                                                options={taskOptions}
-                                                value={taskOptions.find(o => o.value === plan.task) || null}
-                                                onChange={(opt) => handleTaskChange(planIndex, opt)}
-                                                placeholder="Select Critical Task..."
-                                                menuPortalTarget={document.body}
-                                                styles={{
-                                                    menuPortal: (base) => ({ ...base, zIndex: 9999 }),
-                                                    control: (base) => ({ ...base, minHeight: '30px', fontSize: '0.875rem' })
+                                        <div className="mt-2 flex items-center gap-2">
+                                            <Badge className="bg-green-500 whitespace-nowrap text-xs">
+                                                <CheckCircle2 className="h-3 w-3 mr-1" />
+                                                Critical PO 
+                                                {/* (Intrinsic) */}
+                                            </Badge>
+                                            <p className="text-sm text-green-600 flex items-center gap-2 font-medium">
+                                                <span>{currentTask?.category || plan.category}</span>
+                                                <span className="text-green-300">|</span>
+                                                <span>{currentTask?.value || plan.task}</span>
+                                            </p>
+                                            <Button 
+                                                size="icon" 
+                                                variant="ghost" 
+                                                className="h-6 w-6 text-green-500 hover:text-green-700"
+                                                onClick={() => {
+                                                    const updated = [...plans];
+                                                    (updated[planIndex] as any)._isEditingIntrinsic = true;
+                                                    onPlansChange(updated);
                                                 }}
-                                            />
+                                            >
+                                                <Pencil className="h-3 w-3" />
+                                            </Button>
                                         </div>
                                     );
                                 }
                                 
                                 // Fallback / No associated tasks (Manual or Single from Global)
                                 if (categoryName && taskName && plan.isCritical) {
+                                     // Check if we are in editing mode for this specific plan
+                                     const isEditing = (plan as any)._isEditing;
+
+                                     if (isEditing) {
+                                         // Show a full task selector here (simplified for now to just show all associated tasks if any, or we might need to pass all tasks)
+                                         // Ideally we need 'allTasks' passed to this component to allow full re-selection.
+                                         // But based on user request "show edit edit after icon than allo to chnage", let's assume we want to enable the dropdown.
+                                         
+                                         // If the PO has associated tasks, we show them. 
+                                         // If NOT, we might need to allow picking from ALL tasks?
+                                         // The current logic handles "associatedTasks.length > 0" in the block above.
+                                         // This block is for when there are NO associated tasks or just one defaulted.
+                                         
+                                         // If we want to allow changing to ANY task, we need the full list of tasks.
+                                         // Let's assume we can pass `allTasks` to ReviewPlansPage.
+                                         
+                                         // For now, let's implement the UI switch. Logic to actually fetch/show other tasks might need `allTasks` prop.
+                                         return (
+                                            <div className="flex items-center gap-2 mt-2">
+                                                <div className="w-[300px]" onClick={e => e.stopPropagation()}>
+                                                    <ReactSelect
+                                                            options={allTasks.map(t => ({
+                                                                value: t.name,
+                                                                label: `${t.item_name} (${t.critical_po_category})`,
+                                                                category: t.critical_po_category,
+                                                                // Store original task name as value if needed, but display item_name
+                                                                original: t
+                                                            }))}
+                                                            value={
+                                                                allTasks.find(t => t.item_name === plan.task) 
+                                                                    ? { 
+                                                                        value: allTasks.find(t => t.item_name === plan.task)?.name, 
+                                                                        label: plan.task 
+                                                                    } 
+                                                                    : null
+                                                            }
+                                                            onChange={(opt: any) => {
+                                                                if (opt) {
+                                                                    const updated = [...plans];
+                                                                    const planToUpdate = updated[planIndex];
+                                                                    planToUpdate.task = opt.original.item_name;
+                                                                    planToUpdate.category = opt.original.critical_po_category;
+                                                                    (planToUpdate as any)._isEditing = false;
+                                                                    onPlansChange(updated);
+                                                                }
+                                                            }}
+                                                            menuPortalTarget={document.body}
+                                                            styles={{
+                                                                menuPortal: (base: any) => ({ ...base, zIndex: 9999 }),
+                                                                control: (base: any) => ({ ...base, minHeight: '30px', fontSize: '0.875rem' })
+                                                            }}
+                                                    />
+                                                </div>
+                                                <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => {
+                                                    const updated = [...plans];
+                                                    (updated[planIndex] as any)._isEditing = false;
+                                                    onPlansChange(updated);
+                                                }}>
+                                                    <X className="h-4 w-4" />
+                                                </Button>
+                                            </div>
+                                         );
+                                     }
+
                                      return (
-                                        <p className="text-sm text-muted-foreground">
-                                            Category: {categoryName} | Task: {taskName}
-                                        </p>
+                                        <div className="flex items-center gap-2 mt-1">
+                                            <Badge className="bg-red-500 whitespace-nowrap text-xs">
+                                                <CheckCircle2 className="h-3 w-3 mr-1" />
+                                                Critical PO 
+                                                {/* (Fallback) */}
+                                            </Badge>
+                                            <p className="text-sm text-red-600 flex items-center gap-2 font-medium">
+                                                <span>{categoryName}</span>
+                                                <span className="text-red-300">|</span>
+                                                <span>{taskName}</span>
+                                            </p>
+                                            <Button 
+                                                size="icon" 
+                                                variant="ghost" 
+                                                className="h-6 w-6 text-red-500 hover:text-red-700"
+                                                onClick={() => {
+                                                    const updated = [...plans];
+                                                    (updated[planIndex] as any)._isEditing = true;
+                                                    onPlansChange(updated);
+                                                }}
+                                            >
+                                                <Pencil className="h-3 w-3" />
+                                            </Button>
+                                        </div>
                                     );
                                 }
                                 

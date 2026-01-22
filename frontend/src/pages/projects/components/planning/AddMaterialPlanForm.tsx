@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { X, ChevronDown, Check, ChevronsUpDown, PlusCircleIcon, Search, Package, ExternalLink } from "lucide-react";
+import { X, ChevronDown, Check, ChevronsUpDown, PlusCircleIcon, Search, Package, ExternalLink, RefreshCw } from "lucide-react";
 import ReactSelect from 'react-select';
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup"; 
@@ -29,7 +29,7 @@ interface Task {
 
 interface POItem {
     name: string;
-    item_name: string;
+    item_name?: string;
     items_count?: number;
     creation?: string;
     status?: string;
@@ -241,39 +241,72 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
         setSelectedItems({});
     };
     
-    const handleAllPOsConfirm = (pos: POItem[]) => {
+    const handleAllPOsConfirm = (pos: POItem[], modalSelectedItems: Record<string, Set<string>>) => {
         setSelectedPOs(pos);
         setShowAllPOsModal(false);
+
+        // Sync Task Context from selected PO
+        if (pos.length > 0) {
+            const firstPO = pos[0];
+            const assocTasks = firstPO.associated_tasks || [];
+            
+            // If PO has associated tasks, switch context to the first one
+            if (assocTasks.length > 0) {
+                const targetTaskName = assocTasks[0].task_name;
+                
+                // Only switch if different from current
+                if (targetTaskName && targetTaskName !== selectedTask) {
+                    const targetTaskDoc = allTasks.find((t: Task) => t.name === targetTaskName);
+                    
+                    if (targetTaskDoc) {
+                        setSelectedTask(targetTaskName);
+                        setSelectedTaskDoc(targetTaskDoc);
+                        if (targetTaskDoc.critical_po_category) {
+                            setSelectedCategory(targetTaskDoc.critical_po_category);
+                        }
+                        
+                        toast({
+                            title: "Plan Context Updated",
+                            description: `Switched to ${targetTaskDoc.item_name} based on selected PO.`,
+                            variant: "default"
+                        });
+                    }
+                }
+            }
+        }
+        
+        // Count total items selected
+        let totalItems = 0;
+        Object.values(modalSelectedItems).forEach(set => totalItems += set.size);
         
         // Show confirmation toast
         toast({
             title: "POs Selected",
-            description: `${pos.length} PO(s) selected. Setting up review...`,
+            description: `${pos.length} PO(s) with ${totalItems} items selected. Setting up review...`,
             variant: "default"
         });
         
-        // Auto-select items for all selected POs (to match new flow)
-        const newSelectedItems: Record<string, any> = {};
-        pos.forEach(po => {
-            (po.items || []).forEach((item: any) => {
-                newSelectedItems[item.name] = item;
-            });
-        });
-        setSelectedItems(newSelectedItems);
-        
-        // Build plans for review with all items pre-selected
+        // Build plans for review using the modal's selected items
         const plans: POPlan[] = pos.map(po => {
             const assocTasks = po.associated_tasks || [];
             const isLocal = associatedPOs.includes(po.name);
+            
+            // Fallback context if no existing association
+            const hasFormContext = !!(selectedCategory && selectedTaskDoc?.item_name);
+            const isFallback = !assocTasks.length && !isLocal && hasFormContext;
+            
+            // Use the items selected in the modal
+            const poItemsSet = modalSelectedItems[po.name] || new Set();
+
             return {
                 poId: po.name,
                 poName: po.name,
                 items: po.items || [],
-                selectedItems: new Set((po.items || []).map((i: any) => i.name)),
+                selectedItems: poItemsSet,
                 deliveryDate: "",
-                isCritical: assocTasks.length > 0 || isLocal,
-                category: assocTasks.length > 0 ? assocTasks[0].category : (isLocal ? selectedCategory : undefined),
-                task: assocTasks.length > 0 ? assocTasks[0].item_name : (isLocal ? selectedTaskDoc?.item_name : undefined)
+                isCritical: assocTasks.length > 0 || isLocal || isFallback,
+                category: assocTasks.length > 0 ? assocTasks[0].category : (isLocal || isFallback ? selectedCategory : undefined),
+                task: assocTasks.length > 0 ? assocTasks[0].item_name : (isLocal || isFallback ? selectedTaskDoc?.item_name : undefined)
             };
         });
         setReviewPlans(plans);
@@ -406,6 +439,17 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
             });
             return;
         }
+
+        // Validate Critical PO Category and Task for New PO
+        if (!selectedCategory || !selectedTask) {
+            toast({
+                title: "Incomplete Selection",
+                description: "Please select a Critical PO Category and Task.",
+                variant: "destructive"
+            });
+            return;
+        }
+
         if (!deliveryDate) {
             toast({
                 title: "Missing Delivery Date",
@@ -488,6 +532,7 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                     taskName={selectedTaskDoc?.item_name}
                     availablePOs={allProjectPOs}
                     associatedPOIds={associatedPOs}
+                    allTasks={allTasks}
                 />
             </div>
         );
@@ -505,6 +550,27 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
 
             {/* Step 1: Category/Task Selection (V2) */}
             <div className="mb-6">
+                <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-gray-700">Select Critical PO Task</span>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs text-blue-600 hover:text-blue-800"
+                        onClick={() => {
+                            fetchCategoriesAndTasks({ project: projectId });
+                            fetchAllPOs({ project: projectId });
+                            toast({
+                                title: "Refreshing...",
+                                description: "Fetching latest Categories & Tasks",
+                                variant: "default"
+                            });
+                        }}
+                        disabled={isLoadingCatTasks}
+                    >
+                        <RefreshCw className={`h-3 w-3 mr-1 ${isLoadingCatTasks ? 'animate-spin' : ''}`} />
+                        Refresh
+                    </Button>
+                </div>
                 <CategoryTaskSelector
                     categories={categories}
                     tasks={allTasks}
@@ -513,27 +579,31 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                     onCategoryChange={handleCategoryChange}
                     onTaskChange={handleTaskChange}
                     isLoading={isLoadingCatTasks}
+                    required={poMode === "new"}
                 />
             </div>
 
-            {/* Step 2: PO Mode Selection */}
-            <div className="mb-6">
-                <Label className="mb-2 block">PO Type</Label>
-                <RadioGroup 
-                    value={poMode} 
-                    onValueChange={(v) => handlePOModeChange(v as "existing" | "new")}
-                    className="flex gap-4"
-                >
-                    <div className="flex items-center gap-2">
-                        <RadioGroupItem value="existing" id="existing" />
-                        <Label htmlFor="existing" className="cursor-pointer">Existing PO</Label>
+
+            {/* Step 2: PO Mode Selection - Shown only if Task is selected */}
+            {selectedTask && (
+                <div className="animate-in fade-in slide-in-from-top-2 duration-300">
+                    <div className="mb-6">
+                        <Label className="mb-2 block">PO Type</Label>
+                        <RadioGroup 
+                            value={poMode} 
+                            onValueChange={(v) => handlePOModeChange(v as "existing" | "new")}
+                            className="flex gap-4"
+                        >
+                            <div className="flex items-center gap-2">
+                                <RadioGroupItem value="existing" id="existing" />
+                                <Label htmlFor="existing" className="cursor-pointer">Existing PO</Label>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <RadioGroupItem value="new" id="new" />
+                                <Label htmlFor="new" className="cursor-pointer">New PO</Label>
+                            </div>
+                        </RadioGroup>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <RadioGroupItem value="new" id="new" />
-                        <Label htmlFor="new" className="cursor-pointer">New PO</Label>
-                    </div>
-                </RadioGroup>
-            </div>
 
             {/* Existing PO Mode */}
             {poMode === "existing" && (
@@ -810,36 +880,38 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                 </>
             )}
 
-            {/* New PO Mode */}
-            {poMode === "new" && (
-                <>
-                    <div className="mb-4">
-                        <Label className="mb-2 block">Enter Materials (one per line)</Label>
-                        <Textarea
-                            placeholder="Steel Rods 12mm&#10;Cement 50kg&#10;Sand Fine"
-                            value={manualItemsText}
-                            onChange={(e) => setManualItemsText(e.target.value)}
-                            rows={5}
-                        />
-                    </div>
-                    
-                    <div className="mb-4">
-                        <Label className="mb-2 block">Delivery Date</Label>
-                        <input
-                            type="date"
-                            value={deliveryDate}
-                            onChange={(e) => setDeliveryDate(e.target.value)}
-                            className="w-full p-2 border rounded-md"
-                        />
-                    </div>
-                    
-                    <div className="flex justify-end gap-2">
-                        <Button variant="outline" onClick={onClose}>Cancel</Button>
-                        <Button onClick={handleSubmitNewPO} disabled={isCreating}>
-                            {isCreating ? "Creating..." : "Create Plan"}
-                        </Button>
-                    </div>
-                </>
+                    {/* New PO Mode */}
+                    {poMode === "new" && (
+                        <>
+                            <div className="mb-4">
+                                <Label className="mb-2 block">Enter Materials (one per line)</Label>
+                                <Textarea
+                                    placeholder="Steel Rods 12mm&#10;Cement 50kg&#10;Sand Fine"
+                                    value={manualItemsText}
+                                    onChange={(e) => setManualItemsText(e.target.value)}
+                                    rows={5}
+                                />
+                            </div>
+                            
+                            <div className="mb-4">
+                                <Label className="mb-2 block">Delivery Date</Label>
+                                <input
+                                    type="date"
+                                    value={deliveryDate}
+                                    onChange={(e) => setDeliveryDate(e.target.value)}
+                                    className="w-full p-2 border rounded-md"
+                                />
+                            </div>
+                            
+                            <div className="flex justify-end gap-2">
+                                <Button variant="outline" onClick={onClose}>Cancel</Button>
+                                <Button onClick={handleSubmitNewPO} disabled={isCreating}>
+                                    {isCreating ? "Creating..." : "Create Plan"}
+                                </Button>
+                            </div>
+                        </>
+                    )}
+                </div>
             )}
 
             {/* All POs Modal */}
@@ -850,6 +922,8 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                 pos={allProjectPOs}
                 associatedPOs={associatedPOs}
                 isLoading={isLoadingAllPOs}
+                currentCategory={selectedCategory}
+                currentTask={selectedTaskDoc?.item_name}
             />
         </div>
     );
