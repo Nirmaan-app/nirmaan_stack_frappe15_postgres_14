@@ -60,7 +60,7 @@ export default function POReports() {
     [selectedReportType]
   );
   const payment_delta = 100;
-  const invoice_delta = 100;
+  const invoice_delta = 10;
 
   // 3. Perform the report-specific dynamic filtering on the client side.
   // This `currentDisplayData` is what will be shown in the table.
@@ -95,7 +95,7 @@ export default function POReports() {
             poDoc.status === "Delivered"
           ) {
             return (
-              parseNumber(poDoc.amount_paid) - parseNumber(row.invoiceAmount) >=
+              parseNumber(row.totalAmount) - parseNumber(row.invoiceAmount) >=
               invoice_delta
             );
           }

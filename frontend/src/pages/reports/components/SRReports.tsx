@@ -45,7 +45,7 @@ export default function SRReports() {
     (state) => state.selectedReportType as SROption | null
   );
   const tableColumnsToDisplay = useMemo(() => srColumns, []); // srColumns are static for now
-  const delta = 100;
+  const delta = 10;
 
   // 2. Perform report-specific dynamic filtering on the client side.
   const currentDisplayData = useMemo(() => {
@@ -69,7 +69,7 @@ export default function SRReports() {
           if (srDoc.status === "Approved") {
             // Using pre-calculated fields from SRReportRowData
             return (
-              parseNumber(srDoc.amount_paid) - parseNumber(row.invoiceAmount) >=
+              parseNumber(row.totalAmount) - parseNumber(row.invoiceAmount) >=
               delta
             );
           }
