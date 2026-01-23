@@ -158,8 +158,22 @@ def get_tds_request_list(
     
     data = frappe.db.sql(sql_query, values, as_dict=True)
     
-    # derived status for UI
+    # Lookup full_name for created_by (owner) from Nirmaan Users
+    owner_emails = list(set([row.get('created_by') for row in data if row.get('created_by')]))
+    owner_name_map = {}
+    if owner_emails:
+        users = frappe.get_all(
+            "Nirmaan Users",
+            filters={"name": ["in", owner_emails]},
+            fields=["name", "full_name"]
+        )
+        owner_name_map = {u['name']: u['full_name'] for u in users if u.get('full_name')}
+    
+    # derived status for UI + add full_name
     for row in data:
+        # Add full name (fallback to email if not found)
+        row['created_by_full_name'] = owner_name_map.get(row.get('created_by'), row.get('created_by'))
+        
         p = (row.pending_count or 0) > 0
         a = (row.approved_count or 0) > 0
         r = (row.rejected_count or 0) > 0

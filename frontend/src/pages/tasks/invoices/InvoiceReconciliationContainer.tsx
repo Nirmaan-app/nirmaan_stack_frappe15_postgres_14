@@ -1,8 +1,6 @@
-// import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"; // Use shadcn Tabs
-import { INVOICE_TASK_TABS } from './constants';
+import { INVOICE_TASK_TABS, INVOICE_TASK_TAB_OPTIONS, INVOICE_TYPE_TAB_OPTIONS } from './constants';
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useUserData } from "@/hooks/useUserData";
-import { Radio } from "antd";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { getUrlStringParam } from '@/hooks/useServerDataTable';
 import { urlStateManager } from '@/utils/urlStateManager';
@@ -47,57 +45,13 @@ export default function InvoiceReconciliationContainer() {
     }, [initialTab]); // Depend on `tab` to avoid stale closures
 
 
-    const tabs = useMemo(() => [
-            ...(["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile"].includes(role) ? [
-                {
-                    label: (
-                        <div className="flex items-center">
-                            <span>Pending Tasks</span>
-                            {/* <span className="ml-2 text-xs font-bold">
-                                {role === "Nirmaan Admin Profile" ? adminPaymentsCount?.requested : paymentsCount?.requested}
-                            </span> */}
-                        </div>
-                    ),
-                    value: INVOICE_TASK_TABS.PENDING,
-                },
-            ] : []),
-            {
-              label: (
-                  <div className="flex items-center">
-                      <span>Task History</span>
-                      {/* <span className="ml-2 text-xs font-bold">
-                          {role === "Nirmaan Admin Profile" ? adminPaymentsCount?.requested : paymentsCount?.requested}
-                      </span> */}
-                  </div>
-              ),
-              value: INVOICE_TASK_TABS.HISTORY,
-          },
-        ], [role])
-
-        const invoicesTab=useMemo(() => [
-
-            {
-              label: (
-                  <div className="flex items-center">
-                      <span>SR Invoices</span>
-                      {/* <span className="ml-2 text-xs font-bold">
-                          {role === "Nirmaan Admin Profile" ? adminPaymentsCount?.requested : paymentsCount?.requested}
-                      </span> */}
-                  </div>
-              ),
-              value: INVOICE_TASK_TABS.SR_INVOICES,
-          },{
-              label: (
-                  <div className="flex items-center">
-                      <span>PO Invoices</span>
-                      {/* <span className="ml-2 text-xs font-bold">
-                          {role === "Nirmaan Admin Profile" ? adminPaymentsCount?.requested : paymentsCount?.requested}
-                      </span> */}
-                  </div>
-              ),
-              value: INVOICE_TASK_TABS.PO_INVOICES,
-          }
-        ],[role])
+    // Filter task tabs based on role (only Admin/PMO/Accountant can see pending approvals)
+    const taskTabs = useMemo(() => {
+        const canViewPending = ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile"].includes(role);
+        return canViewPending
+            ? INVOICE_TASK_TAB_OPTIONS
+            : INVOICE_TASK_TAB_OPTIONS.filter(t => t.value !== INVOICE_TASK_TABS.PENDING);
+    }, [role]);
          
 
     const onClick = useCallback(
@@ -108,32 +62,50 @@ export default function InvoiceReconciliationContainer() {
         }, [tab]);
 
     return (
-        <div
-        >
+        <div>
+            {/* Tab Navigation - Credit Payments Style */}
+            <div className="pb-4">
+                <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">
+                    <div className="flex gap-1.5 sm:flex-wrap pb-1 sm:pb-0">
+                        {/* Task Tabs */}
+                        {taskTabs.map((option) => (
+                            <button
+                                key={option.value}
+                                type="button"
+                                onClick={() => onClick(option.value)}
+                                className={`px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded
+                                    transition-colors flex items-center gap-1.5 whitespace-nowrap
+                                    ${tab === option.value
+                                        ? "bg-sky-500 text-white"
+                                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                    }`}
+                            >
+                                {option.label}
+                            </button>
+                        ))}
 
-             <div className="space-x-8"
-        >
-            {tabs && (
-                    <Radio.Group
-                        options={tabs}
-                        defaultValue="pending"
-                        optionType="button"
-                        buttonStyle="solid"
-                        value={tab}
-                        onChange={(e) => onClick(e.target.value)}
-                    />
-                )}
-                {invoicesTab && (
-                    <Radio.Group
-                        options={invoicesTab}
-                        optionType="button"
-                        buttonStyle="solid"
-                        value={tab}
-                        onChange={(e) => onClick(e.target.value)}
-                    />
-                )}
-                
-        </div>
+                        {/* Separator */}
+                        <div className="w-px bg-gray-300 mx-1 self-stretch" />
+
+                        {/* Invoice Type Tabs */}
+                        {INVOICE_TYPE_TAB_OPTIONS.map((option) => (
+                            <button
+                                key={option.value}
+                                type="button"
+                                onClick={() => onClick(option.value)}
+                                className={`px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded
+                                    transition-colors flex items-center gap-1.5 whitespace-nowrap
+                                    ${tab === option.value
+                                        ? "bg-sky-500 text-white"
+                                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                    }`}
+                            >
+                                {option.label}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            </div>
                 
 
                 <Suspense fallback={

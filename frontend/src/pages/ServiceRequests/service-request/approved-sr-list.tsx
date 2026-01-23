@@ -39,6 +39,7 @@ import {
 } from "@/types/NirmaanStack/ServiceRequests";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
+import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
@@ -122,6 +123,29 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
     fields: ["name", "document_name", "status", "amount"],
     limit: 100000,
   });
+
+  // Fetch Vendor Invoices for SRs to calculate total invoiced per SR
+  const vendorInvoiceFilters = useMemo(() => {
+    const filters: Array<[string, string, string | string[]]> = [
+      ["document_type", "=", "Service Requests"],
+      ["status", "=", "Approved"],
+    ];
+    if (for_vendor) {
+      filters.push(["vendor", "=", for_vendor]);
+    }
+    return filters;
+  }, [for_vendor]);
+
+  const { data: vendorInvoices } = useFrappeGetDocList<VendorInvoice>(
+    "Vendor Invoices",
+    {
+      filters: vendorInvoiceFilters,
+      fields: ["name", "document_name", "invoice_amount"],
+      limit: 0,
+    } as GetDocListArgs<FrappeDoc<VendorInvoice>>,
+    `VendorInvoices-SR-${for_vendor || "all"}`
+  );
+
   const { notifications, mark_seen_notification } = useNotificationStore();
 
   // --- Memoized Options & Calculations ---
@@ -168,6 +192,16 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
       (id: string) => id
     );
   }, [projectPayments]);
+
+  // Group invoice totals by SR name
+  const invoiceTotalsMap = useMemo(() => {
+    if (!vendorInvoices) return new Map<string, number>();
+    return vendorInvoices.reduce((acc, inv) => {
+      const current = acc.get(inv.document_name) ?? 0;
+      acc.set(inv.document_name, current + parseNumber(inv.invoice_amount));
+      return acc;
+    }, new Map<string, number>());
+  }, [vendorInvoices]);
 
   // --- Notification Handling ---
   const handleNewSRSeen = useCallback(
@@ -263,7 +297,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
               )}
               <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                 <ItemsHoverCard
-                  parentDocId={data}
+                  parentDoc={data}
                   parentDoctype="Service Requests"
                   childTableName="service_order_list"
                   isSR
@@ -427,6 +461,32 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         size: 120,
       },
       {
+        id: "total_invoiced",
+        header: ({ column }) => (
+          <DataTableColumnHeader
+            column={column}
+            title="Total Invoiced"
+            className="justify-end"
+          />
+        ),
+        cell: ({ row }) => {
+          const invoiceTotal = invoiceTotalsMap.get(row.original.name) ?? 0;
+          return (
+            <div className="text-center font-medium text-blue-600">
+              {formatToRoundedIndianRupee(invoiceTotal)}
+            </div>
+          );
+        },
+        size: 150,
+        enableSorting: false,
+        meta: {
+          exportHeaderName: "Total Invoiced",
+          exportValue: (row: ServiceRequests) => {
+            return invoiceTotalsMap.get(row.name) ?? 0;
+          },
+        },
+      },
+      {
         id: "remarks",
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Remarks" />
@@ -458,6 +518,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
       handleNewSRSeen,
       getVendorName,
       for_vendor,
+      invoiceTotalsMap,
     ]
   ); //, getTotalAmount, getAmountPaidForSR,
 

@@ -80,6 +80,16 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNum
           .min(3, {
               message: "Must be at least 3 characters.",
           }),
+      vendor_nickname: z
+          .string({
+              required_error: "Must provide Vendor Nickname"
+          })
+          .min(2, {
+              message: "Must be at least 2 characters.",
+          })
+          .max(30, {
+              message: "Must not exceed 30 characters.",
+          }),
       address_line_1: z
           .string({
               required_error: "Address Line 1 Required"
@@ -259,6 +269,7 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
         form.reset({
             vendor_contact_person_name: undefined,
             vendor_name: undefined,
+            vendor_nickname: undefined,
             address_line_1: undefined,
             address_line_2: undefined,
             vendor_city: undefined,
@@ -542,6 +553,21 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
                                             <FormMessage />
                                         </FormItem>
 
+                                    )}
+                                />
+                                <FormField
+                                    control={form.control}
+                                    name="vendor_nickname"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel className="flex">Nickname<sup className="text-sm text-red-600">*</sup></FormLabel>
+                                            <FormControl>
+                                                <Input placeholder="Short, memorable name (e.g. Nirmaan, ABC Steel)" {...field}
+                                                    onChange={(e) => field.onChange(e.target.value === "" ? undefined : e.target.value)}
+                                                 />
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
                                     )}
                                 />
                                 <FormField

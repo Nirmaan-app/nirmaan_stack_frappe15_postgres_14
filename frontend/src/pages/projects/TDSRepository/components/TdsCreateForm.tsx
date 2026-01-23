@@ -47,6 +47,8 @@ interface CartItem extends TDSRepositoryDoc {
 
 export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSuccess }) => {
     const [cartItems, setCartItems] = useState<CartItem[]>([]);
+    const [selectedWorkPackage, setSelectedWorkPackage] = useState<string | null>(null);
+    const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
     const [selectedItemName, setSelectedItemName] = useState<string | null>(null); // Storing Item Name (tds_item_name) for semantic selection
     const [selectedMake, setSelectedMake] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -90,45 +92,113 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
         return repoItems.filter(item => !activeIds.has(`${item.tds_item_id}-${item.make}`) && !cartIds.has(`${item.tds_item_id}-${item.make}`));
     }, [repoItems, existingProjectItems, cartItems]);
 
-    // 3. Compute Options
-    // Item Options: Unique tds_item_name from AVAILABLE items
-    const itemOptions = useMemo(() => {
-        const uniqueItems = new Map();
+    // 3. Compute Options with cascading filters
+    // Work Package Options: Unique work_package from all AVAILABLE items
+    const workPackageOptions = useMemo(() => {
+        const uniqueWPs = new Set<string>();
         availableRepoItems.forEach(item => {
+            if (item.work_package) uniqueWPs.add(item.work_package);
+        });
+        return Array.from(uniqueWPs).sort().map(wp => ({ label: wp, value: wp }));
+    }, [availableRepoItems]);
+
+    // Category Options: Filtered by selected Work Package (or all if no WP selected)
+    const categoryOptions = useMemo(() => {
+        const filtered = selectedWorkPackage 
+            ? availableRepoItems.filter(item => item.work_package === selectedWorkPackage)
+            : availableRepoItems;
+        const uniqueCategories = new Set<string>();
+        filtered.forEach(item => {
+            if (item.category) uniqueCategories.add(item.category);
+        });
+        return Array.from(uniqueCategories).sort().map(cat => ({ label: cat, value: cat }));
+    }, [availableRepoItems, selectedWorkPackage]);
+
+    // Item Options: Filtered by Work Package and Category (or all if neither selected)
+    const itemOptions = useMemo(() => {
+        let filtered = availableRepoItems;
+        if (selectedWorkPackage) {
+            filtered = filtered.filter(item => item.work_package === selectedWorkPackage);
+        }
+        if (selectedCategory) {
+            filtered = filtered.filter(item => item.category === selectedCategory);
+        }
+        const uniqueItems = new Map();
+        filtered.forEach(item => {
             if (item.tds_item_name && !uniqueItems.has(item.tds_item_name)) {
                 uniqueItems.set(item.tds_item_name, {
                     label: item.tds_item_name,
-                    value: item.tds_item_name // Identify by name as primary selector
+                    value: item.tds_item_name
                 });
             }
         });
         return Array.from(uniqueItems.values());
-    }, [availableRepoItems]);
+    }, [availableRepoItems, selectedWorkPackage, selectedCategory]);
 
     // Make Options: Filtered by selected Item Name from AVAILABLE items
     const makeOptions = useMemo(() => {
         if (!selectedItemName) return [];
-        return availableRepoItems
-            .filter(item => item.tds_item_name === selectedItemName)
-            .map(item => ({
-                label: item.make, 
-                value: item.make
-            }));
-    }, [availableRepoItems, selectedItemName]);
+        let filtered = availableRepoItems.filter(item => item.tds_item_name === selectedItemName);
+        // Also apply WP/Category filters if set
+        if (selectedWorkPackage) {
+            filtered = filtered.filter(item => item.work_package === selectedWorkPackage);
+        }
+        if (selectedCategory) {
+            filtered = filtered.filter(item => item.category === selectedCategory);
+        }
+        return filtered.map(item => ({
+            label: item.make, 
+            value: item.make
+        }));
+    }, [availableRepoItems, selectedItemName, selectedWorkPackage, selectedCategory]);
 
     // Identify Selected Doc
     const selectedDoc = useMemo(() => {
         if (!selectedItemName || !selectedMake) return null;
-        return availableRepoItems.find(item => 
+        let filtered = availableRepoItems.filter(item => 
             item.tds_item_name === selectedItemName && 
             item.make === selectedMake
         );
-    }, [availableRepoItems, selectedItemName, selectedMake]);
+        // Apply WP/Category filters if set
+        if (selectedWorkPackage) {
+            filtered = filtered.filter(item => item.work_package === selectedWorkPackage);
+        }
+        if (selectedCategory) {
+            filtered = filtered.filter(item => item.category === selectedCategory);
+        }
+        return filtered[0] || null;
+    }, [availableRepoItems, selectedItemName, selectedMake, selectedWorkPackage, selectedCategory]);
 
     // Handlers
+    const handleWorkPackageChange = (val: string | null) => {
+        setSelectedWorkPackage(val);
+        setSelectedCategory(null); // Reset downstream
+        setSelectedItemName(null);
+        setSelectedMake(null);
+    };
+
+    const handleCategoryChange = (val: string | null) => {
+        setSelectedCategory(val);
+        setSelectedItemName(null); // Reset downstream
+        setSelectedMake(null);
+    };
+
     const handleItemChange = (val: string | null) => {
         setSelectedItemName(val);
         setSelectedMake(null); // Reset make
+        
+        // Auto-fill Work Package and Category based on selected item
+        if (val) {
+            const matchingItem = availableRepoItems.find(item => item.tds_item_name === val);
+            if (matchingItem) {
+                setSelectedWorkPackage(matchingItem.work_package || null);
+                setSelectedCategory(matchingItem.category || null);
+            }
+        } else {
+            // Clear filters when item is cleared
+            setSelectedWorkPackage(null);
+            setSelectedCategory(null);
+        }
     };
 
     const handleAddItem = () => {
@@ -183,6 +253,8 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
     };
 
     const handleReset = () => {
+        setSelectedWorkPackage(null);
+        setSelectedCategory(null);
         setSelectedItemName(null);
         setSelectedMake(null);
     };
@@ -271,6 +343,40 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                     </Button>
                 </div>
 
+                {/* Filter Row: Work Package & Category (Optional) */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
+                    {/* Work Package Filter */}
+                    <div className="space-y-2">
+                        <Label className="text-sm font-semibold text-gray-700">Work Package <span className="text-gray-400 font-normal">(Optional)</span></Label>
+                        <ReactSelect
+                            options={workPackageOptions}
+                            value={selectedWorkPackage ? { label: selectedWorkPackage, value: selectedWorkPackage } : null}
+                            onChange={(opt) => handleWorkPackageChange(opt?.value || null)}
+                            placeholder="All Work Packages"
+                            isClearable
+                            className="react-select-container"
+                            classNamePrefix="react-select"
+                            isLoading={!repoItems}
+                        />
+                    </div>
+
+                    {/* Category Filter */}
+                    <div className="space-y-2">
+                        <Label className="text-sm font-semibold text-gray-700">Category <span className="text-gray-400 font-normal">(Optional)</span></Label>
+                        <ReactSelect
+                            options={categoryOptions}
+                            value={selectedCategory ? { label: selectedCategory, value: selectedCategory } : null}
+                            onChange={(opt) => handleCategoryChange(opt?.value || null)}
+                            placeholder="All Categories"
+                            isClearable
+                            className="react-select-container"
+                            classNamePrefix="react-select"
+                            isLoading={!repoItems}
+                        />
+                    </div>
+                </div>
+
+                {/* Selection Row: Item Name & Make (Required) */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                     {/* Item Name */}
                     <div className="space-y-2">
@@ -279,7 +385,7 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                             options={itemOptions}
                             value={selectedItemName ? { label: selectedItemName, value: selectedItemName } : null}
                             onChange={(opt) => handleItemChange(opt?.value || null)}
-                            placeholder="Enter Item Name"
+                            placeholder="Select Item Name"
                             className="react-select-container"
                             classNamePrefix="react-select"
                             isLoading={!repoItems}
@@ -293,7 +399,7 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                             options={makeOptions}
                             value={selectedMake ? { label: selectedMake, value: selectedMake } : null}
                             onChange={(opt) => setSelectedMake(opt?.value || null)}
-                            placeholder={selectedItemName ? "Select Make" : "NA"}
+                            placeholder={selectedItemName ? "Select Make" : "Select Item first"}
                             isDisabled={!selectedItemName}
                             className="react-select-container"
                             classNamePrefix="react-select"

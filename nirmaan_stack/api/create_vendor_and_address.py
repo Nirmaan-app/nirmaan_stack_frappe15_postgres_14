@@ -47,6 +47,7 @@ def create_vendor_and_address(
 
         vendorDoc = frappe.new_doc("Vendors")
         vendorDoc.vendor_name = values.get("vendor_name")
+        vendorDoc.vendor_nickname = values.get("vendor_nickname")
         vendorDoc.vendor_type = vendorType
         vendorDoc.vendor_address = addressDoc.name
         vendorDoc.vendor_city = addressDoc.city

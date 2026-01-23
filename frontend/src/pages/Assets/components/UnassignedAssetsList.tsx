@@ -23,6 +23,7 @@ import {
     ASSET_CONDITION_OPTIONS,
     ASSET_CATEGORY_DOCTYPE,
 } from '../assets.constants';
+import { getAssetPermissions } from '../utils/permissions';
 
 interface AssetMaster {
     name: string;
@@ -72,8 +73,8 @@ export const UnassignedAssetsList: React.FC<UnassignedAssetsListProps> = ({ onAs
         [categoryList]
     );
 
-    const canManageAssets = userData?.user_id === 'Administrator' ||
-        ['Nirmaan Admin Profile', 'Nirmaan PMO Executive Profile', 'Nirmaan HR Executive Profile'].includes(userData?.role || '');
+    // Get granular permissions - canAssignAsset determines if user can assign unassigned assets
+    const { canAssignAsset } = getAssetPermissions(userData?.user_id, userData?.role);
 
     const handleAssignClick = (asset: AssetMaster) => {
         setSelectedAsset({ id: asset.name, name: asset.asset_name });
@@ -168,7 +169,7 @@ export const UnassignedAssetsList: React.FC<UnassignedAssetsListProps> = ({ onAs
             ),
             size: 110,
         },
-        ...(canManageAssets ? [{
+        ...(canAssignAsset ? [{
             id: 'actions',
             meta: {
                 excludeFromExport: true
@@ -187,7 +188,7 @@ export const UnassignedAssetsList: React.FC<UnassignedAssetsListProps> = ({ onAs
             ),
             size: 100,
         }] : []),
-    ], [canManageAssets]);
+    ], [canAssignAsset]);
 
     const {
         table,

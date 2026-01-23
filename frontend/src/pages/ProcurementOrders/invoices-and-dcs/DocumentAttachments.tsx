@@ -10,6 +10,7 @@ import {
 import { useDialogStore } from "@/zustand/useDialogStore"; // Adjust import path
 import { useToast } from "@/components/ui/use-toast"; // Adjust import path
 import { TailSpin } from "react-loader-spinner";
+import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 
 // UI Components
 import { Button } from "@/components/ui/button";
@@ -19,10 +20,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 // Types
 import {
   ProcurementOrder,
-  InvoiceItem,
 } from "@/types/NirmaanStack/ProcurementOrders"; // Adjust import path
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests"; // Adjust import path
 import { NirmaanAttachment } from "@/types/NirmaanStack/NirmaanAttachment"; // Adjust import path
+import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 
 // Reusable Table Components
 import { InvoiceTable } from "./components/InvoiceTable"; // Adjust import path
@@ -61,7 +62,8 @@ interface DocumentAttachmentsProps<T extends DocumentType> {
   docMutate: KeyedMutator<T[]>; // Use 'any' for flexibility or define a more specific SWRResponse type if possible
   project?: FrappeDoc<Projects>;
   isPMUserChallans?: boolean;
-  disabledAddInvoice?:boolean;
+  disabledAddInvoice?: boolean;
+  isProjectManager?: boolean;
 }
 
 interface SrInvoiceDialogData {
@@ -87,11 +89,23 @@ export const DocumentAttachments = <T extends DocumentType>({
   project,
   isPMUserChallans,
   disabledAddInvoice,
+  isProjectManager = false,
 }: DocumentAttachmentsProps<T>) => {
 //   console.log("DocumentAttachments", project, documentData);
 
   const { toggleNewInvoiceDialog } = useDialogStore();
   const { toast } = useToast();
+
+  // Fetch users list for displaying "Uploaded By" names
+  const { data: usersList } = useUsersList();
+
+  // Convert user ID to display name
+  const getUserName = useCallback((id: string | undefined): string => {
+    if (!id) return "--";
+    if (id === "Administrator") return "Administrator";
+    const user = usersList?.find(u => u.name === id);
+    return user?.full_name || id;
+  }, [usersList]);
 
   const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
   const [invoiceDialogData, setInvoiceDialogData] =
@@ -160,6 +174,46 @@ export const DocumentAttachments = <T extends DocumentType>({
     }
   );
 
+  // Fetch Vendor Invoices for this document
+  const {
+    data: vendorInvoices,
+    isLoading: invoicesLoading,
+    error: invoicesError,
+    mutate: mutateInvoices,
+  } = useFrappeGetDocList<VendorInvoice>(
+    "Vendor Invoices",
+    {
+      fields: ["name", "invoice_no", "invoice_date", "invoice_amount", "invoice_attachment", "status", "reconciliation_status", "uploaded_by"],
+      filters: [
+        ["document_type", "=", docType],
+        ["document_name", "=", docName],
+      ],
+      orderBy: { field: "invoice_date", order: "desc" },
+      limit: 1000,
+    },
+    docName ? `VendorInvoices-${docType}-${docName}` : null,
+    {
+      revalidateOnFocus: false,
+    }
+  );
+
+  // Get invoice attachment IDs from vendorInvoices (for migrated attachments)
+  const invoiceAttachmentIds = useMemo((): string[] =>
+    (vendorInvoices?.map(vi => vi.invoice_attachment).filter((id): id is string => !!id) || []),
+    [vendorInvoices]
+  );
+
+  // Fetch invoice attachments by their IDs (now associated with Vendor Invoices after migration)
+  const { data: invoiceAttachmentsData } = useFrappeGetDocList<NirmaanAttachment>(
+    "Nirmaan Attachments",
+    {
+      fields: ["name", "attachment"],
+      filters: [["name", "in", invoiceAttachmentIds]],
+      limit: 1000,
+    },
+    invoiceAttachmentIds.length > 0 ? `Invoice-Attachments-${docName}` : null
+  );
+
   // --- API Hooks ---
   const { call: deleteInvoiceEntryApi, loading: deleteInvoiceEntryLoading } =
     useFrappePostCall(
@@ -183,20 +237,17 @@ export const DocumentAttachments = <T extends DocumentType>({
     [attachmentsData]
   );
 
-  // This list helps find the full URL for an attachment ID stored in invoice_data
+  // This list helps find the full URL for an attachment ID from Vendor Invoices
   const invoiceAttachmentLookup = useMemo(() => {
     const lookup = new Map<string, string>(); // Map attachment_id (name) to attachment URL
-    attachmentsData?.forEach((att) => {
-      if (
-        (att.attachment_type === "po invoice" ||
-          att.attachment_type === "service request invoice") &&
-        att.attachment
-      ) {
+    // Use invoiceAttachmentsData (fetched by IDs from Vendor Invoices) instead of filtering attachmentsData
+    invoiceAttachmentsData?.forEach((att) => {
+      if (att.attachment) {
         lookup.set(att.name, att.attachment);
       }
     });
     return lookup;
-  }, [attachmentsData]);
+  }, [invoiceAttachmentsData]);
 
   // --- Event Handlers ---
   const handleViewInvoiceAttachment = useCallback(
@@ -232,14 +283,14 @@ export const DocumentAttachments = <T extends DocumentType>({
   );
 
   const handleDeleteInvoiceEntry = useCallback(
-    async (dateKey: string) => {
+    async (invoiceId: string) => {
       if (!docName) return; // Should not happen if component renders
 
       try {
         const response = await deleteInvoiceEntryApi({
           docname: docName,
           isSR: docType === "Service Requests",
-          date_key: dateKey,
+          invoice_id: invoiceId, // Use invoice_id instead of date_key
         });
 
         if (response.message?.status === 200) {
@@ -248,10 +299,9 @@ export const DocumentAttachments = <T extends DocumentType>({
             description: response.message.message || "Invoice entry deleted.",
             variant: "success",
           });
-          await docMutate(); // Refresh the parent PO/SR document data (which includes invoice_data)
-          // Optionally revalidate attachments if the delete API modifies them (it does)
-          // Use the SWR key directly for revalidation
-          // mutateAttachments(); // Or use global mutate with key pattern if needed
+          await mutateInvoices(); // Refresh the vendor invoices list
+          await mutateAttachments(); // Refresh attachments
+          await docMutate(); // Refresh the parent PO/SR document data
         } else {
           throw new Error(
             response.message?.message || "Failed to delete invoice entry."
@@ -267,10 +317,10 @@ export const DocumentAttachments = <T extends DocumentType>({
         });
       }
     },
-    [docName, docType, deleteInvoiceEntryApi, toast, docMutate]
+    [docName, docType, deleteInvoiceEntryApi, toast, mutateInvoices, mutateAttachments, docMutate]
   );
 
-  const canDeleteInvoice = useCallback((item: InvoiceItem): boolean => {
+  const canDeleteInvoice = useCallback((item: VendorInvoice): boolean => {
     // Only allow deletion if status is Pending or Rejected (or other statuses you define)
     return ["Pending", "Rejected"].includes(item?.status || "");
   }, []);
@@ -376,7 +426,7 @@ export const DocumentAttachments = <T extends DocumentType>({
   const isUploading = uploadLoading || createAttachmentLoading;
 
   // --- Loading and Error States ---
-  if (attachmentsLoading) {
+  if (attachmentsLoading || invoicesLoading) {
     return (
       <div className="flex justify-center items-center p-4">
         <TailSpin color="red" width={40} height={40} />
@@ -384,14 +434,14 @@ export const DocumentAttachments = <T extends DocumentType>({
     );
   }
 
-  if (attachmentsError) {
+  if (attachmentsError || invoicesError) {
     console.error(
-      `Error fetching attachments for ${docName}:`,
-      attachmentsError
+      `Error fetching data for ${docName}:`,
+      attachmentsError || invoicesError
     );
     toast({
       title: "Error",
-      description: "Could not load attachments.",
+      description: "Could not load data.",
       variant: "destructive",
     });
     // Optionally return a more user-friendly error state component
@@ -519,13 +569,11 @@ export const DocumentAttachments = <T extends DocumentType>({
   return (
     <div
       className={`grid gap-4 lg:grid-cols-2 ${
-        showDcTable ? "lg:grid-cols-2" : "lg:grid-cols-1"
+        showDcTable && !isProjectManager ? "lg:grid-cols-2" : "lg:grid-cols-1"
       }`}
     >
-     
-      
-      {/* Dynamic grid */}
-      {/* Invoice Card */}
+      {/* Invoice Card - Hidden for Project Manager */}
+      {!isProjectManager && (
       <Card className="rounded-md shadow-sm border border-gray-200 overflow-hidden">
         {" "}
         {/* Subtle styling */}
@@ -534,7 +582,7 @@ export const DocumentAttachments = <T extends DocumentType>({
             <div className="flex items-center gap-2">
               <p className="text-xl max-sm:text-lg text-red-600">Invoices</p>
               <Badge variant="secondary" className="text-sm">
-                {documentData?.invoice_data?.data ? Object.keys(documentData.invoice_data.data).length : 0}
+                {vendorInvoices?.length || 0}
               </Badge>
             </div>
             <div className="flex gap-2 items-center">
@@ -578,15 +626,17 @@ export const DocumentAttachments = <T extends DocumentType>({
             {" "}
             {/* Ensure table scrolls horizontally if needed */}
             <InvoiceTable
-              items={documentData?.invoice_data?.data} // Access nested data
+              items={vendorInvoices} // Use Vendor Invoices instead of JSON data
               onViewAttachment={handleViewInvoiceAttachment}
               onDeleteEntry={handleDeleteInvoiceEntry}
               isLoading={deleteInvoiceEntryLoading}
               canDeleteEntry={canDeleteInvoice}
+              getUserName={getUserName}
             />
           </div>
         </CardContent>
       </Card>
+      )}
       {/* Delivery Challan Card (Conditional) */}
       
       {

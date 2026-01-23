@@ -1,16 +1,23 @@
+"""
+API for generating project-wise invoice data.
+
+Updated in v3.0 to query from Vendor Invoices doctype directly.
+"""
+
 import frappe
 from frappe import _
 from frappe.utils.caching import redis_cache
+
 
 @frappe.whitelist()
 @redis_cache(shared=True)
 def generate_project_wise_invoice_data(project_id: str):
     """
-    Generate consolidated invoice data for all Procurement Orders in a project.
-    
+    Generate consolidated invoice data for all approved invoices in a project.
+
     Args:
         project_id (str): The ID of the project for which invoice data is to be generated.
-        
+
     Returns:
         dict: {
                 "message": {
@@ -21,83 +28,94 @@ def generate_project_wise_invoice_data(project_id: str):
                  "status": 200
               }
         where InvoiceEntry includes:
+            - name (str): Vendor Invoice ID
             - invoice_no (str)
-            - amount (number)
-            - invoice_attachment_id (str, optional)
-            - updated_by (str)
-            - date (str)  (The key from each invoice_data object)
-            - procurement_order (str) (PO ID)
-            - vendor (str) (Vendor ID)
-            - vendor_name (str) (Vendor Name)
-            
+            - invoice_amount (number)
+            - invoice_attachment (str, optional)
+            - uploaded_by (str)
+            - invoice_date (str)
+            - document_name (str): PO or SR ID
+            - document_type (str): "Procurement Orders" or "Service Requests"
+            - vendor (str): Vendor ID
+            - vendor_name (str): Vendor Name
+
     Raises:
         frappe.DoesNotExistError: If the project is not found.
         Exception: For other unexpected errors.
     """
     try:
-        # Validate project existence; if not found, throw a DoesNotExistError.
+        # Validate project existence
         if not frappe.db.exists("Projects", project_id):
             frappe.throw(_("Project {0} not found").format(project_id), frappe.DoesNotExistError)
 
-        # Fetch all procurement orders for the given project.
-        procurement_orders = frappe.get_all(
-            "Procurement Orders",
+        # Fetch all approved invoices for the given project from Vendor Invoices doctype
+        invoices = frappe.get_all(
+            "Vendor Invoices",
             filters={
                 "project": project_id,
-                "status": ("not in", [ "Merged", "Inactive", "PO Amendment"])
-                },
-            fields=["name", "invoice_data", "vendor", "vendor_name"]
+                "status": "Approved"
+            },
+            fields=[
+                "name",
+                "document_type",
+                "document_name",
+                "vendor",
+                "invoice_no",
+                "invoice_date",
+                "invoice_amount",
+                "invoice_attachment",
+                "uploaded_by"
+            ],
+            order_by="invoice_date desc"
         )
 
+        # Get vendor names in bulk for efficiency
+        vendor_ids = list(set(inv.get("vendor") for inv in invoices if inv.get("vendor")))
+        vendor_names = {}
+        if vendor_ids:
+            vendors = frappe.get_all(
+                "Vendors",
+                filters={"name": ["in", vendor_ids]},
+                fields=["name", "vendor_name"]
+            )
+            vendor_names = {v["name"]: v["vendor_name"] for v in vendors}
+
+        # Build invoice entries
         invoice_entries = []
-
-        # Loop through each procurement order and extract invoice data.
-        for po in procurement_orders:
-            # Skip if there is no invoice data or if the structure is not a dict.
-            if not po.get("invoice_data") or not isinstance(po.invoice_data, dict):
-                continue
-
-            # Expecting invoice_data to have a "data" key with a dictionary of invoice entries.
-            invoice_data = po.invoice_data.get("data", {})
-
-            for date_str, invoice_item in invoice_data.items():
-                # Validate that required keys are present before adding the entry.
-                if not all(key in invoice_item for key in ["invoice_no", "amount", "updated_by"]):
-                    frappe.log_error(
-                        _("Invalid invoice data structure in PO {0}").format(po.name),
-                        "Invoice Data Validation"
-                    )
-                    continue
-
-                entry = {
-                    "date": date_str,
-                    "invoice_no": invoice_item["invoice_no"],
-                    "amount": invoice_item["amount"],
-                    "updated_by": invoice_item["updated_by"],
-                    "invoice_attachment_id": invoice_item.get("invoice_attachment_id"),
-                    "procurement_order": po.name,
-                    "vendor": po.vendor,
-                    "vendor_name": po.vendor_name
-                }
-                invoice_entries.append(entry)
+        for inv in invoices:
+            entry = {
+                "name": inv["name"],
+                "invoice_date": str(inv["invoice_date"]) if inv.get("invoice_date") else None,
+                "invoice_no": inv.get("invoice_no"),
+                "invoice_amount": inv.get("invoice_amount") or 0,
+                "uploaded_by": inv.get("uploaded_by"),
+                "invoice_attachment_id": inv.get("invoice_attachment"),
+                "document_name": inv.get("document_name"),
+                "document_type": inv.get("document_type"),
+                "vendor": inv.get("vendor"),
+                "vendor_name": vendor_names.get(inv.get("vendor"), ""),
+                # Legacy field mappings for backward compatibility
+                "date": str(inv["invoice_date"]) if inv.get("invoice_date") else None,
+                "amount": inv.get("invoice_amount") or 0,
+                "updated_by": inv.get("uploaded_by"),
+                "procurement_order": inv.get("document_name") if inv.get("document_type") == "Procurement Orders" else None
+            }
+            invoice_entries.append(entry)
 
         formatted_invoice_entries = {
-            # "invoice_entries": sorted(invoice_entries, key=lambda x: x["date"]),
-            "invoice_entries": invoice_entries,  # Optionally sort if needed
+            "invoice_entries": invoice_entries,
             "total_invoices": len(invoice_entries),
-            "total_amount": sum(entry["amount"] for entry in invoice_entries)
+            "total_amount": sum(entry["invoice_amount"] for entry in invoice_entries)
         }
 
         return {"message": formatted_invoice_entries, "status": 200}
 
     except frappe.DoesNotExistError as e:
-        # If project is not found, throw error without http_status_code keyword.
         frappe.throw(
             _("Project not found: {0}").format(project_id),
             frappe.DoesNotExistError
         )
     except Exception as e:
-        # Log any other errors and throw a generic error message.
         frappe.log_error(
             _("Error generating invoice data for project {0}: {1}").format(project_id, str(e)),
             "Invoice Generation Error"

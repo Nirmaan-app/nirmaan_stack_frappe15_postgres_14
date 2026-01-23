@@ -1,5 +1,12 @@
+"""
+API for generating consolidated SR invoice data.
+
+Updated in v3.0 to query from Vendor Invoices doctype directly.
+"""
+
 import frappe
 from frappe import _
+
 
 @frappe.whitelist()
 def generate_all_sr_invoice_data(start_date=None, end_date=None):
@@ -23,121 +30,117 @@ def generate_all_sr_invoice_data(start_date=None, end_date=None):
                  "status": 200
               }
         where InvoiceEntry includes:
+            - name (str): Vendor Invoice ID
             - invoice_no (str)
             - amount (number)
             - reconciled_amount (number)
-            - invoice_attachment_id (str, optional)
-            - updated_by (str)
-            - date (str)  (The key from each invoice_data object)
-            - service_request (str) (SR ID)
-            - project (str, optional) (Project ID, if available on SR)
-            - vendor (str) (Vendor ID)
-            - vendor_name (str) (Vendor Name)
-            - reconciliation_status (str): "" | "partial" | "full"
+            - invoice_attachment (str, optional)
+            - uploaded_by (str)
+            - invoice_date (str)
+            - service_request (str): SR ID
+            - project (str, optional)
+            - vendor (str)
+            - vendor_name (str)
+            - reconciliation_status (str): "" | "partial" | "full" | "na"
             - reconciled_date (str, optional)
             - reconciled_by (str, optional)
-            - reconciliation_proof_attachment_id (str, optional)
-
-    Raises:
-        Exception: For unexpected errors.
+            - reconciliation_proof (str, optional)
     """
     try:
-        # Fetch all Service Requests from the system.
-        service_requests = frappe.get_all(
-            "Service Requests",
-            filters={},
-            fields=["name", "invoice_data", "vendor", "project"]
+        # Build filters
+        filters = {
+            "document_type": "Service Requests",
+            "status": "Approved"
+        }
+
+        if start_date:
+            filters["invoice_date"] = [">=", start_date]
+        if end_date:
+            if "invoice_date" in filters:
+                # Need to handle combined date range
+                filters["invoice_date"] = ["between", [start_date, end_date]]
+            else:
+                filters["invoice_date"] = ["<=", end_date]
+
+        # Fetch all approved invoices for SRs
+        invoices = frappe.get_all(
+            "Vendor Invoices",
+            filters=filters,
+            fields=[
+                "name",
+                "document_name",
+                "project",
+                "vendor",
+                "invoice_no",
+                "invoice_date",
+                "invoice_amount",
+                "invoice_attachment",
+                "uploaded_by",
+                "reconciliation_status",
+                "reconciled_date",
+                "reconciled_by",
+                "reconciled_amount",
+                "reconciliation_proof"
+            ],
+            order_by="invoice_date desc"
         )
 
+        # Get vendor names in bulk
+        vendor_ids = list(set(inv.get("vendor") for inv in invoices if inv.get("vendor")))
+        vendor_names = {}
+        if vendor_ids:
+            vendors = frappe.get_all(
+                "Vendors",
+                filters={"name": ["in", vendor_ids]},
+                fields=["name", "vendor_name"]
+            )
+            vendor_names = {v["name"]: v["vendor_name"] for v in vendors}
+
+        # Process invoices and calculate metrics
         invoice_entries = []
         total_fully_reconciled = 0
         total_partially_reconciled = 0
-        # Amount tracking
-        total_reconciled_amount = 0  # SUM of reconciled_amount field
-        total_fully_reconciled_amount = 0  # invoice_amount where status = "full"
-        total_partially_reconciled_amount = 0  # invoice_amount where status = "partial"
-        total_not_reconciled_amount = 0  # invoice_amount where status = ""
+        total_reconciled_amount = 0
+        total_fully_reconciled_amount = 0
+        total_partially_reconciled_amount = 0
+        total_not_reconciled_amount = 0
 
-        # Loop through each service request and extract invoice data.
-        for sr in service_requests:
-            # Skip if there is no invoice data or if the structure is not a dict.
-            if not sr.get("invoice_data") or not isinstance(sr.invoice_data, dict):
-                continue
+        for inv in invoices:
+            invoice_amount = inv.get("invoice_amount") or 0
+            reconciliation_status = inv.get("reconciliation_status") or ""
+            reconciled_amount = inv.get("reconciled_amount") or 0
 
-            # Expecting invoice_data to have a "data" key with a dictionary of invoice entries.
-            invoice_data_dict = sr.invoice_data.get("data", {})
+            # Track amounts and counts by reconciliation status
+            total_reconciled_amount += reconciled_amount
 
-            for date_str, invoice_item in invoice_data_dict.items():
-                # Validate that required keys are present before adding the entry.
-                if not all(key in invoice_item for key in ["invoice_no", "amount", "updated_by"]):
-                    frappe.log_error(
-                        _("Invalid invoice data structure in Service Request {0}").format(sr.name),
-                        "Service Request Invoice Data Validation"
-                    )
-                    continue
+            if reconciliation_status == "full":
+                total_fully_reconciled += 1
+                total_fully_reconciled_amount += invoice_amount
+            elif reconciliation_status == "partial":
+                total_partially_reconciled += 1
+                total_partially_reconciled_amount += invoice_amount
+            elif reconciliation_status not in ("na",):
+                # Not reconciled (empty string)
+                total_not_reconciled_amount += invoice_amount
 
-                # Only include APPROVED invoices
-                status = invoice_item.get("status", "Pending")
-                if status != "Approved":
-                    continue
-
-                # Date filtering (if provided)
-                if start_date or end_date:
-                    try:
-                        invoice_date = frappe.utils.getdate(date_str)
-                        if start_date and invoice_date < frappe.utils.getdate(start_date):
-                            continue
-                        if end_date and invoice_date > frappe.utils.getdate(end_date):
-                            continue
-                    except Exception:
-                        continue  # Skip entries with invalid dates
-
-                # Get reconciliation_status (new field) or derive from is_2b_activated (legacy)
-                reconciliation_status = invoice_item.get("reconciliation_status")
-                if reconciliation_status is None:
-                    # Legacy migration: convert is_2b_activated to reconciliation_status
-                    is_2b_activated = invoice_item.get("is_2b_activated", False)
-                    reconciliation_status = "full" if is_2b_activated else ""
-
-                # Get invoice amount and reconciled_amount
-                invoice_amount = invoice_item.get("amount", 0)
-                # Get reconciled_amount, defaulting based on status for legacy data
-                reconciled_amount = invoice_item.get("reconciled_amount")
-                if reconciled_amount is None:
-                    # Legacy data: derive from status
-                    if reconciliation_status == "full":
-                        reconciled_amount = invoice_amount
-                    else:
-                        reconciled_amount = 0
-
-                # Track amounts and counts by reconciliation status
-                total_reconciled_amount += reconciled_amount
-                if reconciliation_status == "full":
-                    total_fully_reconciled += 1
-                    total_fully_reconciled_amount += invoice_amount
-                elif reconciliation_status == "partial":
-                    total_partially_reconciled += 1
-                    total_partially_reconciled_amount += invoice_amount
-                else:
-                    total_not_reconciled_amount += invoice_amount
-
-                entry = {
-                    "date": date_str,
-                    "invoice_no": invoice_item["invoice_no"],
-                    "amount": invoice_amount,
-                    "reconciled_amount": reconciled_amount,
-                    "updated_by": invoice_item["updated_by"],
-                    "invoice_attachment_id": invoice_item.get("invoice_attachment_id"),
-                    "service_request": sr.name,
-                    "project": sr.project,
-                    "vendor": sr.vendor,
-                    "vendor_name": sr.vendor_name,
-                    "reconciliation_status": reconciliation_status,
-                    "reconciled_date": invoice_item.get("reconciled_date"),
-                    "reconciled_by": invoice_item.get("reconciled_by"),
-                    "reconciliation_proof_attachment_id": invoice_item.get("reconciliation_proof_attachment_id")
-                }
-                invoice_entries.append(entry)
+            entry = {
+                "name": inv["name"],
+                "invoice_no": inv.get("invoice_no"),
+                "amount": invoice_amount,
+                "reconciled_amount": reconciled_amount,
+                "invoice_attachment_id": inv.get("invoice_attachment"),
+                "uploaded_by": inv.get("uploaded_by"),
+                "date": str(inv.get("invoice_date")) if inv.get("invoice_date") else None,
+                "service_request": inv.get("document_name"),
+                "project": inv.get("project"),
+                "vendor": inv.get("vendor"),
+                "vendor_name": vendor_names.get(inv.get("vendor"), ""),
+                "reconciliation_status": reconciliation_status,
+                "reconciled_date": str(inv.get("reconciled_date")) if inv.get("reconciled_date") else None,
+                "reconciled_by": inv.get("reconciled_by"),
+                "reconciliation_proof_attachment_id": inv.get("reconciliation_proof")
+            }
+            invoice_entries.append(entry)
 
         total_invoices = len(invoice_entries)
         pending_reconciliation = total_invoices - total_fully_reconciled - total_partially_reconciled
@@ -150,7 +153,6 @@ def generate_all_sr_invoice_data(start_date=None, end_date=None):
             "total_fully_reconciled": total_fully_reconciled,
             "total_partially_reconciled": total_partially_reconciled,
             "pending_reconciliation": pending_reconciliation,
-            # New amount metrics
             "total_reconciled_amount": total_reconciled_amount,
             "total_fully_reconciled_amount": total_fully_reconciled_amount,
             "total_partially_reconciled_amount": total_partially_reconciled_amount,
@@ -161,7 +163,6 @@ def generate_all_sr_invoice_data(start_date=None, end_date=None):
         return {"message": formatted_invoice_entries, "status": 200}
 
     except Exception as e:
-        # Log any errors and throw a generic error message.
         frappe.log_error(
             _("Error generating all SR invoice data: {0}").format(str(e)),
             "All SR Invoice Generation Error"

@@ -55,7 +55,7 @@ import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 
 // Zod Schema
 const editTaskFormSchema = z.object({
-  status: z.enum(["Not Released", "Partially Released", "Released", "Not Applicable"]),
+  status: z.enum(["PR Not Released", "Not Released", "Partially Released", "Released", "Not Applicable"]),
   revised_date: z.string().optional(),
   remarks: z.string().optional(),
 });
@@ -91,10 +91,23 @@ interface EditTaskDialogProps {
   task: CriticalPOTask;
   projectId: string;
   mutate: () => Promise<any>;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export const EditTaskDialog: React.FC<EditTaskDialogProps> = ({ task, projectId, mutate }) => {
-  const [open, setOpen] = useState(false);
+export const EditTaskDialog: React.FC<EditTaskDialogProps> = ({
+  task,
+  projectId,
+  mutate,
+  open: controlledOpen,
+  onOpenChange: controlledOnOpenChange
+}) => {
+  const [internalOpen, setInternalOpen] = useState(false);
+
+  // Support both controlled and uncontrolled modes
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : internalOpen;
+  const setOpen = isControlled ? (controlledOnOpenChange ?? (() => {})) : setInternalOpen;
   const [linkSectionOpen, setLinkSectionOpen] = useState(false);
   const [selectedPackage, setSelectedPackage] = useState<string>("");
   const [selectedPOs, setSelectedPOs] = useState<Set<string>>(new Set());
@@ -464,6 +477,7 @@ export const EditTaskDialog: React.FC<EditTaskDialogProps> = ({ task, projectId,
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
+                      <SelectItem value="PR Not Released">PR Not Released</SelectItem>
                       <SelectItem value="Not Released">Not Released</SelectItem>
                       <SelectItem value="Partially Released">Partially Released</SelectItem>
                       <SelectItem value="Released">Released</SelectItem>

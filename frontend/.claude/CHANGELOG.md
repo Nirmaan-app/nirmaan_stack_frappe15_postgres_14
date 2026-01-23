@@ -4,6 +4,310 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-23: Vendor Invoices Frontend Integration
+
+### Summary
+Updated invoice reconciliation UI to work with new Vendor Invoices doctype. Replaced Ant Design Radio.Group tabs with custom button tabs, added invoice rejection dialog, and fixed various data resolution issues.
+
+### Frontend Files Created
+- `src/hooks/useDocumentInvoiceTotals.ts` - Hook for fetching document invoice totals
+- `src/pages/tasks/invoices/components/InvoiceRejectionDialog.tsx` - Dialog for invoice rejection with reason
+- `src/types/NirmaanStack/VendorInvoice.ts` - TypeScript interface for Vendor Invoice
+
+### Frontend Files Modified
+
+**Tab Styling (Ant Design → Custom Buttons):**
+- `src/pages/tasks/invoices/InvoiceReconciliationContainer.tsx`:
+  - Replaced Ant Design `Radio.Group` with custom button tabs
+  - Renamed "Pending Tasks" → "Pending Invoice Approvals"
+  - Renamed "Task History" → "Invoice Action History"
+  - Added tab option constants to `constants.ts`
+
+**Bug Fix - Invoice ID Resolution:**
+- `src/pages/tasks/invoices/components/PoInvoices.tsx`:
+  - Removed `.map()` that was overwriting `entry.name` with composite key
+  - Now uses actual Vendor Invoice docname (e.g., `VI-2026-00001`)
+
+- `src/pages/tasks/invoices/components/SrInvoices.tsx`:
+  - Same fix as PoInvoices.tsx
+
+**Bug Fix - "Invoice Uploaded By" Column:**
+- `src/pages/reports/hooks/usePO2BReconcileData.ts`:
+  - Changed `updated_by` → `uploaded_by` to match backend API response
+
+- `src/pages/reports/hooks/useSR2BReconcileData.ts`:
+  - Same fix as PO2B hook
+
+**Invoice Task Tables:**
+- `src/pages/tasks/invoices/components/PendingTasksTable.tsx` - Updated for Vendor Invoices
+- `src/pages/tasks/invoices/components/TaskHistoryTable.tsx` - Updated for Vendor Invoices
+- `src/pages/tasks/invoices/components/columns.tsx` - Updated column definitions
+- `src/pages/tasks/invoices/config/InvoiceTaskTable.config.ts` - Updated config
+- `src/pages/tasks/invoices/hooks/useInvoiceTasks.ts` - Updated data fetching
+- `src/pages/tasks/invoices/hooks/useInvoiceTaskActions.ts` - Updated approval/rejection actions
+- `src/pages/tasks/invoices/hooks/useInvoiceReconciliation.ts` - Updated reconciliation logic
+
+**PO/SR Attachments:**
+- `src/pages/ProcurementOrders/invoices-and-dcs/DocumentAttachments.tsx` - Invoice totals display
+- `src/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceDialog.tsx` - Create/edit Vendor Invoices
+- `src/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceTable.tsx` - Display Vendor Invoices
+- `src/pages/ProcurementOrders/purchase-order/components/POAttachments.tsx` - Invoice integration
+- `src/pages/ServiceRequests/service-request/SRAttachments.tsx` - Invoice integration
+
+**Reports:**
+- `src/pages/reports/hooks/usePOReportsData.ts` - Updated for new data structure
+- `src/pages/reports/hooks/useSRReportsData.ts` - Updated for new data structure
+- `src/pages/reports/hooks/useProjectReportCalculations.ts` - Updated calculations
+- `src/pages/reports/hooks/useVendorLedgerCalculations.ts` - Updated calculations
+
+### Key Pattern - Custom Button Tabs (replacing Ant Design Radio.Group)
+
+```tsx
+// constants.ts
+export const INVOICE_TASK_TAB_OPTIONS = [
+  { label: "Pending Invoice Approvals", value: "pending" },
+  { label: "Invoice Action History", value: "history" },
+] as const;
+
+// Component
+<div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">
+  <div className="flex gap-1.5 sm:flex-wrap pb-1 sm:pb-0">
+    {taskTabs.map((option) => (
+      <button
+        key={option.value}
+        onClick={() => onClick(option.value)}
+        className={`px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded
+          transition-colors flex items-center gap-1.5 whitespace-nowrap
+          ${tab === option.value
+            ? "bg-sky-500 text-white"
+            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+          }`}
+      >
+        {option.label}
+      </button>
+    ))}
+  </div>
+</div>
+```
+
+### Bug Fix - Invoice ID Resolution
+
+**Before (broken):**
+```typescript
+return entries.map((entry, index) => ({
+    ...entry,
+    name: `${entry.procurement_order}-${entry.invoice_no}-${index}` // Generated composite key
+}));
+```
+
+**After (fixed):**
+```typescript
+// Backend returns actual Vendor Invoice `name` field - do NOT overwrite it
+return entries;
+```
+
+### Commit
+- `eb729064` - feat(invoices): implement Vendor Invoices doctype with approval workflow
+
+---
+
+## 2026-01-21: Invoice Reconciliation N/A Status
+
+### Summary
+Added "Not Applicable" (N/A) as a fourth reconciliation status for GST 2B reconciliation on invoices. N/A invoices are excluded from reconciliation metrics and displayed with a distinct slate-colored badge. Summary cards now show "(X N/A excluded)" footnote when applicable.
+
+### Files Modified
+
+**Constants & Types:**
+- `src/pages/tasks/invoices/constants.ts`:
+  - Added `"na"` to `ReconciliationStatus` type: `"" | "partial" | "full" | "na"`
+  - Added option to `RECONCILIATION_STATUS_OPTIONS`: `{ label: "Not Applicable", value: "na" }`
+
+**ReconciliationDialog:**
+- `src/pages/tasks/invoices/components/ReconciliationDialog.tsx`:
+  - Added `"na"` to `InternalSelectValue` type
+  - Added N/A option to `INTERNAL_STATUS_OPTIONS`
+  - Updated `handleStatusChange`: N/A clears proof/amount fields (same as "none")
+  - Added help text: "Use 'Not Applicable' for invoices that don't require 2B reconciliation"
+
+**Invoice Components:**
+- `src/pages/tasks/invoices/components/PoInvoices.tsx`:
+  - Updated `dynamicSummary` to track `totalNotApplicable` and `totalNotApplicableAmount` separately
+  - N/A invoices excluded from pending and reconciled counts
+  - Added slate-colored N/A badge: `bg-slate-100 text-slate-600`
+  - Added "(X N/A excluded)" footnote to Reconciled summary card
+
+- `src/pages/tasks/invoices/components/SrInvoices.tsx`:
+  - Same changes as PoInvoices.tsx
+
+**Table Config Files (Facet Filters):**
+- `src/pages/tasks/invoices/config/poInvoicesTable.config.ts` - Added N/A option
+- `src/pages/tasks/invoices/config/srInvoicesTable.config.ts` - Added N/A option
+- `src/pages/reports/config/po2BReconcileTable.config.ts` - Added `{ label: "N/A", value: "N/A" }`
+- `src/pages/reports/config/sr2BReconcileTable.config.ts` - Added N/A option
+
+**Report Components:**
+- `src/pages/reports/components/PO2BReconcileReport.tsx`:
+  - Updated `dynamicSummary` to track N/A separately
+  - Added "(X N/A excluded)" footnote to Reconciled card
+
+- `src/pages/reports/components/SR2BReconcileReport.tsx`:
+  - Same changes as PO2BReconcileReport.tsx
+
+**Report Columns:**
+- `src/pages/reports/components/columns/po2BReconcileColumns.tsx` - Added N/A case to accessor, cell, export
+- `src/pages/reports/components/columns/sr2BReconcileColumns.tsx` - Added N/A case
+
+**Data Hooks:**
+- `src/pages/reports/hooks/usePO2BReconcileData.ts` - Updated local `ReconciliationStatus` type
+- `src/pages/reports/hooks/useSR2BReconcileData.ts` - Updated local `ReconciliationStatus` type
+- `src/pages/tasks/invoices/hooks/useInvoiceReconciliation.ts` - Added `"na": "Not Applicable"` to status labels
+
+### Key Pattern: 4-State Reconciliation
+
+```typescript
+// ReconciliationStatus type
+type ReconciliationStatus = "" | "partial" | "full" | "na";
+
+// N/A is NOT considered reconciled - separate category
+} else if (entry.reconciliation_status === "na") {
+    totalNotApplicable++;
+    totalNotApplicableAmount += invoiceAmount;
+}
+
+// N/A badge styling (slate color)
+case "na":
+    return (
+        <Badge className="bg-slate-100 text-slate-600 hover:bg-slate-100">
+            N/A
+        </Badge>
+    );
+
+// Summary card footnote
+{totalNotApplicable > 0 && (
+    <dd className="text-[10px] text-slate-500 dark:text-slate-400 mt-2 italic">
+        ({totalNotApplicable} N/A excluded)
+    </dd>
+)}
+```
+
+### Commits
+- `30453f17` - feat(invoices): add N/A status to backend reconciliation API
+- `2b2be5d9` - feat(invoices): add N/A option to reconciliation dialog and types
+- `bcc19da0` - feat(invoices): add N/A status handling to invoice views
+- `fc0d90b8` - feat(reports): add N/A status handling to reconcile reports
+
+---
+
+## 2026-01-21: Critical PO Tasks DataTable Refactoring with PR Not Released Status
+
+### Summary
+Refactored Critical PO Tasks list to use DataTable component with faceted filters. Added new "PR Not Released" status for tasks where the procurement request hasn't been released yet. Extracted utility functions and column definitions into dedicated modules.
+
+### Files Created
+- `src/pages/projects/CriticalPOTasks/config/taskTableColumns.tsx` - DataTable column definitions
+- `src/pages/projects/CriticalPOTasks/utils.tsx` - Status styling, JSON parsing, progress calculation helpers
+
+### Files Modified
+- `src/pages/projects/CriticalPOTasks/CriticalPOTasksList.tsx` - Integrated DataTable with TanStack Table hooks
+- `src/pages/projects/CriticalPOTasks/components/EditTaskDialog.tsx` - Added controlled mode (open/onOpenChange props), added PR Not Released status
+- `src/pages/projects/CriticalPOTasks/components/TaskStatusBadge.tsx` - Added purple color scheme for PR Not Released
+- `src/types/NirmaanStack/CriticalPOTasks.ts` - Updated status type
+- `src/pages/CriticalPOTracker/types/index.ts` - Updated CriticalPOTaskStatus type
+
+### Status Progression
+| Status | Color | Meaning |
+|--------|-------|---------|
+| PR Not Released | Purple | Pre-requisite missing (PR not yet created/released) |
+| Not Released | Red | Blocked (PR released but PO not created) |
+| Partially Released | Yellow | In progress (some POs released) |
+| Released | Green | Complete (all POs released) |
+| Not Applicable | Gray | Skip (not required) |
+
+### Commit
+- `c8a4f171` - feat(critical-po-tasks): refactor list with DataTable and add PR Not Released status
+
+---
+
+## 2026-01-21: Multiple Critical PO Task Tagging During PO Dispatch
+
+### Summary
+Enabled multi-select for Critical PO Tasks during PO dispatch. Users can now link a single PO to multiple tasks at once, with at least one tag being compulsory when the project has Critical PO setup.
+
+### Files Modified
+- `src/pages/ProcurementOrders/purchase-order/hooks/useCriticalPOTaskLinking.ts`:
+  - Changed from single-select (`selectedTask`) to multi-select (`selectedTasks[]`)
+  - Added `LinkResult` type for tracking linking operation outcomes
+  - Implemented `linkPOToTasks()` using `Promise.allSettled` for parallel linking
+  - Added `removeTask()` handler for individual task removal
+  - Category filter no longer clears task selections (allows cross-category)
+
+- `src/pages/ProcurementOrders/purchase-order/components/CriticalPOTaskLinkingSection.tsx`:
+  - Added `isMulti` to ReactSelect with amber-themed multi-value chips
+  - Scrollable task list with individual remove buttons
+  - Updated validation: "At least one task must be selected"
+  - Badge shows "X Selected" instead of "Linked"
+
+- `src/pages/ProcurementOrders/purchase-order/components/PODetails.tsx`:
+  - Updated `handleDispatchPO` to call `linkPOToTasks()`
+  - Confirmation dialog shows full details for ≤3 tasks, summary for 4+
+  - Dynamic button text: "Link to X Task(s) & Dispatch"
+
+### Key Pattern: Multi-Select with Promise.allSettled
+```typescript
+const linkPOToTasks = useCallback(async (): Promise<LinkResult> => {
+  const results = await Promise.allSettled(
+    selectedTasks.map(async (taskOption) => {
+      // Link PO to each task in parallel
+    })
+  );
+  // Separate successful and failed results
+  return { success: failed.length === 0, linked, failed };
+}, [selectedTasks, poName, updateDoc, mutate]);
+```
+
+### Commit
+- `7ba10ac1` - feat(po-dispatch): enable multiple Critical PO Task tagging
+
+---
+
+## 2026-01-21: PO Overview Enhancements
+
+### Summary
+Enhanced PO details page with upload buttons, compact design, and delivery history accordion. Hide invoice-related UI from Project Manager role.
+
+### Files Modified
+- `src/pages/ProcurementOrders/purchase-order/PurchaseOrder.tsx` - Added Upload DC/MIR buttons, redesigned action buttons to compact style
+- `src/pages/ProcurementOrders/purchase-order/components/PODetails.tsx` - Hide Add Invoice button and Invoices section from Project Manager
+- `src/pages/ProcurementOrders/invoices-and-dcs/DocumentAttachments.tsx` - UI updates
+- `src/pages/DeliveryNotes/components/DeliveryHistory.tsx` - Added accordion with update count badge
+
+### Commit
+- `98582008` - feat(po): enhance PO overview with upload buttons, compact design, and delivery history accordion
+
+---
+
+## 2026-01-21: Design Tracker Edit Column Fix
+
+### Summary
+Fixed Edit column in Design Tracker to be completely hidden from Project Manager role instead of rendered but disabled.
+
+### Pattern: Conditional Column Spread
+```typescript
+const columns = [
+  // ... other columns
+  ...(role !== "Nirmaan Project Manager Profile" ? [{
+    id: "edit",
+    // Edit column definition
+  }] : []),
+];
+```
+
+### Commit
+- `ead2195d` - fix(design-tracker): hide edit column from project manager role
+
+---
+
 ## 2026-01-19: SR Comments Standalone Card with Add/Delete
 
 ### Summary

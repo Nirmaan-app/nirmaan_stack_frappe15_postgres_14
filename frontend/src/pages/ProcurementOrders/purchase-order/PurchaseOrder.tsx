@@ -43,6 +43,8 @@ import {
   Sheet,
   SheetClose,
   SheetContent,
+  SheetHeader,
+  SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
@@ -72,12 +74,13 @@ import {
   ProcurementOrder,
   PurchaseOrderItem,
 } from "@/types/NirmaanStack/ProcurementOrders";
+import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import {
   getPOTotal,
   getTotalAmountPaid,
-  getTotalInvoiceAmount,
+  getTotalVendorInvoiceAmount,
   getPreviewTotal,
 } from "@/utils/getAmounts";
 import { useDialogStore } from "@/zustand/useDialogStore";
@@ -112,6 +115,7 @@ import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import ReactSelect, { components } from "react-select";
 import DeliveryHistoryTable from "@/pages/DeliveryNotes/components/DeliveryHistory";
+import { DeliveryNoteItemsDisplay } from "@/pages/DeliveryNotes/components/deliveryNoteItemsDisplay";
 import { InvoiceDialog } from "../invoices-and-dcs/components/InvoiceDialog";
 import POAttachments from "./components/POAttachments";
 import POPaymentTermsCard from "./components/POPaymentTermsCard";
@@ -172,8 +176,22 @@ export const PurchaseOrder = ({
     mutate: poMutate,
   } = useFrappeGetDoc<ProcurementOrder>("Procurement Orders", poId);
 
+  // Fetch Vendor Invoices for this PO
+  const { data: vendorInvoices } = useFrappeGetDocList<VendorInvoice>(
+    "Vendor Invoices",
+    {
+      fields: ["name", "invoice_no", "invoice_date", "invoice_amount", "status"],
+      filters: [
+        ["document_type", "=", "Procurement Orders"],
+        ["document_name", "=", poId],
+      ],
+      limit: 1000,
+    },
+    poId ? `VendorInvoices-PO-${poId}` : null
+  );
 
-  //editing PO terms 
+
+  //editing PO terms
 
 
 
@@ -305,6 +323,12 @@ export const PurchaseOrder = ({
 
   const toggleAmendPOSheet = useCallback(() => {
     setAmendPOSheet((prevState) => !prevState);
+  }, []);
+
+  // Delivery Note Sheet state for Delivery History accordion
+  const [deliveryNoteSheet, setDeliveryNoteSheet] = useState(false);
+  const toggleDeliveryNoteSheet = useCallback(() => {
+    setDeliveryNoteSheet((prevState) => !prevState);
   }, []);
 
   const [cancelPODialog, setCancelPODialog] = useState(false);
@@ -1073,14 +1097,14 @@ export const PurchaseOrder = ({
   );
 
   const totalInvoiceAmount = useMemo(
-    () => getTotalInvoiceAmount(PO?.invoice_data || []),
-    [PO]
+    () => getTotalVendorInvoiceAmount(vendorInvoices),
+    [vendorInvoices]
   );
 
-  // Calculate invoice count
+  // Calculate invoice count from Vendor Invoices
   const invoiceCount = useMemo(
-    () => (invoicePO?.invoice_data?.data ? Object.keys(invoicePO.invoice_data.data).length : 0),
-    [invoicePO]
+    () => vendorInvoices?.length || 0,
+    [vendorInvoices]
   );
 
   // Calculate DC & MIR count
@@ -1484,7 +1508,7 @@ export const PurchaseOrder = ({
         poPayments={poPayments}
         togglePoPdfSheet={togglePoPdfSheet}
         // getTotal={getTotal}
-        totalInvoice={getTotalInvoiceAmount(PO?.invoice_data || [])}
+        totalInvoice={totalInvoiceAmount}
         amountPaid={amountPaid}
         poMutate={poMutate}
       />
@@ -1546,10 +1570,85 @@ export const PurchaseOrder = ({
         </Card>
       )}
 
+      {/* Delivery History Accordion - Only for dispatched/delivered statuses */}
+      {PO?.status &&
+        ["Dispatched", "Partially Delivered", "Delivered"].includes(
+          PO?.status
+        ) && (
+          <Card className="rounded-sm md:col-span-3 p-2">
+            <Accordion type="multiple" className="w-full">
+              <AccordionItem key="delivery-history" value="delivery-history">
+                <AccordionTrigger>
+                  <div className="flex items-center gap-3 pl-6">
+                    <p className="font-semibold text-lg text-red-600">
+                      Delivery History
+                    </p>
+                    <Badge variant="secondary">
+                      {Object.keys(deliveryHistory.data || {}).length} updates
+                    </Badge>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="space-y-4 p-4">
+                    {/* Update Delivery button inside accordion */}
+                    {[
+                      "Nirmaan Admin Profile",
+                      "Nirmaan PMO Executive Profile",
+                      "Nirmaan Project Manager Profile",
+                      "Nirmaan Project Lead Profile",
+                      "Nirmaan Procurement Executive Profile",
+                    ].includes(userData?.role) && (
+                      <div className="flex justify-end">
+                        <Button
+                          onClick={toggleDeliveryNoteSheet}
+                          variant="outline"
+                          size="sm"
+                          className="h-8 px-3 border-primary text-primary"
+                        >
+                          <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                          Update Delivery
+                        </Button>
+                      </div>
+                    )}
+                    <DeliveryHistoryTable
+                      deliveryData={deliveryHistory.data}
+                      onPrintHistory={triggerHistoryPrint}
+                      showHeader={false}
+                    />
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          </Card>
+        )}
+
+      {/* Delivery Note Sheet for Delivery History accordion */}
+      <Sheet open={deliveryNoteSheet} onOpenChange={toggleDeliveryNoteSheet}>
+        <SheetContent className="overflow-auto">
+          <SheetHeader className="text-start mb-4 mx-4">
+            <SheetTitle className="text-primary flex flex-row items-center justify-between">
+              <p>Update/View Delivery Note</p>
+              <Button variant="default" className="px-2" size="sm">
+                <Eye className="h-4 w-4 mr-2" />
+                <span className="text-xs">Preview</span>
+              </Button>
+            </SheetTitle>
+          </SheetHeader>
+          <div className="space-y-4">
+            <DeliveryNoteItemsDisplay data={PO} poMutate={poMutate} />
+            <DeliveryHistoryTable
+              deliveryData={deliveryHistory.data}
+              onPrintHistory={triggerHistoryPrint}
+              showHeader={false}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
+
       {/* PO Attachments Accordion */}
 
       {PO?.status && (
-        <Card className="rounded-sm  md:col-span-3 p-2">
+        <Card className="rounded-sm md:col-span-3 p-2">
           <Accordion
             type="multiple"
             // defaultValue={tab !== "Delivered PO" ? ["poattachments"] : []}
@@ -1563,9 +1662,13 @@ export const PurchaseOrder = ({
                     PO Attachments
                   </p>
                   <div className="flex items-center gap-2 text-sm">
-                    <span className="text-gray-600">Invoices:</span>
-                    <Badge variant="secondary">{invoiceCount}</Badge>
-                    <span className="text-gray-400">|</span>
+                    {!isProjectManager && (
+                      <>
+                        <span className="text-gray-600">Invoices:</span>
+                        <Badge variant="secondary">{invoiceCount}</Badge>
+                        <span className="text-gray-400">|</span>
+                      </>
+                    )}
                     <span className="text-gray-600">DC & MIRs:</span>
                     <Badge variant="secondary">{dcMirCount}</Badge>
                   </div>
@@ -1573,14 +1676,14 @@ export const PurchaseOrder = ({
               </AccordionTrigger>
               {/* )} */}
               <AccordionContent>
-
                 <DocumentAttachments
                   docType="Procurement Orders"
                   docName={PO?.name}
                   documentData={invoicePO}
                   docMutate={poMutate}
                   project={project}
-                  disabledAddInvoice={PO?.status=="Inactive"}
+                  disabledAddInvoice={PO?.status == "Inactive"}
+                  isProjectManager={isProjectManager}
                 />
 
                 {/* <POAttachments PO={PO} poMutate={poMutate} /> */}
@@ -1595,6 +1698,7 @@ export const PurchaseOrder = ({
         docName={PO?.name}
         docType="Procurement Orders"
         docMutate={poMutate}
+        vendor={PO?.vendor}
       />
       {/* Order Details */}
       <Card className="rounded-sm shadow-md md:col-span-3">
@@ -2296,14 +2400,6 @@ export const PurchaseOrder = ({
           </AlertDialog>
         </div>
       </div>
-      {/* Delivery History */}
-      {["Delivered", "Partially Delivered", "PO Approved", "Dispatched"].includes(PO?.status) && (
-        <DeliveryHistoryTable
-          deliveryData={deliveryHistory.data}
-          onPrintHistory={triggerHistoryPrint}
-        />
-      )}
-
       {/* PO Remarks Section */}
       {poId && (
         <Card className="rounded-sm md:col-span-3 p-2">

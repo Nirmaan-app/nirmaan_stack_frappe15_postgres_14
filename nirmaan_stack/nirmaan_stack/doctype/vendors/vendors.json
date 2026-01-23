@@ -8,6 +8,7 @@
  "field_order": [
   "vendor_details_section",
   "vendor_name",
+  "vendor_nickname",
   "vendor_type",
   "vendor_category",
   "vendor_address_details_section",
@@ -44,6 +45,12 @@
    "in_list_view": 1,
    "label": "Vendor Name",
    "reqd": 1
+  },
+  {
+   "fieldname": "vendor_nickname",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Vendor Nickname"
   },
   {
    "fieldname": "vendor_type",

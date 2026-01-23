@@ -4,6 +4,55 @@ Changes made by Claude Code sessions.
 
 ---
 
+### 2026-01-23: Vendor Invoices Doctype with Approval Workflow
+
+**Summary:** Created centralized Vendor Invoices doctype to replace embedded invoice data in delivery notes. Includes approval/rejection workflow, duplicate detection, and migration from legacy data.
+
+**Doctype Created:**
+- `Vendor Invoices` - Centralized invoice storage with:
+  - Dynamic link to PO or SR (document_type + document_name)
+  - Project and Vendor links
+  - Invoice details (no, date, amount, attachment)
+  - Approval workflow (Pending/Approved/Rejected with audit trail)
+  - Reconciliation fields (status, date, amount, proof)
+  - Autoname: `VI-.YYYY.-.#####`
+
+**Backend Files Created:**
+- `nirmaan_stack/nirmaan_stack/doctype/vendor_invoices/` - Doctype definition
+- `nirmaan_stack/api/invoices/approve_vendor_invoice.py` - Approval/rejection API with audit trail
+- `nirmaan_stack/api/invoices/check_duplicate_invoice.py` - Duplicate detection by vendor+invoice_no
+- `nirmaan_stack/api/invoices/get_vendor_invoice_totals.py` - Aggregation API for document totals
+- `nirmaan_stack/patches/v3_0/migrate_invoices_to_vendor_invoices.py` - Data migration patch
+
+**Backend Files Modified:**
+- `nirmaan_stack/api/delivery_notes/update_invoice_data.py` - Refactored to create/update Vendor Invoices
+- `nirmaan_stack/api/invoices/po_wise_invoice_data.py` - Updated to query Vendor Invoices
+- `nirmaan_stack/api/invoices/sr_wise_invoice_data.py` - Updated to query Vendor Invoices
+- `nirmaan_stack/api/invoices/update_invoice_reconciliation.py` - Updated to work with Vendor Invoices
+- `nirmaan_stack/api/projects/project_wise_invoice_data.py` - Updated data source
+- `nirmaan_stack/api/vendor/get_vendor_po_invoices.py` - Updated data source
+
+**Key Patterns:**
+- Dynamic link pattern for polymorphic document reference (PO or SR)
+- Approval workflow with status, approved_by, approved_on, rejection_reason fields
+- Invoice ID resolution uses Vendor Invoice docname (e.g., `VI-2026-00001`), not composite key
+
+---
+
+### 2026-01-21: Invoice Reconciliation N/A Status
+
+**Summary:** Added "Not Applicable" (N/A) as a fourth reconciliation status for invoices where GST 2B matching is not required (e.g., unregistered vendors, exempt supplies).
+
+**Backend Files Modified:**
+- `nirmaan_stack/api/invoices/update_invoice_reconciliation.py` - Added "na" to RECONCILIATION_STATUS_VALUES
+
+**Key Behavior:**
+- N/A status clears reconciliation fields (reconciled_amount = 0)
+- N/A is NOT considered reconciled - excluded from reconciliation metrics
+- N/A invoices don't count toward "pending" reconciliation totals
+
+---
+
 ### 2026-01-20: Credits API Refactoring with Row-Level Filtering
 
 **Summary:** Created custom Credits API that filters PO Payment Terms at the child row level (not parent level), removed deprecated "Scheduled" status, and implemented date-based "Due" logic.

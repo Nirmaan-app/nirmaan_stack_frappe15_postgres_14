@@ -87,6 +87,11 @@ import CriticalPOTrackerDetail from "@/pages/CriticalPOTracker/critical-po-track
 //Work Plan Tracker
 import WorkPlanTrackerList from "@/pages/WorkPlanTracker/work-plan-tracker-list";
 import WorkPlanTrackerDetail from "@/pages/WorkPlanTracker/work-plan-tracker-detail";
+
+//Material Plan Tracker
+import MaterialPlanTrackerList from "@/pages/MaterialPlanTracker/material-plan-tracker-list";
+import MaterialPlanTrackerDetail from "@/pages/MaterialPlanTracker/material-plan-tracker-detail";
+
 import TDSApprovalList from "@/pages/tds/TDSApprovalList";
 import TDSApprovalDetail from "@/pages/tds/TDSApprovalDetail";
 
@@ -327,6 +332,22 @@ export const appRoutes: RouteObject[] = [
           // --- END: WORK PLAN TRACKER SECTION ---
           // ======================================================
 
+          // ======================================================
+          // --- START: MATERIAL PLAN TRACKER SECTION ---
+          // ======================================================
+          {
+            path: "material-plan-tracker",
+            children: [
+              // List View (e.g., /material-plan-tracker)
+              { index: true, element: <MaterialPlanTrackerList /> },
+              // Detail View (e.g., /material-plan-tracker/PROJ-0001)
+              { path: ":projectId", element: <MaterialPlanTrackerDetail /> },
+            ],
+          },
+          // ======================================================
+          // --- END: MATERIAL PLAN TRACKER SECTION ---
+          // ======================================================
+
           // --- Projects Section ---
           {
             path: "projects",
@@ -438,6 +459,7 @@ export const appRoutes: RouteObject[] = [
             children: [
               { index: true, element: <AssetsPage /> },
               { path: ":assetId", lazy: () => import("@/pages/Assets/AssetOverview") },
+              { path: "category/:categoryId", lazy: () => import("@/pages/Assets/AssetCategoryView") },
             ],
           },
 

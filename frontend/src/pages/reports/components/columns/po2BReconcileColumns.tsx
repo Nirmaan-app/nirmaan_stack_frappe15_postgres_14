@@ -218,6 +218,7 @@ export const po2BReconcileColumns: ColumnDef<PO2BReconcileRowData>[] = [
             switch (row.reconciliationStatus) {
                 case "full": return "Full";
                 case "partial": return "Partial";
+                case "na": return "N/A";
                 default: return "None";
             }
         },
@@ -239,6 +240,12 @@ export const po2BReconcileColumns: ColumnDef<PO2BReconcileRowData>[] = [
                                 <CircleDashed className="w-3 h-3 mr-1" /> Partial
                             </Badge>
                         );
+                    case "na":
+                        return (
+                            <Badge className="bg-slate-100 text-slate-600 hover:bg-slate-100">
+                                N/A
+                            </Badge>
+                        );
                     default:
                         return (
                             <Badge variant="outline" className="text-gray-500">
@@ -258,6 +265,7 @@ export const po2BReconcileColumns: ColumnDef<PO2BReconcileRowData>[] = [
                 switch (row.reconciliationStatus) {
                     case "full": return "Full";
                     case "partial": return "Partial";
+                    case "na": return "N/A";
                     default: return "None";
                 }
             },

@@ -92,7 +92,7 @@ def get_project_progress_reports_comparison(project,report_zone):
     seven_days_report_doc = None
     for report in reports:
         report_date = getdate(report.report_date)
-        if abs((report_date - seven_days_ago).days) <= 2:
+        if abs((report_date - seven_days_ago).days) <= 1:
             seven_days_report_doc = frappe.get_doc("Project Progress Reports", report.name)
             break
     seven_days_report = _process_report_data(seven_days_report_doc, work_header_order_map)
@@ -101,7 +101,7 @@ def get_project_progress_reports_comparison(project,report_zone):
     fourteen_days_report_doc = None
     for report in reports:
         report_date = getdate(report.report_date)
-        if abs((report_date - fourteen_days_ago).days) <= 2:
+        if abs((report_date - fourteen_days_ago).days) <= 1:
             fourteen_days_report_doc = frappe.get_doc("Project Progress Reports", report.name)
             break
     fourteen_days_report = _process_report_data(fourteen_days_report_doc, work_header_order_map)

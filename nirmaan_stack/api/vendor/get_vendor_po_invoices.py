@@ -7,9 +7,11 @@ import json
 @frappe.whitelist()
 def get_po_ledger_data(vendor_id):
     """
-    Fetches all POs, Service Requests, their embedded Invoices, and related 
-    Project Payments. It calculates the SR total by summing quantity * rate 
+    Fetches all POs, Service Requests, their Invoices (from Vendor Invoices doctype),
+    and related Project Payments. It calculates the SR total by summing quantity * rate
     from the nested 'service_order_list' JSON field.
+
+    Updated in v3.0 to use Vendor Invoices doctype instead of invoice_data JSON.
     """
     if not vendor_id:
         frappe.throw("Vendor ID is a required parameter.")
@@ -20,41 +22,38 @@ def get_po_ledger_data(vendor_id):
     start_date = "2025-04-01"
     start_datetime = get_datetime(start_date)
 
-    # --- Step 1: Fetch Purchase Orders (No change here) ---
+    # --- Step 1: Fetch Purchase Orders ---
     vendor_pos = frappe.get_all(
         "Procurement Orders",
         filters={"vendor": vendor_id, "status": ("not in", [ "Merged", "Inactive", "PO Amendment"])},
-        fields=["name", "creation", "total_amount", "project_name", "invoice_data"]
+        fields=["name", "creation", "total_amount", "project_name"]
     )
     print(f"DEBUG LEDGER: Found {len(vendor_pos)} total historical Purchase Orders.")
-    
+
     doc_names = []
     doc_project_map = {}
-# Getting po and invoce data
+
+    # Process POs
     for po in vendor_pos:
-        # ... (PO processing logic remains the same) ...
         doc_name = po.get("name")
         project_name_from_po = po.get("project_name", "N/A")
         doc_names.append(doc_name)
         doc_project_map[doc_name] = project_name_from_po
-        all_transactions.append({ "type": "PO Created", "date": get_datetime(po.get("creation")), "details": f"PO: {doc_name}", "amount": flt(po.get('total_amount', 0)), "payment": 0, "project": project_name_from_po })
+        all_transactions.append({
+            "type": "PO Created",
+            "date": get_datetime(po.get("creation")),
+            "details": f"PO: {doc_name}",
+            "amount": flt(po.get('total_amount', 0)),
+            "payment": 0,
+            "project": project_name_from_po
+        })
         log_counter += 1
-        invoice_data_dict = po.get("invoice_data")
-        if isinstance(invoice_data_dict, dict) and invoice_data_dict.get("data"):
-            for date_str, invoice_details in invoice_data_dict["data"].items():
-                if isinstance(invoice_details, dict):
-                    try:
-                        transaction_date = get_datetime(date_str)
-                        all_transactions.append({ "type": "Credit Note Recorded" if flt(invoice_details.get("amount", 0)) < 0 else "Invoice Recorded", "date": transaction_date, "details": f"Invoice No: {invoice_details.get('invoice_no')}\nFor PO: {doc_name}", "amount": flt(invoice_details.get('amount', 0)), "payment": 0, "project": project_name_from_po })
-                        log_counter += 1
-                    except ValueError:
-                        continue
-    
+
     # --- Step 2: Fetch Service Requests & Calculate Total from Child Table ---
     vendor_srs = frappe.get_all(
-        "Service Requests", 
+        "Service Requests",
         filters={"vendor": vendor_id, "status": ["!=", "Cancelled"]},
-        fields=["name", "creation", "project", "invoice_data", "service_order_list"]
+        fields=["name", "creation", "project", "service_order_list"]
     )
     print(f"DEBUG LEDGER: Found {len(vendor_srs)} total historical Service Requests.")
 
@@ -63,7 +62,8 @@ def get_po_ledger_data(vendor_id):
     if project_ids_from_srs:
         project_docs = frappe.get_all("Projects", filters={"name": ["in", list(project_ids_from_srs)]}, fields=["name", "project_name"])
         project_name_map = {p.name: p.project_name for p in project_docs}
-# Getting sr and invoice data
+
+    # Process SRs
     for sr in vendor_srs:
         doc_name = sr.get("name")
         doc_names.append(doc_name)
@@ -71,56 +71,89 @@ def get_po_ledger_data(vendor_id):
         resolved_project_name = project_name_map.get(project_id, project_id or "N/A")
         doc_project_map[doc_name] = resolved_project_name
 
-        # --- THIS IS THE CORRECTED CALCULATION LOGIC ---
+        # Calculate SR total from service_order_list
         sr_total_amount = 0.0
         service_order_json = sr.get("service_order_list")
-        
-        # The JSON is a dict: {"list": [...]}. We need to get the inner list.
+
         if isinstance(service_order_json, dict) and isinstance(service_order_json.get("list"), list):
             service_order_list_data = service_order_json.get("list")
             print(f"DEBUG LEDGER: Calculating total from {len(service_order_list_data)} items for SR {doc_name}")
             for item in service_order_list_data:
-                # Calculate amount as quantity * rate for each item
                 quantity = flt(item.get('quantity', 0))
                 rate = flt(item.get('rate', 0))
                 sr_total_amount += (quantity * rate)
-        
+
         all_transactions.append({
-            "type": "SR Created", "date": get_datetime(sr.get("creation")),
-            "details": f"SR: {doc_name}", "amount": sr_total_amount, "payment": 0,
+            "type": "SR Created",
+            "date": get_datetime(sr.get("creation")),
+            "details": f"SR: {doc_name}",
+            "amount": sr_total_amount,
+            "payment": 0,
             "project": resolved_project_name
         })
         log_counter += 1
-        
-        # ... (SR Invoice processing remains the same) ...
-        invoice_data_dict = sr.get("invoice_data")
-        if isinstance(invoice_data_dict, dict) and invoice_data_dict.get("data"):
-            for date_str, invoice_details in invoice_data_dict["data"].items():
-                if isinstance(invoice_details, dict):
-                    try:
-                        transaction_date = get_datetime(date_str)
-                        all_transactions.append({ "type": "Credit Note Recorded" if flt(invoice_details.get("amount", 0)) < 0 else "Invoice Recorded", "date": transaction_date, "details": f"Invoice No: {invoice_details.get('invoice_no')}\nFor SR: {doc_name}", "amount": flt(invoice_details.get('amount', 0)), "payment": 0, "project": resolved_project_name })
-                        log_counter += 1
-                    except ValueError:
-                        continue
-                        
-    # --- Step 3: Fetch Payments (No change here, already works for both) ---
-# Getting payment data for both SR AND PO
+
+    # --- Step 3: Fetch Invoices from Vendor Invoices doctype ---
+    if doc_names:
+        vendor_invoices = frappe.get_all(
+            "Vendor Invoices",
+            filters={
+                "vendor": vendor_id,
+                "status": "Approved",
+                "document_name": ["in", doc_names]
+            },
+            fields=["name", "document_type", "document_name", "invoice_no", "invoice_date", "invoice_amount"]
+        )
+        print(f"DEBUG LEDGER: Found {len(vendor_invoices)} approved Vendor Invoices.")
+
+        for invoice in vendor_invoices:
+            invoice_amount = flt(invoice.get("invoice_amount", 0))
+            doc_name = invoice.get("document_name")
+            doc_type_abbr = "PO" if invoice.get("document_type") == "Procurement Orders" else "SR"
+            project_name_for_invoice = doc_project_map.get(doc_name, "N/A")
+
+            # Determine if credit note or invoice
+            transaction_type = "Credit Note Recorded" if invoice_amount < 0 else "Invoice Recorded"
+
+            all_transactions.append({
+                "type": transaction_type,
+                "date": get_datetime(invoice.get("invoice_date")),
+                "details": f"Invoice No: {invoice.get('invoice_no')}\nFor {doc_type_abbr}: {doc_name}",
+                "amount": invoice_amount,
+                "payment": 0,
+                "project": project_name_for_invoice
+            })
+            log_counter += 1
+
+    # --- Step 4: Fetch Payments ---
     if doc_names:
         payments = frappe.get_all(
             "Project Payments",
-            filters={"vendor": vendor_id, "status": "Paid", "document_type": ["in", ["Procurement Orders", "Service Requests"]], "document_name": ["in", doc_names] },
+            filters={
+                "vendor": vendor_id,
+                "status": "Paid",
+                "document_type": ["in", ["Procurement Orders", "Service Requests"]],
+                "document_name": ["in", doc_names]
+            },
             fields=["name", "payment_date", "creation", "amount", "utr", "document_name", "document_type"]
         )
         print(f"DEBUG LEDGER: Found {len(payments)} total historical Project Payments.")
+
         for payment in payments:
             linked_doc_name = payment.get("document_name")
             project_name_for_payment = doc_project_map.get(linked_doc_name, "N/A")
             doc_type_abbr = "PO" if payment.get("document_type") == "Procurement Orders" else "SR"
-            all_transactions.append({ "type": "Refund Received" if flt(payment.get("amount", 0)) < 0 else "Payment Made", "date": get_datetime(payment.get("payment_date") or payment.get("creation")), "details": f"UTR: {payment.get('utr', 'N/A')}\nFor {doc_type_abbr}: {linked_doc_name}", "amount": 0, "payment": flt(payment.get("amount", 0)), "project": project_name_for_payment })
+            all_transactions.append({
+                "type": "Refund Received" if flt(payment.get("amount", 0)) < 0 else "Payment Made",
+                "date": get_datetime(payment.get("payment_date") or payment.get("creation")),
+                "details": f"UTR: {payment.get('utr', 'N/A')}\nFor {doc_type_abbr}: {linked_doc_name}",
+                "amount": 0,
+                "payment": flt(payment.get("amount", 0)),
+                "project": project_name_for_payment
+            })
             log_counter += 1
 
-    # --- Step 4: Final Filtering, Sorting, and Formatting (No change here) ---
+    # --- Step 5: Final Filtering, Sorting, and Formatting ---
     print(f"DEBUG LEDGER: Collected a total of {len(all_transactions)} transactions before date filtering.")
     filtered_transactions = [t for t in all_transactions if t["date"] >= start_datetime]
     print(f"DEBUG LEDGER: {len(filtered_transactions)} transactions remaining after filtering for dates >= {start_date}.")

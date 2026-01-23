@@ -1,6 +1,7 @@
 import React from "react";
 import ReactSelect from "react-select";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { TailSpin } from "react-loader-spinner";
 import {
@@ -9,6 +10,7 @@ import {
   CheckCircle2,
   AlertCircle,
   AlertTriangle,
+  X,
 } from "lucide-react";
 import { formatDate } from "@/utils/FormatDate";
 import {
@@ -18,7 +20,7 @@ import {
 } from "../hooks/useCriticalPOTaskLinking";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 
-// React-Select custom styles for enterprise theme
+// React-Select custom styles for enterprise theme - now with multi-select support
 const selectStyles = {
   control: (base: any, state: any) => ({
     ...base,
@@ -62,6 +64,28 @@ const selectStyles = {
     ...base,
     color: "#1e293b",
   }),
+  // Multi-select styles
+  multiValue: (base: any) => ({
+    ...base,
+    backgroundColor: "#fef3c7",
+    borderRadius: "4px",
+    border: "1px solid #fbbf24",
+  }),
+  multiValueLabel: (base: any) => ({
+    ...base,
+    color: "#92400e",
+    fontSize: "12px",
+    fontWeight: 500,
+    padding: "2px 6px",
+  }),
+  multiValueRemove: (base: any) => ({
+    ...base,
+    color: "#b45309",
+    "&:hover": {
+      backgroundColor: "#fbbf24",
+      color: "#78350f",
+    },
+  }),
 };
 
 // Custom filter function to search task by name, category, and subcategory
@@ -101,17 +125,23 @@ export const CriticalPOTaskLinkingSection: React.FC<CriticalPOTaskLinkingSection
     categoryOptions,
     filteredTaskOptions,
     selectedCategory,
-    selectedTask,
+    selectedTasks,
     setSelectedCategory,
-    setSelectedTask,
-    selectedTaskDetails,
-    linkedPOsToSelectedTask,
+    setSelectedTasks,
+    removeTask,
+    selectedTasksDetails,
+    linkedPOsToSelectedTasks,
     poLinkedToOtherTasks,
   } = linkingState;
 
   // Determine if task selection is mandatory
   const isMandatory = hasCriticalPOSetup && !isPoAlreadyLinked;
-  const showValidationError = isMandatory && !selectedTask;
+  const showValidationError = isMandatory && selectedTasks.length === 0;
+
+  // Check if any selected task is from a different category than currently filtered
+  const hasTasksFromOtherCategories = selectedCategory && selectedTasks.some(
+    (t) => t.data.critical_po_category !== selectedCategory.value
+  );
 
   // Extract PO ID (2nd part after /)
   const extractPOId = (fullName: string) => {
@@ -163,12 +193,14 @@ export const CriticalPOTaskLinkingSection: React.FC<CriticalPOTaskLinkingSection
           {isMandatory && (
             <Badge
               className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 ${
-                selectedTask
+                selectedTasks.length > 0
                   ? "bg-emerald-100 text-emerald-700 border-emerald-200"
                   : "bg-red-100 text-red-700 border-red-200 animate-pulse"
               }`}
             >
-              {selectedTask ? "Linked" : "Required"}
+              {selectedTasks.length > 0
+                ? `${selectedTasks.length} Selected`
+                : "Required"}
             </Badge>
           )}
         </div>
@@ -194,11 +226,11 @@ export const CriticalPOTaskLinkingSection: React.FC<CriticalPOTaskLinkingSection
             {/* Category Dropdown */}
             <div className="space-y-1.5">
               <Label className="text-xs font-medium text-slate-500">
-                Category
+                Filter by Category (optional)
               </Label>
               <ReactSelect<CategoryOption>
                 options={categoryOptions}
-                placeholder="Search or select category..."
+                placeholder="Search or select category to filter..."
                 isClearable
                 styles={selectStyles}
                 menuPosition="fixed"
@@ -211,16 +243,18 @@ export const CriticalPOTaskLinkingSection: React.FC<CriticalPOTaskLinkingSection
               />
             </div>
 
-            {/* Task Dropdown */}
+            {/* Task Dropdown - NOW MULTI-SELECT */}
             <div className="space-y-1.5">
               <Label className={`text-xs font-medium ${
                 showValidationError ? "text-red-600" : "text-slate-500"
               }`}>
-                Task {isMandatory && <span className="text-red-500">*</span>}
+                Tasks {isMandatory && <span className="text-red-500">*</span>}
+                <span className="font-normal text-slate-400 ml-1">(select one or more)</span>
               </Label>
-              <ReactSelect<TaskOption>
+              <ReactSelect<TaskOption, true>
+                isMulti
                 options={filteredTaskOptions}
-                placeholder="Search task by name or subcategory..."
+                placeholder="Search and select tasks..."
                 isClearable
                 styles={{
                   ...selectStyles,
@@ -240,14 +274,15 @@ export const CriticalPOTaskLinkingSection: React.FC<CriticalPOTaskLinkingSection
                 }}
                 menuPosition="fixed"
                 menuShouldBlockScroll={false}
-                value={selectedTask}
-                onChange={(newValue) => setSelectedTask(newValue as TaskOption | null)}
+                value={selectedTasks}
+                onChange={(newValue) => setSelectedTasks(newValue as TaskOption[])}
                 filterOption={taskFilterOption}
                 noOptionsMessage={() =>
                   selectedCategory
                     ? "No tasks found in this category"
                     : "No tasks available"
                 }
+                closeMenuOnSelect={false}
               />
             </div>
 
@@ -257,65 +292,70 @@ export const CriticalPOTaskLinkingSection: React.FC<CriticalPOTaskLinkingSection
                 <AlertTriangle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
                 <div>
                   <p className="text-xs font-semibold text-red-700">
-                    Task selection is required
+                    At least one task must be selected
                   </p>
                   <p className="text-xs text-red-600 mt-0.5">
-                    Select a Critical PO Task to link this PO before dispatching.
+                    Select one or more Critical PO Tasks to link this PO before dispatching.
                   </p>
                 </div>
               </div>
             )}
 
-            {/* Selected Task Details Card */}
-            {selectedTaskDetails && (
+            {/* Selected Tasks Details Card - Now shows multiple tasks */}
+            {selectedTasksDetails.length > 0 && (
               <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-md space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">
-                    Selected Task
+                    Selected Tasks ({selectedTasksDetails.length})
                   </span>
                   <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                 </div>
 
-                {/* Task Details Grid */}
-                <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
-                  <div>
-                    <span className="text-slate-500">Item</span>
-                    <p className="font-medium text-slate-800">
-                      {selectedTaskDetails.item_name}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-slate-500">Category</span>
-                    <p className="font-medium text-slate-800">
-                      {selectedTaskDetails.critical_po_category}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-slate-500">Sub-Category</span>
-                    <p className="font-medium text-slate-800">
-                      {selectedTaskDetails.sub_category || "-"}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-slate-500">PO Release Deadline</span>
-                    <p className="font-medium text-slate-800">
-                      {formatDate(selectedTaskDetails.po_release_date)}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-slate-500">Current Status</span>
-                    <p className="font-medium text-slate-800">
-                      {selectedTaskDetails.status}
-                    </p>
-                  </div>
-                  {selectedTaskDetails.revised_date && (
-                    <div>
-                      <span className="text-slate-500">Revised Deadline</span>
-                      <p className="font-medium text-slate-800">
-                        {formatDate(selectedTaskDetails.revised_date)}
-                      </p>
-                    </div>
-                  )}
+                {/* Cross-category notice */}
+                {hasTasksFromOtherCategories && (
+                  <p className="text-xs text-amber-600 -mt-1">
+                    Includes tasks from other categories
+                  </p>
+                )}
+
+                {/* Task List with remove buttons */}
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {selectedTasks.map((taskOption) => {
+                    const task = taskOption.data;
+                    return (
+                      <div
+                        key={taskOption.value}
+                        className="flex items-center justify-between p-2 bg-white rounded border border-emerald-200 text-xs"
+                      >
+                        <div className="flex-1 min-w-0 mr-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-slate-800 truncate">
+                              {task.item_name}
+                            </span>
+                            {task.sub_category && (
+                              <span className="text-slate-400 truncate">
+                                ({task.sub_category})
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3 mt-0.5 text-slate-500">
+                            <span>{task.critical_po_category}</span>
+                            <span>|</span>
+                            <span>Due: {formatDate(task.po_release_date)}</span>
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeTask(taskOption.value)}
+                          className="h-6 w-6 p-0 text-slate-400 hover:text-red-500 hover:bg-red-50 shrink-0"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    );
+                  })}
                 </div>
 
                 {/* Cross-Task Conflict Warning - PO already linked to OTHER tasks */}
@@ -339,26 +379,26 @@ export const CriticalPOTaskLinkingSection: React.FC<CriticalPOTaskLinkingSection
                           ))}
                         </ul>
                         <p className="text-xs text-amber-600 mt-1.5 font-medium">
-                          Linking will associate this PO with multiple tasks.
+                          These links will be preserved.
                         </p>
                       </div>
                     </div>
                   </div>
                 )}
 
-                {/* Linked POs Warning */}
-                {linkedPOsToSelectedTask.length > 0 && (
+                {/* Linked POs Warning - POs already linked to selected tasks */}
+                {linkedPOsToSelectedTasks.length > 0 && (
                   <div className="pt-2 mt-2 border-t border-emerald-200">
                     <div className="flex items-start gap-2">
                       <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
                       <div>
                         <p className="text-xs text-slate-600">
                           <span className="text-amber-600 font-medium">
-                            {linkedPOsToSelectedTask.length} PO(s) already linked:
+                            {linkedPOsToSelectedTasks.length} other PO(s) linked to selected task(s):
                           </span>
                         </p>
                         <div className="flex flex-wrap gap-1.5 mt-1.5">
-                          {linkedPOsToSelectedTask.map((po) => (
+                          {linkedPOsToSelectedTasks.map((po) => (
                             <div key={po} className="flex items-center gap-1 bg-white rounded border border-slate-200 px-1.5 py-0.5">
                               <Badge
                                 variant="outline"

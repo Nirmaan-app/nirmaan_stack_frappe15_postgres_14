@@ -7,7 +7,8 @@ import { NirmaanUsers } from '@/types/NirmaanStack/NirmaanUsers';
 import { NirmaanAttachment } from '@/types/NirmaanStack/NirmaanAttachment';
 
 // Reconciliation status type (matches invoices tab)
-type ReconciliationStatus = "" | "partial" | "full";
+// "na" = Not Applicable (for invoices that don't require 2B reconciliation)
+type ReconciliationStatus = "" | "partial" | "full" | "na";
 
 // Interface for individual invoice item from API
 interface InvoiceItem {
@@ -16,7 +17,7 @@ interface InvoiceItem {
     reconciled_amount: number;
     invoice_no: string;
     date: string;
-    updated_by: string;
+    uploaded_by: string;
     invoice_attachment_id: string;
     procurement_order: string;
     project?: string;
@@ -196,8 +197,8 @@ export const usePO2BReconcileData = (options: UsePO2BReconcileDataOptions = {}):
             reconciledBy: entry.reconciled_by || null,
             reconciledByName: entry.reconciled_by ? (userMap[entry.reconciled_by] || entry.reconciled_by) : null,
             invoiceAttachmentId: entry.invoice_attachment_id,
-            updatedBy: entry.updated_by,
-            updatedByName: userMap[entry.updated_by] || entry.updated_by,
+            updatedBy: entry.uploaded_by,
+            updatedByName: userMap[entry.uploaded_by] || entry.uploaded_by,
             attachmentUrl: attachmentMap[entry.invoice_attachment_id] || null,
         }));
     }, [invoicesData, invoicesLoading, projectsLoading, vendorsLoading, usersLoading, attachmentsLoading, projectMap, vendorMap, userMap, attachmentMap]);

@@ -1,14 +1,14 @@
 import React, { useMemo, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, CheckCircle2, XCircle, FileText, Pencil, MessageSquare } from "lucide-react";
+import { ArrowLeft, CheckCircle2, XCircle, FileText, Pencil, MessageSquare, Clock, User, Layers } from "lucide-react";
 import { 
     Tooltip, 
     TooltipContent, 
     TooltipProvider,
     TooltipTrigger 
 } from "@/components/ui/tooltip";
-import { useFrappeGetDocList, useFrappeUpdateDoc, useFrappeDeleteDoc } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappeGetDoc, useFrappeUpdateDoc, useFrappeDeleteDoc } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
 import { 
     useReactTable, 
@@ -21,28 +21,8 @@ import { ProjectEditTDSItemModal } from "./components/ProjectEditTDSItemModal";
 import { toast } from "@/components/ui/use-toast";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
-
-// Design tokens from screenshots
-const COLORS = {
-    primaryRed: "#D32F2F",
-    pendingBg: "#FFF4CC",
-    pendingText: "#9A6700",
-    approvedBg: "#E6F4EA",
-    approvedText: "#1E7F43",
-    rejectedBg: "#FDECEA",
-    rejectedText: "#B42318",
-    inProgressBg: "#FFF4CC",
-    inProgressText: "#9A6700",
-    pillBorder: "#E5E7EB",
-    paBg: "#E0F2FE",
-    paText: "#0369A1",
-    prBg: "#FFEDD5",
-    prText: "#C2410C",
-    arBg: "#F3E8FF",
-    arText: "#7E22CE",
-    parBg: "#F1F5F9",
-    parText: "#334155",
-};
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface TDSItem {
     name: string;
@@ -60,87 +40,66 @@ interface TDSItem {
     creation: string;
 }
 
-// Format date as "27th Nov, 2025"
-const formatDateOrdinal = (dateStr: string) => {
+// Format date as "27 Nov, 2025"
+const formatDateClean = (dateStr: string) => {
     if (!dateStr) return "--";
-    const date = new Date(dateStr);
-    const day = date.getDate();
-    const suffix = day === 1 || day === 21 || day === 31 ? "st" 
-                 : day === 2 || day === 22 ? "nd"
-                 : day === 3 || day === 23 ? "rd" 
-                 : "th";
-    return `${day}${suffix} ${format(date, "MMM, yyyy")}`;
+    return format(new Date(dateStr), "dd MMM, yyyy");
 };
 
-// Status Badge Component
+// Enhanced Status Badge
 const StatusBadge = ({ status }: { status: string }) => {
-    let bgColor = COLORS.inProgressBg;
-    let textColor = COLORS.inProgressText;
+    let variant: "default" | "secondary" | "destructive" | "outline" = "outline";
+    let className = "font-medium border-0";
     let label = status;
-    
-    if (status === "Approved") {
-        bgColor = COLORS.approvedBg;
-        textColor = COLORS.approvedText;
+
+    if (status === "Pending") {
+        className += " bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/20";
+    } else if (status === "Approved") {
+        className += " bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20";
     } else if (status === "Rejected") {
-        bgColor = COLORS.rejectedBg;
-        textColor = COLORS.rejectedText;
-    } else if (status === "Pending") {
-        label = "Pending";
+        className += " bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-600/20";
     } else if (status === "PA") {
-        bgColor = COLORS.paBg;
-        textColor = COLORS.paText;
+        className += " bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-600/20";
     } else if (status === "PR") {
-        bgColor = COLORS.prBg;
-        textColor = COLORS.prText;
+        className += " bg-orange-50 text-orange-700 ring-1 ring-inset ring-orange-600/20";
     } else if (status === "AR") {
-        bgColor = COLORS.arBg;
-        textColor = COLORS.arText;
+        className += " bg-purple-50 text-purple-700 ring-1 ring-inset ring-purple-600/20";
     } else if (status === "PAR") {
-        bgColor = COLORS.parBg;
-        textColor = COLORS.parText;
+        className += " bg-slate-100 text-slate-700 ring-1 ring-inset ring-slate-600/20";
+    } else {
+        className += " bg-slate-100 text-slate-700 ring-1 ring-inset ring-slate-400/20";
     }
     
-    return (
-        <span 
-            className="px-2.5 py-1 rounded-full text-xs font-medium"
-            style={{ backgroundColor: bgColor, color: textColor }}
-        >
-            {label}
-        </span>
-    );
+    return <Badge variant={variant} className={className}>{label}</Badge>;
 };
-
-// Items Pill Component
-const ItemsPill = ({ count }: { count: number }) => (
-    <span 
-        className="px-3 py-1 rounded-full text-sm font-medium bg-white border"
-        style={{ borderColor: COLORS.pillBorder }}
-    >
-        {count} Items
-    </span>
-);
 
 // Make Pill Component
 const MakePill = ({ make }: { make: string }) => (
-    <span 
-        className="px-2 py-0.5 rounded text-xs font-medium bg-gray-50 border"
-        style={{ borderColor: COLORS.pillBorder }}
-    >
+    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200">
         {make}
     </span>
 );
+
+
 
 // Section Table Component
 const ItemsTable = ({ 
     data, 
     columns, 
     showHeader = true,
-    emptyMessage = "No items"
+    emptyMessage = "No items",
+    // Optional props for mobile selection
+    onSelectionChange,
+    rowSelection,
+    enableSelection = false
 }: { 
     data: TDSItem[]; 
     columns: ColumnDef<TDSItem>[]; 
     showHeader?: boolean;
     emptyMessage?: string;
+    onSelectionChange?: (id: string, val: boolean) => void;
+    rowSelection?: Record<string, boolean>;
+    enableSelection?: boolean;
 }) => {
     const table = useReactTable({
         data,
@@ -150,49 +109,126 @@ const ItemsTable = ({
     });
 
     return (
-        <table className="w-full">
-            {showHeader && (
-                <thead className="bg-gray-50 border-b border-gray-200">
-                    <tr>
-                        {table.getHeaderGroups()[0]?.headers.map(header => (
-                            <th 
-                                key={header.id} 
-                                className="px-4 py-3 text-left text-sm font-medium text-gray-600"
-                                style={{ width: header.column.getSize() }}
-                            >
-                                {header.isPlaceholder ? null : (
-                                    typeof header.column.columnDef.header === 'function' 
-                                        ? header.column.columnDef.header(header.getContext())
-                                        : header.column.columnDef.header
-                                )}
-                            </th>
-                        ))}
-                    </tr>
-                </thead>
-            )}
-            <tbody>
-                {table.getRowModel().rows.length === 0 ? (
-                    <tr>
-                        <td colSpan={columns.length} className="text-center py-6 text-gray-400">
-                            {emptyMessage}
-                        </td>
-                    </tr>
-                ) : (
-                    table.getRowModel().rows.map(row => (
-                        <tr key={row.id} className="border-b border-gray-100 hover:bg-gray-50">
-                            {row.getVisibleCells().map(cell => (
-                                <td key={cell.id} className="px-4 py-3 text-sm">
-                                    {typeof cell.column.columnDef.cell === 'function'
-                                        ? cell.column.columnDef.cell(cell.getContext())
-                                        : cell.getValue() as string
-                                    }
+        <div className="w-full">
+            {/* Desktop Table View */}
+            <div className="hidden md:block w-full overflow-x-auto">
+                <table className="w-full whitespace-nowrap">
+                    {showHeader && (
+                        <thead className="bg-slate-50/50 border-b border-gray-200">
+                            <tr>
+                                {table.getHeaderGroups()[0]?.headers.map(header => (
+                                    <th 
+                                        key={header.id} 
+                                        className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider"
+                                        style={{ width: header.column.getSize() }}
+                                    >
+                                        {header.isPlaceholder ? null : (
+                                            typeof header.column.columnDef.header === 'function' 
+                                                ? header.column.columnDef.header(header.getContext())
+                                                : header.column.columnDef.header
+                                        )}
+                                    </th>
+                                ))}
+                            </tr>
+                        </thead>
+                    )}
+                    <tbody>
+                        {table.getRowModel().rows.length === 0 ? (
+                            <tr>
+                                <td colSpan={columns.length} className="text-center py-8 text-gray-400 text-sm">
+                                    {emptyMessage}
                                 </td>
-                            ))}
-                        </tr>
-                    ))
+                            </tr>
+                        ) : (
+                            table.getRowModel().rows.map(row => (
+                                <tr key={row.id} className="border-b border-gray-100 hover:bg-slate-50/50 transition-colors">
+                                    {row.getVisibleCells().map(cell => (
+                                        <td key={cell.id} className="px-4 py-3 text-sm text-slate-700">
+                                            {typeof cell.column.columnDef.cell === 'function'
+                                                ? cell.column.columnDef.cell(cell.getContext())
+                                                : cell.getValue() as string
+                                            }
+                                        </td>
+                                    ))}
+                                </tr>
+                            ))
+                        )}
+                    </tbody>
+                </table>
+            </div>
+
+            {/* Mobile Card View ("Credit Card" Style) */}
+            <div className="md:hidden flex flex-col gap-3 p-4 bg-slate-50/30">
+                 {table.getRowModel().rows.length === 0 ? (
+                    <div className="text-center py-8 text-gray-400 text-sm">{emptyMessage}</div>
+                ) : (
+                    table.getRowModel().rows.map(row => {
+                        const item = row.original;
+                        const isSelected = rowSelection ? rowSelection[row.id] : false;
+                        
+                        return (
+                            <div 
+                                key={row.id} 
+                                className={`bg-white rounded-lg border p-3 shadow-sm transition-all ${isSelected ? 'border-emerald-500 ring-1 ring-emerald-500/20' : 'border-slate-200'}`}
+                            >
+                                <div className="flex items-start justify-between gap-3 mb-2">
+                                    <div className="flex items-center gap-3">
+                                        {enableSelection && onSelectionChange && (
+                                            <Checkbox
+                                                checked={isSelected}
+                                                onCheckedChange={(val) => onSelectionChange(row.id, !!val)}
+                                                className="mt-0.5 rounded-sm border-slate-300 data-[state=checked]:bg-emerald-600"
+                                            />
+                                        )}
+                                        <div>
+                                            <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                                                {item.tds_work_package}
+                                            </div>
+                                            <div className="font-medium text-slate-900 line-clamp-1">
+                                                {item.tds_item_name}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <MakePill make={item.tds_make} />
+                                </div>
+                                
+                                <div className="grid grid-cols-2 gap-2 text-xs text-slate-600 mb-2">
+                                    <div>
+                                        <span className="text-slate-400 mr-1">Cat:</span> 
+                                        {item.tds_category}
+                                    </div>
+                                    {item.tds_attachment && (
+                                        <div className="flex justify-end">
+                                            <a 
+                                                href={item.tds_attachment} 
+                                                target="_blank" 
+                                                rel="noreferrer"
+                                                className="flex items-center gap-1 text-blue-600 hover:underline"
+                                            >
+                                                <FileText className="h-3 w-3" /> View Doc
+                                            </a>
+                                        </div>
+                                    )}
+                                </div>
+                                
+                                {item.tds_description && (
+                                    <div className="text-xs text-slate-500 bg-slate-50 p-2 rounded border border-slate-100 line-clamp-2">
+                                        {item.tds_description}
+                                    </div>
+                                )}
+                                
+                                {item.tds_status === "Rejected" && item.tds_rejection_reason && (
+                                     <div className="mt-2 text-xs text-rose-600 bg-rose-50 p-2 rounded border border-rose-100 flex items-start gap-1.5">
+                                        <MessageSquare className="h-3 w-3 mt-0.5 shrink-0" />
+                                        <span>{item.tds_rejection_reason}</span>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })
                 )}
-            </tbody>
-        </table>
+            </div>
+        </div>
     );
 };
 
@@ -218,7 +254,7 @@ export const TDSApprovalDetail: React.FC = () => {
         "Nirmaan PMO Executive Profile",
     ];
 
-    const canApprove = user_id === "Administrator" || (role && ALLOWED_APPROVER_ROLES.includes(role));
+    const canApprove = user_id === "Administrator" || (!!role && ALLOWED_APPROVER_ROLES.includes(role));
 
     // Fetch items for this request ID
     const { data: allItems, isLoading, mutate } = useFrappeGetDocList<TDSItem>("Project TDS Item List", {
@@ -239,6 +275,14 @@ export const TDSApprovalDetail: React.FC = () => {
     const rejectedItems = useMemo(() => 
         (allItems || []).filter(item => item.tds_status === "Rejected"), 
     [allItems]);
+
+    // Fetch owner's full name from Nirmaan Users
+    const ownerEmail = allItems?.[0]?.owner || '';
+    const { data: ownerData } = useFrappeGetDoc<{ full_name: string }>(
+        'Nirmaan Users', 
+        ownerEmail,
+        ownerEmail ? undefined : null
+    );
 
     const { updateDoc } = useFrappeUpdateDoc();
     const { deleteDoc } = useFrappeDeleteDoc();
@@ -265,7 +309,7 @@ export const TDSApprovalDetail: React.FC = () => {
         return {
             request_id: first.tds_request_id,
             project: first.tdsi_project_name,
-            created_by: first.owner,
+            created_by: ownerData?.full_name || first.owner,
             creation: first.creation,
             count: allItems.length,
             status: overallStatus,
@@ -273,9 +317,17 @@ export const TDSApprovalDetail: React.FC = () => {
             approvedCount: approvedItems.length,
             rejectedCount: rejectedItems.length,
         };
-    }, [allItems, pendingItems, approvedItems, rejectedItems]);
+    }, [allItems, pendingItems, approvedItems, rejectedItems, ownerData]);
 
     const selectedCount = Object.keys(rowSelection).filter(k => rowSelection[k]).length;
+
+    // Helper for mobile selection
+    const handleMobileSelectionChange = (id: string, val: boolean) => {
+        setRowSelection(prev => ({
+            ...prev,
+            [id]: val
+        }));
+    };
 
     // Pending items columns (with checkbox and actions)
     const pendingColumns = useMemo<ColumnDef<TDSItem>[]>(() => {
@@ -294,6 +346,7 @@ export const TDSApprovalDetail: React.FC = () => {
                                 [row.id]: !!value
                             }));
                         }}
+                        className="rounded-sm border-slate-300 data-[state=checked]:bg-emerald-600 data-[state=checked]:border-emerald-600"
                     />
                 ),
                 enableSorting: false,
@@ -305,16 +358,19 @@ export const TDSApprovalDetail: React.FC = () => {
             {
                 accessorKey: "tds_work_package",
                 header: "Work Package",
+                cell: ({ row }) => <span className="font-medium text-slate-700 whitespace-normal break-words">{row.getValue("tds_work_package")}</span>,
                 size: 150,
             },
             {
                 accessorKey: "tds_category",
                 header: "Category",
+                cell: ({ row }) => <span className="whitespace-normal break-words">{row.getValue("tds_category")}</span>,
                 size: 180,
             },
             {
                 accessorKey: "tds_item_name",
                 header: "Item Name",
+                cell: ({ row }) => <span className="whitespace-normal break-words">{row.getValue("tds_item_name")}</span>,
                 size: 180,
             },
             {
@@ -322,7 +378,7 @@ export const TDSApprovalDetail: React.FC = () => {
                 header: "Description",
                 cell: ({ row }) => (
                     <div 
-                        className="truncate max-w-[200px] text-gray-500" 
+                        className="truncate max-w-[200px] text-slate-500" 
                         title={row.original.tds_description}
                     >
                         {row.original.tds_description || "--"}
@@ -338,20 +394,20 @@ export const TDSApprovalDetail: React.FC = () => {
             },
             {
                 id: "doc",
-                header: "Doc.",
+                header: "Doc",
                 cell: ({ row }) => (
                     row.original.tds_attachment ? (
                         <Button 
                             variant="ghost" 
                             size="icon"
-                            className="h-8 w-8"
+                            className="h-8 w-8 hover:bg-slate-100 text-slate-500"
                             onClick={() => window.open(row.original.tds_attachment, '_blank')}
                         >
-                            <FileText className="h-4 w-4 text-gray-500" />
+                            <FileText className="h-4 w-4" />
                         </Button>
                     ) : (
-                        <Button variant="ghost" size="icon" className="h-8 w-8" disabled>
-                            <FileText className="h-4 w-4 text-gray-300" />
+                        <Button variant="ghost" size="icon" className="h-8 w-8 opacity-30 cursor-not-allowed">
+                            <FileText className="h-4 w-4 text-slate-400" />
                         </Button>
                     )
                 ),
@@ -367,13 +423,13 @@ export const TDSApprovalDetail: React.FC = () => {
                     <Button 
                         variant="ghost" 
                         size="icon" 
-                        className="h-8 w-8"
+                        className="h-8 w-8 hover:bg-slate-100"
                         onClick={() => {
                             setEditingItem(row.original);
                             setIsEditModalOpen(true);
                         }}
                     >
-                        <Pencil className="h-4 w-4" style={{ color: COLORS.primaryRed }} />
+                        <Pencil className="h-4 w-4 text-slate-600" />
                     </Button>
                 ),
                 size: 60,
@@ -388,16 +444,19 @@ export const TDSApprovalDetail: React.FC = () => {
         {
             accessorKey: "tds_work_package",
             header: "Work Package",
+            cell: ({ row }) => <span className="font-medium text-slate-700 whitespace-normal break-words">{row.getValue("tds_work_package")}</span>,
             size: 150,
         },
         {
             accessorKey: "tds_category",
             header: "Category",
+            cell: ({ row }) => <span className="whitespace-normal break-words">{row.getValue("tds_category")}</span>,
             size: 180,
         },
         {
             accessorKey: "tds_item_name",
             header: "Item Name",
+            cell: ({ row }) => <span className="whitespace-normal break-words">{row.getValue("tds_item_name")}</span>,
             size: 180,
         },
         {
@@ -405,7 +464,7 @@ export const TDSApprovalDetail: React.FC = () => {
             header: "Description",
             cell: ({ row }) => (
                 <div 
-                    className="truncate max-w-[200px] text-gray-500" 
+                    className="truncate max-w-[200px] text-slate-500" 
                     title={row.original.tds_description}
                 >
                     {row.original.tds_description || "--"}
@@ -421,20 +480,20 @@ export const TDSApprovalDetail: React.FC = () => {
         },
         {
             id: "doc",
-            header: "Doc.",
+            header: "Doc",
             cell: ({ row }) => (
                 row.original.tds_attachment ? (
                     <Button 
                         variant="ghost" 
                         size="icon"
-                        className="h-8 w-8"
+                        className="h-8 w-8 hover:bg-slate-100 text-slate-500"
                         onClick={() => window.open(row.original.tds_attachment, '_blank')}
                     >
-                        <FileText className="h-4 w-4 text-gray-500" />
+                        <FileText className="h-4 w-4" />
                     </Button>
                 ) : (
-                    <Button variant="ghost" size="icon" className="h-8 w-8" disabled>
-                        <FileText className="h-4 w-4 text-gray-300" />
+                    <Button variant="ghost" size="icon" className="h-8 w-8 opacity-30 cursor-not-allowed">
+                        <FileText className="h-4 w-4 text-slate-400" />
                     </Button>
                 )
             ),
@@ -447,16 +506,19 @@ export const TDSApprovalDetail: React.FC = () => {
         {
             accessorKey: "tds_work_package",
             header: "Work Package",
+            cell: ({ row }) => <span className="font-medium text-slate-700 whitespace-normal break-words">{row.getValue("tds_work_package")}</span>,
             size: 150,
         },
         {
             accessorKey: "tds_category",
             header: "Category",
+            cell: ({ row }) => <span className="whitespace-normal break-words">{row.getValue("tds_category")}</span>,
             size: 180,
         },
         {
             accessorKey: "tds_item_name",
             header: "Item Name",
+            cell: ({ row }) => <span className="whitespace-normal break-words">{row.getValue("tds_item_name")}</span>,
             size: 180,
         },
         {
@@ -464,7 +526,7 @@ export const TDSApprovalDetail: React.FC = () => {
             header: "Description",
             cell: ({ row }) => (
                 <div 
-                    className="truncate max-w-[150px] text-gray-500" 
+                    className="truncate max-w-[150px] text-slate-500" 
                     title={row.original.tds_description}
                 >
                     {row.original.tds_description || "--"}
@@ -491,7 +553,7 @@ export const TDSApprovalDetail: React.FC = () => {
                             <TooltipTrigger asChild>
                                 <div className="flex justify-start items-center cursor-help">
                                     <MessageSquare 
-                                        className={`h-4 w-4 ${hasReason ? "text-red-500 hover:text-red-700" : "text-gray-300 opacity-40"} transition-colors`} 
+                                        className={`h-4 w-4 ${hasReason ? "text-rose-500 hover:text-rose-700" : "text-gray-300 opacity-40"} transition-colors`} 
                                     />
                                 </div>
                             </TooltipTrigger>
@@ -506,20 +568,20 @@ export const TDSApprovalDetail: React.FC = () => {
         },
         {
             id: "doc",
-            header: "Doc.",
+            header: "Doc",
             cell: ({ row }) => (
                 row.original.tds_attachment ? (
                     <Button 
                         variant="ghost" 
                         size="icon"
-                        className="h-8 w-8"
+                        className="h-8 w-8 hover:bg-slate-100 text-slate-500"
                         onClick={() => window.open(row.original.tds_attachment, '_blank')}
                     >
-                        <FileText className="h-4 w-4 text-gray-500" />
+                        <FileText className="h-4 w-4" />
                     </Button>
                 ) : (
-                    <Button variant="ghost" size="icon" className="h-8 w-8" disabled>
-                        <FileText className="h-4 w-4 text-gray-300" />
+                    <Button variant="ghost" size="icon" className="h-8 w-8 opacity-30 cursor-not-allowed">
+                        <FileText className="h-4 w-4 text-slate-400" />
                     </Button>
                 )
             ),
@@ -594,7 +656,7 @@ export const TDSApprovalDetail: React.FC = () => {
             toast({ title: "No items selected", variant: "destructive" });
             return;
         }
-        setIsRejectModalOpen(true);
+        setIsRejectModalOpen(true); 
     };
 
     const handleEditSave = async (itemName: string, updates: Partial<TDSItem>, itemsToDelete?: string[]) => {
@@ -635,157 +697,171 @@ export const TDSApprovalDetail: React.FC = () => {
         pendingItems.every((_, index) => rowSelection[index.toString()]);
 
     return (
-        <div className="flex-1 space-y-6 p-4 md:p-8 pt-6 bg-gray-50 min-h-screen">
-            {/* Header Card */}
-            {headerInfo && (
-                <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
-                    {/* Top Row: Project Name */}
-                    <div className="mb-4">
-                        <h1 
-                            className="text-xl font-semibold"
-                            style={{ color: COLORS.primaryRed }}
-                        >
-                            {headerInfo.project}
-                        </h1>
-                    </div>
-
-                    {/* TDS ID + Status */}
-                    <div className="flex items-center gap-3 mb-3">
-                        <p className="text-sm text-gray-500">
-                            TDS ID: {headerInfo.request_id}
-                        </p>
-                        <StatusBadge status={headerInfo.status} />
-                    </div>
-
-                    {/* Metadata Row */}
-                    <div className="flex items-center gap-8 text-sm">
-                        <div>
-                            <span className="text-gray-500">Created On: </span>
-                            <span className="font-medium">{formatDateOrdinal(headerInfo.creation)}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <span className="text-gray-500">Total Items:</span>
-                            <ItemsPill count={headerInfo.count} />
-                        </div>
-                        <div>
-                            <span className="text-gray-500">Created By: </span>
-                            <span className="font-medium">{headerInfo.created_by}</span>
-                        </div>
-                    </div>
-                </div>
-            )}
+        <div className="flex-1 space-y-4 md:space-y-6 p-2 md:p-4 bg-slate-50/50 min-h-screen">
+            {/* Breadcrumb Header */}
+            <div className="flex flex-col space-y-2">
+                {/* <Button 
+                    variant="ghost" 
+                    onClick={() => navigate(-1)} 
+                    className="w-fit -ml-2 text-slate-500 hover:text-slate-900"
+                >
+                    <ArrowLeft className="h-4 w-4 mr-2" /> Back to List
+                </Button>
+                 */}
+                {headerInfo && (
+                    <Card className="border-l-4 border-l-red-500 shadow-sm border border-slate-200 bg-white">
+                        <CardContent className="p-3 md:p-4">
+                            <div className="flex flex-col gap-1">
+                                <div className="flex items-start justify-between">
+                                    <div className="space-y-1">
+                                        <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+                                            {headerInfo.project}
+                                        </h1>
+                                        <div className="flex items-center flex-wrap gap-2 text-sm text-slate-600 mt-1">
+                                            <span className="flex items-center gap-2 font-medium text-red-600">
+                                                <FileText className="h-3.5 w-3.5" />
+                                                <span className="hidden md:inline">Request ID:</span>
+                                                <span>#{headerInfo.request_id}</span>
+                                            </span>
+                                            <span className="text-slate-300 mx-1">|</span>
+                                            <span className="flex items-center gap-1.5">
+                                                <User className="h-3.5 w-3.5 text-slate-400" />
+                                                <span className="hidden md:inline text-slate-500">Created By:</span>
+                                                <span className="font-medium text-slate-900">{headerInfo.created_by}</span>
+                                            </span>
+                                            <span className="text-slate-300 mx-1">|</span>
+                                            <span className="flex items-center gap-1.5">
+                                                <Clock className="h-3.5 w-3.5 text-slate-400" />
+                                                <span className="hidden md:inline text-slate-500">Created Date:</span>
+                                                <span className="font-medium text-slate-900">{formatDateClean(headerInfo.creation)}</span>
+                                            </span>
+                                            <span className="text-slate-300 mx-1">|</span>
+                                            <span className="flex items-center gap-1.5">
+                                                <Layers className="h-3.5 w-3.5 text-slate-400" />
+                                                <span className="hidden md:inline text-slate-500">Total Items:</span>
+                                                <span className="font-medium text-slate-900">{headerInfo.count}</span>
+                                                <span className="md:hidden font-medium text-slate-900">Items</span>
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <StatusBadge status={headerInfo.status} />
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
+            </div>
 
             {isLoading ? (
-                <div className="flex justify-center p-8 text-gray-500">Loading items...</div>
+                <div className="flex justify-center p-12 text-slate-400 animate-pulse">Loading details...</div>
             ) : (
-                <>
-                    {/* PENDING SECTION - Show if All or Pending status */}
+                <div className="space-y-8">
+                    {/* PENDING SECTION - Priority View */}
                     {(showAllSections || statusFilter === "Pending") && pendingItems.length > 0 && (
-                        <div className="space-y-4">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                    <h2 className="text-lg font-semibold">Pending Items</h2>
-                                    <span 
-                                        className="px-2.5 py-1 rounded-full text-xs font-medium"
-                                        style={{ backgroundColor: COLORS.pendingBg, color: COLORS.pendingText }}
-                                    >
-                                        {pendingItems.length} Items
-                                    </span>
-                                    <span className="text-sm text-gray-500">
-                                        {selectedCount}/{pendingItems.length} Selected
-                                    </span>
+                        <Card className="border-amber-200/50 shadow-sm ring-1 ring-amber-100/50">
+                            <CardHeader className="bg-amber-50/50 border-b border-amber-100/50 px-3 py-3 md:px-6 md:py-4">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <CardTitle className="text-lg font-semibold text-amber-900">Pending Review</CardTitle>
+                                        <Badge variant="secondary" className="bg-amber-100 text-amber-700 hover:bg-amber-100">
+                                            {pendingItems.length}
+                                        </Badge>
+                                    </div>
+                                    {canApprove && (
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xs text-amber-700 font-medium mr-2">
+                                                {selectedCount} selected
+                                            </span>
+                                            <Button 
+                                                variant="outline" 
+                                                size="sm"
+                                                onClick={handleSelectAll}
+                                                className="h-8 border-amber-200 text-amber-700 hover:bg-amber-100 hover:text-amber-800"
+                                            >
+                                                {allPendingSelected ? "Deselect All" : "Select All"}
+                                            </Button>
+                                        </div>
+                                    )}
                                 </div>
-                                <Button variant="outline" onClick={handleSelectAll}>
-                                    {allPendingSelected ? "Deselect All" : "Select All"}
-                                </Button>
-                            </div>
-
-                            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                            </CardHeader>
+                            <div className="p-0">
                                 <ItemsTable 
                                     data={pendingItems} 
                                     columns={pendingColumns}
                                     emptyMessage="No pending items"
+                                    onSelectionChange={handleMobileSelectionChange}
+                                    rowSelection={rowSelection}
+                                    enableSelection={canApprove}
                                 />
-                                
-                                
-                                {/* Action Buttons - Only for authorized users */}
-                                {canApprove && (
-                                    <div className="flex justify-end gap-3 p-4 border-t border-gray-100">
-                                        <Button 
-                                            variant="outline" 
-                                            className="border-red-300 text-red-600 hover:bg-red-50"
-                                            onClick={onRejectClick}
-                                            disabled={selectedCount === 0 || processing}
-                                        >
-                                            <XCircle className="w-4 h-4 mr-2" /> Reject
-                                        </Button>
-                                        <Button 
-                                            className="text-white"
-                                            style={{ backgroundColor: COLORS.primaryRed }}
-                                            onClick={handleApprove}
-                                            disabled={selectedCount === 0 || processing}
-                                        >
-                                            <CheckCircle2 className="w-4 h-4 mr-2" /> Approve
-                                        </Button>
-                                    </div>
-                                )}
                             </div>
-                        </div>
+                            
+                            {/* Sticky Action Footer for Pending Items */}
+                            {canApprove && pendingItems.length > 0 && (
+                                <div className="px-3 py-3 md:px-6 md:py-4 bg-amber-50/30 border-t border-amber-100/50 flex flex-col-reverse sm:flex-row justify-end gap-3 rounded-b-lg">
+                                    <Button 
+                                        variant="outline" 
+                                        className="w-full sm:w-auto border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                                        onClick={onRejectClick}
+                                        disabled={selectedCount === 0 || processing}
+                                    >
+                                        <XCircle className="w-4 h-4 mr-2" /> Reject Selected
+                                    </Button>
+                                    <Button 
+                                        className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+                                        onClick={handleApprove}
+                                        disabled={selectedCount === 0 || processing}
+                                    >
+                                        <CheckCircle2 className="w-4 h-4 mr-2" /> Approve Selected
+                                    </Button>
+                                </div>
+                            )}
+                        </Card>
                     )}
 
-                    {/* APPROVED SECTION - Show if All or Approved status */}
+                    {/* APPROVED SECTION */}
                     {(showAllSections || statusFilter === "Approved") && approvedItems.length > 0 && (
-                        <div className="space-y-4">
-                            <div className="flex items-center gap-3">
-                                <h2 className="text-lg font-semibold">Approved Items</h2>
-                                <span 
-                                    className="px-2.5 py-1 rounded-full text-xs font-medium"
-                                    style={{ backgroundColor: COLORS.approvedBg, color: COLORS.approvedText }}
-                                >
-                                    {approvedItems.length} Items
-                                </span>
-                            </div>
-
-                            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                        <Card className="border-emerald-200/50 shadow-sm ring-1 ring-emerald-100/50">
+                            <CardHeader className="bg-emerald-50/50 border-b border-emerald-100/50 px-3 py-3 md:px-6 md:py-4">
+                                <div className="flex items-center gap-3">
+                                    <CardTitle className="text-lg font-semibold text-emerald-900">Approved Items</CardTitle>
+                                    <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">
+                                        {approvedItems.length}
+                                    </Badge>
+                                </div>
+                            </CardHeader>
+                            <div className="p-0">
                                 <ItemsTable 
                                     data={approvedItems} 
                                     columns={readOnlyColumns}
                                     emptyMessage="No approved items"
                                 />
                             </div>
-                        </div>
+                        </Card>
                     )}
 
-                    {/* REJECTED SECTION - Show if All or Rejected status */}
+                    {/* REJECTED SECTION */}
                     {(showAllSections || statusFilter === "Rejected") && rejectedItems.length > 0 && (
-                        <div className="space-y-4">
-                            <div className="flex items-center gap-3">
-                                <h2 className="text-lg font-semibold">Rejected Items</h2>
-                                <span 
-                                    className="px-2.5 py-1 rounded-full text-xs font-medium"
-                                    style={{ backgroundColor: COLORS.rejectedBg, color: COLORS.rejectedText }}
-                                >
-                                    {rejectedItems.length} Items
-                                </span>
-                            </div>
-
-                            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                        <Card className="border-rose-200/50 shadow-sm ring-1 ring-rose-100/50">
+                            <CardHeader className="bg-rose-50/50 border-b border-rose-100/50 px-3 py-3 md:px-6 md:py-4">
+                                <div className="flex items-center gap-3">
+                                    <CardTitle className="text-lg font-semibold text-rose-900">Rejected Items</CardTitle>
+                                    <Badge variant="secondary" className="bg-rose-100 text-rose-700 hover:bg-rose-100">
+                                        {rejectedItems.length}
+                                    </Badge>
+                                </div>
+                            </CardHeader>
+                            <div className="p-0">
                                 <ItemsTable 
                                     data={rejectedItems} 
                                     columns={rejectedColumns}
                                     emptyMessage="No rejected items"
                                 />
                             </div>
-                        </div>
+                        </Card>
                     )}
-                </>
+                </div>
             )}
 
-            {/* Back Button */}
-            <Button variant="ghost" onClick={() => navigate(-1)} className="gap-2">
-                <ArrowLeft className="h-4 w-4" /> Back
-            </Button>
-            
             <RejectTDSModal 
                 open={isRejectModalOpen} 
                 onOpenChange={setIsRejectModalOpen} 
@@ -798,7 +874,6 @@ export const TDSApprovalDetail: React.FC = () => {
                 onOpenChange={setIsEditModalOpen}
                 item={editingItem}
                 onSave={handleEditSave}
-                loading={processing}
             />
         </div>
     );

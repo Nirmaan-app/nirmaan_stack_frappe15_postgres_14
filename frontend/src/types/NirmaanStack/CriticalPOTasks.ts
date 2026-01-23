@@ -6,7 +6,7 @@ export interface CriticalPOTask {
   item_name: string;
   sub_category?: string;
   po_release_date: string; // ISO date string
-  status: "Not Released" | "Partially Released" | "Released" | "Not Applicable";
+  status: "PR Not Released" | "Not Released" | "Partially Released" | "Released" | "Not Applicable";
   associated_pos?: {
     pos: string[];
   };

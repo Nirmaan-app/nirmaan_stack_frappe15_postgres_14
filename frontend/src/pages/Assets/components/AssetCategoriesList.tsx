@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useCallback } from 'react';
 import { ColumnDef } from '@tanstack/react-table';
+import { Link } from 'react-router-dom';
 import { useFrappeGetDocList, useFrappeDeleteDoc, useFrappeUpdateDoc } from 'frappe-react-sdk';
 
 import { DataTable } from '@/components/data-table/new-data-table';
@@ -43,6 +44,7 @@ import {
     ASSET_CATEGORY_FIELDS,
     ASSET_MASTER_DOCTYPE,
 } from '../assets.constants';
+import { getAssetPermissions } from '../utils/permissions';
 
 interface AssetCategory {
     name: string;
@@ -88,8 +90,8 @@ export const AssetCategoriesList: React.FC = () => {
         return map;
     }, [assetCounts]);
 
-    const canManageAssets = userData?.user_id === 'Administrator' ||
-        ['Nirmaan Admin Profile', 'Nirmaan PMO Executive Profile', 'Nirmaan HR Executive Profile'].includes(userData?.role || '');
+    // Get granular permissions - only users with canManageCategories can edit/delete
+    const { canManageCategories } = getAssetPermissions(userData?.user_id, userData?.role);
 
     // Handle edit
     const handleEditClick = useCallback((category: AssetCategory) => {
@@ -172,12 +174,15 @@ export const AssetCategoriesList: React.FC = () => {
             accessorKey: 'asset_category',
             header: ({ column }) => <DataTableColumnHeader column={column} title="Category Name" />,
             cell: ({ row }) => (
-                <div className="flex items-center gap-2">
-                    <Boxes className="h-4 w-4 text-gray-400" />
-                    <span className="font-medium text-gray-900">
+                <Link
+                    to={`/asset-management/category/${row.original.name}`}
+                    className="group flex items-center gap-2 hover:text-primary"
+                >
+                    <Boxes className="h-4 w-4 text-gray-400 group-hover:text-primary transition-colors" />
+                    <span className="font-medium text-gray-900 group-hover:text-primary group-hover:underline transition-colors">
                         {row.getValue('asset_category')}
                     </span>
-                </div>
+                </Link>
             ),
             size: 280,
         },
@@ -207,7 +212,7 @@ export const AssetCategoriesList: React.FC = () => {
             ),
             size: 140,
         },
-        ...(canManageAssets ? [{
+        ...(canManageCategories ? [{
             id: 'actions',
             header: () => <span className="sr-only">Actions</span>,
             cell: ({ row }: { row: any }) => {
@@ -247,7 +252,7 @@ export const AssetCategoriesList: React.FC = () => {
             },
             size: 60,
         }] : []),
-    ], [assetCountMap, canManageAssets, handleEditClick, handleDeleteClick]);
+    ], [assetCountMap, canManageCategories, handleEditClick, handleDeleteClick]);
 
     const searchableFields = [
         { value: 'asset_category', label: 'Category Name', placeholder: 'Search categories...', default: true },

@@ -82,6 +82,22 @@ export default function VendorsPage() {
         size: 250,
       },
       {
+        accessorKey: "vendor_nickname",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Nickname" />
+        ),
+        cell: ({ row }) => (
+          <span className="font-medium text-primary/80">
+            {row.getValue("vendor_nickname") || "--"}
+          </span>
+        ),
+        size: 150,
+        meta: {
+          exportHeaderName: "Nickname",
+          exportValue: (row: VendorsType) => row.vendor_nickname,
+        },
+      },
+      {
         accessorKey: "vendor_type",
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Type" />

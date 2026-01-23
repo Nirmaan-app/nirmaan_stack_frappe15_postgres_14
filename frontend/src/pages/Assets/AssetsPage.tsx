@@ -13,6 +13,7 @@ import { PendingActionsList } from './components/PendingActionsList';
 import { AddAssetCategoryDialog } from './components/AddAssetCategoryDialog';
 import { AddAssetDialog } from './components/AddAssetDialog';
 import { useAssetDataRefresh } from './hooks/useAssetDataRefresh';
+import { getAssetPermissions } from './utils/permissions';
 
 const AssetsPage: React.FC = () => {
     const userData = useUserData();
@@ -27,8 +28,8 @@ const AssetsPage: React.FC = () => {
     // Hook for cross-component cache invalidation
     const { refreshSummaryCards, refreshCategoryDropdowns } = useAssetDataRefresh();
 
-    const canManageAssets = userData?.user_id === 'Administrator' ||
-        ['Nirmaan Admin Profile', 'Nirmaan PMO Executive Profile', 'Nirmaan HR Executive Profile'].includes(userData?.role || '');
+    // Get granular permissions for current user
+    const { canAddAsset, canAddCategory } = getAssetPermissions(userData?.user_id, userData?.role);
 
     const handleAssetChange = () => {
         setAssetRefreshKey(k => k + 1);
@@ -92,31 +93,31 @@ const AssetsPage: React.FC = () => {
                         </TabsTrigger>
                     </TabsList>
 
-                    {canManageAssets && (
-                        <div>
-                            {activeTab === 'assets' ? (
-                                <Button
-                                    size="sm"
-                                    onClick={() => setAddAssetDialogOpen(true)}
-                                    className="gap-2"
-                                >
-                                    <Plus className="h-4 w-4" />
-                                    <span className="hidden sm:inline">Add New Asset</span>
-                                    <span className="sm:hidden">Add</span>
-                                </Button>
-                            ) : (
-                                <Button
-                                    size="sm"
-                                    onClick={() => setAddCategoryDialogOpen(true)}
-                                    className="gap-2"
-                                >
-                                    <Plus className="h-4 w-4" />
-                                    <span className="hidden sm:inline">Add New Category</span>
-                                    <span className="sm:hidden">Add</span>
-                                </Button>
-                            )}
-                        </div>
-                    )}
+                    {/* Action buttons - show based on granular permissions */}
+                    <div>
+                        {activeTab === 'assets' && canAddAsset && (
+                            <Button
+                                size="sm"
+                                onClick={() => setAddAssetDialogOpen(true)}
+                                className="gap-2"
+                            >
+                                <Plus className="h-4 w-4" />
+                                <span className="hidden sm:inline">Add New Asset</span>
+                                <span className="sm:hidden">Add</span>
+                            </Button>
+                        )}
+                        {activeTab === 'categories' && canAddCategory && (
+                            <Button
+                                size="sm"
+                                onClick={() => setAddCategoryDialogOpen(true)}
+                                className="gap-2"
+                            >
+                                <Plus className="h-4 w-4" />
+                                <span className="hidden sm:inline">Add New Category</span>
+                                <span className="sm:hidden">Add</span>
+                            </Button>
+                        )}
+                    </div>
                 </div>
 
                 {/* Assets Tab Content with Sub-tabs */}

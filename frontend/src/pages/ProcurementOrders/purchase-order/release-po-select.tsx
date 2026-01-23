@@ -6,9 +6,10 @@ import { useUserData } from "@/hooks/useUserData";
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
+import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { getPOTotal, getTotalInvoiceAmount } from "@/utils/getAmounts";
+import { getPOTotal } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { ColumnDef } from "@tanstack/react-table";
@@ -163,6 +164,30 @@ export const ReleasePOSelect: React.FC = () => {
         fields: ["name", "document_name", "status", "amount", "payment_date", "creation", "utr", "payment_attachment", "tds"],
         limit: 0
     })
+
+    // Fetch Vendor Invoices for all POs to calculate invoice totals
+    const { data: vendorInvoices, isLoading: vendorInvoicesLoading } = useFrappeGetDocList<VendorInvoice>(
+        "Vendor Invoices",
+        {
+            filters: [
+                ["document_type", "=", "Procurement Orders"],
+                ["status", "=", "Approved"],
+            ],
+            fields: ["name", "document_name", "invoice_amount"],
+            limit: 0,
+        },
+        "VendorInvoices-PO-ReleasePOSelect"
+    );
+
+    // Group invoice totals by PO name
+    const invoiceTotalsMap = useMemo(() => {
+        if (!vendorInvoices) return new Map<string, number>();
+        return vendorInvoices.reduce((acc, inv) => {
+            const current = acc.get(inv.document_name) ?? 0;
+            acc.set(inv.document_name, current + parseNumber(inv.invoice_amount));
+            return acc;
+        }, new Map<string, number>());
+    }, [vendorInvoices]);
 
     const { data: poData } = useFrappeGetDocList<ProcurementOrdersType>("Procurement Orders", {
         fields: ["name", "status", "merged"],
@@ -384,7 +409,7 @@ export const ReleasePOSelect: React.FC = () => {
                         ) : (
                             <p>{row.original.name}</p>
                         )}
-                        <ItemsHoverCard parentDocId={row.original} parentDoctype={"Procurement Orders"} childTableName="items" />
+                        <ItemsHoverCard parentDoc={row.original} parentDoctype={"Procurement Orders"} childTableName="items" />
                     </div>
                     {row.original?.custom === "true" && (
                         <Badge className="w-[100px] flex items-center justify-center">Custom</Badge>
@@ -546,7 +571,8 @@ export const ReleasePOSelect: React.FC = () => {
                     )
                 },
                 cell: ({ row }) => {
-                    const invoiceAmount = getTotalInvoiceAmount(row.original?.invoice_data);
+                    // Use Vendor Invoices lookup instead of old invoice_data JSON
+                    const invoiceAmount = invoiceTotalsMap.get(row.original?.name) ?? 0;
                     return (
                         <div className={`font-medium pr-2 ${invoiceAmount ? "underline cursor-pointer text-blue-600 hover:text-blue-800" : ""}`} onClick={() => invoiceAmount && setSelectedInvoicePO(row.original)} >
                             {formatToRoundedIndianRupee(invoiceAmount || 0)} {/* Show 0 if no amount */}
@@ -555,23 +581,18 @@ export const ReleasePOSelect: React.FC = () => {
                 },
                 size: 200,
                 sortingFn: (a, b) => {
+                    // Use Vendor Invoices lookup instead of old invoice_data JSON
+                    const invoiceAmountA = invoiceTotalsMap.get(a?.original?.name) ?? 0;
+                    const invoiceAmountB = invoiceTotalsMap.get(b?.original?.name) ?? 0;
 
-                    const invoiceAmountA = getTotalInvoiceAmount(a?.original?.invoice_data);
-                    const invoiceAmountB = getTotalInvoiceAmount(b?.original?.invoice_data);
-                    console.log("invoiceAmountA", invoiceAmountA)
-                    console.log("invoiceAmountB", invoiceAmountB)
-
-                    if (invoiceAmountA && invoiceAmountB) {
-                        return invoiceAmountA - invoiceAmountB;
-                    }
-                    return 0;
-                    // return parseFloat(a) - parseFloat(b);
+                    return invoiceAmountA - invoiceAmountB;
                 },
                 enableSorting: false,
                 meta: {
                     exportHeaderName: "Invoice Amount",
-                    exportValue: (row) => {
-                        const invoiceAmount = getTotalInvoiceAmount(row.invoice_data);
+                    exportValue: (row: ProcurementOrdersType) => {
+                        // Use Vendor Invoices lookup instead of old invoice_data JSON
+                        const invoiceAmount = invoiceTotalsMap.get(row.name) ?? 0;
                         return formatForReport(invoiceAmount || 0);
                     }
                 }
@@ -654,7 +675,7 @@ export const ReleasePOSelect: React.FC = () => {
                 enableColumnFilter: true
             } as ColumnDef<ProcurementOrdersType>
         ] : []),
-    ], [tab, userList, getAmountPaid, vendorsList, projects, getTotalInvoiceAmount, getPOTotal, posMap]);
+    ], [tab, userList, getAmountPaid, vendorsList, projects, getPOTotal, posMap, invoiceTotalsMap]);
 
     const facetFilterOptions = useMemo(() => ({
         // Use the 'accessorKey' or 'id' of the column

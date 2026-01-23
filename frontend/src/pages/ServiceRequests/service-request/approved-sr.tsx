@@ -38,6 +38,7 @@ import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
+import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { formatDate } from "@/utils/FormatDate";
 import { getSRTotal, getTotalAmountPaid } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
@@ -199,13 +200,26 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
         limit: 100
     })
 
+    // Fetch vendor invoices for this SR
+    const { data: vendorInvoices, isLoading: vendorInvoicesLoading, mutate: vendorInvoicesMutate } = useFrappeGetDocList<VendorInvoice>("Vendor Invoices", {
+        fields: ["name"],
+        filters: [["document_type", "=", "Service Requests"], ["document_name", "=", id]],
+        limit: 1000,
+    }, id ? `VendorInvoices-SR-${id}` : null)
+
     const getAmountPaid = useMemo(() => getTotalAmountPaid(projectPayments?.filter(i => i?.status === "Paid") || []), [projectPayments]);
 
     const amountPending = useMemo(() => getTotalAmountPaid((projectPayments || []).filter(i => ["Requested", "Approved"].includes(i?.status))), [projectPayments]);
 
     useEffect(() => {
         if (service_request) {
-            const data = { ...service_request, notes: service_request?.notes && JSON.parse(service_request?.notes), service_order_list: service_request?.service_order_list && JSON.parse(service_request.service_order_list), service_category_list: service_request?.service_category_list && JSON.parse(service_request.service_category_list), invoice_data: service_request?.invoice_data && JSON.parse(service_request.invoice_data) }
+            // Note: invoice_data parsing removed - now using Vendor Invoices doctype
+            const data = {
+                ...service_request,
+                notes: service_request?.notes && JSON.parse(service_request?.notes),
+                service_order_list: service_request?.service_order_list && JSON.parse(service_request.service_order_list),
+                service_category_list: service_request?.service_category_list && JSON.parse(service_request.service_category_list)
+            }
             setOrderData(data)
             const notes = service_request?.notes && JSON.parse(service_request?.notes)?.list
             setNotes(notes || [])
@@ -422,7 +436,8 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
         service_request_loading ||
         service_vendor_loading ||
         project_loading ||
-        projectPaymentsLoading
+        projectPaymentsLoading ||
+        vendorInvoicesLoading
     )
         return (
             <LoadingFallback />
@@ -440,7 +455,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     // Compute delete disabled state - also disabled when finalized
     const deleteDisabled = isDeleting || summaryPage || accountsPage || isFinalized ||
         ((projectPayments || [])?.length > 0) ||
-        ((orderData?.invoice_data?.data || [])?.length > 0) ||
+        ((vendorInvoices || [])?.length > 0) ||
         (orderData?.owner !== user_id && role !== "Nirmaan Admin Profile" && role !== "Nirmaan PMO Executive Profile");
 
     return (
@@ -930,7 +945,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
             )}
             {/* <SRAttachments SR={orderData} /> */}
 
-            <InvoiceDialog docType={"Service Requests"} docName={service_request?.name} docMutate={service_request_mutate} />
+            <InvoiceDialog docType={"Service Requests"} docName={service_request?.name} docMutate={service_request_mutate} vendor={service_request?.vendor} />
 
             {/* Order Details  */}
             <Card className="rounded-sm shadow-md md:col-span-3 overflow-x-auto">

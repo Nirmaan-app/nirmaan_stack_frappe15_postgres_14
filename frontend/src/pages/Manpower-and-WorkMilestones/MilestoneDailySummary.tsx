@@ -152,6 +152,7 @@ export const MilestoneDailySummary: React.FC = () => {
           {/* Control Bar with zones, date, report type toggle, and delete button */}
           <ReportControlBar
             projectData={projectData}
+            projectId={initialProjectId}
             selectedZone={selectedZone}
             validationZoneProgress={validationZoneProgress}
             onZoneChange={handleZoneChange}

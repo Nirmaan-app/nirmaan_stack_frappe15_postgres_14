@@ -34,6 +34,8 @@ import {
   DialogClose,
   DialogPrimitive
 } from "@/components/ui/dialog";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
+import { Label } from "@/components/ui/label";
 import PhotoPermissionChecker from "./components/PhotoPermissionChecker"
 import {
   addWorkflowBreadcrumb,
@@ -143,6 +145,7 @@ interface ProjectProgressReportData {
   draft_last_updated?: string; // ADDED
   drawing_remarks?: string; // NEW: Client/Clearance Issues - Drawing Remarks
   site_remarks?: string; // NEW: Client/Clearance Issues - Site Remarks
+  client_clearance_selection?: 'yes' | 'no' | null; // NEW: Persist Tab Selection
 }
 
 interface FrappeProjectProgressReportPayload {
@@ -411,6 +414,7 @@ const [workPlanPoints, setWorkPlanPoints] = useState<string[]>([]); // Array of 
 //
 
 // --- STATE FOR CLIENT/CLEARANCE ISSUES TAB ---
+const [hasClearanceIssues, setHasClearanceIssues] = useState<'yes' | 'no' | null>(null);
 const [drawingRemarksList, setDrawingRemarksList] = useState<string[]>([]);
 const [siteRemarksList, setSiteRemarksList] = useState<string[]>([]);
 const [newDrawingRemark, setNewDrawingRemark] = useState<string>("");
@@ -418,6 +422,11 @@ const [newSiteRemark, setNewSiteRemark] = useState<string>("");
 const [currentCaptureType, setCurrentCaptureType] = useState<'Work' | 'Site' | 'Drawing'>('Work'); // NEW STATE
 const getClientClearanceStorageKey = (dateString: string) => `project_${projectId}_date_${dateString}_zone_${reportZone}_tab_Client_Clearance_Issues`;
 // --- END STATE FOR CLIENT/CLEARANCE ISSUES TAB ---
+
+// --- STATE FOR SAVE AS-IS CONFIRMATION ---
+const [isSaveAsIsConfirmOpen, setIsSaveAsIsConfirmOpen] = useState(false);
+const [milestoneForSaveAsIs, setMilestoneForSaveAsIs] = useState<LocalMilestoneData | null>(null);
+// --- END STATE FOR SAVE AS-IS ---
 
   const [currentTabMilestones, setCurrentTabMilestones] = useState<LocalMilestoneData[]>([]);
 
@@ -614,7 +623,7 @@ const getClientClearanceStorageKey = (dateString: string) => `project_${projectI
           }));
 
           initialData = {
-            project: projectId,
+            project: projectId || "",
             report_date: dateString,
             manpower: [],
             milestones: [],
@@ -731,11 +740,23 @@ const getClientClearanceStorageKey = (dateString: string) => `project_${projectI
           sitePoints
         });
         
+        
         setDrawingRemarksList(drawingPoints);
         setSiteRemarksList(sitePoints);
           
         // Load photos directly from this tab's storage
-        setLocalPhotos(parsedData.photos || []);
+        const currentTabPhotos = parsedData.photos || [];
+        setLocalPhotos(currentTabPhotos);
+
+        // --- NEW: Initialize hasClearanceIssues state ---
+        if (parsedData.client_clearance_selection) {
+             setHasClearanceIssues(parsedData.client_clearance_selection);
+        } else {
+            // Fallback: Check if data exists
+            const hasData = drawingPoints.length > 0 || sitePoints.length > 0 || currentTabPhotos.some(p => p.attach_type === 'Site' || p.attach_type === 'Drawing');
+            setHasClearanceIssues(hasData ? 'yes' : null);
+        }
+        // ------------------------------------------------
       }
     } else {
       console.warn(`Local storage key ${storageKey} was unexpectedly empty in loadDailyReport. Re-initializing.`);
@@ -759,7 +780,17 @@ const getClientClearanceStorageKey = (dateString: string) => `project_${projectI
              setDrawingRemarksList(drawingPoints);
              setSiteRemarksList(sitePoints);
              // Load photos from this tab's storage
-             setLocalPhotos(parsedData.photos || []);
+             const currentTabPhotos = parsedData.photos || [];
+             setLocalPhotos(currentTabPhotos);
+
+             // --- NEW: Initialize hasClearanceIssues state ---
+             if (parsedData.client_clearance_selection) {
+                setHasClearanceIssues(parsedData.client_clearance_selection);
+             } else {
+                 const hasData = drawingPoints.length > 0 || sitePoints.length > 0 || currentTabPhotos.some(p => p.attach_type === 'Site' || p.attach_type === 'Drawing');
+                 setHasClearanceIssues(hasData ? 'yes' : null);
+             }
+             // ------------------------------------------------
           } else if (activeTabValue === "Photos") {
              setLocalPhotos((parsedData as Pick<ProjectProgressReportData, 'photos'>).photos || []);
           }
@@ -1124,29 +1155,34 @@ console.log(user)
             sessionStorage.setItem(storageKey, JSON.stringify(payload));
     } else if (activeTabValue === "Client / Clearance Issues") {
       // Save Client/Clearance Issues tab data
-      const drawingRemarksStr = serializeClientClearanceRemarks(drawingRemarksList);
-      const siteRemarksStr = serializeClientClearanceRemarks(siteRemarksList);
-      
-      console.log("[DEBUG] Saving Clearance tab data:", {
-        storageKey,
-        drawingRemarksList,
-        siteRemarksList,
-        drawingRemarksStr,
-        siteRemarksStr
-      });
+      let drawingRemarksToSave = "";
+      let siteRemarksToSave = "";
+      let photosToSave = localPhotos;
+
+      if (hasClearanceIssues === 'yes') {
+          drawingRemarksToSave = serializeClientClearanceRemarks(drawingRemarksList);
+          siteRemarksToSave = serializeClientClearanceRemarks(siteRemarksList);
+          photosToSave = localPhotos;
+      } else {
+          // If "No", save empty remarks and filter out associated photos
+          drawingRemarksToSave = "";
+          siteRemarksToSave = "";
+          photosToSave = localPhotos.filter(p => p.attach_type !== 'Site' && p.attach_type !== 'Drawing');
+      }
       
       const payload: ProjectProgressReportData = {
         project: projectId,
         report_date: dateString,
         manpower: [],
         milestones: [],
-        photos: localPhotos, // Save photos directly to this tab's storage
+        photos: photosToSave, // Save photos directly to this tab's storage
         report_status: 'Draft',
         report_zone: reportZone,
         draft_owner: currentDraftOwner,
         draft_last_updated: currentTimestamp,
-        drawing_remarks: drawingRemarksStr,
-        site_remarks: siteRemarksStr,
+        drawing_remarks: drawingRemarksToSave,
+        site_remarks: siteRemarksToSave,
+        client_clearance_selection: hasClearanceIssues, // Save user selection
       };
       sessionStorage.setItem(storageKey, JSON.stringify(payload));
     } else {
@@ -1589,6 +1625,70 @@ console.log(user)
       variant: "default",
     });
   };
+
+  // --- SAVE AS-IS HANDLERS ---
+  const handleSaveAsIsClick = (milestone: LocalMilestoneData) => {
+    // Only show confirmation if:
+    // 1. Milestone is WIP or Not Started AND
+    // 2. Previous milestone had work_plan_ratio === 'Plan Required' OR had existing work_plan
+    const isWIPOrNotStarted = milestone.status === 'WIP' || milestone.status === 'Not Started';
+    const hadPreviousWorkPlan = milestone.work_plan_ratio === 'Plan Required' || (milestone.work_plan && milestone.work_plan.trim() !== '');
+    
+    if (isWIPOrNotStarted && hadPreviousWorkPlan) {
+      // Open the update milestone dialog instead (so user can review/update activities)
+      openUpdateMilestoneDialog(milestone);
+    } else {
+      // Directly save as-is (no confirmation needed)
+      executeSaveAsIs(milestone);
+    }
+  };
+
+  const executeSaveAsIs = (milestone: LocalMilestoneData) => {
+    if (!activeTabValue) return;
+
+    const updatedLocalMilestone: LocalMilestoneData = {
+      ...milestone,
+      is_updated_for_current_report: true,
+      // Keep work_plan_ratio as-is but set to 'Plan Not Required' if empty
+      work_plan_ratio: milestone.work_plan_ratio || 'Plan Not Required',
+    };
+
+    const updatedMilestonesForCurrentTab = [...currentTabMilestones];
+    const existingIndex = updatedMilestonesForCurrentTab.findIndex(
+      m => m.name === updatedLocalMilestone.name && m.work_header === updatedLocalMilestone.work_header
+    );
+
+    if (existingIndex !== -1) {
+      updatedMilestonesForCurrentTab[existingIndex] = updatedLocalMilestone;
+    } else {
+      updatedMilestonesForCurrentTab.push(updatedLocalMilestone);
+    }
+
+    setCurrentTabMilestones(updatedMilestonesForCurrentTab);
+    saveCurrentTabData(updatedMilestonesForCurrentTab);
+
+    // Close confirmation if open
+    setIsSaveAsIsConfirmOpen(false);
+    setMilestoneForSaveAsIs(null);
+
+    toast({
+      title: "Saved As-Is ✅",
+      description: `${milestone.work_milestone_name} marked as updated with no changes.`,
+      variant: "default",
+    });
+  };
+
+  const handleConfirmSaveAsIs = () => {
+    if (milestoneForSaveAsIs) {
+      executeSaveAsIs(milestoneForSaveAsIs);
+    }
+  };
+
+  const handleCancelSaveAsIs = () => {
+    setIsSaveAsIsConfirmOpen(false);
+    setMilestoneForSaveAsIs(null);
+  };
+  // --- END SAVE AS-IS HANDLERS ---
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -2044,7 +2144,42 @@ console.log(user)
             {/* --- CLIENT / CLEARANCE ISSUES TAB --- */}
             <TabsContent value="Client / Clearance Issues" className="mt-4 p-1">
               <div className="space-y-6">
-                
+
+                  {/* --- NEW: Selection for Clearance Issues --- */}
+                  <div className="flex flex-col items-center justify-center p-6 bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
+                      <h3 className="text-lg font-semibold text-gray-800 mb-4">Do you want to add Site or Drawing Issues / Remarks?</h3>
+                      <div className="flex gap-4">
+                        <RadioGroup 
+                          value={hasClearanceIssues || ""} 
+                          onValueChange={(val: "yes" | "no") => {
+                              setHasClearanceIssues(val);
+                              // We NO LONGER clear data immediately on "no".
+                              // This allows the user to switch back to "yes" and see their data.
+                              // Data cleansing happens during SAVE if state is "no".
+                          }}
+                          className="flex gap-6"
+                          disabled={isBlockedByDraftOwnership}
+                        >
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="yes" id="r-yes" />
+                            <Label htmlFor="r-yes" className="text-base font-medium">Yes</Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="no" id="r-no" />
+                            <Label htmlFor="r-no" className="text-base font-medium">No</Label>
+                          </div>
+                        </RadioGroup>
+                      </div>
+                       {hasClearanceIssues === 'no' && (
+                          <div className="mt-4 text-green-600 font-medium">
+                            No issues to report. You can proceed With Save & Continue.
+                          </div>
+                      )}
+                  </div>
+                  
+                {/* Gate content behind 'yes' selection */}
+                {hasClearanceIssues === 'yes' && (
+                  <>
                 {/* Drawing Section - Orange Theme */}
                 <div className="bg-white rounded-xl shadow-sm border border-orange-200 overflow-hidden">
                   {/* Header */}
@@ -2336,6 +2471,8 @@ console.log(user)
                    )}
                   </div>
                 </div>
+                  </>
+                )}
 
               </div>
             </TabsContent>
@@ -2527,51 +2664,51 @@ console.log(user)
                                   <p >
                                     <span className="font-semibold test-md">{milestone.progress}%</span> <span className="test-sm text-gray-600">completed</span>
                                   </p>
-                                   <div className="flex justify-between items-end w-full mt-2">
-              
-                                      {milestone?.status !== 'Not Applicable' && milestone.status!=="Completed" &&( 
-                                          <div className="text-sm text-gray-600 flex flex-col items-start">
-                                              <span>
-                                                  Expected date of {milestone.status === 'Not Started' ? 'Starting' : 'completion'}
-                                              </span>
-                                              
-                                              <span className="font-semibold text-gray-800 flex items-center mt-0.5 border-2 border-gray-300 p-2 rounded-md">
-                                                  <CalendarIcon className="h-4 w-4 mr-1 text-gray-500" />
-                                                  {milestone.status === 'Not Started' ? (milestone.expected_starting_date || '--') : (milestone.expected_completion_date || '--')}
-                                              </span>
-                                          </div>)}
-             
-              
-                                            {/* <div className="flex-shrink-0 ml-auto">
-                                              <Button 
-                                                                    onClick={() => openUpdateMilestoneDialog(milestone)}
-                                                                    variant={milestone.is_updated_for_current_report ? 'default' : 'secondary'}
-                                                                    className={!milestone.is_updated_for_current_report && milestone.status !== 'Not Applicable' ? 'border-red-500 text-red-500 hover:bg-red-50' : ''}
-                                                                    disabled={isBlockedByDraftOwnership} // MODIFIED: Disable if blocked
-                                                                  >
-                                                                    {milestone.is_updated_for_current_report ? 'EDIT' : 'UPDATE'}
-                                                                  </Button>
-                                            </div> */}
-                                            <div className="flex-shrink-0 ml-auto">
+                                   <div className="flex flex-col w-full mt-2 gap-3">
+                                    {/* Expected Date Row */}
+                                    {milestone?.status !== 'Not Applicable' && milestone.status!=="Completed" &&( 
+                                        <div className="text-sm text-gray-600 flex flex-col items-start">
+                                            <span>
+                                                Expected date of {milestone.status === 'Not Started' ? 'Starting' : 'completion'}
+                                            </span>
+                                            
+                                            <span className="font-semibold text-gray-800 flex items-center mt-0.5 border-2 border-gray-300 p-2 rounded-md">
+                                                <CalendarIcon className="h-4 w-4 mr-1 text-gray-500" />
+                                                {milestone.status === 'Not Started' ? (milestone.expected_starting_date || '--') : (milestone.expected_completion_date || '--')}
+                                            </span>
+                                        </div>)}
+                                        
+                                    {/* Buttons Row */}
+                                    <div className="flex items-center justify-end gap-2 w-full">
   {milestone.is_updated_for_current_report ? (
     // Button for 'EDIT' (when milestone is updated)
     <Button
       onClick={() => openUpdateMilestoneDialog(milestone)}
-      className="bg-gray-200 text-gray-800 hover:bg-gray-300 flex items-center gap-1" // Gray background, dark text, hover, and flex for icon
+      className="bg-gray-200 text-gray-800 hover:bg-gray-300 flex items-center gap-1"
       disabled={isBlockedByDraftOwnership}
     >
-      <CheckCircle className="h-4 w-4 text-green-700 mr-1" /> {/* Green tick icon */}
+      <CheckCircle className="h-4 w-4 text-green-700 mr-1" />
       EDIT
     </Button>
   ) : (
-    // Button for 'UPDATE' (when milestone is not updated)
-    <Button
-      onClick={() => openUpdateMilestoneDialog(milestone)}
-      className="bg-red-600 text-white border border-gray-300 hover:bg-red-700" // Red background, white text, gray border, hover
-      disabled={isBlockedByDraftOwnership}
-    >
-      UPDATE
-    </Button>
+    // Buttons for 'UPDATE' and 'SAME AS BEFORE' (when milestone is not updated)
+    <>
+      <Button
+        onClick={() => handleSaveAsIsClick(milestone)}
+        variant="outline"
+        className="bg-gray-100 text-gray-700 hover:bg-gray-200 border-gray-300 text-sm px-4 py-2"
+        disabled={isBlockedByDraftOwnership}
+      >
+        Same As Before
+      </Button>
+      <Button
+        onClick={() => openUpdateMilestoneDialog(milestone)}
+        className="bg-red-600 text-white border border-gray-300 hover:bg-red-700 text-sm px-4 py-2"
+        disabled={isBlockedByDraftOwnership}
+      >
+        UPDATE
+      </Button>
+    </>
   )}
 </div>
                                    </div>
@@ -2630,7 +2767,7 @@ console.log(user)
             // If 'Back' is present, they share. If not, it expands.
             className="flex-1 bg-red-600 hover:bg-red-700 text-white text-lg py-3"
             onClick={() => handleSyncAndSubmitAllData(false)}
-            disabled={isGlobalSyncDisabled}
+            disabled={isGlobalSyncDisabled || (activeTabValue === "Client / Clearance Issues" && hasClearanceIssues === null)}
           >
             {isGlobalSyncDisabled && isFrappeOperationLoading ? (
               <TailSpin height={20} width={20} color="#fff" />
@@ -3095,6 +3232,39 @@ console.log(user)
         </div>
     </DialogContent>
 </Dialog>
+
+{/* --- SAVE AS-IS CONFIRMATION DIALOG --- */}
+<Dialog open={isSaveAsIsConfirmOpen} onOpenChange={setIsSaveAsIsConfirmOpen}>
+  <DialogContent className="max-w-[350px]">
+    <DialogHeader>
+      <DialogTitle className="text-lg font-bold text-gray-900">Confirm Save As-Is</DialogTitle>
+      <DialogDescription className="text-sm text-gray-600">
+        This milestone ({milestoneForSaveAsIs?.work_milestone_name}) is marked as <span className="font-semibold">{milestoneForSaveAsIs?.status}</span>.
+      </DialogDescription>
+    </DialogHeader>
+    <div className="py-4">
+      <p className="text-sm text-gray-700">
+        Are you sure you want to save this milestone <span className="font-semibold">without recording any activities planned for today</span>?
+      </p>
+    </div>
+    <div className="flex justify-end gap-3">
+      <Button
+        variant="outline"
+        onClick={handleCancelSaveAsIs}
+        className="border-gray-300"
+      >
+        Cancel
+      </Button>
+      <Button
+        onClick={handleConfirmSaveAsIs}
+        className="bg-red-600 hover:bg-red-700 text-white"
+      >
+        Yes, Save As-Is
+      </Button>
+    </div>
+  </DialogContent>
+</Dialog>
+{/* --- END SAVE AS-IS CONFIRMATION DIALOG --- */}
 
         <Dialog open={isCaptureDialogOpen} onOpenChange={setIsCaptureDialogOpen}>
     <DialogContent className=" max-w-[70vh] max-w-[600px] lg:max-w-[90vw] lg:max-w-[600px] p-0 border-none bg-transparent">

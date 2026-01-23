@@ -15,9 +15,10 @@ import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
+import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { getTotalAmountPaid, getTotalInvoiceAmount } from "@/utils/getAmounts";
+import { getTotalAmountPaid } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { Filter, FrappeConfig, FrappeContext, FrappeDoc, useFrappeCreateDoc, useFrappeDocTypeEventListener, useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
@@ -111,6 +112,41 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
         filters: [["status", "=", "Paid"]],
         limit: 0
     })
+
+    // Fetch ALL Approved Vendor Invoices to calculate invoice totals
+    // Note: We don't filter by document_name to avoid URL length limits with large IN clauses.
+    // Instead, we fetch all approved invoices and filter client-side.
+    const { data: vendorInvoices, isLoading: vendorInvoicesLoading } = useFrappeGetDocList<VendorInvoice>(
+        "Vendor Invoices",
+        {
+            filters: [
+                ["status", "=", "Approved"],
+            ],
+            fields: ["name", "document_name", "invoice_amount"],
+            limit: 0,
+        },
+        "VendorInvoices-ProjectPayments-All"
+    );
+
+    // Create a Set of document names for efficient lookup
+    const documentNamesSet = useMemo(() => {
+        const poNames = purchaseOrders?.map(po => po.name) || [];
+        const srNames = serviceOrders?.map(sr => sr.name) || [];
+        return new Set([...poNames, ...srNames]);
+    }, [purchaseOrders, serviceOrders]);
+
+    // Group invoice totals by document name (only for documents in our list)
+    const invoiceTotalsMap = useMemo(() => {
+        if (!vendorInvoices) return new Map<string, number>();
+        return vendorInvoices.reduce((acc, inv) => {
+            // Only include invoices for documents in our current dataset
+            if (inv.document_name && documentNamesSet.has(inv.document_name)) {
+                const current = acc.get(inv.document_name) ?? 0;
+                acc.set(inv.document_name, current + parseNumber(inv.invoice_amount));
+            }
+            return acc;
+        }, new Map<string, number>());
+    }, [vendorInvoices, documentNamesSet]);
 
     useFrappeDocTypeEventListener("Procurement Orders", async () => {
         await poMutate();
@@ -320,7 +356,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                                 <Link to={projectId ? (isPO ? `po/${poId}` : `/service-requests-list/${poId}`) : `${poId}`} className="underline hover:underline-offset-2">
                                     {id}
                                 </Link>
-                                {isPO ? (<ItemsHoverCard parentDocId={data} parentDoctype={"Procurement Orders"} childTableName="items" />) : (<ItemsHoverCard parentDocId={data} parentDoctype="Service Requests" childTableName="service_order_list" isSR />)}
+                                {isPO ? (<ItemsHoverCard parentDoc={data} parentDoctype={"Procurement Orders"} childTableName="items" />) : (<ItemsHoverCard parentDoc={data} parentDoctype="Service Requests" childTableName="service_order_list" isSR />)}
 
                             </div>
                         </div>
@@ -407,10 +443,11 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                 },
                 cell: ({ row }) => {
                     const data = row.original;
-                    const invoiceAmount = getTotalInvoiceAmount(data?.invoice_data)
+                    // Use Vendor Invoices lookup instead of old invoice_data JSON
+                    const invoiceAmount = invoiceTotalsMap.get(data?.name) ?? 0;
                     return (
                         <div
-                            className={`font-medium ${invoiceAmount ? "underline cursor-pointer" : ""}`}
+                            className={`font-medium ${invoiceAmount ? "underline cursor-pointer text-blue-600" : ""}`}
                             onClick={() => invoiceAmount && setSelectedInvoice(data)}
                         >
                             {formatToRoundedIndianRupee(invoiceAmount || "N/A")}
@@ -463,7 +500,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
             //         }
             //     ]),
         ],
-        [notifications, purchaseOrders, serviceOrders, projectValues, vendorValues, projectPayments, projectId, getTotalAmount, customerId]
+        [notifications, purchaseOrders, serviceOrders, projectValues, vendorValues, projectPayments, projectId, getTotalAmount, customerId, invoiceTotalsMap]
     );
 
     if (poError || srError || projectsError || vendorsError) {
@@ -602,7 +639,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                 isPO={currentPaymentsDialog?.document_type === "Purchase Order"}
             />
             {
-                (poLoading || srLoading || projectsLoading || vendorsLoading || projectPaymentsLoading) ? (
+                (poLoading || srLoading || projectsLoading || vendorsLoading || projectPaymentsLoading || vendorInvoicesLoading) ? (
                     <TableSkeleton />
                 ) : (
                     <DataTable columns={columns} data={combinedData} project_values={!projectId ? projectValues : undefined} approvedQuotesVendors={vendorValues}  />

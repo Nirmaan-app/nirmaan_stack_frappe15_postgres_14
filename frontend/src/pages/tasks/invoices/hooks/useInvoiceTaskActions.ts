@@ -1,94 +1,116 @@
-// src/features/invoice-reconciliation/hooks/useInvoiceTaskActions.ts
+/**
+ * Hook for approving/rejecting vendor invoices.
+ *
+ * Updated to use the new API_APPROVE_VENDOR_INVOICE endpoint.
+ */
 import { useState, useCallback } from 'react';
 import { useFrappePostCall } from 'frappe-react-sdk';
-import { useToast } from "@/components/ui/use-toast"; // Adjust path
-import { API_UPDATE_INVOICE_TASK_STATUS } from '../constants';
-import { InvoiceApprovalTask } from '@/types/NirmaanStack/Task'; // Adjust path
+import { useToast } from "@/components/ui/use-toast";
+import { API_APPROVE_VENDOR_INVOICE } from '../constants';
+import { VendorInvoice } from '@/types/NirmaanStack/VendorInvoice';
 
 interface ConfirmationState {
     isOpen: boolean;
-    taskId: string | null;
-    taskInvoiceNo?: string | null;
+    invoiceId: string | null;
+    invoiceNo?: string | null;
     action: "Approved" | "Rejected" | null;
 }
 
 const initialConfirmationState: ConfirmationState = {
-    isOpen: false, taskId: null, taskInvoiceNo: null, action: null,
+    isOpen: false,
+    invoiceId: null,
+    invoiceNo: null,
+    action: null,
 };
 
-interface UseInvoiceTaskActionsProps {
-    onActionSuccess?: () => void; // Optional callback after successful action
+interface UseInvoiceActionsProps {
+    onActionSuccess?: () => void;
 }
 
-export const useInvoiceTaskActions = ({ onActionSuccess }: UseInvoiceTaskActionsProps = {}) => {
+export const useInvoiceTaskActions = ({ onActionSuccess }: UseInvoiceActionsProps = {}) => {
     const { toast } = useToast();
     const [confirmationState, setConfirmationState] = useState<ConfirmationState>(initialConfirmationState);
-    const [loadingTaskId, setLoadingTaskId] = useState<string | null>(null); // Track loading per task
+    const [loadingInvoiceId, setLoadingInvoiceId] = useState<string | null>(null);
 
-    const { call: updateTaskStatusApi, loading: isApiLoading } = useFrappePostCall(API_UPDATE_INVOICE_TASK_STATUS);
+    const { call: approveInvoiceApi, loading: isApiLoading } = useFrappePostCall(API_APPROVE_VENDOR_INVOICE);
 
-    const handleUpdateTaskStatus = useCallback(async (taskId: string, newStatus: "Approved" | "Rejected") => {
-        setLoadingTaskId(taskId);
+    const handleUpdateInvoiceStatus = useCallback(async (
+        invoiceId: string,
+        newStatus: "Approved" | "Rejected",
+        rejectionReason?: string
+    ) => {
+        setLoadingInvoiceId(invoiceId);
         try {
-            const response = await updateTaskStatusApi({
-                task_id: taskId,
-                new_task_status: newStatus,
+            const response = await approveInvoiceApi({
+                invoice_id: invoiceId,
+                action: newStatus,
+                rejection_reason: rejectionReason,
             });
 
             if (response.message?.status === 200) {
                 toast({
                     title: "Success",
-                    description: `Task ${newStatus.toLowerCase()} successfully.`,
+                    description: `Invoice ${newStatus.toLowerCase()} successfully.`,
                     variant: "success",
                 });
                 if (onActionSuccess) {
-                    onActionSuccess(); // Call callback (e.g., mutateTasks)
+                    onActionSuccess();
                 }
             } else {
-                throw new Error(response.message?.message || `Failed to ${newStatus.toLowerCase()} task.`);
+                throw new Error(response.message?.message || `Failed to ${newStatus.toLowerCase()} invoice.`);
             }
         } catch (error) {
-            console.error(`Error updating task ${taskId} to ${newStatus}:`, error);
+            console.error(`Error updating invoice ${invoiceId} to ${newStatus}:`, error);
             toast({
                 title: "Error",
                 description: error instanceof Error ? error.message : "An unexpected error occurred.",
                 variant: "destructive",
             });
         } finally {
-            setLoadingTaskId(null);
-            setConfirmationState(initialConfirmationState); // Close dialog
+            setLoadingInvoiceId(null);
+            setConfirmationState(initialConfirmationState);
         }
-    }, [updateTaskStatusApi, toast, onActionSuccess]);
+    }, [approveInvoiceApi, toast, onActionSuccess]);
 
-    const openConfirmationDialog = useCallback((task: InvoiceApprovalTask, action: "Approved" | "Rejected") => {
+    const openConfirmationDialog = useCallback((invoice: VendorInvoice, action: "Approved" | "Rejected") => {
         setConfirmationState({
             isOpen: true,
-            taskId: task.name,
-            taskInvoiceNo: task.reference_value_2 || task.task_docname,
+            invoiceId: invoice.name,
+            invoiceNo: invoice.invoice_no || invoice.document_name,
             action: action,
         });
     }, []);
 
     const closeConfirmationDialog = useCallback(() => {
-        if (loadingTaskId) return; // Prevent closing while loading
+        if (loadingInvoiceId) return;
         setConfirmationState(initialConfirmationState);
-    }, [loadingTaskId]);
+    }, [loadingInvoiceId]);
 
-    const onConfirmAction = useCallback(async () => {
-        if (confirmationState.taskId && confirmationState.action) {
-            await handleUpdateTaskStatus(confirmationState.taskId, confirmationState.action);
+    const onConfirmAction = useCallback(async (rejectionReason?: string) => {
+        if (confirmationState.invoiceId && confirmationState.action) {
+            await handleUpdateInvoiceStatus(
+                confirmationState.invoiceId,
+                confirmationState.action,
+                rejectionReason
+            );
         }
-    }, [confirmationState.taskId, confirmationState.action, handleUpdateTaskStatus]);
+    }, [confirmationState.invoiceId, confirmationState.action, handleUpdateInvoiceStatus]);
 
-    // Determine overall loading state for disabling buttons etc.
-    const isProcessing = !!loadingTaskId || isApiLoading;
+    const isProcessing = !!loadingInvoiceId || isApiLoading;
 
     return {
         openConfirmationDialog,
         closeConfirmationDialog,
         onConfirmAction,
         confirmationState,
-        loadingTaskId, // Specific task ID being processed
-        isProcessing, // General flag if *any* action is processing
+        loadingInvoiceId,
+        /** @deprecated Use loadingInvoiceId instead */
+        loadingTaskId: loadingInvoiceId,
+        isProcessing,
     };
 };
+
+/**
+ * Alias with a more descriptive name.
+ */
+export const useInvoiceApprovalActions = useInvoiceTaskActions;
