@@ -4,7 +4,8 @@ import { useMemo, useCallback } from 'react';
 import { ProcurementOrder } from '@/types/NirmaanStack/ProcurementOrders';
 import { ServiceRequests } from '@/types/NirmaanStack/ServiceRequests';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
-import { getPOTotal, getSRTotal, getTotalInvoiceAmount } from '@/utils/getAmounts';
+import { VendorInvoice } from '@/types/NirmaanStack/VendorInvoice';
+import { getPOTotal, getSRTotal } from '@/utils/getAmounts';
 import { parseNumber } from '@/utils/parseNumber';
 import { isWithinInterval, parseISO, isBefore } from 'date-fns';
 import { Vendors } from '@/types/NirmaanStack/Vendors'; 
@@ -80,13 +81,29 @@ export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): Us
         filters: [['status', '=', 'Paid']],
         limit: 0
     }, 'all-payments-for-vendor-ledger');
-     // --- KEY CHANGE: Calculate flag once in the hook scope ---
+
+    // Fetch Vendor Invoices for ledger calculations
+    const { data: vendorInvoices, isLoading: isLoadingInvoices, error: errorInvoices } = useFrappeGetDocList<VendorInvoice>('Vendor Invoices', {
+        fields: ['name', 'vendor', 'invoice_amount', 'invoice_date'],
+        filters: [['status', '=', 'Approved']],
+        limit: 0
+    }, 'all-invoices-for-vendor-ledger');
+
+    // --- KEY CHANGE: Calculate flag once in the hook scope ---
     const shouldFilterByPeriod = useMemo(() => startDate && endDate, [startDate, endDate]);
-    const HISTORICAL_START_DATE = new Date("1900-01-01"); 
     // ---------------------------------------------------
-    
-   
-        // --- 👇 STEP 2: CREATE A MAP FOR VENDORS FOR QUICK LOOKUP ---
+
+    // Group Vendor Invoices by vendor
+    const invoicesByVendor = useMemo(() =>
+        vendorInvoices?.reduce((acc, invoice) => {
+            if (invoice.vendor) {
+                (acc.get(invoice.vendor) || acc.set(invoice.vendor, []).get(invoice.vendor))!.push(invoice);
+            }
+            return acc;
+        }, new Map<string, VendorInvoice[]>()) ?? new Map(),
+    [vendorInvoices]);
+
+    // --- 👇 STEP 2: CREATE A MAP FOR VENDORS FOR QUICK LOOKUP ---
     const vendorsMap = useMemo(() =>
         vendors?.reduce((acc, vendor) => {
             acc.set(vendor.name, vendor);
@@ -126,7 +143,7 @@ export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): Us
     // 5. Create the memoized function that performs the detailed ledger calculation.
     const getVendorCalculatedFields = useCallback(
         (vendorId: string): VendorCalculatedFields | null => {
-            const isLoading = isLoadingVendors || isLoadingPOs || isLoadingSRs || isLoadingPayments;
+            const isLoading = isLoadingVendors || isLoadingPOs || isLoadingSRs || isLoadingPayments || isLoadingInvoices;
             if (isLoading) {
                 return null; // Data not ready
             }
@@ -156,19 +173,11 @@ export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): Us
                 return sum;
             }, 0);
 
-            // totalInvoiced: Filtered by INVOICE DATE within the range
-            const totalInvoiced = [...relatedPOs, ...relatedSRs].reduce((sum, doc) => {
-                const invoiceData = doc.invoice_data?.data;
-                if (!invoiceData) return sum;
-
-                let invoiceSum = 0;
-                for (const dateStr in invoiceData) {
-                    const shouldInclude = !shouldFilterByPeriod || isDateInPeriod(dateStr, startDate, endDate);
-                    if (shouldInclude) {
-                        invoiceSum += parseNumber(invoiceData[dateStr].amount);
-                    }
-                }
-                return sum + invoiceSum;
+            // totalInvoiced: Filtered by INVOICE DATE within the range - using Vendor Invoices
+            const relatedInvoices = invoicesByVendor.get(vendorId) || [];
+            const totalInvoiced = relatedInvoices.reduce((sum, invoice) => {
+                const shouldInclude = !shouldFilterByPeriod || isDateInPeriod(invoice.invoice_date, startDate || null, endDate || null);
+                return shouldInclude ? sum + parseNumber(invoice.invoice_amount) : sum;
             }, 0);
 
             // totalPaid: Filtered by Payment Date within the range
@@ -179,22 +188,13 @@ export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): Us
 
 
             // --- CUMULATIVE BALANCE CALCULATION ---
-            // This sums up ALL historical transactions up to the endDate to get the true running balance.
+            // This sums up ALL historical transactions from 2025-04-01 onwards using Vendor Invoices
 
-            const cumulativeInvoiced = [...relatedPOs, ...relatedSRs].reduce((sum, doc) => {
-                const invoiceData = doc.invoice_data?.data;
-                // console.log("DEBUG: invoiceData", invoiceData)
-                if (!invoiceData) return sum;
-
-                let invoiceSum = 0;
-                for (const dateStr in invoiceData) {
-                    if (isDateOnOrAfter(dateStr, new Date("2025-04-01"))) {
-                        invoiceSum += parseNumber(invoiceData[dateStr].amount);
-                        // console.log("DEBUG: invoiceSum", invoiceSum)
-                    }
+            const cumulativeInvoiced = relatedInvoices.reduce((sum, invoice) => {
+                if (isDateOnOrAfter(invoice.invoice_date, new Date("2025-04-01"))) {
+                    return sum + parseNumber(invoice.invoice_amount);
                 }
-                // console.log("DEBUG: sum", sum+invoiceSum, "vendor", vendorId)
-                return sum + invoiceSum;
+                return sum;
             }, 0);
 
             const cumulativePaid = relatedPayments.reduce((sum, p) => {
@@ -245,11 +245,11 @@ export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): Us
             return { totalPO, totalSR, totalInvoiced, totalPaid, balance };
         },
         // Dependencies now include the dates, so this function is re-created when they change.
-        [posByVendor, srsByVendor, paymentsByVendor, vendorsMap, isLoadingVendors, isLoadingPOs, isLoadingSRs, isLoadingPayments, startDate, endDate, shouldFilterByPeriod]
+        [posByVendor, srsByVendor, paymentsByVendor, invoicesByVendor, vendorsMap, isLoadingVendors, isLoadingPOs, isLoadingSRs, isLoadingPayments, isLoadingInvoices, startDate, endDate, shouldFilterByPeriod]
     );
 
-    const isLoadingGlobalDeps = isLoadingVendors || isLoadingPOs || isLoadingSRs || isLoadingPayments;
-    const globalDepsError = errorVendors || errorPOs || errorSRs || errorPayments;
+    const isLoadingGlobalDeps = isLoadingVendors || isLoadingPOs || isLoadingSRs || isLoadingPayments || isLoadingInvoices;
+    const globalDepsError = errorVendors || errorPOs || errorSRs || errorPayments || errorInvoices;
 
     return {
         getVendorCalculatedFields,

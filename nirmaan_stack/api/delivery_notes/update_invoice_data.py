@@ -1,118 +1,37 @@
-# import frappe
-# from frappe.model.document import Document
-# from datetime import datetime
+"""
+API for creating and managing invoice data for Procurement Orders and Service Requests.
 
-# @frappe.whitelist()
-# def update_invoice_data(docname: str, invoice_data: dict, invoice_attachment: str = None, isSR: bool = False):
-#     """
-#     Updates the invoice data for a Procurement Order and optionally adds an invoice attachment.
+This module handles:
+- Creating new invoice entries (stored in Vendor Invoices doctype)
+- Deleting invoice entries and their associated records
+- Managing invoice attachments via Nirmaan Attachments
 
-#     Args:
-#         docname (str): Procurement Order ID.
-#         invoice_data (dict): Invoice data to append.
-#         invoice_attachment (str, optional): URL of uploaded invoice attachment. Defaults to None.
-#         isSR (bool, optional): Indicates if the document is a Service Request. Defaults to False.
-#     """
-#     doctype = "Service Requests" if isSR else "Procurement Orders"
-#     try:
-#         frappe.db.begin()
-
-#         po = frappe.get_doc(doctype , docname)
-
-#          # Handle invoice attachment
-#         if invoice_attachment:
-#             attachment = create_attachment_doc(
-#                 po,
-#                 invoice_attachment,
-#                 "po invoice"
-#             )
-#             if attachment and invoice_data:
-#                 invoice_data["invoice_attachment_id"] = attachment.name
-#         # Add invoice data
-#         add_invoice_history(po, invoice_data)
-
-#         # Save procurement order updates
-#         po.save()
-
-#         frappe.db.commit()
-
-#         return {
-#             "status": 200,
-#             "message": f"Updated invoice data for {docname}",
-#         }
-
-#     except Exception as e:
-#         frappe.db.rollback()
-#         frappe.log_error("Invoice Data Update Error", str(e))
-#         return {
-#             "status": 400,
-#             "message": f"Update failed: {str(e)}",
-#             "error": frappe.get_traceback()
-#         }
-
-# def add_invoice_history(po, new_data: dict) -> None:
-#     """Append new invoice data to existing history"""
-#     existing_data = po.get("invoice_data") or {"data": {}}
-
-#     if "data" not in existing_data:
-#         existing_data["data"] = {}
-
-#     invoice_date = new_data.get("date")  # Get date from new_data
-
-#     # Remove date field from new_data before merging
-#     invoice_data_without_date = {k: v for k, v in new_data.items() if k != "date"}
-
-#     if invoice_date not in existing_data["data"]:
-#         existing_data["data"][invoice_date] = invoice_data_without_date
-#     else:
-#         time_stamp = datetime.now().strftime("%H:%M:%S.%f") # use microseconds to prevent collision.
-#         unique_date = f"{invoice_date} {time_stamp}" #combine date and timestamp
-#         existing_data["data"][unique_date] = invoice_data_without_date # assign update info with unique date.
-
-#     po.invoice_data = existing_data
-
-# def create_attachment_doc(po, file_url: str, attachment_type: str) -> Document:
-#     """Create standardized attachment document"""
-#     attachment = frappe.new_doc("Nirmaan Attachments")
-#     attachment.update({
-#         "project": po.project,
-#         "attachment": file_url,
-#         "attachment_type": attachment_type,
-#         "associated_doctype": po.doctype,
-#         "associated_docname": po.name,
-#         "attachment_link_doctype": "Vendors",
-#         "attachment_link_docname": po.vendor
-#     })
-#     attachment.insert(ignore_permissions=True)
-#     return attachment
-
-
-
-
-
-
-
-
-
-# ******************************* Version 2 ****************************** #
+Updated in v3.0 to use Vendor Invoices doctype instead of Task + JSON.
+"""
 
 import frappe
 from frappe.model.document import Document
-from datetime import datetime
 from typing import Optional
-import json # Import json for cleaner handling if needed, though Frappe often handles it
+import json
+
 
 @frappe.whitelist()
 def update_invoice_data(docname: str, invoice_data: str, invoice_attachment: str = None, isSR: bool = False):
     """
-    Updates the invoice data for a document (PO or SR), creates an attachment record,
-    and generates a corresponding task.
+    Creates a new invoice entry for a document (PO or SR).
+
+    This function:
+    1. Creates a Nirmaan Attachments record for the invoice file
+    2. Creates a Vendor Invoices record with status "Pending"
 
     Args:
         docname (str): The name of the Procurement Order or Service Request document.
         invoice_data (str): JSON string containing the new invoice details (invoice_no, amount, date).
         invoice_attachment (str, optional): URL of the uploaded invoice attachment. Defaults to None.
         isSR (bool, optional): True if the document is a Service Request, False for Procurement Order.
+
+    Returns:
+        dict: Success response with invoice details or error message.
     """
     doctype = "Service Requests" if isSR else "Procurement Orders"
 
@@ -123,18 +42,18 @@ def update_invoice_data(docname: str, invoice_data: str, invoice_attachment: str
             if not isinstance(new_invoice_entry_data, dict):
                 raise ValueError("invoice_data must be a JSON object string.")
             if not all(k in new_invoice_entry_data for k in ["invoice_no", "amount", "date"]):
-                 raise ValueError("Missing required fields in invoice_data (invoice_no, amount, date).")
+                raise ValueError("Missing required fields in invoice_data (invoice_no, amount, date).")
         except json.JSONDecodeError:
             frappe.throw(f"Invalid JSON format provided for invoice_data: {invoice_data}")
         except ValueError as ve:
             frappe.throw(str(ve))
 
-
         # --- Start Transaction ---
         frappe.db.begin()
 
+        # Get parent document for project/vendor info
         doc = frappe.get_doc(doctype, docname)
-        attachment_id = None # Initialize attachment_id
+        attachment_id = None
 
         # 1. Handle invoice attachment (if provided)
         if invoice_attachment:
@@ -142,258 +61,234 @@ def update_invoice_data(docname: str, invoice_data: str, invoice_attachment: str
                 attachment = create_attachment_doc(
                     doc,
                     invoice_attachment,
-                    # f"{doctype.rstrip('s').lower()} invoice" # e.g., "procurement order invoice" or "service request invoice"
-                    "po invoice"
+                    "po invoice" if doctype == "Procurement Orders" else "sr invoice"
                 )
                 attachment_id = attachment.name
             except Exception as attach_err:
-                frappe.log_error(f"Failed to create attachment for {doctype} {docname}", str(attach_err))
-                # Decide if this is critical - perhaps proceed without attachment? For now, we'll throw.
+                frappe.log_error(
+                    f"Failed to create attachment for {doctype} {docname}",
+                    str(attach_err)
+                )
                 frappe.throw(f"Failed to process invoice attachment: {str(attach_err)}")
 
-        # 2. Add invoice data to the document's JSON field (including status)
-        # Pass the attachment_id to be included in the stored data
-        date_key_used = add_invoice_history(doc, new_invoice_entry_data, attachment_id)
-
-        # 3. Create the associated Task
+        # 2. Create the Vendor Invoice record
         try:
-            create_invoice_task(doc, new_invoice_entry_data, date_key_used, attachment_id)
-        except Exception as task_err:
-            frappe.log_error(f"Failed to create task for {doctype} {docname}, invoice {new_invoice_entry_data.get('invoice_no')}", str(task_err))
-            # Decide if this is critical. For now, we'll throw to ensure consistency.
-            frappe.throw(f"Failed to create associated task: {str(task_err)}")
+            vendor_invoice = create_vendor_invoice(
+                parent_doc=doc,
+                invoice_data=new_invoice_entry_data,
+                attachment_id=attachment_id
+            )
+        except Exception as invoice_err:
+            frappe.log_error(
+                f"Failed to create Vendor Invoice for {doctype} {docname}",
+                str(invoice_err)
+            )
+            frappe.throw(f"Failed to create invoice record: {str(invoice_err)}")
 
-
-        # 4. Save the main document (PO or SR)
-        doc.save(ignore_permissions=True) # Consider permissions if needed
+        # 3. Update attachment to reference the new Vendor Invoice (instead of PO/SR)
+        if attachment_id:
+            frappe.db.set_value(
+                "Nirmaan Attachments",
+                attachment_id,
+                {
+                    "associated_doctype": "Vendor Invoices",
+                    "associated_docname": vendor_invoice.name
+                },
+                update_modified=False
+            )
 
         # --- Commit Transaction ---
         frappe.db.commit()
 
         return {
             "status": 200,
-            "message": f"Successfully updated invoice data and created task for {docname}",
+            "message": f"Successfully created invoice {vendor_invoice.name} for {docname}",
+            "data": {
+                "vendor_invoice_id": vendor_invoice.name,
+                "invoice_no": new_invoice_entry_data.get("invoice_no"),
+                "invoice_date": new_invoice_entry_data.get("date"),
+                "invoice_amount": new_invoice_entry_data.get("amount"),
+                "attachment_id": attachment_id
+            }
         }
 
     except Exception as e:
-        frappe.db.rollback() # Rollback on any error during the process
+        frappe.db.rollback()
         frappe.log_error(title="Invoice Data Update Error", message=frappe.get_traceback())
-        # Return a less revealing error message to the frontend
         return {
             "status": 400,
-            "message": f"Invoice update failed for {docname}. Please contact support.",
-            "error": str(e) # Keep original error for server logs but maybe not return detailed traceback
+            "message": f"Invoice creation failed for {docname}. Please contact support.",
+            "error": str(e)
         }
-
-def add_invoice_history(doc: Document, invoice_entry_data: dict, attachment_id: str = None) -> str:
-    """
-    Appends new invoice data (with status) to the 'invoice_data' JSON field.
-    Returns the actual date key used in the JSON.
-    """
-    existing_invoice_data = doc.get("invoice_data") or {"data": {}}
-
-    # Ensure the 'data' key exists
-    if not isinstance(existing_invoice_data, dict) or "data" not in existing_invoice_data:
-         # Attempt to parse if it's a string, otherwise reset
-        if isinstance(existing_invoice_data, str):
-            try:
-                existing_invoice_data = json.loads(existing_invoice_data)
-                if "data" not in existing_invoice_data:
-                     existing_invoice_data = {"data": {}}
-            except json.JSONDecodeError:
-                 existing_invoice_data = {"data": {}}
-        else:
-             existing_invoice_data = {"data": {}}
-
-
-    invoice_date = invoice_entry_data.get("date")
-    if not invoice_date:
-        raise ValueError("Date is missing in the provided invoice data.")
-
-    # Prepare the data to be stored in the JSON value field
-    data_to_store = {
-        "invoice_no": invoice_entry_data.get("invoice_no"),
-        "amount": invoice_entry_data.get("amount"),
-        "updated_by": invoice_entry_data.get("updated_by", frappe.session.user), # Get user if not passed
-        "status": "Pending", # <-- Set default status here
-        "invoice_attachment_id": attachment_id # Store the attachment ID
-    }
-    # Clean up None values if desired
-    data_to_store = {k: v for k, v in data_to_store.items() if v is not None}
-
-
-    # Determine the key, handling potential collisions
-    date_key_to_use = invoice_date
-    if invoice_date in existing_invoice_data["data"]:
-        # Same-day entry collision: Append timestamp for uniqueness
-        time_stamp = datetime.now().strftime("%H:%M:%S.%f")
-        date_key_to_use = f"{invoice_date}_{time_stamp}" # Use underscore for better readability?
-
-    existing_invoice_data["data"][date_key_to_use] = data_to_store
-
-    # Update the document field (Frappe handles JSON serialization on save)
-    doc.set("invoice_data", existing_invoice_data)
-
-    return date_key_to_use # Return the key that was used
 
 
 def create_attachment_doc(parent_doc: Document, file_url: str, attachment_type: str) -> Document:
     """Creates and inserts a 'Nirmaan Attachments' document."""
     attachment = frappe.new_doc("Nirmaan Attachments")
     attachment.update({
-        "project": parent_doc.get("project"), # Get project from parent
+        "project": parent_doc.get("project"),
         "attachment": file_url,
         "attachment_type": attachment_type,
         "associated_doctype": parent_doc.doctype,
         "associated_docname": parent_doc.name,
-        # Link vendor only if it exists on the parent (PO has it, SR might not)
         "attachment_link_doctype": "Vendors" if parent_doc.get("vendor") else None,
         "attachment_link_docname": parent_doc.get("vendor") if parent_doc.get("vendor") else None
     })
-    attachment.insert(ignore_permissions=True) # Consider permission model
-    return attachment # Return the created document
+    attachment.insert(ignore_permissions=True)
+    return attachment
 
 
-def create_invoice_task(parent_doc: Document, invoice_entry_data: dict, date_key: str, attachment_id: Optional[str]) -> None:
-    """Creates a 'Task' document associated with the new invoice entry."""
-    task = frappe.new_doc("Task")
-    task.update({
-        "task_doctype": parent_doc.doctype,
-        "task_docname": parent_doc.name,
-        "assignee": None, # Assign later based on workflow or manually
-        "assignee_role": None,
-        "status": "Pending", # Initial status of the Task itself
-        # Reference fields linking back to the specific invoice entry
-        "reference_name_1": "invoice_date_key", # Name of the key in the JSON
-        "reference_value_1": date_key,          # The actual key used (e.g., "2024-01-15" or "2024-01-15_10:30:05.123456")
-        "task_type": 'po_invoice_approval',
-        "reference_name_2": "invoice_no",
-        "reference_value_2": invoice_entry_data.get("invoice_no"),
-
-        # Add amount as reference 3 for easier display in reconciliation table
-        "reference_name_3": "invoice_amount",
-        "reference_value_3": invoice_entry_data.get("amount"),
-
-        # Add attachment ID as reference 4 for easier display in reconciliation table
-        "reference_name_4": "invoice_attachment_id",
-        "reference_value_4": attachment_id
-        # Add more references if needed (e.g., amount, status from invoice_entry_data)
-    })
-    task.insert(ignore_permissions=True) # Consider permissions
-    frappe.msgprint(f"Created Task for Invoice {invoice_entry_data.get('invoice_no')}", indicator="green", alert=True) # Optional: confirmation message
-
-
-# Assuming other functions like create_attachment_doc, create_invoice_task exist
-
-@frappe.whitelist()
-def delete_invoice_entry(docname: str, date_key: str, isSR: bool = False):
+def create_vendor_invoice(
+    parent_doc: Document,
+    invoice_data: dict,
+    attachment_id: Optional[str]
+) -> Document:
     """
-    Deletes a specific invoice entry from the invoice_data JSON field,
-    the associated 'Nirmaan Attachments' document (if linked),
-    and the corresponding 'Task' document.
+    Creates a new Vendor Invoices document.
 
     Args:
-        docname (str): The name of the Procurement Order or Service Request document.
-        date_key (str): The exact key (date or date_timestamp) of the invoice entry to delete.
-        isSR (bool, optional): True if the document is a Service Request, False for Procurement Order.
+        parent_doc: The parent PO or SR document
+        invoice_data: Dict with invoice_no, amount, date
+        attachment_id: Nirmaan Attachments document name (optional)
+
+    Returns:
+        The created Vendor Invoices document
+    """
+    # Get uploader info
+    current_user = frappe.session.user
+    uploaded_by = None
+
+    if current_user != "Administrator" and current_user != "Guest":
+        if frappe.db.exists("Nirmaan Users", current_user):
+            uploaded_by = current_user
+
+    invoice = frappe.new_doc("Vendor Invoices")
+    invoice.update({
+        "document_type": parent_doc.doctype,
+        "document_name": parent_doc.name,
+        "project": parent_doc.get("project"),
+        "vendor": parent_doc.get("vendor"),
+        "invoice_no": invoice_data.get("invoice_no"),
+        "invoice_date": invoice_data.get("date"),
+        "invoice_amount": invoice_data.get("amount"),
+        "invoice_attachment": attachment_id,
+        "status": "Pending",
+        "uploaded_by": uploaded_by,
+    })
+    invoice.insert(ignore_permissions=True)
+
+    frappe.msgprint(
+        f"Created Invoice {invoice.name} for {parent_doc.doctype} {parent_doc.name}",
+        indicator="green",
+        alert=True
+    )
+
+    return invoice
+
+
+@frappe.whitelist()
+def delete_invoice_entry(docname: str, date_key: str = None, isSR: bool = False, invoice_id: str = None):
+    """
+    Deletes a Vendor Invoice and its associated attachment.
+
+    This function now uses invoice_id directly (from Vendor Invoices doctype).
+    The date_key and docname parameters are kept for backward compatibility.
+
+    Args:
+        docname (str): The name of the Procurement Order or Service Request document (deprecated).
+        date_key (str, optional): The invoice date key (deprecated, use invoice_id instead).
+        isSR (bool, optional): True if the document is a Service Request (deprecated).
+        invoice_id (str, optional): The Vendor Invoices document name. Preferred method.
+
+    Returns:
+        dict: Success or error message.
     """
     doctype = "Service Requests" if isSR else "Procurement Orders"
 
-    if not docname or not date_key:
-        frappe.throw("Document Name and Date Key are required.")
+    # Determine which invoice to delete
+    vendor_invoice_name = invoice_id
+
+    # If no invoice_id provided, try to find by date_key (backward compatibility)
+    if not vendor_invoice_name and date_key and docname:
+        # Extract date from date_key (first 10 chars)
+        invoice_date = date_key[:10] if date_key else None
+
+        # Find the Vendor Invoice by matching criteria
+        invoices = frappe.get_all(
+            "Vendor Invoices",
+            filters={
+                "document_type": doctype,
+                "document_name": docname,
+                "invoice_date": invoice_date
+            },
+            fields=["name"],
+            limit=1
+        )
+
+        if invoices:
+            vendor_invoice_name = invoices[0].name
+        else:
+            frappe.throw(f"No invoice found for {docname} with date {invoice_date}")
+
+    if not vendor_invoice_name:
+        frappe.throw("Invoice ID or date key is required.")
 
     try:
         # --- Start Transaction ---
         frappe.db.begin()
 
-        doc = frappe.get_doc(doctype, docname)
-        existing_invoice_data = doc.get("invoice_data")
+        # 1. Get the Vendor Invoice
+        invoice = frappe.get_doc("Vendor Invoices", vendor_invoice_name)
+        invoice_no = invoice.invoice_no
+        attachment_id = invoice.invoice_attachment
 
-        # Validate invoice_data structure
-        if not isinstance(existing_invoice_data, dict) or "data" not in existing_invoice_data or not isinstance(existing_invoice_data.get("data"), dict):
-             # Attempt to parse if string
-             if isinstance(existing_invoice_data, str):
-                 try:
-                     existing_invoice_data = json.loads(existing_invoice_data)
-                     if not isinstance(existing_invoice_data, dict) or "data" not in existing_invoice_data or not isinstance(existing_invoice_data.get("data"), dict):
-                          raise ValueError("Invalid structure after parsing.")
-                 except (json.JSONDecodeError, ValueError):
-                      frappe.log_error(f"Invalid or missing invoice_data structure for {doctype} {docname}", frappe.get_traceback())
-                      frappe.throw(f"Invoice data format is incorrect for {docname}.")
-             else:
-                  frappe.log_error(f"Invalid or missing invoice_data structure for {doctype} {docname}", frappe.get_traceback())
-                  frappe.throw(f"Invoice data format is incorrect for {docname}.")
-
-
-        invoice_data_dict = existing_invoice_data["data"]
-
-        # Check if the entry exists
-        if date_key not in invoice_data_dict:
-            frappe.throw(f"Invoice entry with key '{date_key}' not found in {docname}.")
-
-        # Get entry details before deleting it
-        entry_to_delete = invoice_data_dict[date_key]
-        attachment_id_to_delete = entry_to_delete.get("invoice_attachment_id")
-        invoice_no_deleted = entry_to_delete.get("invoice_no", "N/A") # For logging/messaging
-
-        # 1. Delete the associated 'Nirmaan Attachments' document (if exists)
-        if attachment_id_to_delete:
+        # 2. Delete associated attachment (if exists)
+        if attachment_id:
             try:
-                frappe.delete_doc("Nirmaan Attachments", attachment_id_to_delete, ignore_permissions=True, force=True)
-                frappe.msgprint(f"Deleted attachment: {attachment_id_to_delete}", indicator="gray", alert=True) # Optional debug msg
+                frappe.delete_doc("Nirmaan Attachments", attachment_id, ignore_permissions=True, force=True)
             except frappe.DoesNotExistError:
-                frappe.log_error(title="Attachment Deletion Warning", message=f"Attachment {attachment_id_to_delete} linked in invoice data for {docname} not found.")
+                frappe.log_error(
+                    title="Attachment Deletion Warning",
+                    message=f"Attachment {attachment_id} linked to invoice {vendor_invoice_name} not found."
+                )
             except Exception as e:
-                frappe.log_error(f"Failed to delete attachment {attachment_id_to_delete}", frappe.get_traceback())
-                # Decide if this is critical. Let's throw for now to maintain consistency.
+                frappe.log_error(
+                    f"Failed to delete attachment {attachment_id}",
+                    frappe.get_traceback()
+                )
                 frappe.throw(f"Failed to delete associated attachment: {str(e)}")
 
+        # 3. Delete reconciliation proof attachment (if exists)
+        if invoice.reconciliation_proof:
+            try:
+                frappe.delete_doc("Nirmaan Attachments", invoice.reconciliation_proof, ignore_permissions=True, force=True)
+            except frappe.DoesNotExistError:
+                pass
+            except Exception as e:
+                frappe.log_error(
+                    f"Failed to delete reconciliation proof {invoice.reconciliation_proof}",
+                    frappe.get_traceback()
+                )
 
-        # 2. Delete the associated 'Task' document
-        #    Find task using the reference fields we set during creation
-        try:
-            task_names = frappe.get_all("Task", filters={
-                "task_doctype": doctype,
-                "task_docname": docname,
-                "reference_name_1": "invoice_date_key",
-                "reference_value_1": date_key
-            }, pluck="name")
-
-            if task_names:
-                for task_name in task_names:
-                    frappe.delete_doc("Task", task_name, ignore_permissions=True, force=True)
-                    frappe.msgprint(f"Deleted associated task: {task_name}", indicator="gray", alert=True) # Optional debug msg
-            else:
-                frappe.log_error(f"Task Deletion Warning", f"No associated task found for {doctype} {docname} with date key {date_key}.")
-
-        except Exception as e:
-            frappe.log_error(f"Failed to delete associated task for invoice key {date_key}", frappe.get_traceback())
-            # Decide if this is critical. Let's throw for now.
-            frappe.throw(f"Failed to delete associated task: {str(e)}")
-
-        # 3. Delete the invoice entry from the dictionary
-        del invoice_data_dict[date_key]
-
-        # 4. Update the field on the document
-        #    Important: Use doc.set() which marks the document as dirty
-        doc.set("invoice_data", existing_invoice_data)
-
-        # 5. Save the parent document
-        doc.save(ignore_permissions=True) # Save changes to PO/SR
+        # 4. Delete the Vendor Invoice document
+        frappe.delete_doc("Vendor Invoices", vendor_invoice_name, ignore_permissions=True, force=True)
 
         # --- Commit Transaction ---
         frappe.db.commit()
 
         return {
             "status": 200,
-            "message": f"Successfully deleted invoice entry (Inv No: {invoice_no_deleted}) and associated records for {docname}",
+            "message": f"Successfully deleted invoice {invoice_no} ({vendor_invoice_name})",
         }
 
+    except frappe.DoesNotExistError:
+        frappe.db.rollback()
+        frappe.throw(f"Vendor Invoice {vendor_invoice_name} not found.")
     except Exception as e:
-        frappe.db.rollback() # Rollback on any error
+        frappe.db.rollback()
         frappe.log_error(title="Invoice Entry Deletion Error", message=frappe.get_traceback())
         return {
             "status": 400,
-            "message": f"Invoice entry deletion failed for {docname}. Please contact support.",
-            "error": str(e) # Keep original error for server logs
+            "message": f"Invoice deletion failed. Please contact support.",
+            "error": str(e)
         }

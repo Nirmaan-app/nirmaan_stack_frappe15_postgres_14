@@ -17,7 +17,7 @@ interface InvoiceItem {
     reconciled_amount: number;
     invoice_no: string;
     date: string;
-    updated_by: string;
+    uploaded_by: string;
     invoice_attachment_id: string;
     service_request: string;
     project?: string;
@@ -197,8 +197,8 @@ export const useSR2BReconcileData = (options: UseSR2BReconcileDataOptions = {}):
             reconciledBy: entry.reconciled_by || null,
             reconciledByName: entry.reconciled_by ? (userMap[entry.reconciled_by] || entry.reconciled_by) : null,
             invoiceAttachmentId: entry.invoice_attachment_id,
-            updatedBy: entry.updated_by,
-            updatedByName: userMap[entry.updated_by] || entry.updated_by,
+            updatedBy: entry.uploaded_by,
+            updatedByName: userMap[entry.uploaded_by] || entry.uploaded_by,
             attachmentUrl: attachmentMap[entry.invoice_attachment_id] || null,
         }));
     }, [invoicesData, invoicesLoading, projectsLoading, vendorsLoading, usersLoading, attachmentsLoading, projectMap, vendorMap, userMap, attachmentMap]);

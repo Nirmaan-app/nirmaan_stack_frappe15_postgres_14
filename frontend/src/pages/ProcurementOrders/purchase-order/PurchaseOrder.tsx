@@ -74,12 +74,13 @@ import {
   ProcurementOrder,
   PurchaseOrderItem,
 } from "@/types/NirmaanStack/ProcurementOrders";
+import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import {
   getPOTotal,
   getTotalAmountPaid,
-  getTotalInvoiceAmount,
+  getTotalVendorInvoiceAmount,
   getPreviewTotal,
 } from "@/utils/getAmounts";
 import { useDialogStore } from "@/zustand/useDialogStore";
@@ -175,8 +176,22 @@ export const PurchaseOrder = ({
     mutate: poMutate,
   } = useFrappeGetDoc<ProcurementOrder>("Procurement Orders", poId);
 
+  // Fetch Vendor Invoices for this PO
+  const { data: vendorInvoices } = useFrappeGetDocList<VendorInvoice>(
+    "Vendor Invoices",
+    {
+      fields: ["name", "invoice_no", "invoice_date", "invoice_amount", "status"],
+      filters: [
+        ["document_type", "=", "Procurement Orders"],
+        ["document_name", "=", poId],
+      ],
+      limit: 1000,
+    },
+    poId ? `VendorInvoices-PO-${poId}` : null
+  );
 
-  //editing PO terms 
+
+  //editing PO terms
 
 
 
@@ -1082,14 +1097,14 @@ export const PurchaseOrder = ({
   );
 
   const totalInvoiceAmount = useMemo(
-    () => getTotalInvoiceAmount(PO?.invoice_data || []),
-    [PO]
+    () => getTotalVendorInvoiceAmount(vendorInvoices),
+    [vendorInvoices]
   );
 
-  // Calculate invoice count
+  // Calculate invoice count from Vendor Invoices
   const invoiceCount = useMemo(
-    () => (invoicePO?.invoice_data?.data ? Object.keys(invoicePO.invoice_data.data).length : 0),
-    [invoicePO]
+    () => vendorInvoices?.length || 0,
+    [vendorInvoices]
   );
 
   // Calculate DC & MIR count
@@ -1493,7 +1508,7 @@ export const PurchaseOrder = ({
         poPayments={poPayments}
         togglePoPdfSheet={togglePoPdfSheet}
         // getTotal={getTotal}
-        totalInvoice={getTotalInvoiceAmount(PO?.invoice_data || [])}
+        totalInvoice={totalInvoiceAmount}
         amountPaid={amountPaid}
         poMutate={poMutate}
       />
@@ -1683,6 +1698,7 @@ export const PurchaseOrder = ({
         docName={PO?.name}
         docType="Procurement Orders"
         docMutate={poMutate}
+        vendor={PO?.vendor}
       />
       {/* Order Details */}
       <Card className="rounded-sm shadow-md md:col-span-3">

@@ -1,52 +1,104 @@
+/**
+ * Table configuration for Vendor Invoices.
+ *
+ * Updated to use Vendor Invoices doctype fields instead of Task.
+ */
 import { SearchFieldOption } from '@/components/data-table/new-data-table';
-import { InvoiceApprovalTask } from '@/types/NirmaanStack/Task'; // Adjust path
-import { INVOICE_TASK_TYPE } from '../constants';
+import { VendorInvoice } from '@/types/NirmaanStack/VendorInvoice';
 
-// Fields to fetch for Invoice Approval Task tables
-export const DEFAULT_INVOICE_TASK_FIELDS_TO_FETCH: (keyof InvoiceApprovalTask | 'name')[] = [
-    "name", "owner",
+/**
+ * Fields to fetch for Vendor Invoice tables
+ */
+export const DEFAULT_VENDOR_INVOICE_FIELDS_TO_FETCH: (keyof VendorInvoice | 'name')[] = [
+    "name",
+    "owner",
     "creation",
     "modified",
-    "task_doctype", "task_docname", "status",
-    "reference_value_1", // Invoice Date Key
-    "reference_value_2", // Invoice No
-    "reference_value_3", // Invoice Amount
-    "reference_value_4", // Attachment ID for Invoice
-    // "task_type", 
-    "assignee",
+    "document_type",
+    "document_name",
+    "project",
+    "vendor",
+    "invoice_no",
+    "invoice_date",
+    "invoice_amount",
+    "invoice_attachment",
+    "status",
+    "uploaded_by",
+    "approved_by",
+    "approved_on",
+    "rejection_reason",
 ];
 
-// Searchable fields configuration for Invoice Approval Task tables
-export const INVOICE_TASK_SEARCHABLE_FIELDS: SearchFieldOption[] = [
-    // { value: "name", label: "Task ID", placeholder: "Search by Task ID...", default: true },
-    { value: "task_docname", label: "Parent Doc", placeholder: "Search by PO/SR Number...", default: true },
-    { value: "task_doctype", label: "Parent Doc Type", placeholder: "Search by PO/SR Type...", default: true },
-    { value: "reference_value_2", label: "Invoice No", placeholder: "Search by Invoice No..." },
+/**
+ * @deprecated Use DEFAULT_VENDOR_INVOICE_FIELDS_TO_FETCH instead
+ */
+export const DEFAULT_INVOICE_TASK_FIELDS_TO_FETCH = DEFAULT_VENDOR_INVOICE_FIELDS_TO_FETCH;
+
+/**
+ * Searchable fields configuration for Vendor Invoice tables
+ */
+export const VENDOR_INVOICE_SEARCHABLE_FIELDS: SearchFieldOption[] = [
+    { value: "document_name", label: "Document", placeholder: "Search by PO/SR Number...", default: true },
+    { value: "invoice_no", label: "Invoice No", placeholder: "Search by Invoice No...", default: true },
+    { value: "document_type", label: "Document Type", placeholder: "Search by PO/SR Type..." },
     { value: "owner", label: "Created By", placeholder: "Search by Creator..." },
-    { value: "reference_value_3", label: "Invoice Amt", placeholder: "Search by Invoice Amt..." },
-    // { value: "assignee", label: "Actioned By", placeholder: "Search by Assignee..." },
+    { value: "invoice_amount", label: "Invoice Amt", placeholder: "Search by Invoice Amt..." },
 ];
 
-// Date columns for Invoice Approval Task tables
-export const INVOICE_TASK_DATE_COLUMNS: string[] = ["creation", "modified", "reference_value_1"]; // reference_value_1 is Invoice Date
+/**
+ * @deprecated Use VENDOR_INVOICE_SEARCHABLE_FIELDS instead
+ */
+export const INVOICE_TASK_SEARCHABLE_FIELDS = VENDOR_INVOICE_SEARCHABLE_FIELDS;
 
-// Static Filters for Pending Invoice Tasks
-export const PENDING_INVOICE_TASK_STATIC_FILTERS: Array<[string, string, any]> = [
-    ["task_type", "=", INVOICE_TASK_TYPE],
+/**
+ * Date columns for Vendor Invoice tables
+ */
+export const VENDOR_INVOICE_DATE_COLUMNS: string[] = ["creation", "modified", "invoice_date", "approved_on"];
+
+/**
+ * @deprecated Use VENDOR_INVOICE_DATE_COLUMNS instead
+ */
+export const INVOICE_TASK_DATE_COLUMNS = VENDOR_INVOICE_DATE_COLUMNS;
+
+/**
+ * Static filters for pending invoices
+ */
+export const PENDING_VENDOR_INVOICE_STATIC_FILTERS: Array<[string, string, any]> = [
     ["status", "=", "Pending"],
 ];
 
-// Static Filters for Invoice Task History (example for later)
-export const HISTORY_INVOICE_TASK_STATIC_FILTERS: Array<[string, string, any]> = [
-  ["task_type", "=", INVOICE_TASK_TYPE],
-  ["status", "in", ["Pending", "Approved", "Rejected"]], // Example statuses for history
+/**
+ * @deprecated Use PENDING_VENDOR_INVOICE_STATIC_FILTERS instead
+ */
+export const PENDING_INVOICE_TASK_STATIC_FILTERS = PENDING_VENDOR_INVOICE_STATIC_FILTERS;
+
+/**
+ * Static filters for invoice history
+ */
+export const HISTORY_VENDOR_INVOICE_STATIC_FILTERS: Array<[string, string, any]> = [
+    ["status", "in", ["Pending", "Approved", "Rejected"]],
 ];
 
+/**
+ * @deprecated Use HISTORY_VENDOR_INVOICE_STATIC_FILTERS instead
+ */
+export const HISTORY_INVOICE_TASK_STATIC_FILTERS = HISTORY_VENDOR_INVOICE_STATIC_FILTERS;
 
-export const getInvoiceTaskStaticFilters = (statusFilter: string, role: string, user_id: string) => {
-  const base = statusFilter !== "Pending" ? HISTORY_INVOICE_TASK_STATIC_FILTERS : PENDING_INVOICE_TASK_STATIC_FILTERS;
+/**
+ * Get static filters based on status and user role.
+ */
+export const getVendorInvoiceStaticFilters = (statusFilter: string, role: string, user_id: string) => {
+    const base = statusFilter !== "Pending"
+        ? HISTORY_VENDOR_INVOICE_STATIC_FILTERS
+        : PENDING_VENDOR_INVOICE_STATIC_FILTERS;
+
     if (role === "Nirmaan Procurement Executive Profile") {
-        return base.concat(['owner', '=', user_id]);
+        return base.concat([['owner', '=', user_id]]);
     }
     return base;
-}
+};
+
+/**
+ * @deprecated Use getVendorInvoiceStaticFilters instead
+ */
+export const getInvoiceTaskStaticFilters = getVendorInvoiceStaticFilters;

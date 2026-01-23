@@ -80,3 +80,4 @@ nirmaan_stack.patches.v2_9.add_reconciled_amount_field
 nirmaan_stack.patches.v2_9.remove_scheduled_status_and_cleanup
 
 nirmaan_stack.patches.v2_9.backfill_material_plan_critical_po
+nirmaan_stack.patches.v3_0.migrate_invoices_to_vendor_invoices #v5

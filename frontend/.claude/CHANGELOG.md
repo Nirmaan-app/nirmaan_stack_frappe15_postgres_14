@@ -4,6 +4,113 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-23: Vendor Invoices Frontend Integration
+
+### Summary
+Updated invoice reconciliation UI to work with new Vendor Invoices doctype. Replaced Ant Design Radio.Group tabs with custom button tabs, added invoice rejection dialog, and fixed various data resolution issues.
+
+### Frontend Files Created
+- `src/hooks/useDocumentInvoiceTotals.ts` - Hook for fetching document invoice totals
+- `src/pages/tasks/invoices/components/InvoiceRejectionDialog.tsx` - Dialog for invoice rejection with reason
+- `src/types/NirmaanStack/VendorInvoice.ts` - TypeScript interface for Vendor Invoice
+
+### Frontend Files Modified
+
+**Tab Styling (Ant Design → Custom Buttons):**
+- `src/pages/tasks/invoices/InvoiceReconciliationContainer.tsx`:
+  - Replaced Ant Design `Radio.Group` with custom button tabs
+  - Renamed "Pending Tasks" → "Pending Invoice Approvals"
+  - Renamed "Task History" → "Invoice Action History"
+  - Added tab option constants to `constants.ts`
+
+**Bug Fix - Invoice ID Resolution:**
+- `src/pages/tasks/invoices/components/PoInvoices.tsx`:
+  - Removed `.map()` that was overwriting `entry.name` with composite key
+  - Now uses actual Vendor Invoice docname (e.g., `VI-2026-00001`)
+
+- `src/pages/tasks/invoices/components/SrInvoices.tsx`:
+  - Same fix as PoInvoices.tsx
+
+**Bug Fix - "Invoice Uploaded By" Column:**
+- `src/pages/reports/hooks/usePO2BReconcileData.ts`:
+  - Changed `updated_by` → `uploaded_by` to match backend API response
+
+- `src/pages/reports/hooks/useSR2BReconcileData.ts`:
+  - Same fix as PO2B hook
+
+**Invoice Task Tables:**
+- `src/pages/tasks/invoices/components/PendingTasksTable.tsx` - Updated for Vendor Invoices
+- `src/pages/tasks/invoices/components/TaskHistoryTable.tsx` - Updated for Vendor Invoices
+- `src/pages/tasks/invoices/components/columns.tsx` - Updated column definitions
+- `src/pages/tasks/invoices/config/InvoiceTaskTable.config.ts` - Updated config
+- `src/pages/tasks/invoices/hooks/useInvoiceTasks.ts` - Updated data fetching
+- `src/pages/tasks/invoices/hooks/useInvoiceTaskActions.ts` - Updated approval/rejection actions
+- `src/pages/tasks/invoices/hooks/useInvoiceReconciliation.ts` - Updated reconciliation logic
+
+**PO/SR Attachments:**
+- `src/pages/ProcurementOrders/invoices-and-dcs/DocumentAttachments.tsx` - Invoice totals display
+- `src/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceDialog.tsx` - Create/edit Vendor Invoices
+- `src/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceTable.tsx` - Display Vendor Invoices
+- `src/pages/ProcurementOrders/purchase-order/components/POAttachments.tsx` - Invoice integration
+- `src/pages/ServiceRequests/service-request/SRAttachments.tsx` - Invoice integration
+
+**Reports:**
+- `src/pages/reports/hooks/usePOReportsData.ts` - Updated for new data structure
+- `src/pages/reports/hooks/useSRReportsData.ts` - Updated for new data structure
+- `src/pages/reports/hooks/useProjectReportCalculations.ts` - Updated calculations
+- `src/pages/reports/hooks/useVendorLedgerCalculations.ts` - Updated calculations
+
+### Key Pattern - Custom Button Tabs (replacing Ant Design Radio.Group)
+
+```tsx
+// constants.ts
+export const INVOICE_TASK_TAB_OPTIONS = [
+  { label: "Pending Invoice Approvals", value: "pending" },
+  { label: "Invoice Action History", value: "history" },
+] as const;
+
+// Component
+<div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">
+  <div className="flex gap-1.5 sm:flex-wrap pb-1 sm:pb-0">
+    {taskTabs.map((option) => (
+      <button
+        key={option.value}
+        onClick={() => onClick(option.value)}
+        className={`px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded
+          transition-colors flex items-center gap-1.5 whitespace-nowrap
+          ${tab === option.value
+            ? "bg-sky-500 text-white"
+            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+          }`}
+      >
+        {option.label}
+      </button>
+    ))}
+  </div>
+</div>
+```
+
+### Bug Fix - Invoice ID Resolution
+
+**Before (broken):**
+```typescript
+return entries.map((entry, index) => ({
+    ...entry,
+    name: `${entry.procurement_order}-${entry.invoice_no}-${index}` // Generated composite key
+}));
+```
+
+**After (fixed):**
+```typescript
+// Backend returns actual Vendor Invoice `name` field - do NOT overwrite it
+return entries;
+```
+
+### Commit
+- `eb729064` - feat(invoices): implement Vendor Invoices doctype with approval workflow
+
+---
+
 ## 2026-01-21: Invoice Reconciliation N/A Status
 
 ### Summary
