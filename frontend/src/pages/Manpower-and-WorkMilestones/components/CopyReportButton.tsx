@@ -71,13 +71,13 @@ const getStatusBadgeClasses = (status: string) => {
     case "Completed": return "bg-green-100 text-green-800 border-green-200";
     case "WIP": return "bg-yellow-100 text-yellow-800 border-yellow-200";
     case "Not Started": return "bg-red-100 text-red-800 border-red-200";
-    case "Not Applicable": 
+    case "Not Applicable":
     case "N/A": return "bg-gray-100 text-gray-800 border-gray-200";
     default: return "bg-blue-100 text-blue-800 border-blue-200";
   }
 };
 
-export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDetailsDisable,GEO_API }: { selectedProject: string, selectedZone: string,dailyReportDetailsDisable:boolean,GEO_API: string | undefined }) => {
+export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDetailsDisable, GEO_API }: { selectedProject: string, selectedZone: string, dailyReportDetailsDisable: boolean, GEO_API: string | undefined }) => {
   const navigate = useNavigate();
   const { currentUser: user } = useContext(UserContext);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -95,22 +95,22 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
   // --- 3. NEW EDITABLE STATES ---
   const [editableMilestones, setEditableMilestones] = useState<any[]>([]);
   const [editableManpower, setEditableManpower] = useState<any[]>([]);
-  
+
   // Manpower remarks as single string
   const [editableManpowerRemarks, setEditableManpowerRemarks] = useState("");
-  
+
   // Drawing/Site remarks as arrays of points (split by $#,,,)
   const [drawingRemarkPoints, setDrawingRemarkPoints] = useState<string[]>([]);
   const [siteRemarkPoints, setSiteRemarkPoints] = useState<string[]>([]);
-  
+
   // New point input fields (for drawing/site only)
   const [newDrawingRemark, setNewDrawingRemark] = useState("");
   const [newSiteRemark, setNewSiteRemark] = useState("");
-  
+
   // Edit mode toggles (for drawing/site only)
   const [editingDrawingRemarks, setEditingDrawingRemarks] = useState(false);
   const [editingSiteRemarks, setEditingSiteRemarks] = useState(false);
-  
+
   const [hasChanges, setHasChanges] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
 
@@ -189,8 +189,8 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
     // Get enabled work headers
     const enabledHeaders = projectData.enable_project_milestone_tracking === 1 && projectData.project_work_header_entries
       ? projectData.project_work_header_entries
-          .filter(entry => entry.enabled === "True")
-          .map(entry => entry.project_work_header_name)
+        .filter(entry => entry.enabled === "True")
+        .map(entry => entry.project_work_header_name)
       : [];
 
     // Filter milestones by enabled headers
@@ -228,11 +228,11 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
           expected_completion_date: m.expected_completion_date,
           remarks: m.remarks || "",
           // Deserialize work_plan array for point-based editing
-          work_plan_points: m.work_plan ? m.work_plan.split(REMARKS_DELIMITER).filter((p:string) => p.trim() !== '') : [],
+          work_plan_points: m.work_plan ? m.work_plan.split(REMARKS_DELIMITER).filter((p: string) => p.trim() !== '') : [],
           work_plan_ratio: m.work_plan_ratio,
           // UI state for editing
           is_editing_work_plan: false,
-          new_work_plan_input: "" 
+          new_work_plan_input: ""
         })) || []
       );
 
@@ -246,19 +246,19 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
 
       // Initialize remarks
       setEditableManpowerRemarks(fullPreviousReport.manpower_remarks || "");
-      
+
       const parseRemarks = (remarkStr: string | null | undefined): string[] => {
         if (!remarkStr || remarkStr.trim() === '') return [];
         return remarkStr.split(REMARKS_DELIMITER).filter(r => r.trim() !== '');
       };
-      
+
       setDrawingRemarkPoints(parseRemarks(fullPreviousReport.drawing_remarks));
       setSiteRemarkPoints(parseRemarks(fullPreviousReport.site_remarks));
 
       // Reset new remark inputs
       setNewDrawingRemark("");
       setNewSiteRemark("");
-      
+
       // Reset edit modes
       setEditingDrawingRemarks(false);
       setEditingSiteRemarks(false);
@@ -273,17 +273,17 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
   const groupedMilestones = useMemo(() => {
     if (!editableMilestones || editableMilestones.length === 0) return {};
     const groups = editableMilestones.reduce((acc: any, milestone: any) => {
-        const header = milestone.work_header || "Other";
-        (acc[header] = acc[header] || []).push(milestone);
-        return acc;
-      }, {});
+      const header = milestone.work_header || "Other";
+      (acc[header] = acc[header] || []).push(milestone);
+      return acc;
+    }, {});
 
     // Sort keys based on workHeaderOrderMap, then alphabetically as fallback
     return Object.keys(groups).sort((a, b) => {
-        const orderA = workHeaderOrderMap[a] ?? 9999;
-        const orderB = workHeaderOrderMap[b] ?? 9999;
-        if (orderA !== orderB) return orderA - orderB;
-        return a.localeCompare(b);
+      const orderA = workHeaderOrderMap[a] ?? 9999;
+      const orderB = workHeaderOrderMap[b] ?? 9999;
+      if (orderA !== orderB) return orderA - orderB;
+      return a.localeCompare(b);
     }).reduce((obj: any, key) => {
       obj[key] = groups[key];
       return obj;
@@ -316,9 +316,9 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
     setIsCaptureDialogOpen(false);
     setHasChanges(true); // Mark as changed
     toast({
-        title: "Photo Added",
-        description: `${currentCaptureType} photo added to the report.`,
-        variant: "default",
+      title: "Photo Added",
+      description: `${currentCaptureType} photo added to the report.`,
+      variant: "default",
     });
   };
 
@@ -333,31 +333,31 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
   };
 
   // --- 11. MILESTONE EDIT HANDLERS ---
-  
+
   // Work Plan Point Handlers
   const handleToggleWorkPlanEdit = (milestoneName: string) => {
-    setEditableMilestones(prev => prev.map(m => 
-      m.work_milestone_name === milestoneName 
-        ? { ...m, is_editing_work_plan: !m.is_editing_work_plan } 
+    setEditableMilestones(prev => prev.map(m =>
+      m.work_milestone_name === milestoneName
+        ? { ...m, is_editing_work_plan: !m.is_editing_work_plan }
         : m
     ));
   };
 
   const handleWorkPlanInputChange = (milestoneName: string, value: string) => {
-    setEditableMilestones(prev => prev.map(m => 
-        m.work_milestone_name === milestoneName 
-          ? { ...m, new_work_plan_input: value } 
-          : m
+    setEditableMilestones(prev => prev.map(m =>
+      m.work_milestone_name === milestoneName
+        ? { ...m, new_work_plan_input: value }
+        : m
     ));
   };
 
   const handleAddWorkPlanPoint = (milestoneName: string) => {
     setEditableMilestones(prev => prev.map(m => {
       if (m.work_milestone_name === milestoneName && m.new_work_plan_input.trim()) {
-        return { 
-          ...m, 
-          work_plan_points: [...(m.work_plan_points || []), m.new_work_plan_input.trim()], 
-          new_work_plan_input: "" 
+        return {
+          ...m,
+          work_plan_points: [...(m.work_plan_points || []), m.new_work_plan_input.trim()],
+          new_work_plan_input: ""
         };
       }
       return m;
@@ -367,22 +367,22 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
 
   const handleEditWorkPlanPoint = (milestoneName: string, index: number, value: string) => {
     setEditableMilestones(prev => prev.map(m => {
-        if (m.work_milestone_name === milestoneName) {
-            const newPoints = [...(m.work_plan_points || [])];
-            newPoints[index] = value;
-            return { ...m, work_plan_points: newPoints };
-        }
-        return m;
+      if (m.work_milestone_name === milestoneName) {
+        const newPoints = [...(m.work_plan_points || [])];
+        newPoints[index] = value;
+        return { ...m, work_plan_points: newPoints };
+      }
+      return m;
     }));
     setHasChanges(true);
   };
 
   const handleRemoveWorkPlanPoint = (milestoneName: string, index: number) => {
     setEditableMilestones(prev => prev.map(m => {
-        if (m.work_milestone_name === milestoneName) {
-            return { ...m, work_plan_points: (m.work_plan_points || []).filter((_:any, i:number) => i !== index) };
-        }
-        return m;
+      if (m.work_milestone_name === milestoneName) {
+        return { ...m, work_plan_points: (m.work_plan_points || []).filter((_: any, i: number) => i !== index) };
+      }
+      return m;
     }));
     setHasChanges(true);
   };
@@ -391,53 +391,53 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
     setEditableMilestones((prev) =>
       prev.map((m) => {
         if (m.work_milestone_name !== milestoneName) return m;
-        
+
         // Handle status changes with proper logic
         if (field === 'status') {
           const newStatus = value;
           let updatedMilestone = { ...m, status: newStatus };
-          
+
           if (newStatus === 'Completed') {
             updatedMilestone.progress = 100;
             // Clear work plan points if needed, or keep for record? keeping for now
-             updatedMilestone.work_plan_points = []; 
-             updatedMilestone.work_plan_ratio = "Plan Not Required";
+            updatedMilestone.work_plan_points = [];
+            updatedMilestone.work_plan_ratio = "Plan Not Required";
           } else if (newStatus === 'Not Started') {
             updatedMilestone.progress = 0;
           } else if (newStatus === 'Not Applicable') {
             updatedMilestone.progress = 0;
             updatedMilestone.expected_starting_date = undefined;
             updatedMilestone.expected_completion_date = undefined;
-             updatedMilestone.work_plan_points = [];
-             updatedMilestone.work_plan_ratio = "Plan Not Required";
+            updatedMilestone.work_plan_points = [];
+            updatedMilestone.work_plan_ratio = "Plan Not Required";
           }
           // WIP keeps current progress and allows editing
-          
+
           return updatedMilestone;
         }
-        
+
         if (field === 'progress') {
           // Allow empty string for clearing input
           if (value === "") {
-             let updatedMilestone = { ...m, progress: "" };
-             return updatedMilestone;
+            let updatedMilestone = { ...m, progress: "" };
+            return updatedMilestone;
           }
 
           let newProgress = parseInt(value);
           if (isNaN(newProgress)) newProgress = 0;
 
           let updatedMilestone = { ...m };
-          
+
           // Enforce Max 99 for WIP, but allow lower values for typing (validate on submit)
           if (updatedMilestone.status === 'WIP') {
-             if (newProgress > 99) newProgress = 99;
-             // removed lower bound clamp to allow typing (e.g. backspace to empty)
-             updatedMilestone.progress = newProgress;
-          } 
-          
+            if (newProgress > 99) newProgress = 99;
+            // removed lower bound clamp to allow typing (e.g. backspace to empty)
+            updatedMilestone.progress = newProgress;
+          }
+
           return updatedMilestone;
         }
-        
+
         // Default: just update the field
         return { ...m, [field]: value };
       })
@@ -454,7 +454,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
   };
 
   // --- 13. REMARKS HANDLERS ---
-  
+
   // Simple handler for Manpower Remarks (Single String)
   const handleManpowerRemarksChange = (value: string) => {
     setEditableManpowerRemarks(value);
@@ -465,7 +465,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
   const serializeRemarks = (points: string[]): string => {
     return points.filter(p => p.trim() !== '').join(REMARKS_DELIMITER);
   };
-  
+
   // --- Drawing/Site Point Handlers (Keep these) ---
 
   const handleAddDrawingRemark = () => {
@@ -525,8 +525,8 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
         return milestones.map(m => ({
           ...m,
           // Serialize work_plan array back to delimiter format
-          work_plan: (m.work_plan_points && m.work_plan_points.length > 0) 
-            ? m.work_plan_points.join(REMARKS_DELIMITER) 
+          work_plan: (m.work_plan_points && m.work_plan_points.length > 0)
+            ? m.work_plan_points.join(REMARKS_DELIMITER)
             : ""
         }));
       };
@@ -550,21 +550,21 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
       const existingReportId = todayReportList?.[0]?.name;
 
       if (existingReportId) {
-          // UPDATE Existing Report
-          await updateDoc("Project Progress Reports", existingReportId, payload);
-          toast({
-            title: "Draft Updated 💾",
-            description: "Existing draft for today has been updated.",
-            variant: "default",
-          });
+        // UPDATE Existing Report
+        await updateDoc("Project Progress Reports", existingReportId, payload);
+        toast({
+          title: "Draft Updated 💾",
+          description: "Existing draft for today has been updated.",
+          variant: "default",
+        });
       } else {
-          // CREATE New Report
-          await createDoc("Project Progress Reports", payload);
-          toast({
-            title: "Draft Saved 💾",
-            description: "Report copied and saved as draft. You can continue editing.",
-            variant: "default",
-          });
+        // CREATE New Report
+        await createDoc("Project Progress Reports", payload);
+        toast({
+          title: "Draft Saved 💾",
+          description: "Report copied and saved as draft. You can continue editing.",
+          variant: "default",
+        });
       }
 
       setIsSavingDraft(false); // Stop loading, keep dialog open
@@ -611,7 +611,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
 
       // 2. Check WIP > 75% -> Expected Completion Date Mandatory
       if (m.status === 'WIP' && m.progress > 75 && !m.expected_completion_date) {
-         toast({
+        toast({
           title: "Missing Date 📅",
           description: `Please set Expected Completion Date for "${m.work_milestone_name}" (Progress > 75%)`,
           variant: "destructive",
@@ -621,15 +621,15 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
 
       // 3. Check WIP Progress Range (1-99)
       if (m.status === 'WIP') {
-         const prog = parseInt(m.progress);
-         if (isNaN(prog) || prog < 1 || prog > 99) {
-           toast({
+        const prog = parseInt(m.progress);
+        if (isNaN(prog) || prog < 1 || prog > 99) {
+          toast({
             title: "Invalid Progress ⚠️",
             description: `Progress for "${m.work_milestone_name}" must be between 1% and 99% for WIP status.`,
             variant: "destructive",
           });
           return;
-         }
+        }
       }
     }
     // --- VALIDATION END ---
@@ -660,8 +660,8 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
         return milestones.map(m => ({
           ...m,
           // Serialize work_plan array back to delimiter format
-          work_plan: (m.work_plan_points && m.work_plan_points.length > 0) 
-            ? m.work_plan_points.join(REMARKS_DELIMITER) 
+          work_plan: (m.work_plan_points && m.work_plan_points.length > 0)
+            ? m.work_plan_points.join(REMARKS_DELIMITER)
             : ""
         }));
       };
@@ -684,26 +684,26 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
       const existingReportId = todayReportList?.[0]?.name;
 
       if (existingReportId) {
-           // UPDATE Existing Report
-           await updateDoc("Project Progress Reports", existingReportId, payload);
-           toast({
-             title: "Report Updated ✅",
-             description: "Existing report for today has been updated to Completed.",
-             variant: "default",
-           });
-       } else {
-           // CREATE New Report
-           await createDoc("Project Progress Reports", payload);
-           toast({
-             title: "Report Copied ✅",
-             description: "Report copied successfully for today.",
-             variant: "default",
-           });
-       }
+        // UPDATE Existing Report
+        await updateDoc("Project Progress Reports", existingReportId, payload);
+        toast({
+          title: "Report Updated ✅",
+          description: "Existing report for today has been updated to Completed.",
+          variant: "default",
+        });
+      } else {
+        // CREATE New Report
+        await createDoc("Project Progress Reports", payload);
+        toast({
+          title: "Report Copied ✅",
+          description: "Report copied successfully for today.",
+          variant: "default",
+        });
+      }
 
       setIsDialogOpen(false);
       navigate(`${selectedProject}?zone=${selectedZone}`);
-      
+
     } catch (error: any) {
       console.error("Copy Error", error);
       toast({
@@ -779,7 +779,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
       {/* MAIN COPY PREVIEW DIALOG */}
       <Dialog open={isDialogOpen} onOpenChange={handleDialogClose}>
         <DialogContent className="sm:max-w-3xl w-[95vw] max-h-[90vh] flex flex-col p-0 gap-0 bg-white overflow-hidden">
-          
+
           <DialogHeader className="px-6 py-4 border-b flex-shrink-0">
             <DialogTitle className="flex items-center gap-2 text-blue-600">
               <Copy className="w-5 h-5" /> Copy Previous Report ({previousReportDate ? formatDate(new Date(previousReportDate)) : 'Unknown Date'})
@@ -797,70 +797,70 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
               </div>
             ) : editableMilestones.length > 0 ? (
               <div className="px-6 py-4 space-y-6">
-                
+
                 <div className="bg-blue-50 p-3 rounded-md border border-blue-200 text-xs text-blue-800 flex gap-2 items-start">
                   <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
                   <span>
-                    Creating report for <strong>{formatDate(today)}</strong>. 
+                    Creating report for <strong>{formatDate(today)}</strong>.
                     All data is editable. Previous report's photos are not copied.
                   </span>
                 </div>
 
                 {/* --- WORK PHOTOS SECTION --- */}
                 <div>
-                    <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2 mb-3">
-                      <Camera className="w-4 h-4" /> Work Images (Required: 3+)
-                    </h3>
-                    
-                    <div className="mb-4">
-                        <PhotoPermissionChecker
-                            isBlockedByDraftOwnership={false}
-                            onAddPhotosClick={() => {
-                                setCurrentCaptureType('Work');
-                                setIsCaptureDialogOpen(true);
-                            }}
-                        />
-                    </div>
+                  <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2 mb-3">
+                    <Camera className="w-4 h-4" /> Work Images (Required: 4+)
+                  </h3>
 
-                    {localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').length > 0 ? (
-                         <div className="space-y-4">
-                         {localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').map((photo) => (
-                           <div 
-                             key={photo.local_id} 
-                             className="flex flex-col sm:flex-row sm:items-center gap-3 p-2 bg-gray-50 rounded-md border border-gray-200"
-                           >
-                             <div className="relative flex-shrink-0 w-full h-[140px] sm:w-[120px] sm:h-[100px] rounded-md overflow-hidden border border-gray-300">
-                               <img
-                                 src={photo.image_link}
-                                 alt="New Capture"
-                                 className="w-full h-full object-cover"
-                               />
-                               <Button
-                                 variant="destructive"
-                                 size="icon"
-                                 className="absolute top-1 right-1 h-6 w-6 rounded-full"
-                                 onClick={() => handleRemovePhoto(photo.local_id)}
-                               >
-                                 <X className="h-3 w-3" />
-                               </Button>
-                             </div>
-          
-                             <div className="flex-grow w-full">
-                               <Textarea
-                                 value={photo.remarks || ''}
-                                 onChange={(e) => handlePhotoRemarksChange(photo.local_id, e.target.value)}
-                                 placeholder="Add remarks for this photo..."
-                                 className="min-h-[80px] text-xs bg-white resize-none"
-                               />
-                             </div>
-                           </div>
-                         ))}
-                       </div>
-                    ) : (
-                        <div className="text-center py-6 border-2 border-dashed border-gray-300 rounded-lg bg-gray-50">
-                            <p className="text-xs text-gray-500">No work photos added for today yet. Add at least 4 photos.</p>
+                  <div className="mb-4">
+                    <PhotoPermissionChecker
+                      isBlockedByDraftOwnership={false}
+                      onAddPhotosClick={() => {
+                        setCurrentCaptureType('Work');
+                        setIsCaptureDialogOpen(true);
+                      }}
+                    />
+                  </div>
+
+                  {localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').length > 0 ? (
+                    <div className="space-y-4">
+                      {localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').map((photo) => (
+                        <div
+                          key={photo.local_id}
+                          className="flex flex-col sm:flex-row sm:items-center gap-3 p-2 bg-gray-50 rounded-md border border-gray-200"
+                        >
+                          <div className="relative flex-shrink-0 w-full h-[140px] sm:w-[120px] sm:h-[100px] rounded-md overflow-hidden border border-gray-300">
+                            <img
+                              src={photo.image_link}
+                              alt="New Capture"
+                              className="w-full h-full object-cover"
+                            />
+                            <Button
+                              variant="destructive"
+                              size="icon"
+                              className="absolute top-1 right-1 h-6 w-6 rounded-full"
+                              onClick={() => handleRemovePhoto(photo.local_id)}
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
+
+                          <div className="flex-grow w-full">
+                            <Textarea
+                              value={photo.remarks || ''}
+                              onChange={(e) => handlePhotoRemarksChange(photo.local_id, e.target.value)}
+                              placeholder="Add remarks for this photo..."
+                              className="min-h-[80px] text-xs bg-white resize-none"
+                            />
+                          </div>
                         </div>
-                    )}
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 border-2 border-dashed border-gray-300 rounded-lg bg-gray-50">
+                      <p className="text-xs text-gray-500">No work photos added for today yet. Add at least 4 photos.</p>
+                    </div>
+                  )}
                 </div>
 
                 <Separator />
@@ -889,7 +889,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                     ) : (
                       <p className="text-xs text-gray-500 italic">No manpower data recorded.</p>
                     )}
-                    
+
                     {/* Manpower Remarks - Single String */}
                     <div className="mt-3 pt-3 border-t">
                       <label className="text-xs font-medium text-gray-600 block mb-1">Manpower Remarks</label>
@@ -910,97 +910,97 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                   <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2 mb-3">
                     <AlertTriangle className="w-4 h-4 text-orange-600" /> Client / Clearance Issues
                   </h3>
-                  
+
                   <div className="grid grid-cols-1  gap-4">
-                    
+
                     {/* Drawing Issues Card */}
                     <div className="bg-white rounded-xl shadow-sm border border-orange-200 overflow-hidden flex flex-col h-full">
                       <div className="bg-gradient-to-r from-orange-50 to-orange-100 px-3 py-2 border-b border-orange-200 flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                            <div className="p-1 bg-orange-500 rounded-md shadow-sm"><FileText className="w-3 h-3 text-white"/></div>
-                            <h4 className="font-semibold text-orange-900 text-sm">Drawing Approval Remarks</h4>
+                          <div className="p-1 bg-orange-500 rounded-md shadow-sm"><FileText className="w-3 h-3 text-white" /></div>
+                          <h4 className="font-semibold text-orange-900 text-sm">Drawing Approval Remarks</h4>
                         </div>
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          onClick={() => setEditingDrawingRemarks(!editingDrawingRemarks)} 
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setEditingDrawingRemarks(!editingDrawingRemarks)}
                           className={`h-6 px-2 text-xs transition-colors ${editingDrawingRemarks ? 'bg-orange-200 text-orange-900' : 'text-orange-700 hover:bg-orange-100'}`}
                         >
-                             <Pencil className="w-3 h-3 mr-1" /> {editingDrawingRemarks ? 'Done' : 'Edit'}
+                          <Pencil className="w-3 h-3 mr-1" /> {editingDrawingRemarks ? 'Done' : 'Edit'}
                         </Button>
                       </div>
 
                       <div className="p-3 flex-1 flex flex-col gap-3">
-                          {/* Remarks List */}
-                          <div className="flex-1 space-y-2">
-                              {drawingRemarkPoints.length > 0 ? (
-                                  drawingRemarkPoints.map((point, idx) => (
-                                      <div key={idx} className="flex items-start gap-2 text-sm text-gray-700 bg-orange-50/50 p-2 rounded-md border border-orange-100 transition-all hover:bg-orange-50">
-                                          <span className="flex-shrink-0 w-5 h-5 bg-orange-200 text-orange-800 text-xs font-bold rounded-full flex items-center justify-center mt-0.5 shadow-sm">{idx + 1}</span>
-                                           {editingDrawingRemarks ? (
-                                              <div className="flex-1 flex gap-2 animate-in fade-in zoom-in-95 duration-200">
-                                                <input 
-                                                  type="text" 
-                                                  value={point} 
-                                                  onChange={(e) => handleEditDrawingRemark(idx, e.target.value)} 
-                                                  className="flex-1 text-xs border border-orange-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-orange-400 bg-white" 
-                                                />
-                                                <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => handleRemoveDrawingRemark(idx)}><X className="w-3 h-3"/></Button>
-                                              </div>
-                                           ) : (
-                                              <span className="break-words flex-1 text-xs">{point}</span>
-                                           )}
-                                      </div>
-                                  ))
-                              ) : (
-                                <div className="text-center py-6 px-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
-                                  <p className="text-xs text-gray-400 italic">No drawing remarks</p>
-                                </div>
-                              )}
-                          </div>
-                          
-                          {/* Add New Remark */}
-                          {editingDrawingRemarks && (
-                             <div className="flex items-center gap-2 animate-in slide-in-from-top-2 duration-200">
-                                 <input 
-                                   type="text" 
-                                   value={newDrawingRemark} 
-                                   onChange={(e) => setNewDrawingRemark(e.target.value)} 
-                                   placeholder="Add new remark..." 
-                                   className="flex-1 text-xs border border-orange-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent" 
-                                   onKeyDown={(e) => e.key === 'Enter' && handleAddDrawingRemark()} 
-                                 />
-                                 <Button variant="outline" size="sm" onClick={handleAddDrawingRemark} className="h-7 px-3 text-xs border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100"><Plus className="w-3 h-3 mr-1"/> Add</Button>
-                             </div>
-                          )}
-
-                          {/* Photos */}
-                          {drawingRemarkPoints.length > 0 && (
-                           <div className="pt-3 mt-auto border-t border-orange-100">
-                              <div className="flex flex-col gap-2 mb-2">
-                                  <p className="text-[10px] font-bold text-orange-400 uppercase tracking-wider">Attached Photos</p>
-                                  <div className="w-full">
-                                    <PhotoPermissionChecker 
-                                      isBlockedByDraftOwnership={false} 
-                                      onAddPhotosClick={() => { setCurrentCaptureType('Drawing'); setIsCaptureDialogOpen(true); }} 
-                                      triggerLabel="Add" 
+                        {/* Remarks List */}
+                        <div className="flex-1 space-y-2">
+                          {drawingRemarkPoints.length > 0 ? (
+                            drawingRemarkPoints.map((point, idx) => (
+                              <div key={idx} className="flex items-start gap-2 text-sm text-gray-700 bg-orange-50/50 p-2 rounded-md border border-orange-100 transition-all hover:bg-orange-50">
+                                <span className="flex-shrink-0 w-5 h-5 bg-orange-200 text-orange-800 text-xs font-bold rounded-full flex items-center justify-center mt-0.5 shadow-sm">{idx + 1}</span>
+                                {editingDrawingRemarks ? (
+                                  <div className="flex-1 flex gap-2 animate-in fade-in zoom-in-95 duration-200">
+                                    <input
+                                      type="text"
+                                      value={point}
+                                      onChange={(e) => handleEditDrawingRemark(idx, e.target.value)}
+                                      className="flex-1 text-xs border border-orange-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-orange-400 bg-white"
                                     />
+                                    <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => handleRemoveDrawingRemark(idx)}><X className="w-3 h-3" /></Button>
                                   </div>
+                                ) : (
+                                  <span className="break-words flex-1 text-xs">{point}</span>
+                                )}
                               </div>
-                              {localPhotos.filter(p => p.attach_type === 'Drawing').length > 0 ? (
-                                   <div className="grid grid-cols-4 gap-2">
-                                      {localPhotos.filter(p => p.attach_type === 'Drawing').map(photo => (
-                                          <div key={photo.local_id} className="relative aspect-square rounded-md overflow-hidden border border-orange-200 group shadow-sm hover:shadow-md transition-all">
-                                              <img src={photo.image_link} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-300"/>
-                                              <Button variant="destructive" size="icon" className="absolute top-1 right-1 h-5 w-5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemovePhoto(photo.local_id)}><X className="h-3 w-3"/></Button>
-                                          </div>
-                                      ))}
-                                   </div>
-                              ) : (
-                                <p className="text-[10px] text-gray-400 italic">No photos attached</p>
-                              )}
-                           </div>
+                            ))
+                          ) : (
+                            <div className="text-center py-6 px-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                              <p className="text-xs text-gray-400 italic">No drawing remarks</p>
+                            </div>
                           )}
+                        </div>
+
+                        {/* Add New Remark */}
+                        {editingDrawingRemarks && (
+                          <div className="flex items-center gap-2 animate-in slide-in-from-top-2 duration-200">
+                            <input
+                              type="text"
+                              value={newDrawingRemark}
+                              onChange={(e) => setNewDrawingRemark(e.target.value)}
+                              placeholder="Add new remark..."
+                              className="flex-1 text-xs border border-orange-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent"
+                              onKeyDown={(e) => e.key === 'Enter' && handleAddDrawingRemark()}
+                            />
+                            <Button variant="outline" size="sm" onClick={handleAddDrawingRemark} className="h-7 px-3 text-xs border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100"><Plus className="w-3 h-3 mr-1" /> Add</Button>
+                          </div>
+                        )}
+
+                        {/* Photos */}
+                        {drawingRemarkPoints.length > 0 && (
+                          <div className="pt-3 mt-auto border-t border-orange-100">
+                            <div className="flex flex-col gap-2 mb-2">
+                              <p className="text-[10px] font-bold text-orange-400 uppercase tracking-wider">Attached Photos</p>
+                              <div className="w-full">
+                                <PhotoPermissionChecker
+                                  isBlockedByDraftOwnership={false}
+                                  onAddPhotosClick={() => { setCurrentCaptureType('Drawing'); setIsCaptureDialogOpen(true); }}
+                                  triggerLabel="Add"
+                                />
+                              </div>
+                            </div>
+                            {localPhotos.filter(p => p.attach_type === 'Drawing').length > 0 ? (
+                              <div className="grid grid-cols-4 gap-2">
+                                {localPhotos.filter(p => p.attach_type === 'Drawing').map(photo => (
+                                  <div key={photo.local_id} className="relative aspect-square rounded-md overflow-hidden border border-orange-200 group shadow-sm hover:shadow-md transition-all">
+                                    <img src={photo.image_link} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-300" />
+                                    <Button variant="destructive" size="icon" className="absolute top-1 right-1 h-5 w-5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemovePhoto(photo.local_id)}><X className="h-3 w-3" /></Button>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-[10px] text-gray-400 italic">No photos attached</p>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -1008,90 +1008,90 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                     <div className="bg-white rounded-xl shadow-sm border border-red-200 overflow-hidden flex flex-col h-full">
                       <div className="bg-gradient-to-r from-red-50 to-red-100 px-3 py-2 border-b border-red-200 flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                            <div className="p-1 bg-red-500 rounded-md shadow-sm"><MapPin className="w-3 h-3 text-white"/></div>
-                            <h4 className="font-semibold text-red-900 text-sm">Site Clearence Remarks</h4>
+                          <div className="p-1 bg-red-500 rounded-md shadow-sm"><MapPin className="w-3 h-3 text-white" /></div>
+                          <h4 className="font-semibold text-red-900 text-sm">Site Clearence Remarks</h4>
                         </div>
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          onClick={() => setEditingSiteRemarks(!editingSiteRemarks)} 
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setEditingSiteRemarks(!editingSiteRemarks)}
                           className={`h-6 px-2 text-xs transition-colors ${editingSiteRemarks ? 'bg-red-200 text-red-900' : 'text-red-700 hover:bg-red-100'}`}
                         >
-                             <Pencil className="w-3 h-3 mr-1" /> {editingSiteRemarks ? 'Done' : 'Edit'}
+                          <Pencil className="w-3 h-3 mr-1" /> {editingSiteRemarks ? 'Done' : 'Edit'}
                         </Button>
                       </div>
 
                       <div className="p-3 flex-1 flex flex-col gap-3">
-                          {/* Remarks List */}
-                          <div className="flex-1 space-y-2">
-                              {siteRemarkPoints.length > 0 ? (
-                                  siteRemarkPoints.map((point, idx) => (
-                                      <div key={idx} className="flex items-start gap-2 text-sm text-gray-700 bg-red-50/50 p-2 rounded-md border border-red-100 transition-all hover:bg-red-50">
-                                          <span className="flex-shrink-0 w-5 h-5 bg-red-200 text-red-800 text-xs font-bold rounded-full flex items-center justify-center mt-0.5 shadow-sm">{idx + 1}</span>
-                                           {editingSiteRemarks ? (
-                                              <div className="flex-1 flex gap-2 animate-in fade-in zoom-in-95 duration-200">
-                                                <input 
-                                                  type="text" 
-                                                  value={point} 
-                                                  onChange={(e) => handleEditSiteRemark(idx, e.target.value)} 
-                                                  className="flex-1 text-xs border border-red-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-red-400 bg-white" 
-                                                />
-                                                <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => handleRemoveSiteRemark(idx)}><X className="w-3 h-3"/></Button>
-                                              </div>
-                                           ) : (
-                                              <span className="break-words flex-1 text-xs">{point}</span>
-                                           )}
-                                      </div>
-                                  ))
-                              ) : (
-                                <div className="text-center py-6 px-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
-                                  <p className="text-xs text-gray-400 italic">No site remarks</p>
-                                </div>
-                              )}
-                          </div>
-                          
-                          {/* Add New Remark */}
-                          {editingSiteRemarks && (
-                             <div className="flex items-center gap-2 animate-in slide-in-from-top-2 duration-200">
-                                 <input 
-                                   type="text" 
-                                   value={newSiteRemark} 
-                                   onChange={(e) => setNewSiteRemark(e.target.value)} 
-                                   placeholder="Add new remark..." 
-                                   className="flex-1 text-xs border border-red-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-red-400 focus:border-transparent" 
-                                   onKeyDown={(e) => e.key === 'Enter' && handleAddSiteRemark()} 
-                                 />
-                                 <Button variant="outline" size="sm" onClick={handleAddSiteRemark} className="h-7 px-3 text-xs border-red-200 bg-red-50 text-red-700 hover:bg-red-100"><Plus className="w-3 h-3 mr-1"/> Add</Button>
-                             </div>
-                          )}
-
-                          {/* Photos */}
-                          {siteRemarkPoints.length > 0 && (
-                           <div className="pt-3 mt-auto border-t border-red-100">
-                              <div className="flex flex-col gap-2 mb-2">
-                                  <p className="text-[10px] font-bold text-red-400 uppercase tracking-wider">Attached Photos</p>
-                                  <div className="w-full">
-                                    <PhotoPermissionChecker 
-                                      isBlockedByDraftOwnership={false} 
-                                      onAddPhotosClick={() => { setCurrentCaptureType('Site'); setIsCaptureDialogOpen(true); }} 
-                                      triggerLabel="Add" 
+                        {/* Remarks List */}
+                        <div className="flex-1 space-y-2">
+                          {siteRemarkPoints.length > 0 ? (
+                            siteRemarkPoints.map((point, idx) => (
+                              <div key={idx} className="flex items-start gap-2 text-sm text-gray-700 bg-red-50/50 p-2 rounded-md border border-red-100 transition-all hover:bg-red-50">
+                                <span className="flex-shrink-0 w-5 h-5 bg-red-200 text-red-800 text-xs font-bold rounded-full flex items-center justify-center mt-0.5 shadow-sm">{idx + 1}</span>
+                                {editingSiteRemarks ? (
+                                  <div className="flex-1 flex gap-2 animate-in fade-in zoom-in-95 duration-200">
+                                    <input
+                                      type="text"
+                                      value={point}
+                                      onChange={(e) => handleEditSiteRemark(idx, e.target.value)}
+                                      className="flex-1 text-xs border border-red-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-red-400 bg-white"
                                     />
+                                    <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => handleRemoveSiteRemark(idx)}><X className="w-3 h-3" /></Button>
                                   </div>
+                                ) : (
+                                  <span className="break-words flex-1 text-xs">{point}</span>
+                                )}
                               </div>
-                              {localPhotos.filter(p => p.attach_type === 'Site').length > 0 ? (
-                                   <div className="grid grid-cols-4 gap-2">
-                                      {localPhotos.filter(p => p.attach_type === 'Site').map(photo => (
-                                          <div key={photo.local_id} className="relative aspect-square rounded-md overflow-hidden border border-red-200 group shadow-sm hover:shadow-md transition-all">
-                                              <img src={photo.image_link} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-300"/>
-                                              <Button variant="destructive" size="icon" className="absolute top-1 right-1 h-5 w-5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemovePhoto(photo.local_id)}><X className="h-3 w-3"/></Button>
-                                          </div>
-                                      ))}
-                                   </div>
-                              ) : (
-                                <p className="text-[10px] text-gray-400 italic">No photos attached</p>
-                              )}
-                           </div>
+                            ))
+                          ) : (
+                            <div className="text-center py-6 px-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                              <p className="text-xs text-gray-400 italic">No site remarks</p>
+                            </div>
                           )}
+                        </div>
+
+                        {/* Add New Remark */}
+                        {editingSiteRemarks && (
+                          <div className="flex items-center gap-2 animate-in slide-in-from-top-2 duration-200">
+                            <input
+                              type="text"
+                              value={newSiteRemark}
+                              onChange={(e) => setNewSiteRemark(e.target.value)}
+                              placeholder="Add new remark..."
+                              className="flex-1 text-xs border border-red-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-red-400 focus:border-transparent"
+                              onKeyDown={(e) => e.key === 'Enter' && handleAddSiteRemark()}
+                            />
+                            <Button variant="outline" size="sm" onClick={handleAddSiteRemark} className="h-7 px-3 text-xs border-red-200 bg-red-50 text-red-700 hover:bg-red-100"><Plus className="w-3 h-3 mr-1" /> Add</Button>
+                          </div>
+                        )}
+
+                        {/* Photos */}
+                        {siteRemarkPoints.length > 0 && (
+                          <div className="pt-3 mt-auto border-t border-red-100">
+                            <div className="flex flex-col gap-2 mb-2">
+                              <p className="text-[10px] font-bold text-red-400 uppercase tracking-wider">Attached Photos</p>
+                              <div className="w-full">
+                                <PhotoPermissionChecker
+                                  isBlockedByDraftOwnership={false}
+                                  onAddPhotosClick={() => { setCurrentCaptureType('Site'); setIsCaptureDialogOpen(true); }}
+                                  triggerLabel="Add"
+                                />
+                              </div>
+                            </div>
+                            {localPhotos.filter(p => p.attach_type === 'Site').length > 0 ? (
+                              <div className="grid grid-cols-4 gap-2">
+                                {localPhotos.filter(p => p.attach_type === 'Site').map(photo => (
+                                  <div key={photo.local_id} className="relative aspect-square rounded-md overflow-hidden border border-red-200 group shadow-sm hover:shadow-md transition-all">
+                                    <img src={photo.image_link} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-300" />
+                                    <Button variant="destructive" size="icon" className="absolute top-1 right-1 h-5 w-5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemovePhoto(photo.local_id)}><X className="h-3 w-3" /></Button>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-[10px] text-gray-400 italic">No photos attached</p>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1103,13 +1103,13 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                 <div>
                   <div className="flex justify-between items-center mb-3 sticky top-0 bg-white z-10 py-2">
                     <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
-                        <ListTodo className="w-4 h-4" /> Work Milestones (Editable)
+                      <ListTodo className="w-4 h-4" /> Work Milestones (Editable)
                     </h3>
                     <Badge variant="outline" className="text-xs">
-                        {editableMilestones.length} Total
+                      {editableMilestones.length} Total
                     </Badge>
                   </div>
-                  
+
                   {Object.keys(groupedMilestones).length > 0 ? (
                     <div className="space-y-4">
                       {Object.entries(groupedMilestones).map(([header, milestones]: any, idx) => (
@@ -1134,25 +1134,25 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                                     <option value="Not Applicable">Not Applicable</option>
                                   </select>
                                 </div>
-                                
+
                                 {/* Progress Bar - Only editable for WIP status */}
                                 {/* Progress Input - Only editable for WIP status, or triggers status change */}
                                 <div className="flex items-center gap-3">
                                   <span className="text-gray-500">Progress:</span>
                                   <div className="flex items-center gap-1 flex-1">
-                                      <input
-                                        type="number"
-                                        min="1"
-                                        max="99"
-                                        value={m.progress}
-                                        onChange={(e) => handleMilestoneChange(m.work_milestone_name, 'progress', e.target.value)}
-                                        className="w-full text-xs border rounded px-2 py-1"
-                                        disabled={m.status !== 'WIP'} 
-                                      />
-                                      <span className="text-gray-500 text-xs font-medium">%</span>
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      max="99"
+                                      value={m.progress}
+                                      onChange={(e) => handleMilestoneChange(m.work_milestone_name, 'progress', e.target.value)}
+                                      className="w-full text-xs border rounded px-2 py-1"
+                                      disabled={m.status !== 'WIP'}
+                                    />
+                                    <span className="text-gray-500 text-xs font-medium">%</span>
                                   </div>
                                 </div>
-                                
+
                                 {/* Date Fields based on Status */}
                                 {m.status === 'Not Started' && (
                                   <div className="flex items-center gap-2 bg-gray-50 p-2 rounded">
@@ -1165,7 +1165,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                                     />
                                   </div>
                                 )}
-                                
+
                                 {m.status === 'WIP' && m.progress > 75 && (
                                   <div className="flex items-center gap-2 bg-blue-50 p-2 rounded border border-blue-200">
                                     <span className="text-blue-600">Expected Completion:</span>
@@ -1177,21 +1177,21 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                                     />
                                   </div>
                                 )}
-                                
+
                                 <Textarea
                                   value={m.remarks || ''}
                                   onChange={(e) => handleMilestoneChange(m.work_milestone_name, 'remarks', e.target.value)}
                                   placeholder="Remarks..."
                                   className="min-h-[40px] text-[10px]"
                                 />
-                                
+
                                 {/* Work Plan - Point Based */}
                                 <div className="mt-2 pt-2 border-t border-gray-100">
                                   <div className="flex items-center justify-between mb-1">
                                     <span className="text-[10px] font-medium text-gray-500">Work Plan</span>
-                                    <Button 
-                                      variant="ghost" 
-                                      size="sm" 
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
                                       onClick={() => handleToggleWorkPlanEdit(m.work_milestone_name)}
                                       className="h-5 px-1.5 text-[10px] text-blue-600"
                                     >
@@ -1213,9 +1213,9 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                                                 onChange={(e) => handleEditWorkPlanPoint(m.work_milestone_name, pIdx, e.target.value)}
                                                 className="flex-1 text-[10px] bg-white border rounded px-1.5 py-0.5"
                                               />
-                                              <Button 
-                                                variant="ghost" 
-                                                size="icon" 
+                                              <Button
+                                                variant="ghost"
+                                                size="icon"
                                                 className="h-5 w-5 text-red-500 hover:bg-red-50"
                                                 onClick={() => handleRemoveWorkPlanPoint(m.work_milestone_name, pIdx)}
                                               >
@@ -1230,7 +1230,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                                     </div>
                                   ) : (
                                     !m.is_editing_work_plan && (
-                                        <p className="text-[10px] text-gray-400 italic pl-1">No work plan added.</p>
+                                      <p className="text-[10px] text-gray-400 italic pl-1">No work plan added.</p>
                                     )
                                   )}
 
@@ -1245,9 +1245,9 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                                         className="flex-1 text-[10px] border rounded px-1.5 py-1"
                                         onKeyDown={(e) => e.key === 'Enter' && handleAddWorkPlanPoint(m.work_milestone_name)}
                                       />
-                                      <Button 
-                                        variant="outline" 
-                                        size="sm" 
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
                                         className="h-6 px-2 text-[10px] border-blue-200 text-blue-600 hover:bg-blue-50"
                                         onClick={() => handleAddWorkPlanPoint(m.work_milestone_name)}
                                       >
@@ -1278,16 +1278,16 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
           </div>
 
           <DialogFooter className="px-6 py-4 border-t bg-gray-50 flex-shrink-0 gap-2">
-            <Button 
-              variant="outline" 
-              onClick={() => handleDialogClose(false)} 
+            <Button
+              variant="outline"
+              onClick={() => handleDialogClose(false)}
               disabled={isCopying || isSavingDraft}
             >
               Cancel
             </Button>
-            <Button 
+            <Button
               variant="outline"
-              onClick={handleSaveDraft} 
+              onClick={handleSaveDraft}
               disabled={isCopying || isSavingDraft || !hasChanges}
               className="border-orange-300 text-orange-600 hover:bg-orange-50"
             >
@@ -1300,9 +1300,9 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
                 "Save as Draft"
               )}
             </Button>
-            <Button 
-              onClick={handleConfirmCopy} 
-              disabled={isCopying || isSavingDraft || editableMilestones.length === 0} 
+            <Button
+              onClick={handleConfirmCopy}
+              disabled={isCopying || isSavingDraft || editableMilestones.length === 0}
               className="bg-blue-600 hover:bg-blue-700 text-white"
             >
               {isCopying ? (
@@ -1322,23 +1322,23 @@ export const CopyReportButton = ({ selectedProject, selectedZone,dailyReportDeta
       {/* --- 5. CAMERA CAPTURE DIALOG (Rendered outside the main dialog to overlay) --- */}
       <Dialog open={isCaptureDialogOpen} onOpenChange={setIsCaptureDialogOpen}>
         <DialogContent className="max-w-[70vh] w-[90vw] p-0 border-none bg-transparent">
-             <DialogClose className="absolute right-4 top-4 h-8 w-8 rounded-full flex items-center justify-center bg-white/10 text-white transition-colors duration-200 hover:bg-white/20 z-30">
-                <X className="h-5 w-5" />
-                <span className="sr-only">Close</span>
-            </DialogClose>
+          <DialogClose className="absolute right-4 top-4 h-8 w-8 rounded-full flex items-center justify-center bg-white/10 text-white transition-colors duration-200 hover:bg-white/20 z-30">
+            <X className="h-5 w-5" />
+            <span className="sr-only">Close</span>
+          </DialogClose>
 
-            <DialogHeader className="sr-only">
-                <DialogTitle>Capture Photo</DialogTitle>
-            </DialogHeader>
-            
-            <CameraCapture
-                project_id={selectedProject}
-                report_date={formatDate(today)}
-                onCaptureSuccess={handlePhotoCaptureSuccess}
-                onCancel={() => setIsCaptureDialogOpen(false)}
-                GEO_API={apiData?.api_key}
-                disabled={false}
-            />
+          <DialogHeader className="sr-only">
+            <DialogTitle>Capture Photo</DialogTitle>
+          </DialogHeader>
+
+          <CameraCapture
+            project_id={selectedProject}
+            report_date={formatDate(today)}
+            onCaptureSuccess={handlePhotoCaptureSuccess}
+            onCancel={() => setIsCaptureDialogOpen(false)}
+            GEO_API={apiData?.api_key}
+            disabled={false}
+          />
         </DialogContent>
       </Dialog>
 
