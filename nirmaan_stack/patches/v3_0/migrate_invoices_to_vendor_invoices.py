@@ -18,12 +18,17 @@ Note: Original Task documents and invoice_data JSON are preserved for rollback s
 import frappe
 from frappe import _
 import json
-from datetime import datetime
 
 
 def execute():
     """Migrate invoice data from JSON + Task to Vendor Invoices doctype."""
-    frappe.logger().info("Starting Vendor Invoices migration...")
+    print("\n" + "=" * 60)
+    print("VENDOR INVOICES MIGRATION")
+    print("=" * 60)
+
+    # Count existing before migration
+    existing_count = frappe.db.count("Vendor Invoices")
+    print(f"\nExisting Vendor Invoices: {existing_count}")
 
     stats = {
         "po_processed": 0,
@@ -31,36 +36,54 @@ def execute():
         "invoices_created": 0,
         "tasks_matched": 0,
         "orphan_entries": 0,
+        "skipped": 0,
         "errors": 0
     }
 
     # Process Procurement Orders
+    print("\n[1/2] Processing Procurement Orders...")
     po_stats = migrate_doctype_invoices("Procurement Orders")
     stats["po_processed"] = po_stats["docs_processed"]
     stats["invoices_created"] += po_stats["invoices_created"]
     stats["tasks_matched"] += po_stats["tasks_matched"]
     stats["orphan_entries"] += po_stats["orphan_entries"]
+    stats["skipped"] += po_stats["skipped"]
     stats["errors"] += po_stats["errors"]
+    print(f"      POs: {po_stats['docs_processed']} docs, {po_stats['invoices_created']} invoices created, {po_stats['skipped']} skipped, {po_stats['errors']} errors")
 
     # Process Service Requests
+    print("\n[2/2] Processing Service Requests...")
     sr_stats = migrate_doctype_invoices("Service Requests")
     stats["sr_processed"] = sr_stats["docs_processed"]
     stats["invoices_created"] += sr_stats["invoices_created"]
     stats["tasks_matched"] += sr_stats["tasks_matched"]
     stats["orphan_entries"] += sr_stats["orphan_entries"]
+    stats["skipped"] += sr_stats["skipped"]
     stats["errors"] += sr_stats["errors"]
+    print(f"      SRs: {sr_stats['docs_processed']} docs, {sr_stats['invoices_created']} invoices created, {sr_stats['skipped']} skipped, {sr_stats['errors']} errors")
 
     frappe.db.commit()
 
-    # Log summary
+    # Final count
+    final_count = frappe.db.count("Vendor Invoices")
+
+    # Print summary
+    print("\n" + "-" * 60)
+    print("MIGRATION SUMMARY")
+    print("-" * 60)
+    print(f"  Documents processed:    {stats['po_processed']} POs + {stats['sr_processed']} SRs")
+    print(f"  Invoices created:       {stats['invoices_created']}")
+    print(f"  Tasks matched:          {stats['tasks_matched']}")
+    print(f"  Orphan entries:         {stats['orphan_entries']} (JSON without Task)")
+    print(f"  Skipped (existing):     {stats['skipped']}")
+    print(f"  Errors:                 {stats['errors']}")
+    print(f"\n  Vendor Invoices total:  {existing_count} → {final_count} (+{final_count - existing_count})")
+    print("=" * 60 + "\n")
+
+    # Log to frappe logger as well
     frappe.logger().info(
-        f"Vendor Invoices migration completed:\n"
-        f"  - POs processed: {stats['po_processed']}\n"
-        f"  - SRs processed: {stats['sr_processed']}\n"
-        f"  - Invoices created: {stats['invoices_created']}\n"
-        f"  - Tasks matched: {stats['tasks_matched']}\n"
-        f"  - Orphan entries (JSON without Task): {stats['orphan_entries']}\n"
-        f"  - Errors: {stats['errors']}"
+        f"Vendor Invoices migration: created={stats['invoices_created']}, "
+        f"skipped={stats['skipped']}, errors={stats['errors']}"
     )
 
 
@@ -79,6 +102,7 @@ def migrate_doctype_invoices(doctype: str) -> dict:
         "invoices_created": 0,
         "tasks_matched": 0,
         "orphan_entries": 0,
+        "skipped": 0,
         "errors": 0
     }
 
@@ -99,6 +123,7 @@ def migrate_doctype_invoices(doctype: str) -> dict:
             stats["invoices_created"] += result["created"]
             stats["tasks_matched"] += result["tasks_matched"]
             stats["orphan_entries"] += result["orphans"]
+            stats["skipped"] += result["skipped"]
         except Exception as e:
             stats["errors"] += 1
             frappe.log_error(
@@ -118,9 +143,9 @@ def process_document_invoices(doctype: str, doc: dict) -> dict:
         doc: Document dict with name, invoice_data, project, vendor
 
     Returns:
-        Dictionary with counts: created, tasks_matched, orphans
+        Dictionary with counts: created, tasks_matched, orphans, skipped
     """
-    result = {"created": 0, "tasks_matched": 0, "orphans": 0}
+    result = {"created": 0, "tasks_matched": 0, "orphans": 0, "skipped": 0}
 
     invoice_data_raw = doc.get("invoice_data")
     if not invoice_data_raw:
@@ -148,7 +173,6 @@ def process_document_invoices(doctype: str, doc: dict) -> dict:
     invoice_entries = invoice_data["data"]
 
     # Pre-fetch all Tasks for this document to minimize queries
-    # Include creation, modified for timestamp preservation
     tasks = frappe.get_all(
         "Task",
         filters={
@@ -179,7 +203,8 @@ def process_document_invoices(doctype: str, doc: dict) -> dict:
             })
 
             if existing:
-                continue  # Skip already migrated entries
+                result["skipped"] += 1
+                continue
 
             # Look up matching Task
             task = task_map.get(date_key)
@@ -191,7 +216,7 @@ def process_document_invoices(doctype: str, doc: dict) -> dict:
                 status = map_task_status(task.get("status", "Pending"))
             elif "status" in entry:
                 status = map_task_status(entry.get("status", "Pending"))
-                result["orphans"] += 1  # JSON entry without matching Task
+                result["orphans"] += 1
 
             # Get attachment ID
             attachment_id = entry.get("invoice_attachment_id")
@@ -241,7 +266,6 @@ def extract_date_from_key(date_key: str) -> str:
     Returns:
         Date string in YYYY-MM-DD format
     """
-    # Take first 10 characters (YYYY-MM-DD)
     return date_key[:10] if date_key else None
 
 
@@ -293,7 +317,7 @@ def create_vendor_invoice(
     Returns:
         Created Vendor Invoice document
     """
-    # Get uploaded_by from entry - copy as-is without validation
+    # Get uploaded_by from entry
     uploaded_by = entry.get("updated_by")
 
     # Determine reconciliation status
@@ -301,7 +325,6 @@ def create_vendor_invoice(
     if "reconciliation_status" in entry:
         reconciliation_status = entry.get("reconciliation_status", "")
     elif entry.get("is_2b_activated"):
-        # Legacy conversion
         reconciliation_status = "full"
 
     # Get invoice amount
@@ -335,40 +358,34 @@ def create_vendor_invoice(
         "reconciliation_status": reconciliation_status,
         "reconciled_amount": reconciled_amount,
         "reconciliation_proof": entry.get("reconciliation_proof_attachment_id"),
-        # Extract reconciled_by and reconciled_date if reconciliation was done
         "reconciled_by": entry.get("reconciled_by") if reconciliation_status in ("partial", "full") else None,
         "reconciled_date": entry.get("reconciled_date") if reconciliation_status in ("partial", "full") else None
     })
 
     # Set approved_by and approved_on for Approved invoices
     if status == "Approved" and task:
-        # Use Task.assignee for approved_by (who approved the invoice)
         if task.get("assignee"):
             invoice.approved_by = task.get("assignee")
-        # Use Task.modified for approved_on (when it was approved)
         if task.get("modified"):
             invoice.approved_on = task.get("modified")
 
     invoice.flags.ignore_permissions = True
-    invoice.flags.ignore_mandatory = True  # In case some fields are missing in old data
+    invoice.flags.ignore_mandatory = True
     invoice.insert()
 
-    # PRESERVE ORIGINAL TIMESTAMPS from Task document
-    # This is critical for maintaining historical accuracy in reporting
+    # Preserve original timestamps from Task document for historical accuracy
     if task:
         original_creation = task.get("creation")
         original_modified = task.get("modified") or original_creation
 
-        update_fields = {}
         if original_creation:
-            update_fields["creation"] = original_creation
-            update_fields["modified"] = original_modified or original_creation
-
-        if update_fields:
             frappe.db.set_value(
                 "Vendor Invoices",
                 invoice.name,
-                update_fields,
+                {
+                    "creation": original_creation,
+                    "modified": original_modified or original_creation
+                },
                 update_modified=False
             )
 

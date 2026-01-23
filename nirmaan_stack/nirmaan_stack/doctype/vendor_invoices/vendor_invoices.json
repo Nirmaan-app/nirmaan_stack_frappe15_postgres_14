@@ -146,9 +146,8 @@
   },
   {
    "fieldname": "approved_by",
-   "fieldtype": "Link",
-   "label": "Approved By",
-   "options": "Nirmaan Users"
+   "fieldtype": "Data",
+   "label": "Approved By"
   },
   {
    "fieldname": "approved_on",
