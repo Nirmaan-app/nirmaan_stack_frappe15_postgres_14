@@ -36,7 +36,7 @@
   },
   {
    "fieldname": "make",
-   "fieldtype": "Link",
+   "fieldtype": "Data",
    "label": "Make",
    "options": "Makelist"
   },
@@ -70,7 +70,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-16 09:14:11.433199",
+ "modified": "2026-01-23 15:44:29.016727",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "TDS Repository",
