@@ -39,6 +39,7 @@ import { DEFAULT_SB_FIELDS_TO_FETCH, getSentBackStaticFilters, SB_DATE_COLUMNS, 
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { Badge } from "@/components/ui/badge";
 import { ProcurementRequestItemDetail } from "@/types/NirmaanStack/ProcurementRequests";
+import { UserContext } from "@/utils/auth/UserProvider";
 
 // --- Constants ---
 const DOCTYPE = 'Sent Back Category';
@@ -125,6 +126,7 @@ const SBDataTableWrapper: React.FC<{
 export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
     const { role } = useUserData();
     const { db } = useContext(FrappeContext) as FrappeConfig;
+    const { deleteDialog, toggleDeleteDialog } = useContext(UserContext);
 
     const projectsFetchOptions = getProjectListOptions();
 
@@ -160,12 +162,8 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
     }, [db, mark_seen_notification]);
 
 
-    // --- Dialog State for Delete ---
-    const [deleteDialog, setDeleteDialog] = useState(false);
-    const toggleDeleteDialog = () => setDeleteDialog(prev => !prev);
+    // --- Delete State ---
     const [deleteFlagged, setDeleteFlagged] = useState<SentBackCategory | null>(null);
-    // We'll need to pass the `refetch` function to `usePRorSBDelete` or handle refetch here
-    // const { handleDeleteSB, deleteLoading } = usePRorSBDelete();
 
 
     // --- Static Filters for this View (based on type/tab) ---
@@ -339,14 +337,13 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
     }), [projectOptions]);
 
     // --- Delete Handler ---
-    const { handleDeleteSB, deleteLoading } = usePRorSBDelete(); // Pass refetch to the delete hook
+    const { handleDeleteSB, deleteLoading } = usePRorSBDelete();
 
     const handleConfirmDelete = async () => {
         if (deleteFlagged) {
             await handleDeleteSB(deleteFlagged.name);
             setDeleteFlagged(null);
-            toggleDeleteDialog();
-            // Refetch is handled by the hook now
+            // Dialog close and data refresh handled by hook + socket listener
         }
     };
 
