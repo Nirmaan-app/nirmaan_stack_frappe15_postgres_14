@@ -227,7 +227,8 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
                             type="date" 
                             value={deliveryDate}
                             onChange={(e) => setDeliveryDate(e.target.value)}
-                            className="w-full border border-gray-300 rounded-lg px-4 py-2 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                                    className="w-full p-2 border rounded-md cursor-pointer"
                         />
                         <p className="text-xs text-gray-500">This delivery date will apply to all selected items in this plan</p>
                     </div>
