@@ -478,6 +478,46 @@ export const PODetails: React.FC<PODetailsProps> = ({
 
   // const { call: triggerPdfDownload, loading } = useFrappePostCall('nirmaan_stack.api.download_po_pdf.download_po_pdf');
 
+ const handleDownloadDeliveryNote = async (poId: string) => {
+  try {
+    const formatname = "PO Delivery Histroy";
+    const printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Procurement%20Orders&name=${poId}&format=${encodeURIComponent(formatname)}&no_letterhead=0`;
+    
+    const response = await fetch(printUrl);
+    if (!response.ok) throw new Error("Failed to generate PDF");
+    
+    const blob = await response.blob();
+    
+    // Generate filename - you can customize this based on your needs
+    const fileName = `PO_Delivery_${poId}_.pdf`;
+    
+    // Create download link
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', fileName);
+    document.body.appendChild(link);
+    link.click();
+    
+    // Cleanup
+    link.remove();
+    window.URL.revokeObjectURL(url);
+    
+    toast({ 
+      title: "Success", 
+      description: "Delivery note downloaded successfully.", 
+      variant: "success" 
+    });
+  } catch (error) {
+    console.error("Download error:", error);
+    toast({ 
+      title: "Error", 
+      description: "Failed to download delivery note.", 
+      variant: "destructive" 
+    });
+  }
+};
+
   const handleDownloadPdf = async (poId: string) => {
     // try {
     //     // This call will initiate a download, not return data to JS
@@ -980,6 +1020,17 @@ export const PODetails: React.FC<PODetailsProps> = ({
             <SheetHeader className="text-start mb-4 mx-4">
               <SheetTitle className="text-primary flex flex-row items-center justify-between">
                 <p>Update/View Delivery Note</p>
+               <div className="flex flex-col gap-2 w-full sm:flex-row sm:justify-end sm:items-center">
+  
+<Button
+                  onClick={()=>handleDownloadDeliveryNote(po?.name)}
+                  variant="default"
+                  className="px-2"
+                  size="sm"
+                >
+                  <Eye className="h-4 w-4 mr-2" />
+                  <span className="text-xs">Download</span>
+                </Button>
                 <Button
                   onClick={handlePrint}
                   variant="default"
@@ -989,6 +1040,8 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   <Eye className="h-4 w-4 mr-2" />
                   <span className="text-xs">Preview</span>
                 </Button>
+                </div>
+                
               </SheetTitle>
             </SheetHeader>
             <div className="space-y-4">
@@ -998,6 +1051,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
               />
 
               <DeliveryHistoryTable
+                poId={po?.name}
                 deliveryData={deliveryHistory.data}
                 onPrintHistory={triggerHistoryPrint}
               />
