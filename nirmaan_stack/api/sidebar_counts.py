@@ -127,7 +127,8 @@ def sidebar_counts(user: str) -> str:
     sr_filters = {} if is_full_access else {"project": ["in", user_projects]}
     sr_counts = {
         "selected": simple("Service Requests", {**sr_filters, "status": "Vendor Selected"}),
-        "approved": simple("Service Requests", {**sr_filters, "status": "Approved"}),
+        "approved": simple("Service Requests", {**sr_filters, "status": "Approved", "is_finalized": 0}),
+        "finalized": simple("Service Requests", {**sr_filters, "status": "Approved", "is_finalized": 1}),
         "amended":  simple("Service Requests", {**sr_filters, "status": "Amendment"}),
         "all":      simple("Service Requests", sr_filters),
         "pending":  simple("Service Requests", {**sr_filters, "status": ["not in", ["Approved", "Amendment"]]}),

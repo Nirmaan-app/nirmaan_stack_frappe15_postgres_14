@@ -6,11 +6,9 @@ import {
   useFrappeGetDocList,
   FrappeContext,
   FrappeConfig,
-  useFrappeDocTypeEventListener,
   FrappeDoc,
   GetDocListArgs,
 } from "frappe-react-sdk";
-import { useToast } from "@/components/ui/use-toast";
 import memoize from "lodash/memoize";
 
 // --- UI Components ---
@@ -23,22 +21,15 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { useFacetValues } from "@/hooks/useFacetValues";
 import { formatDate } from "@/utils/FormatDate";
-import {
-  formatForReport,
-  formatToRoundedIndianRupee,
-} from "@/utils/FormatPrice";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import {
   NotificationType,
   useNotificationStore,
 } from "@/zustand/useNotificationStore";
 
 // --- Types ---
-import {
-  ServiceItemType,
-  ServiceRequests,
-} from "@/types/NirmaanStack/ServiceRequests";
+import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Projects } from "@/types/NirmaanStack/Projects";
-import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 
 // --- Helper Components ---
@@ -48,24 +39,20 @@ import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/use
 import { SRRemarksPopover } from "@/pages/ServiceRequests/approved-sr/components/SRRemarksPopover";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { parseNumber } from "@/utils/parseNumber";
-import { useOrderTotals } from "@/hooks/useOrderTotals";
 import {
   DEFAULT_SR_FIELDS_TO_FETCH,
   SR_DATE_COLUMNS,
   SR_SEARCHABLE_FIELDS,
 } from "../config/srTable.config";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
-import { ExceptionMap } from "antd/es/result";
 import { useUserData } from "@/hooks/useUserData";
 
 // --- Constants ---
 const DOCTYPE = "Service Requests";
 
-interface ApprovedSRListProps {
-  for_vendor?: string; // Vendor ID to filter by
-  // Add other props that might define the context/tab for this list
-  // e.g., if this component is used in multiple places with different base filters
-  urlSyncKeySuffix?: string; // To make URL keys unique if used multiple times on one page
+interface FinalizedSRListProps {
+  for_vendor?: string;
+  urlSyncKeySuffix?: string;
 }
 
 export const SR_GST_OPTIONS_MAP = [
@@ -74,24 +61,19 @@ export const SR_GST_OPTIONS_MAP = [
 ];
 
 // --- Component ---
-export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
+export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
   for_vendor = undefined,
-  urlSyncKeySuffix = "approved", // Default suffix
+  urlSyncKeySuffix = "finalized",
 }) => {
   const { role } = useUserData();
-  const { toast } = useToast();
   const { db } = useContext(FrappeContext) as FrappeConfig;
-  const { getTotalAmount } = useOrderTotals();
 
-  // Unique URL key for this instance of the table
   const urlSyncKey = useMemo(
     () => `sr_${urlSyncKeySuffix}`,
     [urlSyncKeySuffix]
   );
 
   const projectsFetchOptions = getProjectListOptions();
-
-  // --- Generate Query Keys ---
   const projectQueryKey = queryKeys.projects.list(projectsFetchOptions);
 
   // --- Supporting Data & Hooks ---
@@ -114,17 +96,9 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
     data: userList,
     isLoading: userListLoading,
     error: userError,
-  } = useUsersList(); // For owner display
-  const {
-    data: projectPayments,
-    isLoading: projectPaymentsLoading,
-    error: projectPaymentsError,
-  } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
-    fields: ["name", "document_name", "status", "amount"],
-    limit: 100000,
-  });
+  } = useUsersList();
 
-  // Fetch Vendor Invoices for SRs to calculate total invoiced per SR
+  // Fetch Vendor Invoices for SRs
   const vendorInvoiceFilters = useMemo(() => {
     const filters: Array<[string, string, string | string[]]> = [
       ["document_type", "=", "Service Requests"],
@@ -143,7 +117,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
       fields: ["name", "document_name", "invoice_amount"],
       limit: 0,
     } as GetDocListArgs<FrappeDoc<VendorInvoice>>,
-    `VendorInvoices-SR-${for_vendor || "all"}`
+    `VendorInvoices-SR-finalized-${for_vendor || "all"}`
   );
 
   const { notifications, mark_seen_notification } = useNotificationStore();
@@ -166,7 +140,6 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
     [vendorsList]
   );
 
-  // Memoized function to get vendor name by ID
   const getVendorName = useCallback(
     memoize((vendorId: string | undefined): string => {
       return (
@@ -177,21 +150,6 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
     }),
     [vendorsList]
   );
-
-  const getAmountPaidForSR = useMemo(() => {
-    if (!projectPayments) return () => 0;
-    const paymentsMap = new Map<string, number>();
-    projectPayments.forEach((p) => {
-      if (p.document_name && p.status === "Paid") {
-        const currentTotal = paymentsMap.get(p.document_name) || 0;
-        paymentsMap.set(p.document_name, currentTotal + parseNumber(p.amount));
-      }
-    });
-    return memoize(
-      (id: string) => paymentsMap.get(id) || 0,
-      (id: string) => id
-    );
-  }, [projectPayments]);
 
   // Group invoice totals by SR name
   const invoiceTotalsMap = useMemo(() => {
@@ -213,11 +171,11 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
     [db, mark_seen_notification]
   );
 
-  // --- Static Filters for this View ---
+  // --- Static Filters for Finalized SRs ---
   const staticFilters = useMemo(() => {
     const filters: Array<[string, string, string | string[] | number]> = [
       ["status", "=", "Approved"],
-      ["is_finalized", "=", 0], // Exclude finalized SRs
+      ["is_finalized", "=", 1], // Only finalized SRs
     ];
     if (for_vendor) {
       filters.push(["vendor", "=", for_vendor]);
@@ -252,7 +210,6 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
     []
   );
 
-  // --- Date Filter Columns ---
   const dateColumns = useMemo(() => SR_DATE_COLUMNS, []);
 
   // --- Column Definitions ---
@@ -270,7 +227,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
             (item) =>
               item.docname === srId &&
               item.seen === "false" &&
-              item.event_id === "sr:approved"
+              item.event_id === "sr:finalized"
           );
           return (
             <div
@@ -287,11 +244,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
               ) : (
                 <Link
                   className="underline hover:underline-offset-2 whitespace-nowrap"
-                  to={
-                    for_vendor
-                      ? `/service-requests/${srId}?tab=approved-sr`
-                      : `/service-requests/${srId}?tab=approved-sr`
-                  }
+                  to={`/service-requests/${srId}?tab=finalized-sr`}
                 >
                   {srId?.slice(-5)}
                 </Link>
@@ -310,9 +263,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         size: 150,
         meta: {
           exportHeaderName: "#WO",
-          exportValue: (row) => {
-            return row.name;
-          },
+          exportValue: (row) => row.name,
         },
       },
       {
@@ -328,9 +279,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         size: 150,
         meta: {
           exportHeaderName: "Created on",
-          exportValue: (row) => {
-            return formatDate(row.creation);
-          },
+          exportValue: (row) => formatDate(row.creation),
         },
       },
       {
@@ -342,7 +291,6 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
           const project = projectOptions.find(
             (p) => p.value === row.original.project
           );
-          // Display project_name if fetched, otherwise fallback to project ID
           return (
             <div className="font-medium truncate" title={project?.label}>
               {project?.label || row.original.project}
@@ -360,7 +308,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         },
       },
       {
-        accessorKey: "vendor", // Filter by vendor ID
+        accessorKey: "vendor",
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Vendor" />
         ),
@@ -376,9 +324,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         size: 200,
         meta: {
           exportHeaderName: "Vendor",
-          exportValue: (row) => {
-            return getVendorName(row.vendor);
-          },
+          exportValue: (row) => getVendorName(row.vendor),
         },
       },
       {
@@ -420,7 +366,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
           <div className="font-medium pr-2">
             {formatToRoundedIndianRupee(row.original.total_amount)}
           </div>
-        ), // Example badge
+        ),
         enableColumnFilter: true,
         size: 120,
       },
@@ -433,21 +379,10 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
           <Badge variant={row.original.gst === "true" ? "green" : "outline"}>
             {row.original.gst === "true" ? "YES" : "NO"}
           </Badge>
-        ), // Example badge
+        ),
         enableColumnFilter: true,
         size: 120,
       },
-      // {
-      //     id: "service_total_amount", header: ({ column }) => <DataTableColumnHeader column={column} title="SR Value" />,
-      //     cell: ({ row }) => (<p className="font-medium pr-2">{formatToRoundedIndianRupee(getTotalAmount(row.original.name, 'Service Requests')?.totalWithTax)}</p>),
-      //     size: 150, enableSorting: false,
-      //     meta: {
-      //         exportHeaderName: "SR Value",
-      //         exportValue: (row) => {
-      //             return formatForReport(getTotalAmount(row.name, 'Service Requests')?.totalWithTax);
-      //         }
-      //     }
-      // },
       {
         accessorKey: "amount_paid",
         header: ({ column }) => (
@@ -457,7 +392,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
           <div className="font-medium pr-2">
             {formatToRoundedIndianRupee(row.original.amount_paid)}
           </div>
-        ), // Example badge
+        ),
         enableColumnFilter: true,
         size: 120,
       },
@@ -482,9 +417,8 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         enableSorting: false,
         meta: {
           exportHeaderName: "Total Invoiced",
-          exportValue: (row: ServiceRequests) => {
-            return invoiceTotalsMap.get(row.name) ?? 0;
-          },
+          exportValue: (row: ServiceRequests) =>
+            invoiceTotalsMap.get(row.name) ?? 0,
         },
       },
       {
@@ -496,20 +430,6 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         size: 100,
         enableSorting: false,
       },
-      // {
-      //     id: "amount_paid_sr", header: ({ column }) => <DataTableColumnHeader column={column} title="Amt Paid" />,
-      //     cell: ({ row }) => {
-      //         const amountPaid = getAmountPaidForSR(row.original.name);
-      //         return <div className="font-medium pr-2">{formatToRoundedIndianRupee(amountPaid || 0)}</div>;
-      //     }, size: 150, enableSorting: false,
-      //     meta: {
-      //         exportHeaderName: "Amt Paid",
-      //         exportValue: (row) => {
-      //             const amountPaid = getAmountPaidForSR(row.name);
-      //             return formatForReport(amountPaid || 0);
-      //         }
-      //     }
-      // },
     ],
     [
       notifications,
@@ -521,36 +441,28 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
       for_vendor,
       invoiceTotalsMap,
     ]
-  ); //, getTotalAmount, getAmountPaidForSR,
+  );
 
-  // --- (MOVED UP) Use the Server Data Table Hook ---
+  // --- Server Data Table Hook ---
   const {
     table,
-    data,
     totalCount,
     isLoading: listIsLoading,
     error: listError,
-    // globalFilter, setGlobalFilter,
-    // isItemSearchEnabled, toggleItemSearch, showItemSearchToggle,
     selectedSearchField,
     setSelectedSearchField,
     searchTerm,
     setSearchTerm,
-    isRowSelectionActive,
-    refetch,
-    columnFilters, // NEW
+    columnFilters,
   } = useServerDataTable<ServiceRequests>({
     doctype: DOCTYPE,
     columns: columns,
     fetchFields: fieldsToFetch,
     searchableFields: srSearchableFields,
-    // globalSearchFieldList: globalSearchFields,
-    // enableItemSearch: true, // Can search within service_order_list items
     urlSyncKey: urlSyncKey,
     defaultSort: "modified desc",
-    enableRowSelection: true, // Or true if bulk actions needed for approved SRs
+    enableRowSelection: true,
     additionalFilters: staticFilters,
-    // requirePendingItems: false, // Not applicable for "Approved" SR list
   });
 
   // --- Dynamic Facet Values ---
@@ -575,7 +487,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
       searchTerm,
       selectedSearchField,
       additionalFilters: staticFilters,
-      enabled: !for_vendor, // Disable dynamic fetch if vendor is already fixed
+      enabled: !for_vendor,
     });
 
   // --- Faceted Filter Options ---
@@ -590,7 +502,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         title: "Vendor",
         options: vendorFacetOptions,
         isLoading: isVendorFacetLoading,
-      }, // Filter by vendor ID
+      },
       gst: { title: "GST", options: SR_GST_OPTIONS_MAP },
     }),
     [
@@ -601,21 +513,15 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
     ]
   );
 
-  // --- Faceted Filter Options ---
-
-  // --- Use the Server Data Table Hook ---
-
   // --- Combined Loading & Error States ---
   const isLoading =
     projectsLoading ||
     vendorsLoading ||
-    userListLoading ||
-    projectPaymentsLoading;
+    userListLoading;
   const combinedError =
     projectsError ||
     vendorsError ||
     userError ||
-    projectPaymentsError ||
     listError;
 
   if (combinedError) {
@@ -639,23 +545,14 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         <DataTable<ServiceRequests>
           table={table}
           columns={columns}
-          isLoading={listIsLoading} // Pass specific loading state for table data
-          error={listError} // Pass specific error state for table data
+          isLoading={listIsLoading}
+          error={listError}
           totalCount={totalCount}
           searchFieldOptions={srSearchableFields}
           selectedSearchField={selectedSearchField}
           onSelectedSearchFieldChange={setSelectedSearchField}
           searchTerm={searchTerm}
           onSearchTermChange={setSearchTerm}
-          // globalFilterValue={globalFilter}
-          // onGlobalFilterChange={setGlobalFilter}
-          // searchPlaceholder="Search Approved SRs..."
-          // showItemSearchToggle={showItemSearchToggle}
-          // itemSearchConfig={{
-          //     isEnabled: isItemSearchEnabled,
-          //     toggle: toggleItemSearch,
-          //     label: "Service Item Search"
-          // }}
           facetFilterOptions={facetFilterOptions}
           dateFilterColumns={dateColumns}
           showExportButton={true}
@@ -666,4 +563,4 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
   );
 };
 
-export default ApprovedSRList;
+export default FinalizedSRList;
