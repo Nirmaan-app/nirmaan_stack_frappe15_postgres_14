@@ -125,9 +125,12 @@ export const useTDSItemOptions = ({ selectedWP, selectedCategory, watchedTdsItem
         }
 
         // Apply Taken Filter
-        return availableMakes
+        const filteredMakes = availableMakes
             .filter(d => !takenMakes.has(d.name))
             .map(d => ({ label: d.make_name, value: d.name }));
+        
+        // Add "Others" option at the end for custom entry
+        return [...filteredMakes, { label: "Others", value: "__others__" }];
             
     }, [makeList, catMakeList, selectedCategory, categoryEntries, watchedTdsItemId, currentItem]);
 

@@ -899,7 +899,8 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                                     type="date"
                                     value={deliveryDate}
                                     onChange={(e) => setDeliveryDate(e.target.value)}
-                                    className="w-full p-2 border rounded-md"
+                                    onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                                    className="w-full p-2 border rounded-md cursor-pointer"
                                 />
                             </div>
                             

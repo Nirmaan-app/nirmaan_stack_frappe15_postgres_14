@@ -9,21 +9,15 @@ import {
     DialogTitle,
     DialogFooter,
 } from "@/components/ui/dialog";
-import {
-    Tooltip,
-    TooltipContent,
-    TooltipProvider,
-    TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { FileText, UploadCloud, X, Download, AlertTriangle } from "lucide-react";
 import { useFrappeFileUpload, useFrappeUpdateDoc } from "frappe-react-sdk";
 import RSelect from "react-select";
 import { toast } from "@/components/ui/use-toast";
 import { TDSItem, TDSItemValues, tdsItemSchema } from "./types";
 import { useTDSItemOptions } from "../hooks/useTDSItemOptions";
+import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 
 interface EditTDSItemDialogProps {
     open: boolean;
@@ -36,8 +30,8 @@ interface EditTDSItemDialogProps {
 
 export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOpenChange, item, onSuccess }) => {
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
-    const [existingAttachmentUrl, setExistingAttachmentUrl] = useState<string | null>(null);
-    const [attachmentAction, setAttachmentAction] = useState<"keep" | "replace" | "remove">("keep");
+    const [isCustomMake, setIsCustomMake] = useState(false);
+    const [customMake, setCustomMake] = useState("");
     
     const { updateDoc, loading: updating } = useFrappeUpdateDoc();
     const { upload: uploadFile, loading: uploading } = useFrappeFileUpload();
@@ -86,13 +80,31 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                 make: item.make,
             });
             setSelectedFile(null);
-            setExistingAttachmentUrl(item.tds_attachment || null);
-            setAttachmentAction(item.tds_attachment ? "keep" : "remove");
             
             // Sync the ref with the freshly loaded item ID so we don't trigger a "change"
             previousItemIdRef.current = item.tds_item_id || "";
         }
     }, [open, item, form]);
+    
+    // Detect if the item's make is a custom value (not in the options list)
+    useEffect(() => {
+        if (open && item && makeOptions.length > 0) {
+            const itemMake = item.make;
+            // Check if item's make exists in makeOptions (excluding __others__)
+            const makeExistsInOptions = makeOptions.some(
+                opt => opt.value !== "__others__" && opt.value === itemMake
+            );
+            
+            if (itemMake && !makeExistsInOptions) {
+                // It's a custom make - show the custom input
+                setIsCustomMake(true);
+                setCustomMake(itemMake);
+            } else {
+                setIsCustomMake(false);
+                setCustomMake("");
+            }
+        }
+    }, [open, item, makeOptions]);
 
     // Reset make when item changes
     useEffect(() => {
@@ -143,22 +155,6 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
     }, [watchedMake, form.setValue]);
     
 
-    const handleNewFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files[0]) {
-            setSelectedFile(e.target.files[0]);
-            setAttachmentAction("replace");
-        }
-    };
-
-    const handleRemoveExistingAttachment = () => {
-        setSelectedFile(null);
-        setAttachmentAction("remove");
-    };
-
-    const handleUndoRemove = () => {
-        setAttachmentAction("keep");
-    };
-
     const onSubmit = async (values: TDSItemValues) => {
         if (!item) return;
 
@@ -171,21 +167,15 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                 make: values.make,
             };
 
-            // Handle attachment changes - DON'T delete actual files, just update URL
-            if (attachmentAction === "remove") {
-                // Just clear the URL field, don't delete the file
-                updatePayload.tds_attachment = "";
-            }
-
             await updateDoc("TDS Repository", item.name, updatePayload);
 
-            // If replacing with a new file, upload and update URL
-            if (attachmentAction === "replace" && selectedFile) {
+            // If a new file is selected, upload it
+            if (selectedFile) {
                 const uploadResp = await uploadFile(selectedFile, {
                     doctype: "TDS Repository",
                     docname: item.name,
                     fieldname: "tds_attachment",
-                    isPrivate: false
+                    isPrivate: true
                 });
 
                 const responseData = uploadResp as any;
@@ -205,6 +195,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
             toast({ title: "Error", description: "Failed to update TDS Item", variant: "destructive" });
         }
     };
+
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -306,14 +297,80 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                             Make<span className="text-red-500 ml-0.5">*</span>
                                         </FormLabel>
                                         <FormControl>
-                                            <RSelect
-                                                options={makeOptions}
-                                                value={makeOptions.find(opt => opt.value === field.value) || null}
-                                                onChange={(opt) => field.onChange(opt?.value)}
-                                                placeholder="Select Make"
-                                                className="react-select-container"
-                                                classNamePrefix="react-select"
-                                            />
+                                            {isCustomMake ? (
+                                                <div className="space-y-2">
+                                                    <Input
+                                                        placeholder="Enter custom make name"
+                                                        value={customMake}
+                                                        onChange={(e) => {
+                                                            setCustomMake(e.target.value);
+                                                            field.onChange(e.target.value);
+                                                        }}
+                                                        className="bg-white border-gray-200"
+                                                    />
+                                                    <Button
+                                                        type="button"
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        onClick={() => {
+                                                            setIsCustomMake(false);
+                                                            setCustomMake("");
+                                                            field.onChange("");
+                                                        }}
+                                                        className="text-xs text-gray-500 hover:text-gray-700 h-6 px-2"
+                                                    >
+                                                        ← Back to Make list
+                                                    </Button>
+                                                </div>
+                                            ) : (
+                                                <RSelect
+                                                    options={makeOptions}
+                                                    value={makeOptions.find(opt => opt.value === field.value) || null}
+                                                    onChange={(opt) => {
+                                                        if (opt?.value === "__others__") {
+                                                            setIsCustomMake(true);
+                                                            setCustomMake("");
+                                                            field.onChange("");
+                                                        } else {
+                                                            field.onChange(opt?.value);
+                                                        }
+                                                    }}
+                                                    placeholder="Select Make"
+                                                    className="react-select-container"
+                                                    classNamePrefix="react-select"
+                                                    filterOption={(option, inputValue) => {
+                                                        // Always show "Others" option
+                                                        if (option.data.value === "__others__") return true;
+                                                        // Default filter for other options
+                                                        return option.label.toLowerCase().includes(inputValue.toLowerCase());
+                                                    }}
+                                                    styles={{
+                                                        option: (base, state) => ({
+                                                            ...base,
+                                                            ...(state.data.value === "__others__" ? {
+                                                                backgroundColor: state.isFocused ? '#dbeafe' : '#eff6ff',
+                                                                color: '#2563eb',
+                                                                fontWeight: 600,
+                                                                borderTop: '1px solid #e5e7eb',
+                                                                position: 'sticky',
+                                                                bottom: 0,
+                                                            } : {})
+                                                        }),
+                                                        menuList: (base) => ({
+                                                            ...base,
+                                                            paddingBottom: 0,
+                                                        })
+                                                    }}
+                                                    formatOptionLabel={(option) => (
+                                                        option.value === "__others__" ? (
+                                                            <span className="flex items-center gap-1">
+                                                                <span>+ Others</span>
+                                                                <span className="text-xs text-blue-400">(type custom)</span>
+                                                            </span>
+                                                        ) : option.label
+                                                    )}
+                                                />
+                                            )}
                                         </FormControl>
                                         <FormMessage className="text-xs" />
                                     </FormItem>
@@ -337,160 +394,22 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                 )}
                             />
                             {/* Attach Document */}
-                            <div className="space-y-2">
+                            <div className="space-y-1.5">
                                 <label className="text-sm font-semibold">
-                                    Attach Document
+                                    Attach Document <span className="text-gray-400 font-normal ml-1">(Optional)</span>
                                 </label>
-                                
-                                {selectedFile ? (
-                                    // New File Selected State
-                                    <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-100 rounded-lg">
-                                        <div className="flex items-center gap-3 overflow-hidden">
-                                            <div className="p-2 bg-blue-100 rounded-md">
-                                                <FileText className="h-5 w-5 text-blue-600" />
-                                            </div>
-                                            <div className="min-w-0">
-                                                <p className="text-sm font-medium text-gray-900 truncate">{selectedFile.name}</p>
-                                                <p className="text-xs text-blue-600 font-medium">New Attachment</p>
-                                            </div>
-                                        </div>
-                                        <button 
-                                            type="button" 
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                setSelectedFile(null);
-                                                setAttachmentAction(existingAttachmentUrl ? "keep" : "remove");
-                                            }}
-                                            className="p-1 hover:bg-blue-100 rounded-full text-gray-400 hover:text-gray-600 transition-colors"
-                                        >
-                                            <X className="h-5 w-5" />
-                                        </button>
-                                    </div>
-                                ) : attachmentAction === "keep" && existingAttachmentUrl ? (
-                                    // Existing File State
-                                    <div className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                                        <div className="flex items-center gap-3 overflow-hidden">
-                                            <div className="p-2 bg-gray-200 rounded-md">
-                                                <FileText className="h-5 w-5 text-gray-600" />
-                                            </div>
-                                            <div className="min-w-0">
-                                                <a 
-                                                    href={existingAttachmentUrl} 
-                                                    target="_blank" 
-                                                    rel="noopener noreferrer"
-                                                    className="text-sm font-medium text-gray-900 truncate hover:underline hover:text-blue-600"
-                                                >
-                                                    {existingAttachmentUrl.split('/').pop()}
-                                                </a>
-                                                <p className="text-xs text-green-600 font-medium flex items-center gap-1">
-                                                    Current Attachment
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-1">
-                                            <TooltipProvider>
-                                                <Tooltip>
-                                                    <TooltipTrigger asChild>
-                                                        <a 
-                                                            href={existingAttachmentUrl}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="p-2 hover:bg-gray-200 rounded-md text-gray-500 transition-colors"
-                                                        >
-                                                            <Download className="h-4 w-4" />
-                                                        </a>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent>
-                                                        <p>Download/View</p>
-                                                    </TooltipContent>
-                                                </Tooltip>
-                                            </TooltipProvider>
-
-                                            <TooltipProvider>
-                                                <Tooltip>
-                                                    <TooltipTrigger asChild>
-                                                        <button 
-                                                            type="button" 
-                                                            onClick={() => document.getElementById('edit-tds-file-upload')?.click()}
-                                                            className="p-2 hover:bg-gray-200 rounded-md text-gray-500 hover:text-blue-600 transition-colors"
-                                                        >
-                                                            <UploadCloud className="h-4 w-4" />
-                                                        </button>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent>
-                                                        <p>Replace File</p>
-                                                    </TooltipContent>
-                                                </Tooltip>
-                                            </TooltipProvider>
-
-                                            <TooltipProvider>
-                                                <Tooltip>
-                                                    <TooltipTrigger asChild>
-                                                        <button 
-                                                            type="button" 
-                                                            onClick={handleRemoveExistingAttachment}
-                                                            className="p-2 hover:bg-red-50 text-gray-400 hover:text-red-500 rounded-md transition-colors"
-                                                        >
-                                                            <X className="h-4 w-4" />
-                                                        </button>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent>
-                                                        <p>Remove File</p>
-                                                    </TooltipContent>
-                                                </Tooltip>
-                                            </TooltipProvider>
-                                        </div>
-                                    </div>
-                                ) : attachmentAction === "remove" && existingAttachmentUrl ? (
-                                    // Removed State
-                                    <div className="space-y-3">
-                                        <div className="flex items-center justify-between p-3 bg-amber-50 border border-amber-200 rounded-lg border-dashed">
-                                            <div className="flex items-center gap-3">
-                                                <AlertTriangle className="h-5 w-5 text-amber-500" />
-                                                <p className="text-sm text-amber-700">Attachment will be removed</p>
-                                            </div>
-                                            <Button
-                                                type="button"
-                                                variant="ghost"
-                                                size="sm"
-                                                onClick={handleUndoRemove}
-                                                className="text-amber-700 hover:text-amber-800 hover:bg-amber-100 h-8 text-xs font-medium"
-                                            >
-                                                Undo
-                                            </Button>
-                                        </div>
-                                        <div 
-                                            className="border-2 border-dashed border-gray-200 bg-gray-50/50 rounded-lg p-6 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-50 hover:border-blue-300 transition-colors group"
-                                            onClick={() => document.getElementById('edit-tds-file-upload')?.click()}
-                                        >
-                                            <div className="p-3 bg-white rounded-full shadow-sm mb-3 group-hover:scale-110 transition-transform">
-                                                <UploadCloud className="h-6 w-6 text-blue-500" />
-                                            </div>
-                                            <p className="text-sm font-medium text-gray-900 mb-1">Click to upload replacement</p>
-                                            <p className="text-xs text-gray-500">PDF only, up to 10MB</p>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    // Empty State (Upload)
-                                    <div 
-                                        className="border-2 border-dashed border-gray-200 bg-gray-50/50 rounded-lg p-4 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-50 hover:border-blue-300 transition-colors group"
-                                        onClick={() => document.getElementById('edit-tds-file-upload')?.click()}
-                                    >
-                                        <div className="p-2 bg-white rounded-full shadow-sm mb-2 group-hover:scale-110 transition-transform">
-                                            <UploadCloud className="h-5 w-5 text-blue-500" />
-                                        </div>
-                                        <p className="text-sm font-medium text-gray-900 mb-0.5">Click to upload or drag and drop</p>
-                                        <p className="text-xs text-gray-500">PDF only, up to 10MB</p>
-                                        
+                                {item?.tds_attachment && !selectedFile && (
+                                    <div className="text-xs text-gray-500 mb-2">
+                                        Current: <a href={item.tds_attachment} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{item.tds_attachment.split('/').pop()}</a>
                                     </div>
                                 )}
-                                
-                                <input 
-                                    type="file" 
-                                    id="edit-tds-file-upload" 
-                                    className="hidden" 
-                                    accept=".pdf,application/pdf"
-                                    onChange={handleNewFileSelected}
+                                <CustomAttachment
+                                    maxFileSize={50 * 1024 * 1024}
+                                    selectedFile={selectedFile}
+                                    onFileSelect={setSelectedFile}
+                                    acceptedTypes="application/pdf"
+                                    label={item?.tds_attachment ? "Replace Document" : "Upload PDF Document"}
+                                    className="w-full"
                                 />
                             </div>
 

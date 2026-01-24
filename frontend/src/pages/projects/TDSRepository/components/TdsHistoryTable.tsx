@@ -121,7 +121,15 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
         {
             accessorKey: "tds_description",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Description" />,
-            cell: ({ row }) => <div className="truncate max-w-[150px]" title={row.getValue("tds_description")}>{row.getValue("tds_description")}</div>,
+            cell: ({ row }) => {
+                const description = row.getValue("tds_description") as string;
+                const displayValue = description?.trim() ? description : "--";
+                return (
+                    <div className="truncate max-w-[150px]" title={displayValue}>
+                        {displayValue}
+                    </div>
+                );
+            },
             size: 100,
         },
         {

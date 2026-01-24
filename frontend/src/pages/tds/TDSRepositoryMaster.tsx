@@ -129,7 +129,13 @@ export const TDSRepositoryMaster: React.FC = () => {
     const [deleteItem, setDeleteItem] = useState<TDSItem | null>(null);
     const { deleteDoc, loading: deleting } = useFrappeDeleteDoc();
     const { role } = useUserData();
-    const isAdmin = role === "Nirmaan Admin Profile";
+
+    // isPermission = true for roles NOT in this list (e.g., Nirmaan Admin Profile has edit rights)
+    const isPermission = !["Nirmaan HR Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Design Executive Profile", "Nirmaan Project Manager Profile"].includes(role);
+
+    //  console.log("role",isPermission,role)
+
+
 
     // Ref to hold the refetch function from the datatable wrapper
     const tableRefetchRef = React.useRef<(() => void) | null>(null);
@@ -235,14 +241,14 @@ export const TDSRepositoryMaster: React.FC = () => {
                     <Button
                         variant="ghost"
                         size="icon"
-                        className={`h-8 w-8 text-gray-600 ${isAdmin ? "hover:text-blue-600" : "opacity-50 cursor-not-allowed"}`}
+                        className={`h-8 w-8 text-gray-600 ${isPermission ? "hover:text-blue-600" : "opacity-50 cursor-not-allowed"}`}
                         onClick={() => {
-                            if (isAdmin) {
+                            if (isPermission) {
                                 setEditItem(row.original);
                                 setIsEditOpen(true);
                             }
                         }}
-                        // disabled={!isAdmin}
+                        // disabled={!isPermission}
                         title={ "Edit Item"}
                     >
                         <Pencil className="h-4 w-4" />
@@ -250,21 +256,21 @@ export const TDSRepositoryMaster: React.FC = () => {
                     <Button
                         variant="ghost"
                         size="icon"
-                        className={`h-8 w-8 text-gray-600 ${isAdmin ? "hover:text-red-600" : "opacity-50 cursor-not-allowed"}`}
+                        className={`h-8 w-8 text-gray-600 ${isPermission ? "hover:text-red-600" : "opacity-50 cursor-not-allowed"}`}
                         onClick={() => {
-                            if (isAdmin) {
+                            if (isPermission) {
                                 setDeleteItem(row.original);
                             }
                         }}
-                        disabled={!isAdmin}
-                        title={!isAdmin ? "Only Admin can delete" : "Delete Item"}
+                        disabled={!isPermission}
+                        title={!isPermission ? "Only Admin can delete" : "Delete Item"}
                     >
                         <Trash2 className="h-4 w-4" />
                     </Button>
                 </div>
             )
         }
-    ], [isAdmin]);
+    ], [isPermission]);
 
     const searchableFields = [
         { label: "Item Name", value: "tds_item_name" }, 

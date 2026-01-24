@@ -9,8 +9,9 @@ import {
 } from "@/components/ui/table";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { DeliveryDataType } from '@/types/NirmaanStack/ProcurementOrders';
-// import { formatDate } from "date-fns";
+import { format } from "date-fns";
 import { formatDate } from "@/utils/FormatDate";
+import { toast } from "@/components/ui/use-toast";
 
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
@@ -39,10 +40,65 @@ interface ExpandableRowProps {
   onPrint: (date: string, historyEntryData: DeliveryDataType[string]) => void; // Updated to accept date
 }
 
-const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, data, isExpanded, onToggle, onPrint }) => {
+const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, poId, data, isExpanded, onToggle, onPrint }) => {
 
 
   // console.log("DeliveryHistoryTable", JSON.stringify(data));
+ // --- DIRECT DOWNLOAD FUNCTION ---
+  const handleDownloadDeliveryNote = async (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent row expansion when clicking print
+
+    if (!poId) {
+      toast({ title: "Error3", description: "PO ID is missing", variant: "destructive" });
+      return;
+    }
+
+    try {
+      toast({ title: "Generating PDF", description: `Downloading note for ${formatDate(new Date(date), "dd MMM")}...` });
+
+      // 1. Build Parameters
+      const formatname = "PO Delivery Histroy";
+      const formattedDate = typeof date === 'string' 
+      ? date 
+      : format(date, "yyyy-MM-dd");
+
+       const printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Procurement%20Orders&name=${poId}&format=${encodeURIComponent(formatname)}&no_letterhead=0&delivery_date=${encodeURIComponent(formattedDate)}`;
+    
+      // 2. Fetch Blob
+      const response = await fetch(printUrl);
+      if (!response.ok) throw new Error("Failed to generate PDF");
+
+      const blob = await response.blob();
+
+      // 3. Download
+      const fileName = `${poId}_Delivery_${date}.pdf`;
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', fileName);
+      document.body.appendChild(link);
+      link.click();
+
+      // 4. Cleanup
+      link.remove();
+      window.URL.revokeObjectURL(url);
+
+      toast({
+        title: "Success",
+        description: "Delivery note downloaded.",
+        variant: "default" // or success
+      });
+
+    } catch (error) {
+      console.error("Download error:", error);
+      toast({
+        title: "Error",
+        description: "Failed to download delivery note.",
+        variant: "destructive"
+      });
+    }
+  };
+
 
   const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -73,7 +129,11 @@ const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, data, isExpa
             <div className="text-sm text-gray-500">{data.items.length} item(s) updated by {getUserName(data.updated_by)}</div>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); onPrint(date, data); }}><Printer className="h-4 w-4" /></Button>
+            {/* <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); onPrint(date, data); }}><Printer className="h-4 w-4" /></Button> */}
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleDownloadDeliveryNote}>
+              <Printer className="h-4 w-4 text-gray-700" />
+            </Button>
+            
             <button aria-label="Toggle details" className="p-1">{isExpanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}</button>
           </div>
         </div>
@@ -96,7 +156,7 @@ const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, data, isExpa
         <TableCell className={`${index === 0 ? "font-bold" : ""}`}>{index === 0 ? "Create" : "Update"}</TableCell>
         <TableCell>{getUserName(data.updated_by)}</TableCell>
         <TableCell>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); onPrint(date, data); }}><Printer className="h-4 w-4 text-gray-700" /></Button>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleDownloadDeliveryNote}><Printer className="h-4 w-4 text-gray-700" /></Button>
         </TableCell>
       </TableRow>
       {/* The expanded content row for desktop */}
@@ -120,6 +180,7 @@ const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, data, isExpa
 
 
 const DeliveryHistoryTable: React.FC<DeliveryHistoryTableProps> = ({
+  poId,
   deliveryData,
   onPrintHistory,
   showHeader = true, // Default to true for backwards compatibility
@@ -156,6 +217,7 @@ const DeliveryHistoryTable: React.FC<DeliveryHistoryTableProps> = ({
                   index={index}
                   date={date}
                   data={data}
+                  poId={poId}
                   isExpanded={expandedRows.includes(date)}
                   onToggle={handleToggle}
                   onPrint={onPrintHistory}
@@ -181,6 +243,7 @@ const DeliveryHistoryTable: React.FC<DeliveryHistoryTableProps> = ({
                 index={index}
                 date={date}
                 data={data}
+                poId={poId}
                 isExpanded={expandedRows.includes(date)}
                 onToggle={handleToggle}
                 onPrint={onPrintHistory}
