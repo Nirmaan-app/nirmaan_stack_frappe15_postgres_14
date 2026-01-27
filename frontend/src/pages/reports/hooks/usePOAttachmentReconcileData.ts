@@ -21,6 +21,7 @@ export interface AttachmentHoverItem {
     name: string;
     creation: string;
     attachment: string;
+    attachment_ref?: string;
 }
 
 // Row data structure for the table
@@ -78,7 +79,7 @@ const getPOAttachmentReconcileOptions = (): GetDocListArgs<FrappeDoc<Procurement
 
 // Fetch options for all attachments related to POs
 const getAttachmentsOptions = (): GetDocListArgs<FrappeDoc<NirmaanAttachment>> => ({
-    fields: ['name', 'creation', 'attachment', 'attachment_type', 'associated_docname'],
+    fields: ['name', 'creation', 'attachment', 'attachment_type', 'associated_docname', 'attachment_ref'],
     filters: [
         ["associated_doctype", "=", "Procurement Orders"],
         ["attachment_type", "in", ["po delivery challan", "material inspection report"]]
@@ -202,6 +203,7 @@ export const usePOAttachmentReconcileData = (): UsePOAttachmentReconcileDataResu
                 name: att.name,
                 creation: att.creation,
                 attachment: att.attachment,
+                attachment_ref: att.attachment_ref,
             };
 
             if (att.attachment_type === 'po delivery challan') {

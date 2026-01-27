@@ -129,6 +129,7 @@ const DCCountCell = ({ dcs, count }: { dcs: AttachmentHoverItem[]; count: number
                     <Table>
                         <TableHeader className="bg-gray-50">
                             <TableRow>
+                                <TableHead className="text-xs">DC No</TableHead>
                                 <TableHead className="text-xs">Uploaded On</TableHead>
                                 <TableHead className="text-xs text-right">Action</TableHead>
                             </TableRow>
@@ -136,6 +137,9 @@ const DCCountCell = ({ dcs, count }: { dcs: AttachmentHoverItem[]; count: number
                         <TableBody>
                             {dcs.map((dc, i) => (
                                 <TableRow key={i}>
+                                    <TableCell className="text-sm text-gray-600 py-2">
+                                        {dc.attachment_ref || '-'}
+                                    </TableCell>
                                     <TableCell className="text-sm text-gray-600 py-2">{formatDate(dc.creation)}</TableCell>
                                     <TableCell className="text-right py-2">
                                         <Button
@@ -203,6 +207,7 @@ const MIRCountCell = ({ mirs, count }: { mirs: AttachmentHoverItem[]; count: num
                     <Table>
                         <TableHeader className="bg-gray-50">
                             <TableRow>
+                                <TableHead className="text-xs">MIR No</TableHead>
                                 <TableHead className="text-xs">Uploaded On</TableHead>
                                 <TableHead className="text-xs text-right">Action</TableHead>
                             </TableRow>
@@ -210,6 +215,9 @@ const MIRCountCell = ({ mirs, count }: { mirs: AttachmentHoverItem[]; count: num
                         <TableBody>
                             {mirs.map((mir, i) => (
                                 <TableRow key={i}>
+                                    <TableCell className="text-sm text-gray-600 py-2">
+                                        {mir.attachment_ref || '-'}
+                                    </TableCell>
                                     <TableCell className="text-sm text-gray-600 py-2">{formatDate(mir.creation)}</TableCell>
                                     <TableCell className="text-right py-2">
                                         <Button
