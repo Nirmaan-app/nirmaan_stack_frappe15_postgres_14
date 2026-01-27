@@ -25,15 +25,14 @@ import { ColumnDef } from "@tanstack/react-table";
 import { toast } from "@/components/ui/use-toast";
 import { exportToCsv } from "@/utils/exportToCsv";
 import { formatDate } from "@/utils/FormatDate";
-import {
-  formatForReport,
-  formatToRoundedIndianRupee,
-} from "@/utils/FormatPrice";
-import { format } from "path";
+import { formatForReport } from "@/utils/FormatPrice";
+
 import { useUserData } from "@/hooks/useUserData";
-import { late } from "zod";
+
 import PO2BReconcileReport from "./PO2BReconcileReport";
 import POAttachmentReconcileReport from "./POAttachmentReconcileReport";
+import { Info } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface SelectOption {
   label: string;
@@ -60,7 +59,35 @@ export default function POReports() {
     [selectedReportType]
   );
   const payment_delta = 100;
-  const invoice_delta = 10;
+  const invoice_delta = 100;
+
+  const reportConditionDescription = useMemo(() => {
+    switch (selectedReportType) {
+      case "Pending Invoices":
+        return `POs with status "Partially Delivered" or "Delivered" where Amount Paid − Invoice Amount > ₹${invoice_delta.toLocaleString("en-IN")}`;
+      case "PO with Excess Payments":
+        return `POs with status "Partially Delivered" or "Delivered" where Amount Paid > Total PO Amount + ₹${payment_delta.toLocaleString("en-IN")}`;
+      case "Dispatched for 1 days":
+        return 'POs with status "Dispatched" where dispatch date is 1 or more days ago';
+      default:
+        return null;
+    }
+  }, [selectedReportType, invoice_delta, payment_delta]);
+
+  const summaryCardNode = useMemo(() => {
+    if (!reportConditionDescription) return undefined;
+    return (
+      <Alert
+        variant="default"
+        className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30"
+      >
+        <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+        <AlertDescription className="text-sm text-blue-800 dark:text-blue-300">
+          {reportConditionDescription}
+        </AlertDescription>
+      </Alert>
+    );
+  }, [reportConditionDescription]);
 
   // 3. Perform the report-specific dynamic filtering on the client side.
   // This `currentDisplayData` is what will be shown in the table.
@@ -95,7 +122,7 @@ export default function POReports() {
             poDoc.status === "Delivered"
           ) {
             return (
-              parseNumber(row.totalAmount) - parseNumber(row.invoiceAmount) >=
+              parseNumber(row.amountPaid) - parseNumber(row.invoiceAmount) >
               invoice_delta
             );
           }
@@ -361,6 +388,7 @@ export default function POReports() {
           columns={tableColumnsToDisplay}
           isLoading={isLoadingOverall}
           error={overallError as Error | null}
+          summaryCard={summaryCardNode}
           // totalCount={totalCount} // From useServerDataTable, now reflects currentDisplayData.length
           totalCount={filteredRowCount}
           searchFieldOptions={PO_REPORTS_SEARCHABLE_FIELDS}
