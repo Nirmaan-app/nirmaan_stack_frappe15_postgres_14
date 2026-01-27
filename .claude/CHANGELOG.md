@@ -4,6 +4,23 @@ Changes made by Claude Code sessions.
 
 ---
 
+### 2026-01-27: Attachment Ref Field for DC/MIR Reference Numbers
+
+**Summary:** Added `attachment_ref` Data field to Nirmaan Attachments doctype, allowing DC and MIR uploads to store a reference number (e.g., DC number, MIR number). Also refactored PO reports to use `po.amount_paid` directly instead of fetching a separate ProjectPayments list.
+
+**Backend Files Modified:**
+- `nirmaan_stack/doctype/nirmaan_attachments/nirmaan_attachments.json` - Added `attachment_ref` Data field
+
+**Frontend Files Modified:**
+- `src/types/NirmaanStack/NirmaanAttachment.ts` - Added `attachment_ref?: string` to interface
+
+**Key Details:**
+- `attachment_ref` stores DC number or MIR number as optional reference text
+- Used in upload dialogs, attachment tables, and report popovers
+- PO reports (`usePOReportsData.ts`) now use `po.amount_paid` instead of fetching ProjectPayments separately
+
+---
+
 ### 2026-01-23: Vendor Invoices Doctype with Approval Workflow
 
 **Summary:** Created centralized Vendor Invoices doctype to replace embedded invoice data in delivery notes. Includes approval/rejection workflow, duplicate detection, and migration from legacy data.

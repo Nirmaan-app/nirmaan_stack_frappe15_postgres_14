@@ -106,7 +106,7 @@ Asset Category
 
 | Doctype | Purpose |
 |---------|---------|
-| **Nirmaan Attachments** | File attachment system |
+| **Nirmaan Attachments** | File attachment system with `attachment_ref` for DC/MIR reference numbers |
 | **Nirmaan Comments** | Comment system |
 | **Nirmaan Notifications** | In-app notification storage |
 | **Nirmaan Versions** | Custom document versioning |

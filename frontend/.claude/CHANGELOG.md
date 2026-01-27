@@ -4,6 +4,47 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-27: DC/MIR Reference Numbers + DCs Column in Material Usage
+
+### Summary
+Added DC/MIR reference number capture and display across upload dialogs, attachment tables, and PO reconcile reports. Added a new "DCs" column to the Project Material Usage table showing delivery challan counts per item with a popover for details. Simplified PO reports by removing separate payments fetch.
+
+### Commits
+- `0069d8ac` - feat: add attachment_ref field to Nirmaan Attachments doctype
+- `fe8999e1` - feat: add DC/MIR reference number capture and display
+- `907e24b7` - feat: show attachment ref numbers in PO reconcile report
+- `f08276bf` - refactor(reports): use PO amount_paid instead of separate payments fetch
+- `e9a8561e` - feat: add DCs column to project material usage table
+
+### Files Created
+- `src/pages/projects/components/DCCountCell.tsx` - Popover component showing DC count badge (gray "0" or amber truck icon) with table of DC details (DC No, Uploaded On, View link)
+
+### Files Modified
+
+**Upload Dialogs (ref number input):**
+- `src/pages/DeliveryChallansAndMirs/DeliveryChallansAndMirs.tsx` - Added refNumber state, input field, display in view dialog
+- `src/pages/ProcurementOrders/invoices-and-dcs/DocumentAttachments.tsx` - Same pattern
+- `src/pages/ProcurementOrders/purchase-order/components/PODetails.tsx` - Same pattern
+
+**Attachment Tables (ref number column):**
+- `src/pages/ProcurementOrders/invoices-and-dcs/components/DeliveryChallanTable.tsx` - Added "Ref No." column
+- `src/pages/ProcurementOrders/purchase-order/components/POAttachments.tsx` - Added "DC No." column
+
+**PO Reconcile Report (ref number in popovers):**
+- `src/pages/reports/components/columns/poAttachmentReconcileColumns.tsx` - DC No/MIR No columns in popovers
+- `src/pages/reports/hooks/usePOAttachmentReconcileData.ts` - Fetch and map attachment_ref
+
+**PO Reports Simplification:**
+- `src/pages/reports/hooks/usePOReportsData.ts` - Removed ProjectPayments fetch, use po.amount_paid directly
+
+**Material Usage Table (DCs column):**
+- `src/pages/projects/components/ProjectMaterialUsageTab.tsx` - Added deliveryChallans/dcCount to interface + CSV export
+- `src/pages/projects/hooks/useMaterialUsageData.ts` - DC attachment fetch, dcByPOMap, merge into items
+- `src/pages/projects/components/VirtualizedMaterialTable.tsx` - Header + totalColumns update
+- `src/pages/projects/components/MaterialTableRow.tsx` - DCCountCell rendering
+
+---
+
 ## 2026-01-23: Vendor Invoices Frontend Integration
 
 ### Summary
