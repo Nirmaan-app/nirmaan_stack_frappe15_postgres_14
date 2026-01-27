@@ -14,6 +14,7 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | [domain/customers.md](./domain/customers.md) | Customers | Customer CRUD, financials, inflows, project relationships |
 | [domain/invoices.md](./domain/invoices.md) | Invoices | PO/SR invoices, 2B reconciliation, date filters |
 | [domain/milestones.md](./domain/milestones.md) | Milestones | Daily progress reports, zone tracking, work headers |
+| [domain/projects.md](./domain/projects.md) | Projects | Project status lifecycle, ProjectSelect component, status restrictions |
 
 ### Module References (in-code)
 
@@ -69,7 +70,8 @@ const { role, user_id } = useUserData();
     └── domain/
         ├── customers.md  # Customer management & financials
         ├── invoices.md   # Invoice management & 2B reconciliation
-        └── milestones.md # Daily progress reports & zone tracking
+        ├── milestones.md # Daily progress reports & zone tracking
+        └── projects.md   # Project status lifecycle & frontend behavior
 ```
 
 ---

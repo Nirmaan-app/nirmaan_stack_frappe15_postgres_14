@@ -4,6 +4,29 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-27: Project Status Lifecycle Analysis & Documentation
+
+### Summary
+Comprehensive analysis of how project statuses (Created, WIP, Halted, Completed) affect the application. Documented findings in new context files.
+
+### Key Findings
+- `ProjectSelect` component (`components/custom-select/project-select.tsx:34`) filters out Halted/Completed projects from dropdowns by default
+- PR and SR/WO creation pages do NOT use `ProjectSelect` and have NO status guards
+- Financial operations (New Inflow Payment, New Project Invoice) intentionally bypass filter with `all={true}`
+- Backend: Design Tracker blocks Halted/Completed; Progress reports exclude Completed
+- No hard backend API validation exists for any status
+
+### Context Files Created
+- `.claude/context/domain/projects.md` (backend) - Status lifecycle, backend effects, gotchas
+- `frontend/.claude/context/domain/projects.md` - Frontend status behavior, ProjectSelect usage map, impact matrix
+
+### Context Files Updated
+- `.claude/context/_index.md` - Added projects domain reference
+- `.claude/context/workflows.md` - Added Project Status Lifecycle section
+- `frontend/.claude/context/_index.md` - Added projects domain reference + directory tree
+
+---
+
 ## 2026-01-27: DC/MIR Reference Numbers + DCs Column in Material Usage
 
 ### Summary

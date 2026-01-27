@@ -4,6 +4,19 @@ Changes made by Claude Code sessions.
 
 ---
 
+### 2026-01-27: Project Status Lifecycle Documentation
+
+**Summary:** Analyzed how project statuses affect the full application. Created `domain/projects.md` context file and updated `workflows.md` with project lifecycle section. Added index references.
+
+**Context Files Created:**
+- `.claude/context/domain/projects.md` - Project status lifecycle, backend effects, frontend behavior summary
+
+**Context Files Updated:**
+- `.claude/context/_index.md` - Added projects domain reference
+- `.claude/context/workflows.md` - Added Project Status Lifecycle section
+
+---
+
 ### 2026-01-27: Attachment Ref Field for DC/MIR Reference Numbers
 
 **Summary:** Added `attachment_ref` Data field to Nirmaan Attachments doctype, allowing DC and MIR uploads to store a reference number (e.g., DC number, MIR number). Also refactored PO reports to use `po.amount_paid` directly instead of fetching a separate ProjectPayments list.
