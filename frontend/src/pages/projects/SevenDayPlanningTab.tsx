@@ -59,10 +59,10 @@ export const SevenDayPlanningTab = ({ isOverview, projectName }: { isOverview?: 
             projectName={projectName}
           />
         )}
-        {activeTab === PLANNING_TABS.FINANCIAL_PLAN && (
+        {activeTab === PLANNING_TABS.Cashflow_Plan && (
           <div>
-             <h3 className="text-lg font-medium mb-4">Financial Plan Content</h3>
-             <p className="text-gray-500">Financial plan details for the selected period will appear here.</p>
+             <h3 className="text-lg font-medium mb-4">Cashflow Plan Content</h3>
+             <p className="text-gray-500">Cashflow plan details for the selected period will appear here.</p>
           </div>
         )}
       </div>

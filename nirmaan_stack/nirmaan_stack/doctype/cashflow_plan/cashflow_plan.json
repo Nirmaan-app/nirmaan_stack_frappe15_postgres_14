@@ -1,0 +1,136 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-01-27 17:04:19.121685",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "link_section",
+  "project",
+  "vendor",
+  "cashflow_details_section",
+  "id_link",
+  "planned_date",
+  "planned_amount",
+  "type",
+  "items",
+  "for_new_powo_section",
+  "estimated_price",
+  "for_pos_section",
+  "critical_po_category",
+  "critical_po_task",
+  "for_msc_section",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "fieldname": "link_section",
+   "fieldtype": "Section Break",
+   "label": "Link"
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Projects"
+  },
+  {
+   "fieldname": "vendor",
+   "fieldtype": "Link",
+   "label": "Vendor",
+   "options": "Vendors"
+  },
+  {
+   "fieldname": "cashflow_details_section",
+   "fieldtype": "Section Break",
+   "label": "Cashflow Common"
+  },
+  {
+   "fieldname": "id_link",
+   "fieldtype": "Data",
+   "label": "ID Link"
+  },
+  {
+   "fieldname": "planned_date",
+   "fieldtype": "Date",
+   "label": "Planned Date"
+  },
+  {
+   "fieldname": "planned_amount",
+   "fieldtype": "Currency",
+   "label": "Planned Amount"
+  },
+  {
+   "fieldname": "type",
+   "fieldtype": "Data",
+   "label": "Type"
+  },
+  {
+   "fieldname": "for_new_powo_section",
+   "fieldtype": "Section Break",
+   "label": "For New PO/WO"
+  },
+  {
+   "fieldname": "estimated_price",
+   "fieldtype": "Currency",
+   "label": "Estimated Price"
+  },
+  {
+   "fieldname": "for_msc_section",
+   "fieldtype": "Section Break",
+   "label": "For MSC/Inflow"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Text",
+   "label": "Remarks"
+  },
+  {
+   "fieldname": "for_pos_section",
+   "fieldtype": "Section Break",
+   "label": "For POs"
+  },
+  {
+   "fieldname": "critical_po_category",
+   "fieldtype": "Data",
+   "label": "Critical PO Category"
+  },
+  {
+   "fieldname": "critical_po_task",
+   "fieldtype": "Data",
+   "label": "Critical PO Task"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "JSON",
+   "label": "Items"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-01-27 17:37:30.682168",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Cashflow Plan",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
