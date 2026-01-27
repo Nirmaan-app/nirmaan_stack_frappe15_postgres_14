@@ -19,6 +19,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useUserData } from '@/hooks/useUserData';
 
 interface ZoneProgressInfo {
   status: string | null;
@@ -291,9 +292,12 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
   const isOverallButtonDisabled = disabled || isDownloadingOverall || isSingleZone || !isEnoughCompleted;
 
   // Truncate zone name for button if too long
-  const zoneButtonLabel = selectedZone 
-    ? (selectedZone.length > 12 ? `${selectedZone.slice(0, 10)}..` : selectedZone) + ' DPR'
-    : 'Zone DPR';
+  // const zoneButtonLabel = selectedZone 
+  //   ? (selectedZone.length > 12 ? `${selectedZone.slice(0, 10)}..` : selectedZone) + ' DPR'
+  //   : 'Zone DPR';
+
+  const { role } = useUserData();
+  const isProjectManager = role === "Nirmaan Project Manager Profile";
 
   return (
     <div className="flex items-center gap-2">
@@ -328,6 +332,7 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
       </TooltipProvider> */}
 
       {/* All Zones DPR Button */}
+      {!isProjectManager && (
       <TooltipProvider>
         <Tooltip delayDuration={200}>
           <TooltipTrigger asChild>
@@ -356,8 +361,10 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
+      )}
 
       {/* All Zones 14 Days Report Button */}
+      {!isProjectManager && (
       <TooltipProvider>
         <Tooltip delayDuration={200}>
           <TooltipTrigger asChild>
@@ -381,6 +388,7 @@ export const PDFDownloadButtons: React.FC<PDFDownloadButtonsProps> = ({
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
+      )}
 
 
       <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
