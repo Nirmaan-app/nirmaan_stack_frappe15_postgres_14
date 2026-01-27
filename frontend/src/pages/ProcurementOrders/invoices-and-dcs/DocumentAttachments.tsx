@@ -119,6 +119,7 @@ export const DocumentAttachments = <T extends DocumentType>({
     type: null,
   });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [refNumber, setRefNumber] = useState("");
 
   const { updateDoc, loading: update_loading } = useFrappeUpdateDoc();
   // Hook for fetching new invoice number
@@ -158,7 +159,7 @@ export const DocumentAttachments = <T extends DocumentType>({
   } = useFrappeGetDocList<NirmaanAttachment>(
     "Nirmaan Attachments",
     {
-      fields: ["name", "attachment_type", "attachment", "creation"], // Fetch only needed fields
+      fields: ["name", "attachment_type", "attachment", "creation", "attachment_ref"], // Fetch only needed fields
       filters: [
         ["associated_doctype", "=", docType],
         ["associated_docname", "=", docName],
@@ -337,6 +338,7 @@ export const DocumentAttachments = <T extends DocumentType>({
   const handleCloseUploadDialog = useCallback(() => {
     setUploadDialog({ open: false, type: null });
     setSelectedFile(null);
+    setRefNumber("");
   }, []);
 
   const handleUploadFile = useCallback(async () => {
@@ -383,6 +385,7 @@ export const DocumentAttachments = <T extends DocumentType>({
         associated_docname: docName,
         attachment_link_doctype: "Vendors",
         attachment_link_docname: (documentData as ProcurementOrder).vendor,
+        attachment_ref: refNumber || undefined,
       };
 
       await createAttachmentDoc({ doc: attachmentDoc });
@@ -784,7 +787,7 @@ export const DocumentAttachments = <T extends DocumentType>({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="py-4">
+          <div className="py-4 space-y-4">
             <CustomAttachment
               selectedFile={selectedFile}
               onFileSelect={setSelectedFile}
@@ -792,6 +795,16 @@ export const DocumentAttachments = <T extends DocumentType>({
               maxFileSize={20 * 1024 * 1024}
               acceptedTypes={["application/pdf", "image/*"]}
             />
+            <div className="space-y-2">
+              <label className="text-sm font-medium">
+                {uploadDialog.type === "DC" ? "DC Number" : "MIR Number"}
+              </label>
+              <Input
+                placeholder="Enter reference number (optional)"
+                value={refNumber}
+                onChange={(e) => setRefNumber(e.target.value)}
+              />
+            </div>
           </div>
 
           <DialogFooter>

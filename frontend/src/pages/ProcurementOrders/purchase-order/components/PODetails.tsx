@@ -185,6 +185,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
     type: null,
   });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [refNumber, setRefNumber] = useState("");
 
   // Upload hooks
   const { upload, loading: uploadLoading } = useFrappeFileUpload();
@@ -199,6 +200,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
   const handleCloseUploadDialog = useCallback(() => {
     setUploadDialog({ open: false, type: null });
     setSelectedFile(null);
+    setRefNumber("");
   }, []);
 
   const handleUploadFile = useCallback(async () => {
@@ -239,6 +241,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
         associated_docname: po.name,
         attachment_link_doctype: "Vendors",
         attachment_link_docname: po.vendor,
+        attachment_ref: refNumber || undefined,
       };
 
       await createAttachmentDoc({ doc: attachmentDoc });
@@ -1522,7 +1525,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="py-4">
+          <div className="py-4 space-y-4">
             <CustomAttachment
               selectedFile={selectedFile}
               onFileSelect={setSelectedFile}
@@ -1530,6 +1533,16 @@ export const PODetails: React.FC<PODetailsProps> = ({
               maxFileSize={20 * 1024 * 1024}
               acceptedTypes={["application/pdf", "image/*"]}
             />
+            <div className="space-y-2">
+              <label className="text-sm font-medium">
+                {uploadDialog.type === "DC" ? "DC Number" : "MIR Number"}
+              </label>
+              <Input
+                placeholder={uploadDialog.type === "DC" ? "Enter DC number (optional)" : "Enter MIR number (optional)"}
+                value={refNumber}
+                onChange={(e) => setRefNumber(e.target.value)}
+              />
+            </div>
           </div>
 
           <DialogFooter>
