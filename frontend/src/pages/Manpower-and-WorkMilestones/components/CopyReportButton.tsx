@@ -143,6 +143,21 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
 
   const { createDoc } = useFrappeCreateDoc();
   const { updateDoc } = useFrappeUpdateDoc();
+  
+  // State for highlighting invalid milestone
+  const [highlightedErrorMilestone, setHighlightedErrorMilestone] = useState<string | null>(null);
+
+  // Helper to scroll to invalid milestone
+  const scrollToMilestone = (milestoneName: string) => {
+    const id = `milestone-row-${milestoneName.replace(/[^a-zA-Z0-9-_]/g, '_')}`;
+    const element = document.getElementById(id);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setHighlightedErrorMilestone(milestoneName);
+      // Clear highlight after 3 seconds
+      setTimeout(() => setHighlightedErrorMilestone(null), 3000);
+    }
+  };
 
   // Checks for existing reports (Logic remains same)
   const { data: todayReportList } = useFrappeGetDocList("Project Progress Reports", {
@@ -634,6 +649,33 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
     }
     // --- VALIDATION END ---
 
+    // --- VALIDATION BEFORE SUBMISSION ---
+    // Ensure all Not Started/WIP milestones have valid dates (Today or Future)
+    for (const m of editableMilestones) {
+      if (m.status === 'Not Started') {
+        if (!m.expected_starting_date || m.expected_starting_date < todayStr) {
+          toast({
+            title: "Invalid Start Date",
+            description: `Expected Start Date for "${m.work_milestone_name}" is in the past. Please update the date or change the status.`,
+            variant: "destructive"
+          });
+          scrollToMilestone(m.work_milestone_name); // SCROLL AND HIGHLIGHT
+          return;
+        }
+      }
+      if (m.status === 'WIP' && m.progress > 75) {
+         if (!m.expected_completion_date || m.expected_completion_date < todayStr) {
+          toast({
+            title: "Invalid Completion Date",
+            description: `Expected Completion Date for "${m.work_milestone_name}" is in the past. Please update the date or change the status.`,
+            variant: "destructive"
+          });
+          scrollToMilestone(m.work_milestone_name); // SCROLL AND HIGHLIGHT
+          return;
+        }
+      }
+    }
+
     setIsCopying(true);
 
     try {
@@ -1120,7 +1162,15 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
                           </div>
                           <div className="divide-y divide-gray-100">
                             {milestones.map((m: any, mIdx: number) => (
-                              <div key={mIdx} className="p-3 text-xs space-y-2">
+                              <div 
+                                key={mIdx} 
+                                id={`milestone-row-${m.work_milestone_name.replace(/[^a-zA-Z0-9-_]/g, '_')}`}
+                                className={`p-3 text-xs space-y-2 transition-colors duration-500 ${
+                                    highlightedErrorMilestone === m.work_milestone_name 
+                                    ? 'bg-red-50 border-l-4 border-l-red-500 ring-1 ring-inset ring-red-200' 
+                                    : ''
+                                }`}
+                              >
                                 <div className="flex justify-between items-center">
                                   <span className="font-medium text-gray-800 break-words flex-1 pr-2">{m.work_milestone_name}</span>
                                   <select
