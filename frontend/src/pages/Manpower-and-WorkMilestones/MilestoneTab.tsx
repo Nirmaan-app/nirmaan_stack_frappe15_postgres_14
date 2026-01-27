@@ -298,7 +298,7 @@ const MilestoneTabInner = () => {
     data: latestCompletedReportsList,
     isLoading: latestCompletedReportsListLoading,
     error: latestCompletedReportsListError,
-  } = useFrappeGetDocList<{ name: string, project: string, report_date: string, report_status: 'Draft' | 'Completed' }>("Project Progress Reports", {
+  } = useFrappeGetDocList<{ name: string, project: string, report_date: string, report_status: 'Draft' | 'Completed', report_zone?: string }>("Project Progress Reports", {
     fields: ["name", "project", "report_date", "report_status",'report_zone'],
     filters: [
       ["project", "=", projectId],
@@ -1454,7 +1454,7 @@ console.log(user)
         clearAllTabData();
         console.log("clearrrrr")
         setCurrentFrappeReportName(null);
-        navigate('/prs&milestones/milestone-report', { replace: true });
+        navigate(`/prs&milestones/milestone-report?zone=${reportZone}`, { replace: true });
 
       } else if (isCalledFromManpowerDialog) {
         setIsUpdateManpowerDialogOpen(false);
@@ -1490,8 +1490,14 @@ console.log(user)
     }
   };
 
-  const openUpdateMilestoneDialog = (milestone: LocalMilestoneData) => {
+  // --- STATE FOR HIGHLIGHTING DATE ERROR ---
+  const [highlightInvalidDate, setHighlightInvalidDate] = useState(false);
+
+  const openUpdateMilestoneDialog = (milestone: LocalMilestoneData, hasDateError = false) => {
     setSelectedMilestoneForDialog(milestone || null);
+    
+    // Set highlight state
+    setHighlightInvalidDate(hasDateError);
 
     setNewStatus(milestone.status);
     setProgress(milestone.progress);
@@ -1521,6 +1527,9 @@ console.log(user)
       return;
     }
 
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
     if (newStatus === 'Not Started') {
       if (!expectedDate) {
         toast({
@@ -1528,7 +1537,17 @@ console.log(user)
           description: "Please provide an expected starting date for 'Not Started' milestones.",
           variant: "destructive",
         });
+        setHighlightInvalidDate(true);
         return;
+      }
+      if (expectedDate < today) {
+         toast({
+            title: "Validation Error 🚫",
+            description: "Expected Starting Date cannot be in the past. Please update the date or change the status.",
+            variant: "destructive",
+          });
+          setHighlightInvalidDate(true);
+          return;
       }
     } else if (newStatus === 'WIP') {
       if (progress <= 0 || progress >= 100) {
@@ -1539,13 +1558,25 @@ console.log(user)
         });
         return;
       }
-      if (progress>75 && !expectedDate) {
-        toast({
-          title: "Validation Error 🚫",
-          description: "Please provide an expected completion date for 'WIP' milestones.",
-          variant: "destructive",
-        });
-        return;
+      if (progress>75) {
+         if(!expectedDate){
+            toast({
+              title: "Validation Error 🚫",
+              description: "Please provide an expected completion date for 'WIP' milestones.",
+              variant: "destructive",
+            });
+            setHighlightInvalidDate(true);
+            return;
+         }
+         if (expectedDate < today) {
+            toast({
+                title: "Validation Error 🚫",
+                description: "Expected Completion Date cannot be in the past. Please update the date or change the status.",
+                variant: "destructive",
+            });
+            setHighlightInvalidDate(true);
+            return;
+        }
       }
     }
 
@@ -1628,6 +1659,44 @@ console.log(user)
 
   // --- SAVE AS-IS HANDLERS ---
   const handleSaveAsIsClick = (milestone: LocalMilestoneData) => {
+    // --- DATE VALIDATION ---
+    // Use Date objects for comparison instead of strings
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    let isDateInvalid = false;
+    let invalidMessage = "";
+
+    if (milestone.status === 'Not Started') {
+        const startDate = milestone.expected_starting_date ? new Date(milestone.expected_starting_date) : null;
+        // Reset time for valid comparison
+        if (startDate) startDate.setHours(0,0,0,0);
+        
+        if (!startDate || startDate < today) {
+            isDateInvalid = true;
+            invalidMessage = "Expected Start Date is in the past. Please update the date or change the status.";
+        }
+    } else if (milestone.status === 'WIP' && milestone.progress > 75) {
+        const completionDate = milestone.expected_completion_date ? new Date(milestone.expected_completion_date) : null;
+        if (completionDate) completionDate.setHours(0,0,0,0);
+
+        if (!completionDate || completionDate < today) {
+             isDateInvalid = true;
+             invalidMessage = "Expected Completion Date is in the past. Please update the date or change the status.";
+        }
+    }
+
+    if (isDateInvalid) {
+        toast({
+            title: "Update Required",
+            description: invalidMessage,
+            variant: "destructive", // Or "warning"
+        });
+        openUpdateMilestoneDialog(milestone, true); // Pass true to highlight date
+        return;
+    }
+    // -----------------------
+
     // Only show confirmation if:
     // 1. Milestone is WIP or Not Started AND
     // 2. Previous milestone had work_plan_ratio === 'Plan Required' OR had existing work_plan
@@ -1636,7 +1705,9 @@ console.log(user)
     
     if (isWIPOrNotStarted && hadPreviousWorkPlan) {
       // Open the update milestone dialog instead (so user can review/update activities)
-      openUpdateMilestoneDialog(milestone);
+      // Pass false (or true if you want to force highlight, but usually false here if no date error)
+      // Actually check date again? No, we already passed validation above.
+      openUpdateMilestoneDialog(milestone, false);
     } else {
       // Directly save as-is (no confirmation needed)
       executeSaveAsIs(milestone);
@@ -1781,7 +1852,7 @@ console.log(user)
 
       // Re-fetch existing drafts to reflect the deletion
       refetchExistingDraftReport();
-      navigate('/prs&milestones/milestone-report')
+      navigate(`/prs&milestones/milestone-report?zone=${reportZone}`)
       // Navigate away or force a UI re-initialization if needed
       // navigate('/prs&milestones/milestone-report', { replace: true });
 
@@ -1839,7 +1910,7 @@ console.log(user)
             </Button>
           )}
           <Button
-            onClick={() => navigate('/prs&milestones/milestone-report')}
+            onClick={() => navigate(`/prs&milestones/milestone-report?zone=${reportZone}`)}
             className="w-full bg-gray-600 hover:bg-gray-700 text-white text-lg py-3 rounded-full shadow-lg transition-all duration-200 ease-in-out hover:scale-105"
           >
             Go Back to Reports Overview
@@ -1869,7 +1940,7 @@ console.log(user)
         )}
 
         <Button
-          onClick={() => navigate('/prs&milestones/milestone-report')}
+          onClick={() => navigate(`/prs&milestones/milestone-report?zone=${reportZone}`)}
           className="bg-green-600 hover:bg-green-700 text-white text-lg py-3 px-8 rounded-full shadow-lg transition-all duration-300 ease-in-out hover:scale-105"
         >
           Go Back to Reports Overview
@@ -3008,6 +3079,7 @@ console.log(user)
                                 setIsMilestoneDatePickerOpen(false);
                             }}
                             initialFocus
+                            disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
                         />
                     </PopoverContent>
                 </Popover>
@@ -3025,11 +3097,11 @@ console.log(user)
                     <PopoverTrigger asChild>
                         <Button
                             variant={"outline"}
-                            className={"w-full justify-start text-left font-normal h-10 text-base border-gray-300"}
+                            className={`w-full justify-start text-left font-normal h-10 text-base border-gray-300 ${highlightInvalidDate ? "ring-2 ring-red-500 border-red-500 bg-red-50 text-red-900" : ""}`}
                             disabled={isBlockedByDraftOwnership}
                         >
                             <CalendarIcon className="mr-2 h-4 w-4 text-gray-500" />
-                            {expectedDate ? formatDate(expectedDate) : "Select starting date"} {/* Changed placeholder */}
+                            {expectedDate ? formatDate(expectedDate) : "Select starting date"}
                         </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0">
@@ -3038,9 +3110,11 @@ console.log(user)
                             selected={expectedDate || undefined}
                             onSelect={(date) => {
                                 setExpectedDate(date || null);
+                                setHighlightInvalidDate(false); // Clear error
                                 setIsMilestoneDatePickerOpen(false);
                             }}
                             initialFocus
+                            disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
                         />
                     </PopoverContent>
                 </Popover>
@@ -3057,11 +3131,11 @@ console.log(user)
                     <PopoverTrigger asChild>
                         <Button
                             variant={"outline"}
-                            className={"w-full justify-start text-left font-normal h-10 text-base border-gray-300"}
+                            className={`w-full justify-start text-left font-normal h-10 text-base border-gray-300 ${highlightInvalidDate ? "ring-2 ring-red-500 border-red-500 bg-red-50 text-red-900" : ""}`}
                             disabled={isBlockedByDraftOwnership}
                         >
                             <CalendarIcon className="mr-2 h-4 w-4 text-gray-500" />
-                            {expectedDate ? formatDate(expectedDate) : "Select completion date"} {/* Changed placeholder */}
+                            {expectedDate ? formatDate(expectedDate) : "Select completion date"}
                         </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0">
@@ -3070,9 +3144,11 @@ console.log(user)
                             selected={expectedDate || undefined}
                             onSelect={(date) => {
                                 setExpectedDate(date || null);
+                                setHighlightInvalidDate(false); // Clear error
                                 setIsMilestoneDatePickerOpen(false);
                             }}
                             initialFocus
+                            disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
                         />
                     </PopoverContent>
                 </Popover>
