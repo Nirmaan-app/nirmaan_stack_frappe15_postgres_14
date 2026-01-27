@@ -6,6 +6,7 @@ import { useUrlParam } from "@/hooks/useUrlParam";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { SevenDayPlanningTabs, PLANNING_TABS, PlanningTabValue } from "./components/planning/SevenDayPlanningTabs";
 import { cn } from "@/lib/utils";
+import { CashflowPlan } from "./CashflowPlan/CashflowPlan";
 
 export const SevenDayPlanningTab = ({ isOverview, projectName }: { isOverview?: boolean; projectName?: string }) => {
   const { projectId } = useParams<{ projectId: string }>();
@@ -60,10 +61,7 @@ export const SevenDayPlanningTab = ({ isOverview, projectName }: { isOverview?: 
           />
         )}
         {activeTab === PLANNING_TABS.Cashflow_Plan && (
-          <div>
-             <h3 className="text-lg font-medium mb-4">Cashflow Plan Content</h3>
-             <p className="text-gray-500">Cashflow plan details for the selected period will appear here.</p>
-          </div>
+          <CashflowPlan projectId={projectId} />
         )}
       </div>
     </div>
