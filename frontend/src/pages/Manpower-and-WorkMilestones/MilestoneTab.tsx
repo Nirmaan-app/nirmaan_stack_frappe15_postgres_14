@@ -298,7 +298,7 @@ const MilestoneTabInner = () => {
     data: latestCompletedReportsList,
     isLoading: latestCompletedReportsListLoading,
     error: latestCompletedReportsListError,
-  } = useFrappeGetDocList<{ name: string, project: string, report_date: string, report_status: 'Draft' | 'Completed' }>("Project Progress Reports", {
+  } = useFrappeGetDocList<{ name: string, project: string, report_date: string, report_status: 'Draft' | 'Completed', report_zone?: string }>("Project Progress Reports", {
     fields: ["name", "project", "report_date", "report_status",'report_zone'],
     filters: [
       ["project", "=", projectId],
@@ -1454,7 +1454,7 @@ console.log(user)
         clearAllTabData();
         console.log("clearrrrr")
         setCurrentFrappeReportName(null);
-        navigate('/prs&milestones/milestone-report', { replace: true });
+        navigate(`/prs&milestones/milestone-report?zone=${reportZone}`, { replace: true });
 
       } else if (isCalledFromManpowerDialog) {
         setIsUpdateManpowerDialogOpen(false);
@@ -1781,7 +1781,7 @@ console.log(user)
 
       // Re-fetch existing drafts to reflect the deletion
       refetchExistingDraftReport();
-      navigate('/prs&milestones/milestone-report')
+      navigate(`/prs&milestones/milestone-report?zone=${reportZone}`)
       // Navigate away or force a UI re-initialization if needed
       // navigate('/prs&milestones/milestone-report', { replace: true });
 
@@ -1839,7 +1839,7 @@ console.log(user)
             </Button>
           )}
           <Button
-            onClick={() => navigate('/prs&milestones/milestone-report')}
+            onClick={() => navigate(`/prs&milestones/milestone-report?zone=${reportZone}`)}
             className="w-full bg-gray-600 hover:bg-gray-700 text-white text-lg py-3 rounded-full shadow-lg transition-all duration-200 ease-in-out hover:scale-105"
           >
             Go Back to Reports Overview
@@ -1869,7 +1869,7 @@ console.log(user)
         )}
 
         <Button
-          onClick={() => navigate('/prs&milestones/milestone-report')}
+          onClick={() => navigate(`/prs&milestones/milestone-report?zone=${reportZone}`)}
           className="bg-green-600 hover:bg-green-700 text-white text-lg py-3 px-8 rounded-full shadow-lg transition-all duration-300 ease-in-out hover:scale-105"
         >
           Go Back to Reports Overview
@@ -3008,6 +3008,7 @@ console.log(user)
                                 setIsMilestoneDatePickerOpen(false);
                             }}
                             initialFocus
+                            disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
                         />
                     </PopoverContent>
                 </Popover>
@@ -3041,6 +3042,7 @@ console.log(user)
                                 setIsMilestoneDatePickerOpen(false);
                             }}
                             initialFocus
+                            disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
                         />
                     </PopoverContent>
                 </Popover>
@@ -3073,6 +3075,7 @@ console.log(user)
                                 setIsMilestoneDatePickerOpen(false);
                             }}
                             initialFocus
+                            disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
                         />
                     </PopoverContent>
                 </Popover>

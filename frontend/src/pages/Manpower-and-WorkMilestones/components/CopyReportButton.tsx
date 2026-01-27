@@ -702,7 +702,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
       }
 
       setIsDialogOpen(false);
-      navigate(`${selectedProject}?zone=${selectedZone}`);
+      navigate(`/prs&milestones/milestone-report/${selectedProject}?zone=${selectedZone}`);
 
     } catch (error: any) {
       console.error("Copy Error", error);
@@ -1162,6 +1162,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
                                       value={m.expected_starting_date || ''}
                                       onChange={(e) => handleMilestoneChange(m.work_milestone_name, 'expected_starting_date', e.target.value)}
                                       className="text-xs border rounded px-2 py-1"
+                                      min={todayStr}
                                     />
                                   </div>
                                 )}
@@ -1174,6 +1175,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
                                       value={m.expected_completion_date || ''}
                                       onChange={(e) => handleMilestoneChange(m.work_milestone_name, 'expected_completion_date', e.target.value)}
                                       className="text-xs border rounded px-2 py-1"
+                                      min={todayStr}
                                     />
                                   </div>
                                 )}
