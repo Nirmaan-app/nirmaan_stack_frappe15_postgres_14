@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { MaterialUsageDisplayItem, POStatus, MaterialSortKey } from './ProjectMaterialUsageTab';
 import { determineDeliveryStatus, determineOverallItemPOStatus } from '../config/materialUsageHelpers';
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { DCCountCell } from './DCCountCell';
 
 
 // =================================================================================
@@ -136,7 +137,12 @@ export const MaterialTableRow: React.FC<MaterialTableRowProps> = ({ item, hidden
       <TableCell className="text-center py-2 px-3">
         {renderPONumbers(item.poNumbers)}
       </TableCell>
-      
+
+      {/* Column: Delivery Challans */}
+      <TableCell className="text-center py-2 px-3">
+        <DCCountCell dcs={item.deliveryChallans || []} count={item.dcCount || 0} />
+      </TableCell>
+
       {/* Column: Overall PO Status Badge */}
       <TableCell className="text-center py-2 px-3">
         <Badge

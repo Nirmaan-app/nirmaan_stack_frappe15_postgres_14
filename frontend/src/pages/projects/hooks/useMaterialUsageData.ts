@@ -8,6 +8,7 @@ import { useOrderTotals } from '@/hooks/useOrderTotals';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
 import { DeliveryStatus, MaterialUsageDisplayItem, OverallItemPOStatus, POStatus } from '../components/ProjectMaterialUsageTab';
 import { determineDeliveryStatus, determineOverallItemPOStatus } from '../config/materialUsageHelpers';
+import { NirmaanAttachment } from '@/types/NirmaanStack/NirmaanAttachment';
 import formatToIndianRupee from "@/utils/FormatPrice";
 const safeParseFloat = (value: string | number | undefined | null, defaultValue = 0): number => {
   if (typeof value === 'number') return value;
@@ -54,7 +55,20 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
     // For simplicity and speed, fetching all items is usually fine if the item count is reasonable.
     limit: 0,
   }, `all_items_billing_category`);
-  //
+
+  const { data: dcAttachments, isLoading: dcLoading, error: dcError } = useFrappeGetDocList<NirmaanAttachment>(
+    'Nirmaan Attachments',
+    {
+      fields: ['name', 'creation', 'attachment', 'associated_docname', 'attachment_ref'],
+      filters: [
+        ['project', '=', projectId],
+        ['associated_doctype', '=', 'Procurement Orders'],
+        ['attachment_type', '=', 'po delivery challan'],
+      ],
+      limit: 0,
+    },
+    projectId ? `dc_attachments_${projectId}` : null
+  );
 
   // --- NEW MAP: Create Billing Category Lookup Map ---
   const billingCategoryMap = useMemo(() => {
@@ -66,6 +80,22 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
     });
     return map;
   }, [itemsData]);
+
+  const dcByPOMap = useMemo(() => {
+    const map = new Map<string, { name: string; creation: string; attachment: string; attachment_ref?: string }[]>();
+    dcAttachments?.forEach(att => {
+      if (!att.associated_docname) return;
+      const existing = map.get(att.associated_docname) || [];
+      existing.push({
+        name: att.name,
+        creation: att.creation,
+        attachment: att.attachment,
+        attachment_ref: att.attachment_ref,
+      });
+      map.set(att.associated_docname, existing);
+    });
+    return map;
+  }, [dcAttachments]);
   // --- END NEW MAP ---
 
 
@@ -185,6 +215,16 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
 
     const flatList = Array.from(usageByItemKey.values());
 
+    flatList.forEach(item => {
+      const dcs: { name: string; creation: string; attachment: string; attachment_ref?: string }[] = [];
+      item.poNumbers?.forEach(po => {
+        const poDcs = dcByPOMap.get(po.po);
+        if (poDcs) dcs.push(...poDcs);
+      });
+      item.deliveryChallans = dcs;
+      item.dcCount = dcs.length;
+    });
+
     flatList.sort((a, b) => {
       if (a.categoryName.localeCompare(b.categoryName) !== 0) {
         return a.categoryName.localeCompare(b.categoryName);
@@ -193,7 +233,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
     });
 
     return flatList;
-  }, [po_item_data, projectEstimates, getIndividualPOStatus,billingCategoryMap]);
+  }, [po_item_data, projectEstimates, getIndividualPOStatus, billingCategoryMap, dcByPOMap]);
 
   // --- Generate Filter Options ---
   const categoryOptions = useMemo(() => {
@@ -218,8 +258,8 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
 
   return {
     allMaterialUsageItems,
-    isLoading: po_item_loading || estimatesLoading,
-    error: po_item_error || estimatesError,
+    isLoading: po_item_loading || estimatesLoading || itemsLoading || dcLoading,
+    error: po_item_error || estimatesError || itemsError || dcError,
     categoryOptions,
     deliveryStatusOptions,
     poStatusOptions,

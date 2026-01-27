@@ -41,8 +41,11 @@ export interface MaterialUsageDisplayItem {
   deliveredQuantity: number;
   totalAmount?: number;
   deliveryStatus: DeliveryStatus;
-  overallPOPaymentStatus: OverallItemPOStatus; 
+  overallPOPaymentStatus: OverallItemPOStatus;
   poNumbers?: { po: string, status: POStatus, amount: number, poCalculatedAmount?: string }[];
+  billingCategory?: string;
+  deliveryChallans?: { name: string; creation: string; attachment: string; attachment_ref?: string }[];
+  dcCount?: number;
 }
 
 export interface ProjectMaterialUsageTabProps {
@@ -191,6 +194,7 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
       { header: 'Total Amount', accessor: (item: MaterialUsageDisplayItem) => item.totalAmount?.toFixed(2) || "0.00" },
       { header: 'Delivery Status', accessor: (item: MaterialUsageDisplayItem) => item.deliveryStatus },
       { header: 'PO Numbers', accessor: (item: MaterialUsageDisplayItem) => item.poNumbers?.map(p => p.po).join(', ') || "-" },
+      { header: 'DC Count', accessor: (item: MaterialUsageDisplayItem) => (item.dcCount || 0).toString() },
       { header: 'Overall PO Status', accessor: (item: MaterialUsageDisplayItem) => item.overallPOPaymentStatus },
     ];
 
