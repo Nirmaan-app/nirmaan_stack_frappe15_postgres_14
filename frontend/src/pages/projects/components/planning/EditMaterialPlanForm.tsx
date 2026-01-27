@@ -228,6 +228,7 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
                             value={deliveryDate}
                             onChange={(e) => setDeliveryDate(e.target.value)}
                               onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                              min={new Date().toISOString().split('T')[0]} // Restrict to future dates
                                     className="w-full p-2 border rounded-md cursor-pointer"
                         />
                         <p className="text-xs text-gray-500">This delivery date will apply to all selected items in this plan</p>
