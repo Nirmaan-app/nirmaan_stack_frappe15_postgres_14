@@ -529,6 +529,7 @@ export const ReviewPlansPage: React.FC<ReviewPlansPageProps> = ({
                                                 updateDeliveryDate(planIndex, date)
                                             }
                                             initialFocus
+                                            disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))} // Disable past dates
                                         />
                                     </PopoverContent>
                                 </Popover>
