@@ -286,10 +286,6 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
 
             updatedData = { ...updatedData, notes: { list: notes } }
 
-            if (orderData?.gst !== String(gstEnabled)) {
-                updatedData = { ...updatedData, gst: String(gstEnabled) }
-            }
-
             if (orderData?.project_gst !== selectedGST?.gst) {
                 updatedData = { ...updatedData, project_gst: selectedGST?.gst }
             }
@@ -320,6 +316,27 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
             })
         }
     }
+
+    const handleGstToggle = async (enabled: boolean) => {
+        setGstEnabled(enabled);
+        try {
+            await updateDoc("Service Requests", orderData?.name, { gst: String(enabled) });
+            await service_request_mutate();
+            toast({
+                title: "Success!",
+                description: "GST status updated successfully!",
+                variant: "success"
+            });
+        } catch (error) {
+            setGstEnabled(!enabled); // revert on failure
+            console.log("error while toggling GST", error);
+            toast({
+                title: "Failed!",
+                description: "Failed to update GST status!",
+                variant: "destructive"
+            });
+        }
+    };
 
     const AddPayment = async () => {
         try {
@@ -779,7 +796,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                     className={`font-semibold text-lg tracking-tight ${!selectedGST?.gst ? "text-primary" : ""
                                                         }`}
                                                 >
-                                                    Project GST Selection
+                                                    Nirmaan GST for Billing
                                                     <sup className="text-sm text-red-600">*</sup>
                                                 </h3>
                                                 {project &&
@@ -835,13 +852,6 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                         </>
                                                     )}
                                             </div>
-                                            {gstEnabled !== null && (
-                                                <div className="flex flex-col gap-2 pb-6 border-b border-gray-200">
-                                                    <p className="font-semibold">GST?</p>
-                                                    <Switch id="hello" defaultChecked={gstEnabled} onCheckedChange={(e) => setGstEnabled(e)} />
-                                                </div>
-                                            )}
-
                                             <div className="flex flex-col pt-4 gap-2">
                                                 <h3 className="text-sm font-semibold">Create Note Points</h3>
                                                 <div className="flex max-md:flex-col gap-4 md:items-center">
@@ -893,7 +903,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                 </div>
                                             )}
 
-                                            <Button disabled={update_loading || (!notes?.length && !(orderData?.notes?.list?.length) && orderData?.gst === String(gstEnabled) &&
+                                            <Button disabled={update_loading || (!notes?.length && !(orderData?.notes?.list?.length) &&
                                                 orderData?.project_gst === selectedGST?.gst)
                                             }
                                                 onClick={handleNotesSave}
@@ -907,6 +917,29 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                         </CardHeader>
                         <CardContent>
                             <div className="flex flex-col gap-2 items-start mt-4">
+                                <Label className="font-bold">Nirmaan GST for Billing</Label>
+                                {orderData?.project_gst ? (
+                                    <span className="text-sm text-gray-900">
+                                        {(() => {
+                                            try {
+                                                const gstList = JSON.parse(project?.project_gst_number || '{"list":[]}')?.list || [];
+                                                const match = gstList.find((item: any) => item.gst === orderData.project_gst);
+                                                return match ? `${match.location} (${match.gst})` : orderData.project_gst;
+                                            } catch {
+                                                return orderData.project_gst;
+                                            }
+                                        })()}
+                                    </span>
+                                ) : (
+                                    <span className="text-sm text-amber-600 flex items-center gap-1">
+                                        Not Selected <TriangleAlert className="w-3.5 h-3.5" />
+                                    </span>
+                                )}
+                            </div>
+
+                            <Separator className="my-4" />
+
+                            <div className="flex flex-col gap-2 items-start">
                                 <Label className="font-bold">Notes</Label>
                                 {notes?.length > 0 ? (
                                     <ul className="list-[number]">
@@ -922,10 +955,11 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                             <Separator className="my-4" />
 
                             <div className="flex items-center justify-between">
-                                <div className="flex flex-col gap-2 items-start mt-4">
-                                    <Label className="font-bold">GST?</Label>
-                                    <span>{gstEnabled ? "Yes" : "No"}</span>
-                                </div>
+                                <Label className="font-bold">GST Applicable?</Label>
+                                <Switch
+                                    checked={gstEnabled}
+                                    onCheckedChange={handleGstToggle}
+                                />
                             </div>
                         </CardContent>
                     </Card>
