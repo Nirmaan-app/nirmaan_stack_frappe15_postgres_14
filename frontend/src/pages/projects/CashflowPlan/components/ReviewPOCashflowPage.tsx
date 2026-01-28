@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useMemo } from "react";
 import ReactSelect from 'react-select';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -173,8 +173,9 @@ export const ReviewPOCashflowPage: React.FC<ReviewPOCashflowPageProps> = ({
 
     // Check if all plans are valid
     const isValid = useMemo(() => {
+        const today = new Date().toISOString().split('T')[0];
         return plans.every(
-            (plan) => plan.selectedItems.size > 0 && plan.plannedDate
+            (plan) => plan.selectedItems.size > 0 && plan.plannedDate && plan.plannedDate >= today && plan.plannedAmount && plan.plannedAmount > 0
         );
     }, [plans]);
 
@@ -498,7 +499,7 @@ export const ReviewPOCashflowPage: React.FC<ReviewPOCashflowPageProps> = ({
                             {/* Planned Date and Amount */}
                             <div className="space-y-4 pt-4">
                                 <div className="space-y-2">
-                                     <span className="text-sm font-medium">Vendor</span>
+                                     <span className="text-sm font-medium">Vendor <span className="text-red-500">*</span></span>
                                      <Input
                                          value={plan.vendorName || plan.vendor || ""}
                                          disabled
@@ -509,7 +510,7 @@ export const ReviewPOCashflowPage: React.FC<ReviewPOCashflowPageProps> = ({
 
                                 <div className="flex gap-4">
                                     <div className="flex-1 space-y-2">
-                                        <span className="text-sm font-medium">Planned Date</span>
+                                        <span className="text-sm font-medium">Planned Date <span className="text-red-500">*</span></span>
                                         <Popover>
                                             <PopoverTrigger asChild>
                                                 <Button
@@ -536,6 +537,7 @@ export const ReviewPOCashflowPage: React.FC<ReviewPOCashflowPageProps> = ({
                                                     onSelect={(date) =>
                                                         updatePlannedDate(planIndex, date)
                                                     }
+                                                    disabled={(date) => date < new Date(new Date().setHours(0,0,0,0))}
                                                     initialFocus
                                                 />
                                             </PopoverContent>
@@ -543,7 +545,7 @@ export const ReviewPOCashflowPage: React.FC<ReviewPOCashflowPageProps> = ({
                                     </div>
                                     
                                     <div className="flex-1 space-y-2">
-                                        <span className="text-sm font-medium">Planned Amount</span>
+                                        <span className="text-sm font-medium">Planned Amount <span className="text-red-500">*</span></span>
                                         <Input
                                             type="number"
                                             placeholder="Enter amount"

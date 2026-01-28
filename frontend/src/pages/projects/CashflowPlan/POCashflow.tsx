@@ -7,6 +7,7 @@ import { useUrlParam } from "@/hooks/useUrlParam";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AddPOCashflowForm } from "./components/AddPOCashflowForm";
+import { FromMaterialPlanDialog } from "./components/FromMaterialPlanDialog";
 
 // const EditPOCashflowForm = ({ plan, onClose, onSuccess }: any) => {
 //     console.log("Edit form placeholder", plan, onClose, onSuccess);
@@ -92,13 +93,14 @@ const POCashflowContent = ({ projectId }: POCashflowContentProps) => {
     const { data: existingPlans, isLoading: isLoadingPlans, mutate: refreshPlans } = useFrappeGetDocList("Cashflow Plan", {
         fields: ["name", "id_link","type", "planned_date", "planned_amount", "creation", "critical_po_category", "critical_po_task", "items", "remarks", "vendor.vendor_name", "estimated_price"],
         filters: docListFilters,
-        orderBy: { field: "planned_date", order: "asc" },
+        orderBy: { field: "creation", order: "desc" },
         limit:0
     });
 
 
     const [planForms, setPlanForms] = useState<number[]>([]);
     const [expandedPlans, setExpandedPlans] = useState<string[]>([]);
+    const [showMaterialDialog, setShowMaterialDialog] = useState(false);
 
     const addPlanForm = () => {
         setPlanForms(prev => [...prev, Date.now()]);
@@ -136,10 +138,10 @@ const POCashflowContent = ({ projectId }: POCashflowContentProps) => {
                             </Badge>
                         )}
                     </div>
-                    <div className="flex">
-                        {/* <Button onClick={OpenMaterialDailog} variant="outline" className="bg-gray-50">
-                            From MaterialPlan
-                        </Button> */}
+                    <div className="flex gap-2">
+                        <Button onClick={() => setShowMaterialDialog(true)} variant="outline" className="bg-gray-50 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700">
+                            From Material Plan
+                        </Button>
                      {planForms.length === 0 ? (
                         <Button onClick={addPlanForm} className="bg-red-600 hover:bg-red-700 text-white">
                             Add PO Plan
@@ -304,6 +306,16 @@ const POCashflowContent = ({ projectId }: POCashflowContentProps) => {
                     })}
                  </div>
             </div>
+
+            <FromMaterialPlanDialog 
+                isOpen={showMaterialDialog} 
+                onClose={() => setShowMaterialDialog(false)}
+                projectId={projectId}
+                onSuccess={() => {
+                    refreshPlans();
+                    setShowMaterialDialog(false);
+                }}
+            />
         </div>
     );
 };

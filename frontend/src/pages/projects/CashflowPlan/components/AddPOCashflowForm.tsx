@@ -1,17 +1,16 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
-import { X, ChevronDown, Check, ChevronsUpDown, PlusCircleIcon, Search, Package, ExternalLink, RefreshCw, Trash2 } from "lucide-react";
+import { X, RefreshCw } from "lucide-react";
 import ReactSelect from 'react-select';
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup"; 
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-import { useFrappePostCall, useFrappeCreateDoc } from "frappe-react-sdk";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { useFrappePostCall, useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
 import { CategoryTaskSelector } from "../../components/planning/CategoryTaskSelector";
 import { AllPOsModal } from "../../components/planning/AllPOsModal";
@@ -61,13 +60,12 @@ interface POPlan {
 
 
 interface AddPOCashflowFormProps {
-    planNumber?: number; // Optional as it might not be passed in original usage
     projectId: string;
     onClose: () => void;
     onSuccess: () => void; // Restoring original prop
 }
 
-export const AddPOCashflowForm = ({ projectId, onClose, onSuccess, planNumber = 1 }: AddPOCashflowFormProps) => {
+export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashflowFormProps) => {
     const { toast } = useToast();
 
     // ==========================================================================
@@ -103,8 +101,6 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess, planNumber = 
     const [estimatedPrice, setEstimatedPrice] = useState<string>("");
     
     // Item Search State
-    const [poSearchInput, setPoSearchInput] = useState("");
-    const [itemSearchInput, setItemSearchInput] = useState("");
     const [selectedItems, setSelectedItems] = useState<Record<string, any>>({});
     const [isDropdownOpen, setDropdownOpen] = useState(false);
     const searchWrapperRef = useRef<HTMLDivElement>(null);
@@ -131,10 +127,12 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess, planNumber = 
     // Create Material Delivery Plan
     const { createDoc, loading: isCreating } = useFrappeCreateDoc();
     
-    // Fetch Vendors
-    const { call: fetchVendors, result: vendorsResult, loading: isLoadingVendors } = useFrappePostCall<any>(
-        "nirmaan_stack.api.seven_days_planning.cashflow_plan_api.get_active_vendors"
-    );
+    // Fetch Vendors for New PO selection
+    const { data: vendors, isLoading: isLoadingVendors } = useFrappeGetDocList("Vendor", {
+        fields: ["name", "vendor_name"],
+        filters: [["disabled", "=", 0]],
+        limit: 999
+    });
 
     // ==========================================================================
     // DERIVED DATA
@@ -153,7 +151,7 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess, planNumber = 
     const allProjectPOs = allPOsResult?.message?.pos || [];
     
     // Vendors
-    const vendorOptions = (vendorsResult?.message || []).map((v: any) => ({
+    const vendorOptions = (vendors || []).map((v: any) => ({
         label: v.vendor_name,
         value: v.name
     }));
@@ -184,11 +182,6 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess, planNumber = 
             fetchAllPOs({ project: projectId });
         }
     }, [showAllPOsModal]);
-    
-    // Fetch vendors on mount check
-    useEffect(() => {
-        fetchVendors();
-    }, []);
     
     // Click outside to close dropdown
     useEffect(() => {
@@ -253,7 +246,6 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess, planNumber = 
             newSelectedItems[item.name] = item;
         });
         setSelectedItems(newSelectedItems);
-        setPoSearchInput(""); // Clear search
     };
     
     const unselectPO = () => {
@@ -326,11 +318,8 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess, planNumber = 
                 selectedItems: poItemsSet,
                 plannedDate: "",
                 plannedAmount: undefined,
-                plannedDate: "",
-                plannedAmount: undefined,
                 vendor: po.vendor,
                 vendorName: po.vendor_name,
-                isCritical: assocTasks.length > 0 || isLocal || isFallback,
                 isCritical: assocTasks.length > 0 || isLocal || isFallback,
                 category: assocTasks.length > 0 ? assocTasks[0].category : (isLocal || isFallback ? (selectedCategory || selectedTaskDoc?.critical_po_category) : undefined),
                 task: assocTasks.length > 0 ? assocTasks[0].item_name : (isLocal || isFallback ? selectedTaskDoc?.item_name : undefined)
@@ -448,7 +437,7 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess, planNumber = 
                     critical_po_category: plan.isCritical ? plan.category : null,
                     critical_po_task: plan.isCritical ? plan.task : null,
                     planned_date: plan.plannedDate,
-                    planned_amount: plan.plannedAmount,
+                    planned_amount: plan.plannedAmount || 0,
                     estimated_price: plan.estimatedPrice || 0,
                     vendor: plan.vendor,
                     type: "Existing PO",
@@ -534,8 +523,18 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess, planNumber = 
 
         if (!estimatedPrice || parseFloat(estimatedPrice) <= 0) {
             toast({
-                title: "Missing Estimated Price",
+                title: "Incomplete Data",
                 description: "Review your fields! Estimated Price is mandatory and must be greater than 0.",
+                variant: "destructive"
+            });
+            return;
+        }
+
+        const today = new Date().toISOString().split('T')[0];
+        if (plannedDate < today) {
+            toast({
+                title: "Invalid Date",
+                description: "Planned Date cannot be in the past.",
                 variant: "destructive"
             });
             return;
@@ -594,7 +593,7 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess, planNumber = 
         return (
             <div className="border rounded-lg p-4 bg-white shadow-sm">
                 <div className="flex items-center justify-between mb-4">
-                    <h4 className="font-semibold text-gray-800">Cashflow Plan #{planNumber}</h4>
+                    <h4 className="font-semibold text-gray-800">Cashflow Plan</h4>
                     <Button variant="ghost" size="icon" onClick={onClose}>
                         <X className="h-4 w-4" />
                     </Button>
@@ -629,7 +628,7 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess, planNumber = 
             {/* Step 1: Category/Task Selection (V2) */}
             <div className="mb-6">
                 <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-gray-700">Select Critical PO Task</span>
+                    <span className="text-sm font-medium text-gray-700">Select Critical PO Task <span className="text-red-500">*</span></span>
                     <Button
                         variant="ghost"
                         size="sm"
@@ -666,7 +665,7 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess, planNumber = 
             {selectedTask && (
                 <div className="animate-in fade-in slide-in-from-top-2 duration-300">
                     <div className="mb-6">
-                        <Label className="mb-2 block">PO Type</Label>
+                        <Label className="mb-2 block">PO Type <span className="text-red-500">*</span></Label>
                         <RadioGroup 
                             value={poMode} 
                             onValueChange={(v) => handlePOModeChange(v as "existing" | "new")}
@@ -962,7 +961,7 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess, planNumber = 
                     {poMode === "new" && (
                         <>
                             <div className="mb-4">
-                                <Label className="mb-2 block font-medium">Materials (one per line)</Label>
+                                <Label className="mb-2 block font-medium">Materials (one per line) <span className="text-red-500">*</span></Label>
                                 <Textarea
                                     placeholder="Steel Rods 12mm&#10;Cement 50kg&#10;Sand Fine"
                                     value={manualItemsText}
@@ -973,7 +972,7 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess, planNumber = 
                             </div>
                             
                             <div className="mb-4">
-                                <Label className="mb-2 block font-medium">Vendor</Label>
+                                <Label className="mb-2 block font-medium">Vendor <span className="text-red-500">*</span></Label>
                                 <ReactSelect
                                     options={vendorOptions}
                                     value={newPOVendor}
@@ -987,17 +986,18 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess, planNumber = 
 
                             <div className="grid grid-cols-3 gap-4 mb-4">
                                 <div className="space-y-2">
-                                    <Label className="block font-medium">Planned Date</Label>
+                                    <Label className="block font-medium">Planned Date <span className="text-red-500">*</span></Label>
                                     <input
                                         type="date"
                                         value={plannedDate}
+                                        min={new Date().toISOString().split('T')[0]}
                                         onChange={(e) => setplannedDate(e.target.value)}
                                         onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
                                         className="w-full p-2 border rounded-md cursor-pointer text-sm h-[38px] bg-white"
                                     />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label className="block font-medium">Planned Amount</Label>
+                                    <Label className="block font-medium">Planned Amount <span className="text-red-500">*</span></Label>
                                     <Input
                                         type="number"
                                         placeholder="Enter Total Amount"
@@ -1007,7 +1007,7 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess, planNumber = 
                                     />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label className="block font-medium">Estimated Price</Label>
+                                    <Label className="block font-medium">Estimated Price <span className="text-red-500">*</span></Label>
                                     <Input
                                         type="number"
                                         placeholder="Enter Price"
