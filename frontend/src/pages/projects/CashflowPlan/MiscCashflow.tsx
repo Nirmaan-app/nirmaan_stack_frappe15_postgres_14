@@ -163,7 +163,7 @@ const MiscCashflowContent = ({ projectId }: { projectId: string }) => {
                                     {/* Planned Amount */}
                                     <div className="w-[150px] shrink-0">
                                         <div className="text-[10px] text-gray-500 mb-0.5 font-medium">Planned Amount</div>
-                                        <div className="font-bold text-gray-900">₹ {plan.planned_amount?.toLocaleString() || "0"}</div>
+                                        <div className="font-bold text-gray-900">₹ {Number(plan.planned_amount || 0).toLocaleString()}</div>
                                     </div>
 
                                     {/* Planned Date */}

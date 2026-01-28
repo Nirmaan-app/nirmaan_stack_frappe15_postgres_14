@@ -1,4 +1,4 @@
-import { X, RefreshCw,Package } from "lucide-react";
+import { X, RefreshCw,Package,ExternalLink } from "lucide-react";
 import ReactSelect from 'react-select';
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -987,15 +987,12 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
                             </div>
 
                             <div className="grid grid-cols-3 gap-4 mb-4">
-                                <div className="space-y-2">
-                                    <Label className="block font-medium">Planned Date <span className="text-red-500">*</span></Label>
                                     <CashflowDatePicker
                                         date={plannedDate}
                                         setDate={setPlannedDate}
                                         label="Planned Date"
                                         required
                                     />
-                                </div>
                                 <div className="space-y-2">
                                     <Label className="block font-medium">Planned Amount <span className="text-red-500">*</span></Label>
                                     <Input

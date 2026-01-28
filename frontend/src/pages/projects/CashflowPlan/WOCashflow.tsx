@@ -178,7 +178,7 @@ const WOCashflowContent = ({ projectId }: { projectId: string }) => {
                                     {/* Planned Amount */}
                                     <div className="w-[120px] shrink-0">
                                         <div className="text-[10px] text-gray-500 mb-0.5 font-medium">Planned Amount</div>
-                                        <div className="font-semibold text-gray-900">₹ {plan.planned_amount?.toLocaleString()}</div>
+                                        <div className="font-semibold text-gray-900">₹ {Number(plan.planned_amount || 0).toLocaleString()}</div>
                                     </div>
 
                                     {/* Planned Date */}
