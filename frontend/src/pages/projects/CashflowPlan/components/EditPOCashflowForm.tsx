@@ -13,6 +13,7 @@ import { CalendarIcon, Search, X } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/use-toast";
+import { CashflowDatePicker } from "./CashflowDatePicker";
 
 interface EditPOCashflowFormProps {
     isOpen: boolean;
@@ -127,6 +128,17 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
             toast({
                 title: "Invalid Date",
                 description: "Planned Date is required.",
+                variant: "destructive"
+            });
+            return;
+        }
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        if (plannedDate < today) {
+             toast({
+                title: "Invalid Date",
+                description: "Planned Date cannot be in the past.",
                 variant: "destructive"
             });
             return;
@@ -247,32 +259,11 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                         </div>
 
                         <div className="space-y-2">
-                            <Label className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                                <span className="text-gray-500"><i className="far fa-calendar-alt"></i></span>
-                                Payment Date
-                            </Label>
-                             <Popover>
-                                <PopoverTrigger asChild>
-                                    <Button
-                                        variant="outline"
-                                        className={cn(
-                                            "w-full pl-3 text-left font-normal h-11 text-base",
-                                            !plannedDate && "text-muted-foreground"
-                                        )}
-                                    >
-                                        {plannedDate ? format(plannedDate, "dd/MM/yyyy") : <span>dd/mm/yyyy</span>}
-                                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0" align="start">
-                                    <Calendar
-                                        mode="single"
-                                        selected={plannedDate}
-                                        onSelect={setPlannedDate}
-                                        initialFocus
-                                    />
-                                </PopoverContent>
-                            </Popover>
+                            <CashflowDatePicker
+                                date={plannedDate}
+                                setDate={setPlannedDate}
+                                label="Payment Date"
+                            />
                             <p className="text-xs text-gray-500 mt-1">
                                 This delivery date will apply to all selected items in this plan
                             </p>

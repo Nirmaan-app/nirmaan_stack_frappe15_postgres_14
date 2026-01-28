@@ -5,15 +5,11 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CalendarIcon, X, Package, CheckCircle2, Pencil } from "lucide-react";
+import { X, Package, CheckCircle2, Pencil } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
-import {
-    Popover,
-    PopoverContent,
-    PopoverTrigger,
-} from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
+
+import { CashflowDatePicker } from "./CashflowDatePicker";
 
 interface POItem {
     name: string;
@@ -510,38 +506,12 @@ export const ReviewPOCashflowPage: React.FC<ReviewPOCashflowPageProps> = ({
 
                                 <div className="flex gap-4">
                                     <div className="flex-1 space-y-2">
-                                        <span className="text-sm font-medium">Planned Date <span className="text-red-500">*</span></span>
-                                        <Popover>
-                                            <PopoverTrigger asChild>
-                                                <Button
-                                                    variant="outline"
-                                                    className={cn(
-                                                        "w-full justify-start text-left font-normal",
-                                                        !plan.plannedDate && "text-muted-foreground"
-                                                    )}
-                                                >
-                                                    <CalendarIcon className="mr-2 h-4 w-4" />
-                                                    {plan.plannedDate
-                                                        ? format(new Date(plan.plannedDate), "PPP")
-                                                        : "Select date"}
-                                                </Button>
-                                            </PopoverTrigger>
-                                            <PopoverContent className="w-auto p-0" align="start">
-                                                <Calendar
-                                                    mode="single"
-                                                    selected={
-                                                        plan.plannedDate
-                                                            ? new Date(plan.plannedDate)
-                                                            : undefined
-                                                    }
-                                                    onSelect={(date) =>
-                                                        updatePlannedDate(planIndex, date)
-                                                    }
-                                                    disabled={(date) => date < new Date(new Date().setHours(0,0,0,0))}
-                                                    initialFocus
-                                                />
-                                            </PopoverContent>
-                                        </Popover>
+                                        <CashflowDatePicker
+                                            date={plan.plannedDate ? new Date(plan.plannedDate) : undefined}
+                                            setDate={(date) => updatePlannedDate(planIndex, date)}
+                                            label="Planned Date"
+                                            required
+                                        />
                                     </div>
                                     
                                     <div className="flex-1 space-y-2">

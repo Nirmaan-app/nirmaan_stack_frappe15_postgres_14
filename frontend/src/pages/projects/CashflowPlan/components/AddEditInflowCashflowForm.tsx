@@ -11,6 +11,7 @@ import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
+import { CashflowDatePicker } from "./CashflowDatePicker";
 
 interface AddEditInflowCashflowFormProps {
     isOpen: boolean;
@@ -157,29 +158,12 @@ export const AddEditInflowCashflowForm = ({ isOpen, projectId, initialData, onCl
                         </div>
 
                         <div className="space-y-2">
-                            <Label className="text-sm font-medium text-gray-700">Planned Date</Label>
-                            <Popover>
-                                <PopoverTrigger asChild>
-                                    <Button
-                                        variant="outline"
-                                        className={cn(
-                                            "w-full pl-3 text-left font-normal",
-                                            !plannedDate && "text-muted-foreground"
-                                        )}
-                                    >
-                                        {plannedDate ? format(plannedDate, "dd/MM/yyyy") : <span>dd/mm/yyyy</span>}
-                                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0" align="start">
-                                    <Calendar
-                                        mode="single"
-                                        selected={plannedDate}
-                                        onSelect={setPlannedDate}
-                                        initialFocus
-                                    />
-                                </PopoverContent>
-                            </Popover>
+                            <CashflowDatePicker
+                                date={plannedDate}
+                                setDate={setPlannedDate}
+                                label="Planned Date"
+                                required
+                            />
                         </div>
                     </div>
                 </div>

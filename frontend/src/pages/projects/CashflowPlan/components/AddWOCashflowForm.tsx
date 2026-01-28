@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import Select from "react-select";
 import { useFrappeGetDocList, useFrappeCreateDoc } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
+import { CashflowDatePicker } from "./CashflowDatePicker";
 
 interface GenericWO {
     name: string;
@@ -269,25 +270,14 @@ export const AddWOCashflowForm = ({ projectId, onClose, onSuccess }: AddWOCashfl
                                                          />
                                                      </div>
                                                  </div>
-                                                 <div className="flex-1 space-y-2">
-                                                      <Label className="text-xs text-gray-500 uppercase font-bold tracking-wider">Planned Date <span className="text-red-500">*</span></Label>
-                                                      <Popover>
-                                                        <PopoverTrigger asChild>
-                                                            <Button variant="outline" className={cn("w-full pl-3 text-left font-normal bg-white h-10", !plan.planned_date && "text-muted-foreground")}>
-                                                                {plan.planned_date ? format(plan.planned_date, "dd/MM/yyyy") : <span>Pick a date</span>}
-                                                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                                            </Button>
-                                                        </PopoverTrigger>
-                                                        <PopoverContent className="w-auto p-0" align="start">
-                                                            <Calendar
-                                                                mode="single"
-                                                                selected={plan.planned_date}
-                                                                onSelect={(date) => updatePlanItem(plan.temp_id, "planned_date", date)}
-                                                                initialFocus
-                                                            />
-                                                        </PopoverContent>
-                                                    </Popover>
-                                                 </div>
+                                                  <div className="flex-1 space-y-2">
+                                                      <CashflowDatePicker
+                                                            date={plan.planned_date}
+                                                            setDate={(date) => updatePlanItem(plan.temp_id, "planned_date", date)}
+                                                            label="Planned Date"
+                                                            required
+                                                      />
+                                                  </div>
                                              </div>
 
                                              {/* Right: Details */}
@@ -376,23 +366,12 @@ export const AddWOCashflowForm = ({ projectId, onClose, onSuccess }: AddWOCashfl
                                      </div>
                                 </div>
                                 <div className="space-y-2">
-                                      <Label>Planned Date <span className="text-red-500">*</span></Label>
-                                      <Popover>
-                                            <PopoverTrigger asChild>
-                                                <Button variant="outline" className={cn("w-full pl-3 text-left font-normal", !newPlan.planned_date && "text-muted-foreground")}>
-                                                    {newPlan.planned_date ? format(newPlan.planned_date, "dd/MM/yyyy") : <span>dd/mm/yyyy</span>}
-                                                    <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                                </Button>
-                                            </PopoverTrigger>
-                                            <PopoverContent className="w-auto p-0" align="start">
-                                                <Calendar
-                                                    mode="single"
-                                                    selected={newPlan.planned_date}
-                                                    onSelect={(date) => setNewPlan({...newPlan, planned_date: date})}
-                                                    initialFocus
-                                                />
-                                            </PopoverContent>
-                                        </Popover>
+                                      <CashflowDatePicker
+                                        date={newPlan.planned_date}
+                                        setDate={(date) => setNewPlan({...newPlan, planned_date: date})}
+                                        label="Planned Date"
+                                        required
+                                      />
                                 </div>
                             </div>
                          </div>

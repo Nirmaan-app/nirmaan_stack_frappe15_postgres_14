@@ -1,4 +1,4 @@
-import { X, RefreshCw } from "lucide-react";
+import { X, RefreshCw,Package } from "lucide-react";
 import ReactSelect from 'react-select';
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,8 @@ import { useToast } from "@/components/ui/use-toast";
 import { CategoryTaskSelector } from "../../components/planning/CategoryTaskSelector";
 import { AllPOsModal } from "../../components/planning/AllPOsModal";
 import { ReviewPOCashflowPage } from "./ReviewPOCashflowPage";
+import { CashflowDatePicker } from "./CashflowDatePicker";
+import { format } from "date-fns";
 
 // Types
 interface Task {
@@ -95,7 +97,7 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
     
     // New PO Mode State
     const [manualItemsText, setManualItemsText] = useState<string>("");
-    const [plannedDate, setplannedDate] = useState<string>("");
+    const [plannedDate, setPlannedDate] = useState<Date | undefined>(undefined);
     const [newPOVendor, setNewPOVendor] = useState<{value: string, label: string} | null>(null);
     const [newPOAmount, setNewPOAmount] = useState<string>("");
     const [estimatedPrice, setEstimatedPrice] = useState<string>("");
@@ -128,10 +130,10 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
     const { createDoc, loading: isCreating } = useFrappeCreateDoc();
     
     // Fetch Vendors for New PO selection
-    const { data: vendors, isLoading: isLoadingVendors } = useFrappeGetDocList("Vendor", {
+    const { data: vendors, isLoading: isLoadingVendors } = useFrappeGetDocList("Vendors", {
         fields: ["name", "vendor_name"],
-        filters: [["disabled", "=", 0]],
-        limit: 999
+
+        limit: 0
     });
 
     // ==========================================================================
@@ -619,7 +621,7 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
         <div className="border rounded-lg p-4 bg-white shadow-sm">
             {/* Header */}
             <div className="flex items-center justify-between mb-4">
-                <h4 className="font-semibold text-gray-800">Cashflow Plan #{planNumber}</h4>
+                <h4 className="font-semibold text-gray-800">Cashflow Plan </h4>
                 <Button variant="ghost" size="icon" onClick={onClose}>
                     <X className="h-4 w-4" />
                 </Button>
@@ -987,13 +989,11 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
                             <div className="grid grid-cols-3 gap-4 mb-4">
                                 <div className="space-y-2">
                                     <Label className="block font-medium">Planned Date <span className="text-red-500">*</span></Label>
-                                    <input
-                                        type="date"
-                                        value={plannedDate}
-                                        min={new Date().toISOString().split('T')[0]}
-                                        onChange={(e) => setplannedDate(e.target.value)}
-                                        onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
-                                        className="w-full p-2 border rounded-md cursor-pointer text-sm h-[38px] bg-white"
+                                    <CashflowDatePicker
+                                        date={plannedDate}
+                                        setDate={setPlannedDate}
+                                        label="Planned Date"
+                                        required
                                     />
                                 </div>
                                 <div className="space-y-2">

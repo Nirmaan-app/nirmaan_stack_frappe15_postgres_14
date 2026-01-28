@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -7,13 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import { CalendarIcon, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { format } from "date-fns";
-import { cn } from "@/lib/utils";
+
 import { useToast } from "@/components/ui/use-toast";
 import Select from "react-select";
+import { CashflowDatePicker } from "./CashflowDatePicker";
 
 interface EditWOCashflowFormProps {
     isOpen: boolean;
@@ -217,31 +216,11 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                         </div>
 
                         <div className="space-y-2">
-                            <Label className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                                Payment Date
-                            </Label>
-                             <Popover>
-                                <PopoverTrigger asChild>
-                                    <Button
-                                        variant="outline"
-                                        className={cn(
-                                            "w-full pl-3 text-left font-normal h-11 text-base",
-                                            !plannedDate && "text-muted-foreground"
-                                        )}
-                                    >
-                                        {plannedDate ? format(plannedDate, "dd/MM/yyyy") : <span>dd/mm/yyyy</span>}
-                                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-0" align="start">
-                                    <Calendar
-                                        mode="single"
-                                        selected={plannedDate}
-                                        onSelect={setPlannedDate}
-                                        initialFocus
-                                    />
-                                </PopoverContent>
-                            </Popover>
+                            <CashflowDatePicker
+                                date={plannedDate}
+                                setDate={setPlannedDate}
+                                label="Payment Date"
+                            />
                         </div>
                     </div>
 
