@@ -262,7 +262,7 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                             <CashflowDatePicker
                                 date={plannedDate}
                                 setDate={setPlannedDate}
-                                label="Payment Date"
+                                label="Planned Date"
                             />
                             <p className="text-xs text-gray-500 mt-1">
                                 This delivery date will apply to all selected items in this plan

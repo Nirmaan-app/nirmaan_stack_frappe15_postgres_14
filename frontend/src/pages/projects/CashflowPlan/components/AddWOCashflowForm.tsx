@@ -342,7 +342,7 @@ export const AddWOCashflowForm = ({ projectId, onClose, onSuccess }: AddWOCashfl
 
                             <div className="grid grid-cols-3 gap-4">
                                 <div className="space-y-2">
-                                     <Label>Estimated Total Value <span className="text-red-500">*</span></Label>
+                                     <Label>Estimated Amount <span className="text-red-500">*</span></Label>
                                      <div className="relative">
                                          <span className="absolute left-3 top-2.5 text-gray-500">₹</span>
                                          <Input 

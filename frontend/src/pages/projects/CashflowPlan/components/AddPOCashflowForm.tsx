@@ -987,31 +987,39 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
                             </div>
 
                             <div className="grid grid-cols-3 gap-4 mb-4">
-                                    <CashflowDatePicker
+                                <div className="space-y-2">
+                                     <Label>Estimated Amount <span className="text-red-500">*</span></Label>
+                                     <div className="relative">
+                                         <span className="absolute left-3 top-2.5 text-gray-500">₹</span>
+                                         <Input 
+                                            type="number" 
+                                            className="pl-7" 
+                                            value={estimatedPrice}
+                                            onChange={(e) => setEstimatedPrice(e.target.value)}
+                                            placeholder="Enter Price"
+                                         />
+                                     </div>
+                                </div>
+                                <div className="space-y-2">
+                                     <Label>Planned Amount <span className="text-red-500">*</span></Label>
+                                     <div className="relative">
+                                         <span className="absolute left-3 top-2.5 text-gray-500">₹</span>
+                                         <Input 
+                                            type="number" 
+                                            className="pl-7" 
+                                            value={newPOAmount}
+                                            onChange={(e) => setNewPOAmount(e.target.value)}
+                                            placeholder="Enter Total Amount"
+                                         />
+                                     </div>
+                                </div>
+                                <div className="space-y-2">
+                                      <CashflowDatePicker
                                         date={plannedDate}
                                         setDate={setPlannedDate}
                                         label="Planned Date"
                                         required
-                                    />
-                                <div className="space-y-2">
-                                    <Label className="block font-medium">Planned Amount <span className="text-red-500">*</span></Label>
-                                    <Input
-                                        type="number"
-                                        placeholder="Enter Total Amount"
-                                        value={newPOAmount}
-                                        onChange={(e) => setNewPOAmount(e.target.value)}
-                                        className="h-[38px] bg-white"
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label className="block font-medium">Estimated Price <span className="text-red-500">*</span></Label>
-                                    <Input
-                                        type="number"
-                                        placeholder="Enter Price"
-                                        value={estimatedPrice}
-                                        onChange={(e) => setEstimatedPrice(e.target.value)}
-                                        className="h-[38px] bg-white"
-                                    />
+                                      />
                                 </div>
                             </div>
                             

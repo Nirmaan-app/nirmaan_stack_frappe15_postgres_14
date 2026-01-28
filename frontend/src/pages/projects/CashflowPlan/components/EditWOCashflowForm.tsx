@@ -218,7 +218,7 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                             <CashflowDatePicker
                                 date={plannedDate}
                                 setDate={setPlannedDate}
-                                label="Payment Date"
+                                label="Planned Date"
                             />
                         </div>
                     </div>
