@@ -203,6 +203,8 @@ export const CreateWorkplantask = ({
                                          handleChange("wp_end_date", "");
                                     }
                                 }}
+                                 onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                                className="w-full p-2 border rounded-md cursor-pointer"
                             />
                         </div>
                         <div className="grid gap-2">
@@ -216,6 +218,8 @@ export const CreateWorkplantask = ({
                                 min={formData.wp_start_date}
                                 disabled={!formData.wp_start_date}
                                 onChange={(e) => handleChange("wp_end_date", e.target.value)}
+                                 onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                                    className="w-full p-2 border rounded-md cursor-pointer"
                                 title={!formData.wp_start_date ? "Please select a Planned Start Date first" : ""}
                             />
                         </div>

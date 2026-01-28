@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useReactToPrint } from 'react-to-print'; // Re-add useReactToPrint
 import { Printer } from 'lucide-react';
 import { TailSpin } from 'react-loader-spinner';
+import { format } from "date-fns";
 import { useToast } from '@/components/ui/use-toast'; // --- (Indicator) NEW: Import useToast ---
 
 // UI Components
@@ -153,12 +154,54 @@ export default function DeliveryNote() {
   // --- FIX: Revert to the original local print setup since the hook doesn't exist ---
   const { toast } = useToast(); // --- (Indicator) NEW: Initialize toast ---
   const printComponentRef = useRef<HTMLDivElement>(null);
-  const handlePrint = useReactToPrint({
-    content: () => printComponentRef.current,
-    documentTitle: deliveryNoteData
-      ? `${deriveDnIdFromPoId(deliveryNoteData.name).toUpperCase()}_${deliveryNoteData.vendor_name}`
-      : 'Delivery_Note',
-  });
+  const handlePrint = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    if (!poId) {
+      toast({ title: "Error", description: "PO ID is missing", variant: "destructive" });
+      return;
+    }
+
+    try {
+      toast({ title: "Generating PDF", description: "Downloading overall delivery note..." });
+      
+      const formatname = "PO Delivery Histroy";
+      const printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Procurement%20Orders&name=${poId}&format=${encodeURIComponent(formatname)}&no_letterhead=0`;
+      
+      const response = await fetch(printUrl);
+      if (!response.ok) throw new Error("Failed to generate PDF");
+      
+      const blob = await response.blob();
+      
+      // Generate filename - you can customize this based on your needs
+      const fileName = `PO_Delivery_Note_${poId}_Overall.pdf`;
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', fileName);
+      document.body.appendChild(link);
+      link.click();
+      
+      // Cleanup
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      
+      toast({ 
+        title: "Success", 
+        description: "Delivery note downloaded successfully.", 
+        variant: "default" 
+      });
+    } catch (error) {
+      console.error("Download error:", error);
+      toast({ 
+        title: "Error", 
+        description: "Failed to download delivery note.", 
+        variant: "destructive" 
+      });
+    }
+  };
 
   // console.log("deliveryNoteData", deliveryNoteData)
   // Use the history printing hook (this is correct)
@@ -187,16 +230,69 @@ export default function DeliveryNote() {
     return { date: latestKey, entry: historyData[latestKey] };
   }, [deliveryHistory.data]);
 
-  const handlePrintLatest = useCallback(() => {
-    if (latestHistoryEntry) {
-      triggerHistoryPrint(latestHistoryEntry.date, latestHistoryEntry.entry);
-    } else {
-      toast({
+  const handlePrintLatest = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    if (!latestHistoryEntry) {
+       toast({
         title: "No History Available",
         description: "A delivery must be recorded before its note can be printed.",
       });
+      return;
     }
-  }, [latestHistoryEntry, triggerHistoryPrint, toast]);
+
+    if (!poId) {
+      toast({ title: "Error", description: "PO ID is missing", variant: "destructive" });
+      return;
+    }
+
+    const date = latestHistoryEntry.date;
+
+    try {
+      toast({ title: "Generating PDF", description: `Downloading note for ${format(new Date(date), "dd MMM")}...` });
+
+      // 1. Build Parameters
+      const formatname = "PO Delivery Histroy"; // Keeping user's typo 'Histroy' if that's what backend expects, assuming matched from snippet
+      const formattedDate = typeof date === 'string' 
+      ? date 
+      : format(date, "yyyy-MM-dd");
+
+       const printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Procurement%20Orders&name=${poId}&format=${encodeURIComponent(formatname)}&no_letterhead=0&delivery_date=${encodeURIComponent(formattedDate)}`;
+    
+      // 2. Fetch Blob
+      const response = await fetch(printUrl);
+      if (!response.ok) throw new Error("Failed to generate PDF");
+
+      const blob = await response.blob();
+
+      // 3. Download
+      const fileName = `${poId}_Delivery_Note_${date}.pdf`;
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', fileName);
+      document.body.appendChild(link);
+      link.click();
+
+      // 4. Cleanup
+      link.remove();
+      window.URL.revokeObjectURL(url);
+
+      toast({
+        title: "Success",
+        description: "Delivery note downloaded.",
+        variant: "default" 
+      });
+
+    } catch (error) {
+      console.error("Download error:", error);
+      toast({
+        title: "Error",
+        description: "Failed to download delivery note.",
+        variant: "destructive"
+      });
+    }
+  };
 
   // --- (Indicator) STEP 2: Conditional rendering logic now comes AFTER all hooks ---
   if (isLoading) {
@@ -265,6 +361,7 @@ export default function DeliveryNote() {
             poMutate={refetchDeliveryNoteData}
           />
           <DeliveryHistoryTable
+          poId={poId}
             deliveryData={deliveryHistory.data}
             onPrintHistory={triggerHistoryPrint}
           />

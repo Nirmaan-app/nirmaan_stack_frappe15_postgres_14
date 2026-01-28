@@ -86,6 +86,27 @@ export const srColumns: ColumnDef<SRReportRowData>[] = [
         }
     },
     {
+        id: "PendingInvoice",
+        accessorFn: (row) => row.amountPaid - row.invoiceAmount,
+        header: ({ column }) => (
+            <DataTableColumnHeader column={column} title="Pending Invoice Amt" />
+        ),
+        cell: ({ row }) => {
+            const pendingAmt = row.original.amountPaid - row.original.invoiceAmount;
+            return (
+                <div className="tabular-nums">
+                    {formatToRoundedIndianRupee(pendingAmt)}
+                </div>
+            );
+        },
+        meta: {
+            exportHeaderName: "Pending Invoice Amt",
+            exportValue: (row: SRReportRowData) =>
+                formatForReport(row.amountPaid - row.invoiceAmount),
+            isNumeric: true,
+        },
+    },
+    {
         id: "remarks",
         header: ({ column }) => (
             <DataTableColumnHeader column={column} title="Remarks" />

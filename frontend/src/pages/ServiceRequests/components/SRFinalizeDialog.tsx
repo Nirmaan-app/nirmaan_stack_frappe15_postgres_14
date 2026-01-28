@@ -75,7 +75,7 @@ export const SRFinalizeDialog: React.FC<SRFinalizeDialogProps> = ({
                                 <ul className="list-disc list-inside space-y-1 text-amber-700 text-sm">
                                     <li>Amend Work Order</li>
                                     <li>Delete Work Order</li>
-                                    <li>Edit Terms & Notes</li>
+                                    <li>Edit Nirmaan GST for Billing & Notes</li>
                                 </ul>
                             </div>
 

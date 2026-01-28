@@ -85,6 +85,27 @@ scheduler_events = {
 
 ---
 
+## Project Status Lifecycle
+
+**Detail:** See `domain/projects.md` for full documentation.
+
+### Statuses
+```
+Created → WIP / Completed / Halted
+                   ↕           ↕
+              Halted ←→ Completed
+```
+
+- **Created**: System-set on project creation. Cannot be reverted to.
+- **WIP/Completed/Halted**: Manual transitions by Admin/PMO Executive only.
+
+### Key Behavior
+- **Halted/Completed** projects are hidden from `ProjectSelect` dropdown (used in PR/SR list filters, expense creation, etc.)
+- **No hard API guards** — PR and SR creation is NOT blocked for Halted/Completed projects
+- **Financial ops intentionally bypass** — Inflow payments and new invoices show all projects
+
+---
+
 ## Version Control Strategy
 
 - Extensive use of Frappe's native `Version` doctype

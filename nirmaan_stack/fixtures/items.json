@@ -28,5 +28,20 @@
   "name": "ITEM-999998",
   "order_category": "Local",
   "unit_name": "NOS"
+ },
+ {
+  "billing_category": "Billable",
+  "category": "Additional Charges",
+  "description": "Other Charges",
+  "docstatus": 0,
+  "doctype": "Items",
+  "image_url": null,
+  "item_name": "Other Charges",
+  "item_status": "Active",
+  "make_name": null,
+  "modified": "2025-09-08 19:49:20.512323",
+  "name": "ITEM-999990",
+  "order_category": "Local",
+  "unit_name": "NOS"
  }
 ]

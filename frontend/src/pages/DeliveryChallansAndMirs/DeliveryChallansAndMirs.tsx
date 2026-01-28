@@ -11,6 +11,7 @@ import ProjectSelect from "@/components/custom-select/project-select";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -67,6 +68,7 @@ interface NirmaanAttachment {
   attachment: string;
   attachment_type: string;
   modified_by: string;
+  attachment_ref?: string;
 }
 
 export const DeliveryChallansAndMirs = () => {
@@ -83,6 +85,7 @@ export const DeliveryChallansAndMirs = () => {
     type: null,
   });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [refNumber, setRefNumber] = useState("");
   const [viewAttachmentsDialog, setViewAttachmentsDialog] = useState<{
     open: boolean;
     poId: string;
@@ -143,7 +146,7 @@ export const DeliveryChallansAndMirs = () => {
   const { data: attachmentsList, isLoading: attachmentsLoading, mutate: mutateAttachments } = useFrappeGetDocList<NirmaanAttachment>(
     "Nirmaan Attachments",
     {
-      fields: ["name", "creation", "attachment", "attachment_type", "modified_by"],
+      fields: ["name", "creation", "attachment", "attachment_type", "modified_by", "attachment_ref"],
       filters: [
         ["associated_doctype", "=", "Procurement Orders"],
         ["associated_docname", "=", viewAttachmentsDialog.poId],
@@ -235,6 +238,7 @@ export const DeliveryChallansAndMirs = () => {
   const handleCloseUploadDialog = () => {
     setUploadDialog({ open: false, poId: "", poName: "", type: null });
     setSelectedFile(null);
+    setRefNumber("");
   };
 
   // Handle file upload
@@ -279,6 +283,7 @@ export const DeliveryChallansAndMirs = () => {
         associated_docname: uploadDialog.poId,
         attachment_link_doctype: "Vendors",
         attachment_link_docname: po.vendor,
+        attachment_ref: refNumber || undefined,
       };
 
       await createAttachmentDoc({ doc: attachmentDoc });
@@ -700,7 +705,7 @@ export const DeliveryChallansAndMirs = () => {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="py-4">
+          <div className="py-4 space-y-4">
             <CustomAttachment
               selectedFile={selectedFile}
               onFileSelect={setSelectedFile}
@@ -708,6 +713,16 @@ export const DeliveryChallansAndMirs = () => {
               maxFileSize={20 * 1024 * 1024}
               acceptedTypes={["application/pdf", "image/*"]}
             />
+            <div className="space-y-2">
+              <label className="text-sm font-medium">
+                {uploadDialog.type === "DC" ? "DC Number" : "MIR Number"}
+              </label>
+              <Input
+                placeholder={uploadDialog.type === "DC" ? "Enter DC number (optional)" : "Enter MIR number (optional)"}
+                value={refNumber}
+                onChange={(e) => setRefNumber(e.target.value)}
+              />
+            </div>
           </div>
 
           <DialogFooter>
@@ -768,6 +783,11 @@ export const DeliveryChallansAndMirs = () => {
                                   <p className="text-xs text-muted-foreground">
                                     By: {attachment.modified_by}
                                   </p>
+                                  {attachment.attachment_ref && (
+                                    <p className="text-xs text-muted-foreground">
+                                      DC No: {attachment.attachment_ref}
+                                    </p>
+                                  )}
                                 </div>
                                 <div className="flex gap-2 flex-shrink-0">
                                   <Button
@@ -832,6 +852,11 @@ export const DeliveryChallansAndMirs = () => {
                                   <p className="text-xs text-muted-foreground">
                                     By: {attachment.modified_by}
                                   </p>
+                                  {attachment.attachment_ref && (
+                                    <p className="text-xs text-muted-foreground">
+                                      MIR No: {attachment.attachment_ref}
+                                    </p>
+                                  )}
                                 </div>
                                 <div className="flex gap-2 flex-shrink-0">
                                   <Button

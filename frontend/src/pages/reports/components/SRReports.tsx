@@ -26,6 +26,8 @@ import { exportToCsv } from "@/utils/exportToCsv";
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport } from "@/utils/FormatPrice";
 import SR2BReconcileReport from "./SR2BReconcileReport";
+import { Info } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface SelectOption {
   label: string;
@@ -45,7 +47,33 @@ export default function SRReports() {
     (state) => state.selectedReportType as SROption | null
   );
   const tableColumnsToDisplay = useMemo(() => srColumns, []); // srColumns are static for now
-  const delta = 10;
+  const delta = 100;
+
+  const reportConditionDescription = useMemo(() => {
+    switch (selectedReportType) {
+        case "Pending Invoices":
+            return `WOs with status "Approved" where Amount Paid − Invoice Amount > ₹${delta.toLocaleString("en-IN")}`;
+        case "PO with Excess Payments":
+            return `WOs with status "Approved" where Amount Paid > Total WO Amount + ₹${delta.toLocaleString("en-IN")}`;
+        default:
+            return null;
+    }
+  }, [selectedReportType]);
+
+  const summaryCardNode = useMemo(() => {
+    if (!reportConditionDescription) return undefined;
+    return (
+        <Alert
+            variant="default"
+            className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30"
+        >
+            <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+            <AlertDescription className="text-sm text-blue-800 dark:text-blue-300">
+                {reportConditionDescription}
+            </AlertDescription>
+        </Alert>
+    );
+  }, [reportConditionDescription]);
 
   // 2. Perform report-specific dynamic filtering on the client side.
   const currentDisplayData = useMemo(() => {
@@ -69,7 +97,7 @@ export default function SRReports() {
           if (srDoc.status === "Approved") {
             // Using pre-calculated fields from SRReportRowData
             return (
-              parseNumber(row.totalAmount) - parseNumber(row.invoiceAmount) >=
+              parseNumber(row.amountPaid) - parseNumber(row.invoiceAmount) >
               delta
             );
           }
@@ -211,6 +239,7 @@ export default function SRReports() {
       total_sr_amt: formatForReport(row.totalAmount),
       total_invoice_amt: formatForReport(row.invoiceAmount),
       amt_paid: formatForReport(row.amountPaid),
+      pending_invoice_amt: formatForReport(row.amountPaid - row.invoiceAmount),
       status: row.originalDoc.status,
     }));
 
@@ -222,6 +251,7 @@ export default function SRReports() {
       { header: "Total SR Amt", accessorKey: "total_sr_amt" },
       { header: "Total Invoice Amt", accessorKey: "total_invoice_amt" },
       { header: "Amt Paid", accessorKey: "amt_paid" },
+      { header: "Pending Invoice Amt", accessorKey: "pending_invoice_amt" },
       { header: "SR Status", accessorKey: "status" },
     ];
 
@@ -291,6 +321,7 @@ export default function SRReports() {
           onExport={handleCustomExport}
           exportFileName={exportFileName}
           showRowSelection={false}
+          summaryCard={summaryCardNode}
         />
       )}
     </div>

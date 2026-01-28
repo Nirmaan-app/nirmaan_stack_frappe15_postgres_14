@@ -230,6 +230,9 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
             setCartItems([...cartItems, selectedDoc]);
             setSelectedItemName(null);
             setSelectedMake(null);
+            setSelectedWorkPackage(null)
+            setSelectedCategory(null)
+              
         }
     };
 

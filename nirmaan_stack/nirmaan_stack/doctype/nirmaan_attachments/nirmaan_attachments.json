@@ -13,7 +13,8 @@
   "attachment_link_docname",
   "attachment_section",
   "attachment",
-  "attachment_type"
+  "attachment_type",
+  "attachment_ref"
  ],
  "fields": [
   {
@@ -65,11 +66,18 @@
    "fieldname": "attachment_type",
    "fieldtype": "Data",
    "label": "Attachment Type"
+  },
+  {
+   "fieldname": "attachment_ref",
+   "fieldtype": "Data",
+   "in_list_view": 0,
+   "in_standard_filter": 0,
+   "label": "Attachment Ref"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-13 21:00:14.743397",
+ "modified": "2026-01-27 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Nirmaan Attachments",

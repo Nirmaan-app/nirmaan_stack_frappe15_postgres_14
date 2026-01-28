@@ -53,6 +53,7 @@ export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({ atta
                 <TableRow>
                     <TableHead className="w-[80px] text-black font-bold">S.No.</TableHead>
                     <TableHead className="text-black font-bold">Type</TableHead>
+                    <TableHead className="text-black font-bold">Ref No.</TableHead>
                     <TableHead className="w-[150px] text-black font-bold">Date Added</TableHead>
                     <TableHead className="w-[120px] text-center text-black font-bold">Actions</TableHead>
                 </TableRow>
@@ -63,6 +64,7 @@ export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({ atta
                         <TableRow key={att.name}>
                             <TableCell className="text-center">{index + 1}</TableCell>
                             <TableCell className="font-medium">{toCamelCase(att.attachment_type)}</TableCell>
+                            <TableCell>{att.attachment_ref || "-"}</TableCell>
                             <TableCell>{formatDate(new Date(att.creation), "dd-MMM-yyyy")}</TableCell>
                             <TableCell className="text-center">
                                 <Button
@@ -82,7 +84,7 @@ export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({ atta
                     ))
                 ) : (
                     <TableRow>
-                        <TableCell colSpan={4} className="text-center py-4 text-gray-500">
+                        <TableCell colSpan={5} className="text-center py-4 text-gray-500">
                             No Delivery Challans or MIRs Found
                         </TableCell>
                     </TableRow>

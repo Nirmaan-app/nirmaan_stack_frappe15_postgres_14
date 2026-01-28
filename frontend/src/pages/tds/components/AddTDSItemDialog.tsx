@@ -14,7 +14,8 @@ import {
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { PlusCircle, UploadCloud, X,FileText } from "lucide-react";
+import { PlusCircle } from "lucide-react";
+import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { useFrappeCreateDoc, useFrappeFileUpload, useFrappeUpdateDoc } from "frappe-react-sdk";
 import RSelect from "react-select";
 import { toast } from "@/components/ui/use-toast";
@@ -30,6 +31,8 @@ interface AddTDSItemDialogProps {
 export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess }) => {
     const [open, setOpen] = useState(false);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [isCustomMake, setIsCustomMake] = useState(false);
+    const [customMake, setCustomMake] = useState("");
     const { createDoc, loading: creating } = useFrappeCreateDoc();
     const { upload: uploadFile, loading: uploading } = useFrappeFileUpload();
     const { updateDoc } = useFrappeUpdateDoc();
@@ -114,6 +117,8 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
         if (!open) {
             form.reset();
             setSelectedFile(null);
+            setIsCustomMake(false);
+            setCustomMake("");
         }
     }, [open, form]);
 
@@ -133,7 +138,7 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                     doctype: "TDS Repository",
                     docname: newDoc.name,
                     fieldname: "tds_attachment",
-                    isPrivate: false
+                    isPrivate: true
                 });
 
                 // Explicitly update the doc with the file URL if it wasn't attached automatically
@@ -255,14 +260,80 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                                             Make<span className="text-red-500 ml-0.5">*</span>
                                         </FormLabel>
                                         <FormControl>
-                                            <RSelect
-                                                options={makeOptions}
-                                                value={makeOptions.find(opt => opt.value === field.value) || null}
-                                                onChange={(opt) => field.onChange(opt?.value)}
-                                                placeholder="Select Make"
-                                                className="react-select-container"
-                                                classNamePrefix="react-select"
-                                            />
+                                            {isCustomMake ? (
+                                                <div className="space-y-2">
+                                                    <Input
+                                                        placeholder="Enter custom make name"
+                                                        value={customMake}
+                                                        onChange={(e) => {
+                                                            setCustomMake(e.target.value);
+                                                            field.onChange(e.target.value);
+                                                        }}
+                                                        className="bg-white border-gray-200"
+                                                    />
+                                                    <Button
+                                                        type="button"
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        onClick={() => {
+                                                            setIsCustomMake(false);
+                                                            setCustomMake("");
+                                                            field.onChange("");
+                                                        }}
+                                                        className="text-xs text-gray-500 hover:text-gray-700 h-6 px-2"
+                                                    >
+                                                        ← Back to Make list
+                                                    </Button>
+                                                </div>
+                                            ) : (
+                                                <RSelect
+                                                    options={makeOptions}
+                                                    value={makeOptions.find(opt => opt.value === field.value) || null}
+                                                    onChange={(opt) => {
+                                                        if (opt?.value === "__others__") {
+                                                            setIsCustomMake(true);
+                                                            setCustomMake("");
+                                                            field.onChange("");
+                                                        } else {
+                                                            field.onChange(opt?.value);
+                                                        }
+                                                    }}
+                                                    placeholder="Select Make"
+                                                    className="react-select-container"
+                                                    classNamePrefix="react-select"
+                                                    filterOption={(option, inputValue) => {
+                                                        // Always show "Others" option
+                                                        if (option.data.value === "__others__") return true;
+                                                        // Default filter for other options
+                                                        return option.label.toLowerCase().includes(inputValue.toLowerCase());
+                                                    }}
+                                                    styles={{
+                                                        option: (base, state) => ({
+                                                            ...base,
+                                                            ...(state.data.value === "__others__" ? {
+                                                                backgroundColor: state.isFocused ? '#dbeafe' : '#eff6ff',
+                                                                color: '#2563eb',
+                                                                fontWeight: 600,
+                                                                borderTop: '1px solid #e5e7eb',
+                                                                position: 'sticky',
+                                                                bottom: 0,
+                                                            } : {})
+                                                        }),
+                                                        menuList: (base) => ({
+                                                            ...base,
+                                                            paddingBottom: 0,
+                                                        })
+                                                    }}
+                                                    formatOptionLabel={(option) => (
+                                                        option.value === "__others__" ? (
+                                                            <span className="flex items-center gap-1">
+                                                                <span>+ Others</span>
+                                                                <span className="text-xs text-blue-400">(type custom)</span>
+                                                            </span>
+                                                        ) : option.label
+                                                    )}
+                                                />
+                                            )}
                                         </FormControl>
                                         <FormMessage className="text-xs" />
                                     </FormItem>
@@ -291,49 +362,18 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                             
 
                             {/* Attach Document */}
-                            <div className="space-y-2">
+                            <div className="space-y-1.5">
                                 <label className="text-sm font-semibold">
-                                    Attach Document <span className="text-gray-400 font-normal ml-1">(PDF only, max 50MB)</span>
+                                    Attach Document <span className="text-gray-400 font-normal ml-1">(Optional)</span>
                                 </label>
-                                <div 
-                                    className="border-2 border-dashed border-blue-100 bg-blue-50/50 rounded-lg p-8 flex flex-col items-center justify-center cursor-pointer hover:bg-blue-50 transition-colors relative"
-                                    onClick={() => document.getElementById('tds-file-upload')?.click()}
-                                >
-                                    {selectedFile ? (
-                                        <div className="flex flex-col items-center">
-                                            <FileText className="h-10 w-10 text-blue-500 mb-2" />
-                                            <span className="text-sm font-medium text-gray-700">{selectedFile.name}</span>
-                                            <span className="text-xs text-gray-400">{(selectedFile.size / (1024 * 1024)).toFixed(2)} MB</span>
-                                            <button 
-                                                type="button" 
-                                                className="absolute top-2 right-2 p-1 bg-white rounded-full shadow-sm hover:bg-gray-100"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setSelectedFile(null);
-                                                }}
-                                            >
-                                                <X className="h-4 w-4 text-gray-400" />
-                                            </button>
-                                        </div>
-                                    ) : (
-                                        <>
-                                            <div className="bg-blue-900 text-white p-2 rounded-lg mb-3 shadow-md">
-                                                <UploadCloud className="h-6 w-6" />
-                                            </div>
-                                            <span className="text-sm text-gray-600 mb-3">Drag and drop files here, or</span>
-                                            <Button type="button" variant="outline" className="bg-[#5c8ee6] hover:bg-[#4a79d1] text-white border-none h-8 px-4 text-xs">
-                                                Click to browse
-                                            </Button>
-                                        </>
-                                    )}
-                                    <input 
-                                        type="file" 
-                                        id="tds-file-upload" 
-                                        className="hidden" 
-                                        accept=".pdf,application/pdf"
-                                        onChange={(e) => e.target.files && setSelectedFile(e.target.files[0])}
-                                    />
-                                </div>
+                                <CustomAttachment
+                                    maxFileSize={50 * 1024 * 1024}
+                                    selectedFile={selectedFile}
+                                    onFileSelect={setSelectedFile}
+                                    acceptedTypes="application/pdf"
+                                    label="Upload PDF Document"
+                                    className="w-full"
+                                />               
                             </div>
 
                             <DialogFooter className="pt-4 border-t border-gray-100 gap-2 sm:gap-0">

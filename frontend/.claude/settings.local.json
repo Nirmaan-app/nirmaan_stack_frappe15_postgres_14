@@ -10,7 +10,8 @@
       "Skill(frontend-design)",
       "Bash(find:*)",
       "Bash(grep:*)",
-      "Skill(webapp-testing)"
+      "Skill(webapp-testing)",
+      "Bash(git log:*)"
     ],
     "deny": [],
     "ask": []

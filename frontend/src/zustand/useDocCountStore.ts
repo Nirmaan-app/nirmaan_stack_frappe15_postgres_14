@@ -40,6 +40,7 @@ export interface SidebarCountsData {
     sr: {
         selected: number;
         approved: number;
+        finalized: number;
         amended: number;
         all: number;
         pending: number;
@@ -104,6 +105,7 @@ export const useDocCountStore = create<Store>()(
         sr: {
             selected: 0,
             approved: 0,
+            finalized: 0,
             amended: 0,
             all: 0,
             pending: 0,

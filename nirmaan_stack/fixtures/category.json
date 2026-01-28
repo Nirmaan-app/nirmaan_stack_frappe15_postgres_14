@@ -1,5 +1,27 @@
 [
  {
+  "category_name": "Vesda",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2026-01-02 17:03:54.109091",
+  "name": "Vesda",
+  "new_items": "false",
+  "tax": "18",
+  "work_package": "WLD & RR"
+ },
+ {
+  "category_name": "WLD-RR Services",
+  "docstatus": 0,
+  "doctype": "Category",
+  "image_url": null,
+  "modified": "2026-01-03 13:52:12.375179",
+  "name": "WLD-RR Services",
+  "new_items": "false",
+  "tax": "18",
+  "work_package": "Services"
+ },
+ {
   "category_name": "DX System",
   "docstatus": 0,
   "doctype": "Category",

@@ -211,7 +211,8 @@ export const basePOColumns: ColumnDef<POReportRowData>[] = [
     },
   },
   {
-    id: "PendingInvoice", // This is pre-calculated in POReportRowData
+    id: "PendingInvoice",
+    accessorFn: (row) => row.amountPaid - row.invoiceAmount,
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Pending Invoice Amt" />
     ),
@@ -365,7 +366,8 @@ export const basePOColumnsForPM: ColumnDef<POReportRowData>[] = [
     },
   },
   {
-    id: "PendingInvoice", // This is pre-calculated in POReportRowData
+    id: "PendingInvoice",
+    accessorFn: (row) => row.amountPaid - row.invoiceAmount,
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Pending Invoice Amt" />
     ),

@@ -129,7 +129,7 @@ export const VirtualizedMaterialTable: React.FC<VirtualizedMaterialTableProps> =
   
   // --- B. DYNAMIC LAYOUT CALCULATION ---
   // Calculate the number of visible columns to correctly set the `colSpan` for placeholder rows.
-  const totalColumns = 10; // The original, total number of columns in your table.
+  const totalColumns = 11; // The original, total number of columns in your table.
   const visibleColumnCount = totalColumns - hiddenColumns.size;
     
   // Helper function to bundle all sorting-related props for the SortableHeader.
@@ -173,6 +173,7 @@ export const VirtualizedMaterialTable: React.FC<VirtualizedMaterialTableProps> =
               </div>
             </TableHead>
             <TableHead className="text-center min-w-[170px]">PO Number(s)</TableHead>
+            <TableHead className="text-center min-w-[80px]">DCs</TableHead>
             <TableHead className="min-w-[180px]">
                <div className="flex items-center gap-1 justify-center">
                 <SimpleFacetedFilter title="PO Status" options={props.poStatusOptions} selectedValues={props.poStatusFilter as Set<string>} onSelectedValuesChange={(newSet) => props.onSetPoStatusFilter(newSet as Set<OverallItemPOStatus>)} />

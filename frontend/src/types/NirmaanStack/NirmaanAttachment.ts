@@ -17,6 +17,8 @@ export interface NirmaanAttachment{
 	/**	Associated Docname : Dynamic Link - associated_doctype	*/
 	associated_docname: string
   attachment_type? : string
+  /** Attachment Ref : Data - DC Number or MIR Number */
+  attachment_ref?: string
   /**	Attachment Link Doctype : Link - Doctype (Category, Vendor, etc...)	*/
 	attachment_link_doctype?: string
 	/**	Attachment Link Docname : Dynamic Link - attachment_link_doctype	*/

@@ -4,6 +4,101 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-28: GST Terminology Rename & WO Options Card Revamp
+
+### Summary
+Renamed "Project GST" to "Nirmaan GST for Billing" across PO and WO/SR components. Revamped the WO Options card to include an inline GST toggle (Switch) with instant save, replacing the previous approach of bundling GST changes with the notes save dialog. Added Nirmaan GST for Billing as a read-only display in the WO Options card. Fixed missing `refNumber` in useEffect dependency arrays causing stale closures.
+
+### Commits
+- `e2f461ff` - refactor: rename "Project GST" to "Nirmaan GST for Billing" in PO payment terms
+- `b882591a` - refactor: revamp WO Options card with GST toggle and Nirmaan GST display
+- `98ec8c07` - fix: add missing refNumber to useEffect dependency arrays
+
+### Key Changes
+
+**Terminology:**
+- "Project GST" → "Nirmaan GST for Billing" in all user-facing labels (PO payment terms, WO Options card)
+
+**WO Options Card Architecture Change:**
+- GST toggle extracted from edit dialog into WO Options card as an inline `Switch` component
+- Toggle saves independently via `handleGstToggle` (instant save, no dialog required)
+- Nirmaan GST for Billing value displayed as read-only in the Options card
+
+**Bug Fix:**
+- `refNumber` was missing from `useEffect` dependency arrays in `DocumentAttachments.tsx` and `PODetails.tsx`, causing stale closures when reference numbers changed
+
+### Files Modified
+- `src/pages/ProcurementOrders/purchase-order/components/POPaymentTermsCard.tsx` - Renamed label
+- `src/pages/ServiceRequests/service-request/approved-sr.tsx` - GST toggle + Nirmaan GST display in Options card
+- `src/pages/ProcurementOrders/invoices-and-dcs/DocumentAttachments.tsx` - Added refNumber to useEffect deps
+- `src/pages/ProcurementOrders/purchase-order/components/PODetails.tsx` - Added refNumber to useEffect deps
+
+---
+
+## 2026-01-27: Project Status Lifecycle Analysis & Documentation
+
+### Summary
+Comprehensive analysis of how project statuses (Created, WIP, Halted, Completed) affect the application. Documented findings in new context files.
+
+### Key Findings
+- `ProjectSelect` component (`components/custom-select/project-select.tsx:34`) filters out Halted/Completed projects from dropdowns by default
+- PR and SR/WO creation pages do NOT use `ProjectSelect` and have NO status guards
+- Financial operations (New Inflow Payment, New Project Invoice) intentionally bypass filter with `all={true}`
+- Backend: Design Tracker blocks Halted/Completed; Progress reports exclude Completed
+- No hard backend API validation exists for any status
+
+### Context Files Created
+- `.claude/context/domain/projects.md` (backend) - Status lifecycle, backend effects, gotchas
+- `frontend/.claude/context/domain/projects.md` - Frontend status behavior, ProjectSelect usage map, impact matrix
+
+### Context Files Updated
+- `.claude/context/_index.md` - Added projects domain reference
+- `.claude/context/workflows.md` - Added Project Status Lifecycle section
+- `frontend/.claude/context/_index.md` - Added projects domain reference + directory tree
+
+---
+
+## 2026-01-27: DC/MIR Reference Numbers + DCs Column in Material Usage
+
+### Summary
+Added DC/MIR reference number capture and display across upload dialogs, attachment tables, and PO reconcile reports. Added a new "DCs" column to the Project Material Usage table showing delivery challan counts per item with a popover for details. Simplified PO reports by removing separate payments fetch.
+
+### Commits
+- `0069d8ac` - feat: add attachment_ref field to Nirmaan Attachments doctype
+- `fe8999e1` - feat: add DC/MIR reference number capture and display
+- `907e24b7` - feat: show attachment ref numbers in PO reconcile report
+- `f08276bf` - refactor(reports): use PO amount_paid instead of separate payments fetch
+- `e9a8561e` - feat: add DCs column to project material usage table
+
+### Files Created
+- `src/pages/projects/components/DCCountCell.tsx` - Popover component showing DC count badge (gray "0" or amber truck icon) with table of DC details (DC No, Uploaded On, View link)
+
+### Files Modified
+
+**Upload Dialogs (ref number input):**
+- `src/pages/DeliveryChallansAndMirs/DeliveryChallansAndMirs.tsx` - Added refNumber state, input field, display in view dialog
+- `src/pages/ProcurementOrders/invoices-and-dcs/DocumentAttachments.tsx` - Same pattern
+- `src/pages/ProcurementOrders/purchase-order/components/PODetails.tsx` - Same pattern
+
+**Attachment Tables (ref number column):**
+- `src/pages/ProcurementOrders/invoices-and-dcs/components/DeliveryChallanTable.tsx` - Added "Ref No." column
+- `src/pages/ProcurementOrders/purchase-order/components/POAttachments.tsx` - Added "DC No." column
+
+**PO Reconcile Report (ref number in popovers):**
+- `src/pages/reports/components/columns/poAttachmentReconcileColumns.tsx` - DC No/MIR No columns in popovers
+- `src/pages/reports/hooks/usePOAttachmentReconcileData.ts` - Fetch and map attachment_ref
+
+**PO Reports Simplification:**
+- `src/pages/reports/hooks/usePOReportsData.ts` - Removed ProjectPayments fetch, use po.amount_paid directly
+
+**Material Usage Table (DCs column):**
+- `src/pages/projects/components/ProjectMaterialUsageTab.tsx` - Added deliveryChallans/dcCount to interface + CSV export
+- `src/pages/projects/hooks/useMaterialUsageData.ts` - DC attachment fetch, dcByPOMap, merge into items
+- `src/pages/projects/components/VirtualizedMaterialTable.tsx` - Header + totalColumns update
+- `src/pages/projects/components/MaterialTableRow.tsx` - DCCountCell rendering
+
+---
+
 ## 2026-01-23: Vendor Invoices Frontend Integration
 
 ### Summary

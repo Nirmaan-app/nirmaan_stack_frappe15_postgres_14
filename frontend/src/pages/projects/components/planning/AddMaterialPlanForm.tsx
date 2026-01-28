@@ -803,6 +803,7 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                                                                 <Checkbox 
                                                                     checked={!!selectedItems[item.name]}
                                                                     onCheckedChange={() => handleItemToggle(item)}
+                                                                    onClick={(e) => e.stopPropagation()}
                                                                     className="mt-0.5"
                                                                 />
                                                                 <div className="flex-1 min-w-0">
@@ -899,7 +900,9 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                                     type="date"
                                     value={deliveryDate}
                                     onChange={(e) => setDeliveryDate(e.target.value)}
-                                    className="w-full p-2 border rounded-md"
+                                    onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
+                                    min={new Date().toISOString().split('T')[0]} // Restrict to future dates
+                                    className="w-full p-2 border rounded-md cursor-pointer"
                                 />
                             </div>
                             

@@ -291,6 +291,7 @@ export const POAttachments: React.FC<POAttachmentsProps> = ({ PO, poMutate }) =>
                 <TableRow>
                   <TableHead className="text-black font-bold">S.NO.</TableHead>
                   <TableHead className="text-black font-bold">Date</TableHead>
+                  <TableHead className="text-black font-bold">DC No.</TableHead>
                   <TableHead className="text-black font-bold">Delivery Challan</TableHead>
                 </TableRow>
               </TableHeader>
@@ -299,6 +300,7 @@ export const POAttachments: React.FC<POAttachmentsProps> = ({ PO, poMutate }) =>
                   <TableRow key={att.name}>
                     <TableCell>{index + 1}</TableCell>
                     <TableCell>{formatDate(att.creation, "dd-MMM-yyyy")}</TableCell>
+                    <TableCell>{att.attachment_ref || "-"}</TableCell>
                     <TableCell className="font-semibold text-blue-500 underline truncate max-w-[150px]">
                       <a href={`${SITEURL}${att.attachment}`} target="_blank" rel="noreferrer">
                         {att.attachment?.split("file_name=")[1]}
@@ -307,7 +309,7 @@ export const POAttachments: React.FC<POAttachmentsProps> = ({ PO, poMutate }) =>
                   </TableRow>
                 )) : (
                   <TableRow>
-                    <TableCell colSpan={3} className="text-center py-4">
+                    <TableCell colSpan={4} className="text-center py-4">
                       No Delivery Challans Found
                     </TableCell>
                   </TableRow>

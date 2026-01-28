@@ -1,5 +1,5 @@
 import React, { useContext, useEffect, useState, useMemo, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useFrappeDeleteDoc } from 'frappe-react-sdk';
 import { Trash2 } from 'lucide-react';
 
@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import ProjectMilestoneSelect from "@/components/custom-select/project-milestone-select";
 import { formatDate } from '@/utils/FormatDate';
+import { urlStateManager } from "@/utils/urlStateManager";
 
 // Shared components
 import { useMilestoneReportData } from './hooks/useMilestoneReportData';
@@ -48,7 +49,9 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
   const navigate = useNavigate();
   const { role, user_id } = useUserData();
 
-  const [searchParams] = useState(new URLSearchParams(window.location.search));
+  // Removed useLocation and useMemo for searchParams as they don't sync with urlStateManager updates
+  // const location = useLocation();
+  // const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
 
   // Local state
   const [selectedZone, setSelectedZone] = useState<string | null>(null);
@@ -71,6 +74,25 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
       setSelectedProject(projectIdForWorkReport);
     }
   }, [workReport, projectIdForWorkReport, setSelectedProject]);
+
+  // Effect to sync URL "zone" param TO selectedZone state (for initial load and external updates)
+  useEffect(() => {
+    const handleZoneUpdate = (key: string, value: string | null) => {
+      if (value && value !== selectedZone) {
+        setSelectedZone(value);
+      }
+    };
+
+    const unsubscribe = urlStateManager.subscribe("zone", handleZoneUpdate);
+
+    // Initial check
+    const currentUrlZone = urlStateManager.getParam("zone");
+    if (currentUrlZone && selectedZone !== currentUrlZone) {
+      setSelectedZone(currentUrlZone);
+    }
+
+    return unsubscribe;
+  }, [selectedZone]);
 
   // Use shared data hook
   const {
@@ -115,25 +137,41 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
     // Reset zone if current zone is not in the new project's zones
     if (selectedZone !== null && !currentProjectZones.includes(selectedZone)) {
       setSelectedZone(null);
+      // Clean up URL param if the current selected zone became invalid
+      urlStateManager.updateParam('zone', null); 
       return;
     }
 
     // Zone selection logic
     if (selectedZone === null && currentProjectZones.length > 0) {
-      // Check URL for zone parameter
-      const urlZone = searchParams.get('zone');
+       // Check URL for zone parameter via urlStateManager
+      const urlZone = urlStateManager.getParam('zone');
       if (urlZone && currentProjectZones.includes(urlZone)) {
         setSelectedZone(urlZone);
         return;
+      }
+
+      // If URL zone is invalid (e.g. from previous project), clear it
+      if (urlZone && !currentProjectZones.includes(urlZone)) {
+          urlStateManager.updateParam('zone', null);
       }
 
       // Select first available zone
       const firstZoneName = currentProjectZones[0];
       if (firstZoneName) {
         setSelectedZone(firstZoneName);
+        // Force update URL to the new default zone
+        urlStateManager.updateParam('zone', firstZoneName); 
       }
+    } 
+    // Check if URL param differs and update if so (to handle browser back/forward or external changes)
+    else if (selectedZone !== null) {
+         const urlZone = urlStateManager.getParam('zone');
+         if (urlZone && urlZone !== selectedZone && currentProjectZones.includes(urlZone)) {
+            setSelectedZone(urlZone);
+         }
     }
-  }, [projectData, selectedProject, workReport, selectedZone, searchParams]);
+  }, [projectData, selectedProject, workReport, selectedZone]); // Removed searchParams dependency
 
   // Handle project selection change
   const handleProjectChange = useCallback((selectedItem: any) => {
@@ -145,11 +183,14 @@ export const MilestonesSummary: React.FC<MilestonesSummaryProps> = ({
     }
   }, [setSelectedProject]);
 
-  // Handle zone selection (updates state and sessionStorage only)
-  // Note: We don't navigate/update URL because it causes component remount which resets displayDate
+  // Handle zone selection (updates state and urlStateManager)
   const handleZoneChange = useCallback((zoneName: string) => {
     setSelectedZone(zoneName);
     sessionStorage.setItem("selectedZone", JSON.stringify(zoneName));
+    
+    // Update URL param using urlStateManager to preserve other params (like 'page')
+    urlStateManager.updateParam('zone', zoneName);
+    
   }, []);
 
   // Handler for deleting today's report
