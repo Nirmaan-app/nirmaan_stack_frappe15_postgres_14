@@ -574,18 +574,18 @@ export const EditTermsDialog = ({ isOpen, onClose, po, onSave, isLoading }) => {
       <DialogContent className="sm:max-w-lg bg-white p-6 rounded-lg shadow-xl">
         <DialogHeader>
           <DialogTitle className="text-xl font-semibold text-gray-800">
-            Project GST & Notes
+            Nirmaan GST for Billing & Notes
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-6 pt-4">
           <div>
             <Label className="font-semibold text-gray-700">
-              Project GST Selection <span className="text-red-500">*</span>
+              Nirmaan GST for Billing <span className="text-red-500">*</span>
             </Label>
             {poProject && poProject.project_gst_number ? (
               <Select onValueChange={setSelectedGst} value={selectedGst}>
                 <SelectTrigger className="mt-1">
-                  <SelectValue placeholder="Select Project GST" />
+                  <SelectValue placeholder="Select Nirmaan GST for Billing" />
                 </SelectTrigger>
                 <SelectContent>
                   {JSON.parse(poProject.project_gst_number).list.map(
@@ -1092,7 +1092,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
           <div className="pt-6 border-t">
             <div className="flex justify-between items-center mb-3">
               <h3 className="text-lg font-bold text-red-600">
-                Project GST And Notes
+                Nirmaan GST for Billing & Notes
                 {!isValid && (
                   <Tooltip>
                     <TooltipTrigger asChild>
