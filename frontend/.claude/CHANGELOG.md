@@ -4,6 +4,37 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-01-28: GST Terminology Rename & WO Options Card Revamp
+
+### Summary
+Renamed "Project GST" to "Nirmaan GST for Billing" across PO and WO/SR components. Revamped the WO Options card to include an inline GST toggle (Switch) with instant save, replacing the previous approach of bundling GST changes with the notes save dialog. Added Nirmaan GST for Billing as a read-only display in the WO Options card. Fixed missing `refNumber` in useEffect dependency arrays causing stale closures.
+
+### Commits
+- `e2f461ff` - refactor: rename "Project GST" to "Nirmaan GST for Billing" in PO payment terms
+- `b882591a` - refactor: revamp WO Options card with GST toggle and Nirmaan GST display
+- `98ec8c07` - fix: add missing refNumber to useEffect dependency arrays
+
+### Key Changes
+
+**Terminology:**
+- "Project GST" → "Nirmaan GST for Billing" in all user-facing labels (PO payment terms, WO Options card)
+
+**WO Options Card Architecture Change:**
+- GST toggle extracted from edit dialog into WO Options card as an inline `Switch` component
+- Toggle saves independently via `handleGstToggle` (instant save, no dialog required)
+- Nirmaan GST for Billing value displayed as read-only in the Options card
+
+**Bug Fix:**
+- `refNumber` was missing from `useEffect` dependency arrays in `DocumentAttachments.tsx` and `PODetails.tsx`, causing stale closures when reference numbers changed
+
+### Files Modified
+- `src/pages/ProcurementOrders/purchase-order/components/POPaymentTermsCard.tsx` - Renamed label
+- `src/pages/ServiceRequests/service-request/approved-sr.tsx` - GST toggle + Nirmaan GST display in Options card
+- `src/pages/ProcurementOrders/invoices-and-dcs/DocumentAttachments.tsx` - Added refNumber to useEffect deps
+- `src/pages/ProcurementOrders/purchase-order/components/PODetails.tsx` - Added refNumber to useEffect deps
+
+---
+
 ## 2026-01-27: Project Status Lifecycle Analysis & Documentation
 
 ### Summary
