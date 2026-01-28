@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useMemo } from "react";
 import { useUrlParam } from "@/hooks/useUrlParam";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { startOfDay, addDays, parseISO, format } from "date-fns";
@@ -16,7 +16,20 @@ interface CashflowPlanProps {
 }
 
 export const CashflowPlan = ({ projectId, isOverview }: CashflowPlanProps) => {
-    const [activeTab, setActiveTab] = useState<CashflowTabValue>(CASHFLOW_TABS.PO_CASHFLOW);
+    // --- Tab State (URL) ---
+    const tabParam = useUrlParam("tab");
+    
+    const activeTab = useMemo(() => {
+        // If exact match found in values
+        if (Object.values(CASHFLOW_TABS).includes(tabParam as any)) {
+            return tabParam as CashflowTabValue;
+        }
+        return CASHFLOW_TABS.PO_CASHFLOW;
+    }, [tabParam]);
+
+    const handleTabChange = (tab: CashflowTabValue) => {
+        urlStateManager.updateParam("tab", tab);
+    };
 
     // --- Date/Duration State (Local) ---
     const activeDurationParam = useUrlParam("planningDuration");
@@ -74,7 +87,7 @@ export const CashflowPlan = ({ projectId, isOverview }: CashflowPlanProps) => {
             </div>
 
             {/* Tabs Navigation */}
-            <CashflowTabs activeTab={activeTab} onTabChange={setActiveTab} />
+            <CashflowTabs activeTab={activeTab} onTabChange={handleTabChange} />
 
             {/* Tab Content */}
             <div className="flex-1">
