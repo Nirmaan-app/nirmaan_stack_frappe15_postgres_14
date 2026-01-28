@@ -2,6 +2,14 @@
  {
   "docstatus": 0,
   "doctype": "Work Packages",
+  "modified": "2026-01-27 12:37:53.178675",
+  "name": "BMS",
+  "work_package_image": null,
+  "work_package_name": "BMS"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Work Packages",
   "modified": "2024-11-23 14:19:57.671845",
   "name": "Access Control System",
   "work_package_image": "https://storage.googleapis.com/nirmaan-public-bucket1/Cropped%20WP/access_control.jpg",
