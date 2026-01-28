@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { useFrappeGetDocList, useFrappeDeleteDoc } from "frappe-react-sdk";
 import { format } from "date-fns";
 import { safeFormatDate } from "@/lib/utils";
-import { Trash2, ChevronDown, Receipt } from "lucide-react"; // Using Receipt icon instead of Package
+import { Trash2, ChevronDown, Receipt, Package } from "lucide-react"; // Using Receipt icon instead of Package
 import { useUrlParam } from "@/hooks/useUrlParam";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +13,22 @@ import { AddPOCashflowForm } from "./components/AddPOCashflowForm";
 //     return <div>Edit Form Here</div>;
 // };
 import { useParams } from "react-router-dom";
+
+
+// Helper to safely parse items
+const cashFlowJsonToArray = (plan: any): any[] => {
+    console.log("plan",plan)
+    try {
+        const rawItems = plan.items;
+         if (!rawItems) return [];
+        const parsed = typeof rawItems === 'string' ? JSON.parse(rawItems) : rawItems;
+        const list = parsed?.list || parsed;
+        return Array.isArray(list) ? list : (Array.isArray(parsed) ? parsed : []);
+    } catch (e) {
+        console.error("Failed to parse items for plan:", plan.name, e);
+        return [];
+    }
+};
 
 export const POCashflow = () => {
     const { projectId } = useParams<{ projectId: string }>();
@@ -36,7 +52,7 @@ const POCashflowContent = ({ projectId }: POCashflowContentProps) => {
     const endDateParam = useUrlParam("endDate");
 
     const { docListFilters, activeDuration } = useMemo(() => {
-        const filters: any[] = [["project", "=", projectId], ["type", "=", "PO"]]; // Filter by PO type if we use generic Cashflow Plan
+        const filters: any[] = [["project", "=", projectId], ["type", "in", ["Existing PO","New PO"]]]; // Filter by PO type if we use generic Cashflow Plan
         // Wait, does Cashflow Plan have a 'type' field? Yes, I saw it in JSON.
         
         let start = null;
@@ -74,9 +90,10 @@ const POCashflowContent = ({ projectId }: POCashflowContentProps) => {
 
     // Fetch Plans
     const { data: existingPlans, isLoading: isLoadingPlans, mutate: refreshPlans } = useFrappeGetDocList("Cashflow Plan", {
-        fields: ["name", "id_link", "planned_date", "planned_amount", "creation", "critical_po_category", "critical_po_task", "items", "remarks", "vendor"],
+        fields: ["name", "id_link","type", "planned_date", "planned_amount", "creation", "critical_po_category", "critical_po_task", "items", "remarks", "vendor.vendor_name", "estimated_price"],
         filters: docListFilters,
-        orderBy: { field: "planned_date", order: "asc" }
+        orderBy: { field: "planned_date", order: "asc" },
+        limit:0
     });
 
 
@@ -119,9 +136,10 @@ const POCashflowContent = ({ projectId }: POCashflowContentProps) => {
                             </Badge>
                         )}
                     </div>
-                </div>
-
-                <div className="flex mb-6">
+                    <div className="flex">
+                        {/* <Button onClick={OpenMaterialDailog} variant="outline" className="bg-gray-50">
+                            From MaterialPlan
+                        </Button> */}
                      {planForms.length === 0 ? (
                         <Button onClick={addPlanForm} className="bg-red-600 hover:bg-red-700 text-white">
                             Add PO Plan
@@ -132,6 +150,9 @@ const POCashflowContent = ({ projectId }: POCashflowContentProps) => {
                         </Button>
                      )}
                 </div>
+                </div>
+
+                
 
                 {/* Render Active Forms Inline */}
                 {planForms.length > 0 && (
@@ -162,59 +183,120 @@ const POCashflowContent = ({ projectId }: POCashflowContentProps) => {
                     {existingPlans?.map((plan: any, _index: number) => {
                         const isExpanded = expandedPlans.includes(plan.name);
                         
-                        return (
-                            <div key={plan.name} className="border rounded-lg bg-white shadow-sm overflow-hidden transition-all">
-                                <div className="flex flex-col md:flex-row items-center p-4 gap-4">
-                                    {/* Toggle & ID */}
-                                    <div className="flex items-center gap-3 w-full md:w-auto shrink-0">
-                                        <button onClick={() => togglePlan(plan.name)} className="text-gray-400 hover:text-gray-600">
-                                            <ChevronDown className={`w-5 h-5 transition-transform ${isExpanded ? "" : "-rotate-90"}`} />
-                                        </button>
-                                        <div className="flex items-center gap-2">
-                                            <Receipt className="w-5 h-5 text-gray-600" />
-                                            <span className="font-semibold text-gray-800">Plan {_index + 1}</span>
-                                        </div>
-                                        <div className="h-4 w-px bg-gray-300 hidden md:block" />
-                                    </div>
+                        const itemsList = cashFlowJsonToArray(plan);
 
-                                    {/* Columns */}
-                                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 w-full text-sm">
-                                        <div className="flex flex-col">
-                                            <span className="text-xs font-bold text-gray-500 uppercase">PO Link</span>
-                                            <span className="font-medium text-blue-600 truncate" title={plan.id_link}>{plan.id_link || "--"}</span>
-                                        </div>
-                                        <div className="flex flex-col">
-                                            <span className="text-xs font-bold text-gray-500 uppercase">Vendor</span>
-                                            <span className="font-medium text-gray-800 truncate">{plan.vendor || "--"}</span>
-                                        </div>
-                                        <div className="flex flex-col">
-                                            <span className="text-xs font-bold text-gray-500 uppercase">Planned Date</span>
-                                            <span className="font-medium text-gray-800">{safeFormatDate(plan.planned_date)}</span>
-                                        </div>
-                                        <div className="flex flex-col">
-                                            <span className="text-xs font-bold text-gray-500 uppercase">Amount</span>
-                                            <span className="font-medium text-green-700">
-                                                {plan.planned_amount ? `₹${Number(plan.planned_amount).toLocaleString()}` : "--"}
+                        return (
+                            <div key={plan.name} className="border rounded-lg bg-white shadow-sm overflow-hidden transition-all hover:shadow-md">
+                                <div className="flex flex-col xl:flex-row items-start xl:items-center p-3 gap-3">
+                                    {/* Section 1: Toggle & Plan Info */}
+                                    <div className="flex items-start gap-2 w-full xl:w-[22%] shrink-0">
+                                        <button onClick={() => togglePlan(plan.name)} className="mt-1 text-gray-400 hover:text-gray-600">
+                                            <ChevronDown className={`w-5 h-5 transition-transform duration-200 ${isExpanded ? "" : "-rotate-90"}`} />
+                                        </button>
+                                        <div className="flex flex-col gap-0.5 min-w-0">
+                                            <div className="flex items-center gap-2">
+                                                <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-sm px-1.5 py-0 text-[10px] font-normal uppercase tracking-wider">
+                                                    Plan {_index + 1}
+                                                </Badge>
+                                            </div>
+                                            <h4 className="font-semibold text-gray-900 leading-tight text-sm truncate" title={plan.critical_po_task}>
+                                                {plan.critical_po_task || "Untitled Task"}
+                                            </h4>
+                                            <span className="text-[11px] text-gray-500 font-medium truncate" title={plan.critical_po_category}>
+                                                {plan.critical_po_category || "Uncategorized"}
                                             </span>
                                         </div>
-                                        <div className="flex flex-col">
-                                            <span className="text-xs font-bold text-gray-500 uppercase">Task</span>
-                                            <span className="font-medium text-gray-700 truncate">{plan.critical_po_task || "--"}</span>
+                                    </div>
+
+                                    <div className="w-px h-10 bg-gray-200 hidden xl:block mx-1" />
+
+                                    {/* Section 2: PO Info */}
+                                    <div className="flex flex-col gap-1 w-full xl:w-[18%] shrink-0 min-w-0">
+                                        <div className="font-medium text-gray-900 text-sm truncate" title={plan.id_link}>
+                                           {plan.id_link || "--"}
+                                        </div>
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                            <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 font-medium bg-gray-50 text-gray-600 border-gray-200">
+                                               {plan.type}
+                                            </Badge>
+                                            <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 font-medium bg-gray-50 text-gray-600 border-gray-200">
+                                                {itemsList.length} Items
+                                            </Badge>
                                         </div>
                                     </div>
 
-                                    {/* Actions */}
-                                    <div className="flex items-center gap-2 ml-auto">
-                                        <button onClick={() => handleDelete(plan.name)} className="text-gray-400 hover:text-red-600 p-2">
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
+                                    <div className="w-px h-10 bg-gray-200 hidden xl:block mx-1" />
+
+                                    {/* Section 3: Planned Stats */}
+                                    <div className="grid grid-cols-3 gap-2 w-full xl:w-[32%] shrink-0">
+                                        <div className="flex flex-col gap-0.5">
+                                            <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Amount</span>
+                                            <span className="font-semibold text-gray-900 text-sm">
+                                                {plan.planned_amount ? `₹ ${Number(plan.planned_amount).toLocaleString()}` : "--"}
+                                            </span>
+                                        </div>
+                                        <div className="flex flex-col gap-0.5">
+                                            <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Date</span>
+                                            <span className="font-semibold text-gray-900 text-sm">
+                                                {safeFormatDate(plan.planned_date)}
+                                            </span>
+                                        </div>
+                                        <div className="flex flex-col gap-0.5 min-w-0">
+                                            <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Vendor</span>
+                                            <span className="font-medium text-gray-900 text-xs truncate" title={plan.vendor_name}>
+                                                {plan.vendor_name || "--"}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <div className="w-px h-10 bg-gray-200 hidden xl:block mx-1" />
+
+                                    {/* Section 4: Total & Actions */}
+                                    <div className="flex items-center justify-between w-full xl:w-auto xl:flex-1 gap-3 min-w-0">
+                                        <div className="flex flex-col items-end gap-0.5 ml-auto xl:ml-0 min-w-0 flex-1">
+                                            <div className="flex items-baseline gap-1">
+                                                <span className="text-[10px] text-gray-500">Paid:</span>
+                                                <span className="text-xs font-medium">₹ 0</span>
+                                            </div>
+                                            <div className="w-full max-w-[100px] h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                                <div className="h-full bg-blue-600 w-[0%]" />
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="flex items-center gap-1 pl-3 border-l border-gray-100 shrink-0">
+                                            <button 
+                                                onClick={() => handleDelete(plan.name)} 
+                                                className="p-1.5 text-gray-400 hover:text-red-600 transition-colors hover:bg-red-50 rounded-md"
+                                                title="Delete Plan"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
 
-                                {/* Details (Expanded) */}
+                                {/* Details (Expanded) - Materials Chips */}
                                 {isExpanded && (
-                                    <div className="bg-gray-50 p-4 border-t text-sm">
-                                        <div className="mb-2 font-medium text-gray-700">Remarks: {plan.remarks || "None"}</div>
+                                    <div className="bg-gray-50/50 border-t p-4 pl-4 md:pl-6 pt-2 pb-6 animate-in slide-in-from-top-2 duration-200">
+                                        <div className="flex flex-col md:flex-row md:items-start gap-4">
+                                            <span className="text-xs font-bold text-gray-800 shrink-0 mt-1.5">
+                                                Materials ({itemsList.length}):
+                                            </span>
+                                            <div className="flex flex-wrap gap-2">
+                                                {itemsList.map((item: any, i: number) => (
+                                                    <div key={i} className="bg-[#EBE9F8] text-gray-700 text-xs px-2.5 py-1 rounded-md font-medium">
+                                                        {item.item_name}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        
+                                        {plan.remarks && (
+                                            <div className="mt-4 text-xs">
+                                                <span className="font-semibold text-gray-700">Remarks: </span>
+                                                <span className="text-gray-600">{plan.remarks}</span>
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </div>
