@@ -424,7 +424,7 @@ export const DocumentAttachments = <T extends DocumentType>({
         variant: "destructive",
       });
     }
-  }, [selectedFile, uploadDialog.type, documentData, docType, docName, upload, createAttachmentDoc, toast, docMutate, mutateAttachments, handleCloseUploadDialog]);
+  }, [selectedFile, uploadDialog.type, documentData, docType, docName, upload, createAttachmentDoc, toast, docMutate, mutateAttachments, handleCloseUploadDialog, refNumber]);
 
   const isUploading = uploadLoading || createAttachmentLoading;
 

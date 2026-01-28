@@ -285,6 +285,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
     createAttachmentDoc,
     poMutate,
     handleCloseUploadDialog,
+    refNumber,
   ]);
 
   const isUploading = uploadLoading || createAttachmentLoading;
