@@ -8,7 +8,7 @@ import { CashflowTabs, CASHFLOW_TABS, CashflowTabValue } from "./CashflowTabs";
 import { POCashflow } from "./POCashflow";
 import { WOCashflow } from "./WOCashflow";
 import { MiscCashflow } from "./MiscCashflow";
-import { Inflow } from "./Inflow";
+import { InflowCashflow } from "./InflowCashflow";
 
 interface CashflowPlanProps {
     projectId?: string;
@@ -81,7 +81,7 @@ export const CashflowPlan = ({ projectId, isOverview }: CashflowPlanProps) => {
                 {activeTab === CASHFLOW_TABS.PO_CASHFLOW && <POCashflow />}
                 {activeTab === CASHFLOW_TABS.WO_CASHFLOW && <WOCashflow />}
                 {activeTab === CASHFLOW_TABS.MISC_CASHFLOW && <MiscCashflow />}
-                {activeTab === CASHFLOW_TABS.INFLOW && <Inflow />}
+                {activeTab === CASHFLOW_TABS.INFLOW && <InflowCashflow />}
             </div>
         </div>
     );
