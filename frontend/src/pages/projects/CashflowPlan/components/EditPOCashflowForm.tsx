@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { CalendarIcon, Search, X } from "lucide-react";
@@ -30,12 +31,17 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
     const [plannedDate, setPlannedDate] = useState<Date | undefined>(undefined);
     const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
     const [searchQuery, setSearchQuery] = useState("");
+    
+    // New PO Specific
+    const [manualItemsText, setManualItemsText] = useState("");
+
+    const isNewPO = plan?.type === "New PO";
 
     // Fetch the linked PO to get all available items
-    // Assuming plan.id_link holds the PO Name (e.g., "PO/2024/001")
+    // Only if NOT New PO
     const poId = plan?.id_link;
     const { data: poDoc, isLoading: isLoadingPO } = useFrappeGetDoc("Procurement Orders", poId, {
-        enabled: !!poId && isOpen
+        enabled: !!poId && isOpen && !isNewPO
     });
 
     // Initialize/Reset State when Plan changes or Form opens
@@ -44,21 +50,28 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
             setPlannedAmount(plan.planned_amount?.toString() || "");
             setPlannedDate(plan.planned_date ? new Date(plan.planned_date) : undefined);
 
-            // Parse existing selected items from the plan
+            // Parse existing items
+            let list: any[] = [];
             try {
                 const rawItems = plan.items;
-                // Handle both stringified JSON and direct object
                 const parsed = typeof rawItems === 'string' ? JSON.parse(rawItems) : rawItems;
-                const list = parsed?.list || (Array.isArray(parsed) ? parsed : []);
-                
-                const currentItemNames = new Set<string>(list.map((i: any) => i.name));
-                setSelectedItems(currentItemNames);
+                list = parsed?.list || (Array.isArray(parsed) ? parsed : []);
             } catch (e) {
                 console.error("Failed to parse plan items", e);
-                setSelectedItems(new Set());
+                list = [];
+            }
+
+            if (isNewPO) {
+                // For New PO, populate textarea
+                const text = list.map((i: any) => i.item_name || i.description).join("\n");
+                setManualItemsText(text);
+            } else {
+                // For Existing PO, populate selection
+                const currentItemNames = new Set<string>(list.map((i: any) => i.name));
+                setSelectedItems(currentItemNames);
             }
         }
-    }, [isOpen, plan]);
+    }, [isOpen, plan, isNewPO]);
 
     // All Items from the PO
     const allPOItems = useMemo(() => {
@@ -86,9 +99,7 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
 
     const handleSelectAll = () => {
         const allNames = filteredItems.map((i: any) => i.name);
-        // If all filtered are selected, unselect them. Otherwise select them.
         const allSelected = allNames.every((name: string) => selectedItems.has(name));
-        
         const newSet = new Set(selectedItems);
         if (allSelected) {
             allNames.forEach((name: string) => newSet.delete(name));
@@ -121,27 +132,38 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
             return;
         }
 
-        if (selectedItems.size === 0) {
-            toast({
-                title: "No Items Selected",
-                description: "You must select at least one item for this plan.",
-                variant: "destructive"
-            });
-            return;
-        }
+        let finalItemsList = [];
 
-        // Reconstruct items JSON
-        // We need to store minimal info: name, item_name, etc.
-        // We get full details from `allPOItems`
-        const finalItemsList = allPOItems
-            .filter((item: any) => selectedItems.has(item.name))
-            .map((item: any) => ({
-                name: item.name,
-                item_name: item.item_name,
-                item_code: item.item_code,
-                category: item.category,
-                // Add other fields if needed for display later
+        if (isNewPO) {
+            if (!manualItemsText.trim()) {
+                toast({ title: "No Items", description: "Please enter at least one item.", variant: "destructive" });
+                return;
+            }
+            const lines = manualItemsText.split('\n').filter(line => line.trim());
+            finalItemsList = lines.map((itemName, idx) => ({
+                name: `manual-${Date.now()}-${idx}`,
+                item_name: itemName.trim(),
+                item_id: `TEMP-${Date.now()}-${idx}`,
+                category: ""
             }));
+        } else {
+            if (selectedItems.size === 0) {
+                toast({
+                    title: "No Items Selected",
+                    description: "You must select at least one item for this plan.",
+                    variant: "destructive"
+                });
+                return;
+            }
+            finalItemsList = allPOItems
+                .filter((item: any) => selectedItems.has(item.name))
+                .map((item: any) => ({
+                    name: item.name,
+                    item_name: item.item_name,
+                    item_code: item.item_code,
+                    category: item.category,
+                }));
+        }
 
         try {
             await updateDoc("Cashflow Plan", plan.name, {
@@ -257,70 +279,88 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                         </div>
                     </div>
 
+                    {/* Items Section */}
                     <div className="border-t pt-4">
-                        {/* Item Selection Header */}
-                        <div className="flex flex-col gap-3 mb-4">
-                            <div className="flex items-center justify-between">
-                                <h4 className="font-semibold text-sm text-gray-900">
-                                    {selectedItems.size} of {allPOItems.length} items selected
-                                </h4>
-                            </div>
-                            <p className="text-sm text-gray-500">
-                                Select or de-select items to update this delivery plan
-                            </p>
-                        </div>
-
-                        {/* Search & Actions */}
-                        <div className="flex gap-3 mb-4">
-                            <div className="relative flex-1">
-                                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500" />
-                                <Input
-                                    placeholder="Search Items in PO"
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                    className="pl-9 bg-gray-50"
+                        {isNewPO ? (
+                            <div className="space-y-2">
+                                <Label className="text-sm font-semibold text-gray-900">
+                                    Items (One per line)
+                                </Label>
+                                <Textarea
+                                    value={manualItemsText}
+                                    onChange={(e) => setManualItemsText(e.target.value)}
+                                    placeholder="Enter items, one per line..."
+                                    rows={5}
+                                    className="resize-none"
                                 />
                             </div>
-                            <Button variant="outline" onClick={handleSelectAll} className="whitespace-nowrap">
-                                Select All
-                            </Button>
-                            <Button variant="outline" onClick={handleClearAll} className="whitespace-nowrap">
-                                Clear All
-                            </Button>
-                        </div>
-
-                        {/* Items List */}
-                        <div className="border rounded-lg overflow-hidden">
-                            <div className="max-h-[300px] overflow-y-auto divide-y">
-                                {isLoadingPO && <div className="p-4 text-center text-gray-500">Loading PO items...</div>}
-                                
-                                {!isLoadingPO && filteredItems.length === 0 && (
-                                    <div className="p-4 text-center text-gray-500">No items found matching your search.</div>
-                                )}
-
-                                {!isLoadingPO && filteredItems.map((item: any) => (
-                                    <div 
-                                        key={item.name} 
-                                        className={cn(
-                                            "flex items-center gap-3 p-3 hover:bg-gray-50 transition-colors cursor-pointer",
-                                            selectedItems.has(item.name) ? "bg-blue-50/30" : ""
-                                        )}
-                                        onClick={() => handleToggleItem(item.name)}
-                                    >
-                                        <Checkbox 
-                                            checked={selectedItems.has(item.name)}
-                                            onCheckedChange={() => handleToggleItem(item.name)}
-                                        />
-                                        <div className="flex-1 min-w-0">
-                                            <div className="text-sm font-medium text-gray-700 truncate">
-                                                {item.item_name}
-                                            </div>
-                                            {/* Optional: Show Category or Work Package if available */}
-                                        </div>
+                        ) : (
+                            <>
+                                {/* Item Selection Header */}
+                                <div className="flex flex-col gap-3 mb-4">
+                                    <div className="flex items-center justify-between">
+                                        <h4 className="font-semibold text-sm text-gray-900">
+                                            {selectedItems.size} of {allPOItems.length} items selected
+                                        </h4>
                                     </div>
-                                ))}
-                            </div>
-                        </div>
+                                    <p className="text-sm text-gray-500">
+                                        Select or de-select items to update this delivery plan
+                                    </p>
+                                </div>
+
+                                {/* Search & Actions */}
+                                <div className="flex gap-3 mb-4">
+                                    <div className="relative flex-1">
+                                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500" />
+                                        <Input
+                                            placeholder="Search Items in PO"
+                                            value={searchQuery}
+                                            onChange={(e) => setSearchQuery(e.target.value)}
+                                            className="pl-9 bg-gray-50"
+                                        />
+                                    </div>
+                                    <Button variant="outline" onClick={handleSelectAll} className="whitespace-nowrap">
+                                        Select All
+                                    </Button>
+                                    <Button variant="outline" onClick={handleClearAll} className="whitespace-nowrap">
+                                        Clear All
+                                    </Button>
+                                </div>
+
+                                {/* Items List */}
+                                <div className="border rounded-lg overflow-hidden">
+                                    <div className="max-h-[300px] overflow-y-auto divide-y">
+                                        {isLoadingPO && <div className="p-4 text-center text-gray-500">Loading PO items...</div>}
+                                        
+                                        {!isLoadingPO && filteredItems.length === 0 && (
+                                            <div className="p-4 text-center text-gray-500">No items found matching your search.</div>
+                                        )}
+
+                                        {!isLoadingPO && filteredItems.map((item: any) => (
+                                            <div 
+                                                key={item.name} 
+                                                className={cn(
+                                                    "flex items-center gap-3 p-3 hover:bg-gray-50 transition-colors cursor-pointer",
+                                                    selectedItems.has(item.name) ? "bg-blue-50/30" : ""
+                                                )}
+                                                onClick={() => handleToggleItem(item.name)}
+                                            >
+                                                <Checkbox 
+                                                    checked={selectedItems.has(item.name)}
+                                                    onCheckedChange={() => handleToggleItem(item.name)}
+                                                />
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="text-sm font-medium text-gray-700 truncate">
+                                                        {item.item_name}
+                                                    </div>
+                                                    {/* Optional: Show Category or Work Package if available */}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
 
