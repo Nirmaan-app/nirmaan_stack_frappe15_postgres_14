@@ -2,12 +2,13 @@ import { useState, useMemo } from "react";
 import { useFrappeGetDocList, useFrappeDeleteDoc } from "frappe-react-sdk";
 import { format } from "date-fns";
 import { safeFormatDate } from "@/lib/utils";
-import { Trash2, ChevronDown, Receipt, Package } from "lucide-react"; // Using Receipt icon instead of Package
+import { Trash2, ChevronDown, Receipt, Package, Edit2 } from "lucide-react"; // Using Receipt icon instead of Package
 import { useUrlParam } from "@/hooks/useUrlParam";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AddPOCashflowForm } from "./components/AddPOCashflowForm";
 import { FromMaterialPlanDialog } from "./components/FromMaterialPlanDialog";
+import { EditPOCashflowForm } from "./components/EditPOCashflowForm";
 
 // const EditPOCashflowForm = ({ plan, onClose, onSuccess }: any) => {
 //     console.log("Edit form placeholder", plan, onClose, onSuccess);
@@ -101,6 +102,7 @@ const POCashflowContent = ({ projectId }: POCashflowContentProps) => {
     const [planForms, setPlanForms] = useState<number[]>([]);
     const [expandedPlans, setExpandedPlans] = useState<string[]>([]);
     const [showMaterialDialog, setShowMaterialDialog] = useState(false);
+    const [editingPlan, setEditingPlan] = useState<any>(null); // State for editing
 
     const addPlanForm = () => {
         setPlanForms(prev => [...prev, Date.now()]);
@@ -267,6 +269,13 @@ const POCashflowContent = ({ projectId }: POCashflowContentProps) => {
                                         
                                         <div className="flex items-center gap-1 pl-3 border-l border-gray-100 shrink-0">
                                             <button 
+                                                onClick={() => setEditingPlan(plan)} 
+                                                className="p-1.5 text-gray-400 hover:text-blue-600 transition-colors hover:bg-blue-50 rounded-md"
+                                                title="Edit Plan"
+                                            >
+                                                <Edit2 className="w-4 h-4" />
+                                            </button>
+                                            <button 
                                                 onClick={() => handleDelete(plan.name)} 
                                                 className="p-1.5 text-gray-400 hover:text-red-600 transition-colors hover:bg-red-50 rounded-md"
                                                 title="Delete Plan"
@@ -314,6 +323,17 @@ const POCashflowContent = ({ projectId }: POCashflowContentProps) => {
                 onSuccess={() => {
                     refreshPlans();
                     setShowMaterialDialog(false);
+                }}
+            />
+
+            <EditPOCashflowForm 
+                isOpen={!!editingPlan}
+                projectId={projectId}
+                plan={editingPlan}
+                onClose={() => setEditingPlan(null)}
+                onSuccess={() => {
+                    refreshPlans();
+                    setEditingPlan(null);
                 }}
             />
         </div>
