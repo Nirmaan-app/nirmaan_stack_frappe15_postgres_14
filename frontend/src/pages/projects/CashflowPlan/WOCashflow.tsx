@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { ChevronDown, Trash2, Edit2, ChevronRight } from "lucide-react";
 import { AddWOCashflowForm } from "./components/AddWOCashflowForm";
+import { EditWOCashflowForm } from "./components/EditWOCashflowForm";
 import { useUrlParam } from "@/hooks/useUrlParam";
 import { safeFormatDate } from "@/lib/utils";
 
@@ -18,6 +19,7 @@ export const WOCashflow = () => {
 const WOCashflowContent = ({ projectId }: { projectId: string }) => {
     const [showAddForm, setShowAddForm] = useState(false);
     const [expandedPlans, setExpandedPlans] = useState<string[]>([]);
+    const [editingPlan, setEditingPlan] = useState<any>(null);
     const { deleteDoc } = useFrappeDeleteDoc();
 
     // Date Filters
@@ -197,7 +199,7 @@ const WOCashflowContent = ({ projectId }: { projectId: string }) => {
 
                                     {/* Actions */}
                                     <div className="pl-4 flex items-center gap-1 border-l">
-                                         <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-blue-600">
+                                         <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-blue-600" onClick={() => setEditingPlan(plan)}>
                                              <Edit2 className="w-4 h-4" />
                                          </Button>
                                          <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-600" onClick={() => handleDelete(plan.name)}>
@@ -270,6 +272,17 @@ const WOCashflowContent = ({ projectId }: { projectId: string }) => {
                     })}
                 </div>
             </div>
+            {/* Edit Dialog */}
+            <EditWOCashflowForm 
+                isOpen={!!editingPlan}
+                projectId={projectId}
+                plan={editingPlan}
+                onClose={() => setEditingPlan(null)}
+                onSuccess={() => {
+                    refreshPlans();
+                    setEditingPlan(null);
+                }}
+            />
         </div>
     );
 };
