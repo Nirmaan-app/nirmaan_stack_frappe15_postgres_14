@@ -91,7 +91,14 @@ const WOCashflowContent = ({ projectId }: { projectId: string }) => {
             <div className="bg-white shadow-sm p-4 border rounded-lg">
                 <div className="flex justify-between items-center mb-6">
                     <div className="space-y-1">
-                        <h3 className="text-xl font-bold text-gray-900">Work Order Plan</h3>
+                        <div className="flex items-center gap-2">
+                            <h3 className="text-xl font-bold text-gray-900">Work Order Plan</h3>
+                            {plans && (
+                                <Badge className="bg-blue-700 hover:bg-blue-800 text-white rounded-full">
+                                    {plans.length}
+                                </Badge>
+                            )}
+                        </div>
                         <p className="text-sm text-gray-500">Create and manage cash flow plans for work orders</p>
                     </div>
                     {/* Add Button - only show if no forms active? logic from PO cashflow */}

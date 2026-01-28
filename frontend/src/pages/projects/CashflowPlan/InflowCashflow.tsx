@@ -80,7 +80,14 @@ const InflowCashflowContent = ({ projectId }: { projectId: string }) => {
             <div className="bg-white shadow-sm p-4 border rounded-lg">
                 <div className="flex justify-between items-center mb-6">
                     <div className="space-y-1">
-                        <h3 className="text-xl font-bold text-gray-900">Inflow Plan</h3>
+                        <div className="flex items-center gap-2">
+                            <h3 className="text-xl font-bold text-gray-900">Inflow Plan</h3>
+                            {plans && (
+                                <Badge className="bg-blue-700 hover:bg-blue-800 text-white rounded-full">
+                                    {plans.length}
+                                </Badge>
+                            )}
+                        </div>
                         <p className="text-sm text-gray-500">Plan and track incoming funds.</p>
                     </div>
                     {/* Add Button */}

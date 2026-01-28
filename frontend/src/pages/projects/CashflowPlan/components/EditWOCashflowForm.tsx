@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
-import { Search } from "lucide-react";
 import { format } from "date-fns";
 
 import { useToast } from "@/components/ui/use-toast";
