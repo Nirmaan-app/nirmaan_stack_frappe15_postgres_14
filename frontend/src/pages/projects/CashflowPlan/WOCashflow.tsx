@@ -7,25 +7,21 @@ import { format } from "date-fns";
 import { ChevronDown, Trash2, Edit2, ChevronRight } from "lucide-react";
 import { AddWOCashflowForm } from "./components/AddWOCashflowForm";
 import { EditWOCashflowForm } from "./components/EditWOCashflowForm";
-import { useUrlParam } from "@/hooks/useUrlParam";
 import { safeFormatDate } from "@/lib/utils";
 
-export const WOCashflow = () => {
+// ... imports
+
+export const WOCashflow = ({ dateRange }: { dateRange?: { from?: Date; to?: Date } }) => {
     const { projectId } = useParams<{ projectId: string }>();
     if (!projectId) return <div className="text-red-500">Project ID missing</div>;
-    return <WOCashflowContent projectId={projectId} />;
+    return <WOCashflowContent projectId={projectId} dateRange={dateRange} />;
 };
 
-const WOCashflowContent = ({ projectId }: { projectId: string }) => {
+const WOCashflowContent = ({ projectId, dateRange }: { projectId: string, dateRange?: { from?: Date; to?: Date } }) => {
     const [showAddForm, setShowAddForm] = useState(false);
     const [expandedPlans, setExpandedPlans] = useState<string[]>([]);
     const [editingPlan, setEditingPlan] = useState<any>(null);
     const { deleteDoc } = useFrappeDeleteDoc();
-
-    // Date Filters
-    const activeDurationParam = useUrlParam("planningDuration");
-    const startDateParam = useUrlParam("startDate");
-    const endDateParam = useUrlParam("endDate");
 
     const docListFilters = useMemo(() => {
         const filters: any[] = [
@@ -33,32 +29,15 @@ const WOCashflowContent = ({ projectId }: { projectId: string }) => {
             ["type", "in", ["Existing WO", "New WO"]]
         ];
 
-        let start = null;
-        let end = null;
-
-        if (activeDurationParam && activeDurationParam !== "All") {
-             const num = Number(activeDurationParam);
-             if (!isNaN(num)) {
-                 const today = new Date();
-                 start = today;
-                 const endDate = new Date(today);
-                 endDate.setDate(today.getDate() + num);
-                 end = endDate;
-             } else if (activeDurationParam === "custom" && startDateParam && endDateParam) {
-                 start = new Date(startDateParam);
-                 end = new Date(endDateParam);
-             }
-        }
-
-        if (start && end) {
+        if (dateRange?.from && dateRange?.to) {
             filters.push([
                 "planned_date", 
                 "Between", 
-                [format(start, "yyyy-MM-dd"), format(end, "yyyy-MM-dd")]
+                [format(dateRange.from, "yyyy-MM-dd"), format(dateRange.to, "yyyy-MM-dd")]
             ]);
         }
         return filters;
-    }, [projectId, activeDurationParam, startDateParam, endDateParam]);
+    }, [projectId, dateRange]);
 
     const { data: plans, isLoading, mutate: refreshPlans } = useFrappeGetDocList("Cashflow Plan", {
         fields: ["name", "type", "id_link", "planned_date", "planned_amount", "vendor","vendor.vendor_name", "remarks", "creation", "estimated_price","items"],
@@ -89,10 +68,10 @@ const WOCashflowContent = ({ projectId }: { projectId: string }) => {
     return (
         <div className="space-y-6">
             <div className="bg-white shadow-sm p-4 border rounded-lg">
-                <div className="flex justify-between items-center mb-6">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                     <div className="space-y-1">
                         <div className="flex items-center gap-2">
-                            <h3 className="text-xl font-bold text-gray-900">Work Order Plan</h3>
+                            <h3 className="text-xl font-bold text-gray-900">WO Cashflow</h3>
                             {plans && (
                                 <Badge className="bg-blue-700 hover:bg-blue-800 text-white rounded-full">
                                     {plans.length}
@@ -103,12 +82,14 @@ const WOCashflowContent = ({ projectId }: { projectId: string }) => {
                     </div>
                     {/* Add Button - only show if no forms active? logic from PO cashflow */}
                     {!showAddForm && (
-                        <Button 
-                            onClick={() => setShowAddForm(true)} 
-                            className="bg-red-600 hover:bg-red-700 text-white" // Using standard color from image
-                        >
-                            Add Another Plan
-                        </Button>
+                        <div className="w-full md:w-auto">
+                            <Button 
+                                onClick={() => setShowAddForm(true)} 
+                                className="w-full md:w-auto bg-red-600 hover:bg-red-700 text-white" 
+                            >
+                                Add Another Plan
+                            </Button>
+                        </div>
                     )}
                 </div>
 
@@ -147,71 +128,96 @@ const WOCashflowContent = ({ projectId }: { projectId: string }) => {
 
                         return (
                             <div key={plan.name} className="border rounded-lg bg-white overflow-hidden transition-all hover:shadow-sm">
-                                <div className="flex items-center p-4 gap-4">
-                                     <button onClick={() => togglePlan(plan.name)} className="text-gray-400 hover:text-gray-600">
-                                         {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
-                                     </button>
-
-                                    {/* Plan ID / Name */}
-                                    <div className="w-[200px] shrink-0">
-                                        <Badge variant="secondary" className="mb-1 text-[10px] text-blue-700 bg-blue-50 px-1.5 rounded-sm uppercase tracking-wider">
-                                            Plan {index + 1}
-                                        </Badge>
-                                        <div className="font-semibold text-gray-900 text-sm truncate" title={plan.id_link || plan.remarks || "Untitled"}>
-                                            {plan.id_link || plan.remarks || "Untitled Plan"}
+                                <div className="flex flex-col xl:flex-row items-start xl:items-center p-3 gap-3">
+                                    {/* Section 1: Toggle & Plan Info */}
+                                    <div className="flex items-start gap-2 w-full xl:w-[22%] shrink-0">
+                                         <button onClick={() => togglePlan(plan.name)} className="mt-1 text-gray-400 hover:text-gray-600 shrink-0">
+                                             {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
+                                         </button>
+                                        <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                                            <div className="flex items-center gap-2">
+                                                <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-sm px-1.5 py-0 text-[10px] font-normal uppercase tracking-wider">
+                                                    Plan {index + 1}
+                                                </Badge>
+                                                <Badge variant={plan.type === "Existing WO" ? "secondary" : "default"} 
+                                                    className={`px-1.5 py-0 text-[10px] font-normal ${plan.type === "Existing WO" ? "bg-blue-100 text-blue-700" : "bg-yellow-100 text-yellow-700"}`}>
+                                                    {plan.type}
+                                                </Badge>
+                                            </div>
+                                            <div className="font-semibold text-gray-900 text-sm truncate" title={plan.id_link || plan.remarks || "Untitled"}>
+                                                {plan.id_link || plan.remarks || "Untitled Plan"}
+                                            </div>
+                                            {plan.type === "New WO" && plan.remarks && (
+                                                <div className="text-[11px] text-gray-500 truncate">{plan.remarks}</div>
+                                            )}
                                         </div>
-                                        {/* Subtext description if new WO */}
-                                        {plan.type === "New WO" && plan.remarks && (
-                                            <div className="text-xs text-gray-500 truncate">{plan.remarks}</div>
-                                        )}
                                     </div>
 
-                                    {/* Type Badge */}
-                                    <div className="w-[120px] shrink-0">
-                                        <div className="text-[10px] text-gray-500 mb-0.5 font-medium">WO Type</div>
-                                        <Badge variant={plan.type === "Existing WO" ? "secondary" : "default"} 
-                                            className={plan.type === "Existing WO" ? "bg-blue-100 text-blue-700 hover:bg-blue-200" : "bg-yellow-100 text-yellow-700 hover:bg-yellow-200"}>
-                                            {plan.type}
-                                        </Badge>
-                                    </div>
+                                    <div className="w-px h-10 bg-gray-200 hidden xl:block mx-1" />
 
-                                    {/* Planned Amount */}
-                                    <div className="w-[120px] shrink-0">
-                                        <div className="text-[10px] text-gray-500 mb-0.5 font-medium">Planned Amount</div>
-                                        <div className="font-semibold text-gray-900">₹ {Number(plan.planned_amount || 0).toLocaleString()}</div>
-                                    </div>
+                                    {/* Section 2: Stats Grid */}
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full xl:w-auto xl:flex-1">
+                                        
+                                        {/* Planned Amount */}
+                                        <div className="flex flex-col gap-0.5">
+                                            <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Amount</span>
+                                            <span className="font-semibold text-gray-900 text-sm">
+                                                {plan.planned_amount ? `₹ ${Number(plan.planned_amount).toLocaleString()}` : "--"}
+                                            </span>
+                                        </div>
 
-                                    {/* Planned Date */}
-                                    <div className="w-[120px] shrink-0">
-                                        <div className="text-[10px] text-gray-500 mb-0.5 font-medium">Planned Date</div>
-                                        <div className="font-medium text-gray-900">{safeFormatDate(plan.planned_date)}</div>
-                                    </div>
+                                        {/* Planned Date */}
+                                        <div className="flex flex-col gap-0.5">
+                                            <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Date</span>
+                                            <span className="font-semibold text-gray-900 text-sm">
+                                                {safeFormatDate(plan.planned_date)}
+                                            </span>
+                                        </div>
 
-                                     {/* Vendor */}
-                                     <div className="w-[180px] shrink-0 flex-1 min-w-0">
-                                        <div className="text-[10px] text-gray-500 mb-0.5 font-medium">Vendor</div>
-                                        <div className="font-medium text-gray-900 truncate" title={plan.vendor_name}>{plan.vendor_name}</div>
-                                    </div>
+                                        {/* Vendor */}
+                                        <div className="flex flex-col gap-0.5 md:col-span-2 xl:col-span-1">
+                                            <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Vendor</span>
+                                            <span className="font-medium text-gray-900 text-xs truncate" title={plan.vendor_name}>
+                                                {plan.vendor_name || "--"}
+                                            </span>
+                                        </div>
 
-                                    {/* Progress / Total */}
-                                    <div className="w-[180px] shrink-0 text-right">
-                                        <div className="text-sm font-bold text-gray-900">₹ {total.toLocaleString()}</div>
-                                        <div className="flex items-center justify-end gap-2 mt-1">
-                                            <span className="text-[10px] text-gray-500">Paid: ₹ {paid.toLocaleString()}</span>
-                                            <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                         {/* Progress (Visible on grid for mobile/tablet, right aligned on desktop) */}
+                                         <div className="flex flex-col gap-0.5 md:col-span-4 xl:hidden">
+                                            <div className="flex justify-between items-baseline">
+                                                 <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Total: ₹ {total.toLocaleString()}</span>
+                                                 <span className="text-[10px] text-gray-500">Paid: ₹ {paid.toLocaleString()}</span>
+                                            </div>
+                                            <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
                                                 <div className="h-full bg-blue-600 rounded-full" style={{ width: `${percentage}%` }}></div>
                                             </div>
                                         </div>
                                     </div>
 
-                                    {/* Actions */}
-                                    <div className="pl-4 flex items-center gap-1 border-l">
-                                         <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-blue-600" onClick={() => setEditingPlan(plan)}>
-                                             <Edit2 className="w-4 h-4" />
-                                         </Button>
-                                         <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-600" onClick={() => handleDelete(plan.name)}>
-                                             <Trash2 className="w-4 h-4" />
-                                         </Button>
+                                    <div className="w-px h-10 bg-gray-200 hidden xl:block mx-1" />
+
+                                    {/* Section 3: Desktop Progress & Actions */}
+                                    <div className="flex items-center justify-between w-full xl:w-auto gap-3 min-w-0">
+                                         {/* Desktop Only Progress */}
+                                        <div className="hidden xl:flex flex-col items-end gap-0.5 min-w-[120px]">
+                                            <div className="text-sm font-bold text-gray-900">₹ {total.toLocaleString()}</div>
+                                            <div className="flex items-center gap-2 w-full justify-end">
+                                                <span className="text-[10px] text-gray-500 whitespace-nowrap">Paid: ₹ {paid.toLocaleString()}</span>
+                                                <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden shrink-0">
+                                                    <div className="h-full bg-blue-600 rounded-full" style={{ width: `${percentage}%` }}></div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Actions */}
+                                        <div className="flex items-center gap-1 pl-3 xl:border-l border-gray-100 shrink-0 ml-auto xl:ml-0">
+                                             <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-blue-600" onClick={() => setEditingPlan(plan)}>
+                                                 <Edit2 className="w-4 h-4" />
+                                             </Button>
+                                             <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-600" onClick={() => handleDelete(plan.name)}>
+                                                 <Trash2 className="w-4 h-4" />
+                                             </Button>
+                                        </div>
                                     </div>
                                 </div>
                                 

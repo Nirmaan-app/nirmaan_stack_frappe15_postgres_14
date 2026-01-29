@@ -6,24 +6,21 @@ import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { Trash2, Edit2 } from "lucide-react";
 import { AddEditInflowCashflowForm } from "./components/AddEditInflowCashflowForm";
-import { useUrlParam } from "@/hooks/useUrlParam";
+
 import { safeFormatDate } from "@/lib/utils";
 
-export const InflowCashflow = () => {
+// ... imports
+
+export const InflowCashflow = ({ dateRange }: { dateRange?: { from?: Date; to?: Date } }) => {
     const { projectId } = useParams<{ projectId: string }>();
     if (!projectId) return <div className="text-red-500">Project ID missing</div>;
-    return <InflowCashflowContent projectId={projectId} />;
+    return <InflowCashflowContent projectId={projectId} dateRange={dateRange} />;
 };
 
-const InflowCashflowContent = ({ projectId }: { projectId: string }) => {
+const InflowCashflowContent = ({ projectId, dateRange }: { projectId: string, dateRange?: { from?: Date; to?: Date } }) => {
     const [showAddForm, setShowAddForm] = useState(false);
     const [editingPlan, setEditingPlan] = useState<any>(null);
     const { deleteDoc } = useFrappeDeleteDoc();
-
-    // Date Filters
-    const activeDurationParam = useUrlParam("planningDuration");
-    const startDateParam = useUrlParam("startDate");
-    const endDateParam = useUrlParam("endDate");
 
     const docListFilters = useMemo(() => {
         const filters: any[] = [
@@ -31,32 +28,15 @@ const InflowCashflowContent = ({ projectId }: { projectId: string }) => {
             ["type", "=", "Inflow"]
         ];
 
-        let start = null;
-        let end = null;
-
-        if (activeDurationParam && activeDurationParam !== "All") {
-             const num = Number(activeDurationParam);
-             if (!isNaN(num)) {
-                 const today = new Date();
-                 start = today;
-                 const endDate = new Date(today);
-                 endDate.setDate(today.getDate() + num);
-                 end = endDate;
-             } else if (activeDurationParam === "custom" && startDateParam && endDateParam) {
-                 start = new Date(startDateParam);
-                 end = new Date(endDateParam);
-             }
-        }
-
-        if (start && end) {
+        if (dateRange?.from && dateRange?.to) {
             filters.push([
                 "planned_date", 
                 "Between", 
-                [format(start, "yyyy-MM-dd"), format(end, "yyyy-MM-dd")]
+                [format(dateRange.from, "yyyy-MM-dd"), format(dateRange.to, "yyyy-MM-dd")]
             ]);
         }
         return filters;
-    }, [projectId, activeDurationParam, startDateParam, endDateParam]);
+    }, [projectId, dateRange]);
 
     const { data: plans, isLoading, mutate: refreshPlans } = useFrappeGetDocList("Cashflow Plan", {
         fields: ["name", "remarks", "planned_date", "planned_amount", "creation"],
@@ -78,7 +58,7 @@ const InflowCashflowContent = ({ projectId }: { projectId: string }) => {
     return (
         <div className="space-y-6">
             <div className="bg-white shadow-sm p-4 border rounded-lg">
-                <div className="flex justify-between items-center mb-6">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                     <div className="space-y-1">
                         <div className="flex items-center gap-2">
                             <h3 className="text-xl font-bold text-gray-900">Inflow Plan</h3>
@@ -92,15 +72,17 @@ const InflowCashflowContent = ({ projectId }: { projectId: string }) => {
                     </div>
                     {/* Add Button */}
                     {!showAddForm && (
-                        <Button 
-                            onClick={() => {
-                                setEditingPlan(null); // Ensure clean state for new
-                                setShowAddForm(true);
-                            }} 
-                            className="bg-red-600 hover:bg-red-700 text-white"
-                        >
-                            Add Inflow Plan
-                        </Button>
+                        <div className="w-full md:w-auto">
+                            <Button 
+                                onClick={() => {
+                                    setEditingPlan(null); // Ensure clean state for new
+                                    setShowAddForm(true);
+                                }} 
+                                className="w-full md:w-auto bg-red-600 hover:bg-red-700 text-white"
+                            >
+                                Add Inflow Plan
+                            </Button>
+                        </div>
                     )}
                 </div>
 
@@ -132,48 +114,58 @@ const InflowCashflowContent = ({ projectId }: { projectId: string }) => {
                     {plans?.map((plan: any, index: number) => {
                         return (
                             <div key={plan.name} className="border rounded-lg bg-white overflow-hidden transition-all hover:shadow-sm">
-                                <div className="flex items-center p-4 gap-4">
-                                     {/* Toggle Arrow placeholder for alignment if needed, or just padding */}
-                                     <div className="w-8 shrink-0 flex justify-center">
-                                         <div className="w-6 h-6 bg-gray-100 rounded flex items-center justify-center">
-                                             <span className="text-gray-400 text-xs font-medium">
-                                                <i className="fa fa-chevron-right opacity-0"></i>
-                                                {/* Keeping icon hidden/placeholder or use a simple icon */}
-                                                <span className="block w-2 h-2 bg-gray-300 rounded-full"></span>
-                                             </span>
-                                         </div>
+                                <div className="flex flex-col xl:flex-row items-start xl:items-center p-3 gap-3">
+                                     {/* Section 1: Icon & Plan ID */}
+                                     <div className="flex items-center gap-3 w-full xl:w-auto shrink-0">
+                                        <div className="w-8 shrink-0 flex justify-center">
+                                            <div className="w-6 h-6 bg-green-50 rounded-full flex items-center justify-center">
+                                                <span className="block w-2 h-2 bg-green-500 rounded-full"></span>
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="flex flex-col gap-0.5 min-w-0">
+                                            <Badge variant="secondary" className="w-fit mb-0.5 text-[10px] text-green-700 bg-green-50 px-1.5 rounded-sm uppercase tracking-wider">
+                                                Plan {index + 1}
+                                            </Badge>
+                                            <div className="font-semibold text-gray-900 text-sm truncate">{plan.name}</div>
+                                        </div>
+
+                                        {/* Mobile Actions (Top Right) to save space? Or stick to bottom. Let's stick to bottom for consistency across components */}
                                      </div>
 
-                                    {/* Plan ID */}
-                                    <div className="w-[180px] shrink-0">
-                                        <Badge variant="secondary" className="mb-1 text-[10px] text-green-700 bg-green-50 px-1.5 rounded-sm uppercase tracking-wider">
-                                            Plan {index + 1}
-                                        </Badge>
-                                        <div className="font-semibold text-gray-900 text-sm">{plan.name}</div>
-                                    </div>
+                                     <div className="w-px h-10 bg-gray-200 hidden xl:block mx-1" />
 
-                                    {/* Remarks - Flexible Width */}
-                                    <div className="flex-1 min-w-0 pr-4">
-                                        <div className="text-[10px] text-gray-500 mb-0.5 font-medium">Remarks</div>
-                                        <div className="text-sm text-gray-700 line-clamp-2" title={plan.remarks}>
+                                    {/* Section 2: Remarks */}
+                                    <div className="w-full xl:flex-1 min-w-0 pr-4">
+                                        <div className="xl:hidden text-[10px] text-gray-500 mb-0.5 font-bold uppercase tracking-wide">Remarks</div>
+                                        <div className="text-sm text-gray-700 line-clamp-2 md:line-clamp-1 xl:line-clamp-2" title={plan.remarks}>
                                             {plan.remarks || "--"}
                                         </div>
                                     </div>
 
-                                    {/* Planned Amount */}
-                                    <div className="w-[150px] shrink-0">
-                                        <div className="text-[10px] text-gray-500 mb-0.5 font-medium">Planned Amount</div>
-                                        <div className="font-bold text-gray-900">₹ {Number(plan.planned_amount || 0).toLocaleString()}</div>
+                                    <div className="w-px h-10 bg-gray-200 hidden xl:block mx-1" />
+
+                                    {/* Section 3: Stats Grid */}
+                                    <div className="grid grid-cols-2 gap-4 w-full xl:w-auto shrink-0">
+                                        {/* Planned Amount */}
+                                        <div className="flex flex-col gap-0.5 min-w-[120px]">
+                                            <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Amount</span>
+                                            <span className="font-bold text-gray-900 text-sm">
+                                                {plan.planned_amount ? `₹ ${Number(plan.planned_amount).toLocaleString()}` : "₹ 0"}
+                                            </span>
+                                        </div>
+    
+                                        {/* Planned Date */}
+                                        <div className="flex flex-col gap-0.5 min-w-[120px]">
+                                            <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Date</span>
+                                            <span className="font-medium text-gray-900 text-sm">
+                                                {safeFormatDate(plan.planned_date)}
+                                            </span>
+                                        </div>
                                     </div>
 
-                                    {/* Planned Date */}
-                                    <div className="w-[150px] shrink-0">
-                                        <div className="text-[10px] text-gray-500 mb-0.5 font-medium">Planned Date</div>
-                                        <div className="font-medium text-gray-900">{safeFormatDate(plan.planned_date)}</div>
-                                    </div>
-
-                                    {/* Actions */}
-                                    <div className="pl-4 flex items-center gap-1 border-l">
+                                    {/* Section 4: Actions */}
+                                    <div className="flex items-center gap-1 w-full xl:w-auto justify-end xl:justify-start xl:pl-3 xl:border-l border-gray-100 shrink-0 mt-2 xl:mt-0 pt-2 xl:pt-0 border-t xl:border-t-0">
                                          <Button 
                                              variant="ghost" 
                                              size="icon" 

@@ -4,29 +4,43 @@ import { urlStateManager } from "@/utils/urlStateManager";
 import { startOfDay, addDays, parseISO, format } from "date-fns";
 import { DateRange } from "react-day-picker";
 import { SevenDayPlanningHeader } from "../components/planning/SevenDayPlanningHeader";
-import { CashflowTabs, CASHFLOW_TABS, CashflowTabValue } from "./CashflowTabs";
+import { CashflowTabs, CASHFLOW_TABS, CashflowTabValue, CASHFLOW_TAB_CONFIG } from "./CashflowTabs";
 import { POCashflow } from "./POCashflow";
 import { WOCashflow } from "./WOCashflow";
 import { MiscCashflow } from "./MiscCashflow";
 import { InflowCashflow } from "./InflowCashflow";
-import { Button } from "@/components/ui/button";
-import { Download } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Download, ChevronDown } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface CashflowPlanProps {
     projectId?: string;
     isOverview?: boolean;
 }
 
+import { useFrappeGetDoc } from "frappe-react-sdk";
+
 export const CashflowPlan = ({ projectId, isOverview }: CashflowPlanProps) => {
-    // --- Tab State (URL) ---
+    // --- State & Hooks ---
     const tabParam = useUrlParam("tab");
     const { toast } = useToast();
     const [isDownloading, setIsDownloading] = React.useState(false);
     const [isDownloadingAll, setIsDownloadingAll] = React.useState(false);
+    const [downloadingTab, setDownloadingTab] = React.useState<CashflowTabValue | null>(null);
+
+    const { data: projectDoc } = useFrappeGetDoc("Projects", projectId);
     
+    // --- Tabs Logic ---
     const activeTab = useMemo(() => {
-        // If exact match found in values
         if (Object.values(CASHFLOW_TABS).includes(tabParam as any)) {
             return tabParam as CashflowTabValue;
         }
@@ -37,9 +51,11 @@ export const CashflowPlan = ({ projectId, isOverview }: CashflowPlanProps) => {
         urlStateManager.updateParam("tab", tab);
     };
 
-    // --- Date/Duration State (Local) ---
+    // --- Date/Duration Logic ---
     const activeDurationParam = useUrlParam("planningDuration");
-    
+    const startDateParam = useUrlParam("startDate");
+    const endDateParam = useUrlParam("endDate");
+
     const activeDuration = useMemo(() => {
         if (activeDurationParam === "All") return "All";
         const num = Number(activeDurationParam);
@@ -48,23 +64,14 @@ export const CashflowPlan = ({ projectId, isOverview }: CashflowPlanProps) => {
         return "All"; 
     }, [activeDurationParam]);
 
-    const startDateParam = useUrlParam("startDate");
-    const endDateParam = useUrlParam("endDate");
-
     const dateRange = useMemo<DateRange | undefined>(() => {
         const today = startOfDay(new Date());
-
         if (activeDuration === "All") return undefined;
-        
         if (typeof activeDuration === 'number') {
              return { from: today, to: addDays(today, activeDuration) };
         }
-
-        if (activeDuration === 'custom') {
-            if (startDateParam && endDateParam) {
-                return { from: parseISO(startDateParam), to: parseISO(endDateParam) };
-            }
-             return undefined;
+        if (activeDuration === 'custom' && startDateParam && endDateParam) {
+            return { from: parseISO(startDateParam), to: parseISO(endDateParam) };
         }
         return undefined;
     }, [activeDuration, startDateParam, endDateParam]);
@@ -80,195 +87,138 @@ export const CashflowPlan = ({ projectId, isOverview }: CashflowPlanProps) => {
         }
     };
 
-    const handleDownloadReport = async () => {
+    // --- Download Handlers ---
+    const handleDownload = async (type: "current" | "all" | CashflowTabValue) => {
         if (!projectId) {
-            toast({
-                title: "Error",
-                description: "Project ID is missing. Cannot generate report.",
-                variant: "destructive"
-            });
+            toast({ title: "Error", description: "Project ID missing.", variant: "destructive" });
             return;
         }
 
-        setIsDownloading(true);
+        const isAll = type === "all";
+        const isCurrent = type === "current";
+        
+        // Determine which specific tab we are downloading (if not 'all')
+        // If type is 'current', use activeTab. If type is a specific tab value, use that.
+        const targetTab = isCurrent ? activeTab : (isAll ? undefined : type);
+
+        // Set loading state
+        if (isAll) setIsDownloadingAll(true);
+        else if (isCurrent) setIsDownloading(true);
+        else if (targetTab) setDownloadingTab(targetTab);
+
         try {
-            const reportName = `${activeTab} Report`;
-            const formatName = "Project Cashflow Plan"; // Backend request is "Project Cashflow Plan"
-            
-            // Construct query params
             const queryParams = new URLSearchParams({
                 doctype: "Projects",
                 name: projectId,
-                format: formatName,
+                format: "Project Cashflow Plan",
                 no_letterhead: "0",
-                cashflow_type: activeTab
             });
+            
+            if (!isAll && targetTab) queryParams.append("cashflow_type", targetTab);
 
             if (dateRange?.from && dateRange?.to) {
-                const start = format(dateRange.from, 'yyyy-MM-dd');
-                const end = format(dateRange.to, 'yyyy-MM-dd');
-                queryParams.append("start_date", start);
-                queryParams.append("end_date", end);
+                queryParams.append("start_date", format(dateRange.from, 'yyyy-MM-dd'));
+                queryParams.append("end_date", format(dateRange.to, 'yyyy-MM-dd'));
             }
 
             const url = `/api/method/frappe.utils.print_format.download_pdf?${queryParams.toString()}`;
-            
-            // Fetch Blob
             const response = await fetch(url);
-            if (!response.ok) throw new Error("Network response was not ok");
+            if (!response.ok) throw new Error("Network error");
         
             const blob = await response.blob();
             const downloadUrl = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = downloadUrl;
             
-            // Construct Filename: {Type}_Cashflow_{Project}_{Date}.pdf
-            // Sanitized Project ID logic if name not available
-            const safeProjectName = projectId.replace(/ /g, "_"); 
-            const safeType = activeTab.replace(/ /g, "_").replace(/\./g, "");
+            // Prefer project_name if available, else projectId
+            const nameToUse = projectDoc?.project_name || projectId;
+            const safeProjectName = nameToUse.replace(/ /g, "_");
+            const prefix = isAll ? "All_Cashflow" : (targetTab || activeTab).replace(/ /g, "_").replace(/\./g, "");
             const dateStr = format(new Date(), "dd-MMM-yyyy");
             
-            link.download = `${safeType}_${safeProjectName}_${dateStr}.pdf`;
-            
+            link.download = `${prefix}_${safeProjectName}_${dateStr}.pdf`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
             window.URL.revokeObjectURL(downloadUrl);
 
-            toast({
-                title: "Download Complete",
-                description: `Successfully downloaded ${reportName}.`,
-            });
+            toast({ title: "Completed", description: "Report downloaded successfully." });
         } catch (error) {
             console.error("Download failed:", error);
-            toast({
-                title: "Download Failed",
-                description: "Could not download the Cashflow Plan PDF. Please check if the Print Format exists.",
-                variant: "destructive",
-            });
+            toast({ title: "Failed", description: "Could not download report.", variant: "destructive" });
         } finally {
-            setIsDownloading(false);
+            if (isAll) setIsDownloadingAll(false);
+            else if (isCurrent) setIsDownloading(false);
+            else setDownloadingTab(null);
         }
     };
 
-    // Download ALL cashflow types in one PDF (combined report)
-    const handleDownloadAllReport = async () => {
-        if (!projectId) {
-            toast({
-                title: "Error",
-                description: "Project ID is missing. Cannot generate report.",
-                variant: "destructive"
-            });
-            return;
-        }
-
-        setIsDownloadingAll(true);
-        try {
-            const formatName = "Project Cashflow Plan";
-            
-            // No cashflow_type param = get ALL types combined
-            const queryParams = new URLSearchParams({
-                doctype: "Projects",
-                name: projectId,
-                format: formatName,
-                no_letterhead: "0"
-            });
-
-            if (dateRange?.from && dateRange?.to) {
-                const start = format(dateRange.from, 'yyyy-MM-dd');
-                const end = format(dateRange.to, 'yyyy-MM-dd');
-                queryParams.append("start_date", start);
-                queryParams.append("end_date", end);
-            }
-
-            const url = `/api/method/frappe.utils.print_format.download_pdf?${queryParams.toString()}`;
-            
-            const response = await fetch(url);
-            if (!response.ok) throw new Error("Network response was not ok");
-        
-            const blob = await response.blob();
-            const downloadUrl = window.URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = downloadUrl;
-            
-            const safeProjectName = projectId.replace(/ /g, "_");
-            const dateStr = format(new Date(), "dd-MMM-yyyy");
-            
-            link.download = `All_Cashflow_${safeProjectName}_${dateStr}.pdf`;
-            
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            window.URL.revokeObjectURL(downloadUrl);
-
-            toast({
-                title: "Download Complete",
-                description: "Successfully downloaded Complete Cashflow Report.",
-            });
-        } catch (error) {
-            console.error("Download failed:", error);
-            toast({
-                title: "Download Failed",
-                description: "Could not download the Complete Cashflow PDF.",
-                variant: "destructive",
-            });
-        } finally {
-            setIsDownloadingAll(false);
-        }
-    };
-
+    // --- Render ---
     return (
-        <div className="flex flex-col h-full">
-            {/* Header / Filter */}
-            <div className="mb-6">
-                <SevenDayPlanningHeader
-                    isOverview={isOverview}
-                    dateRange={dateRange}
-                    activeDuration={activeDuration}
-                    setDaysRange={setDaysRange}
+        <div className="flex flex-col h-full bg-gray-50/50">
+            {/* 1. Command Center Header */}
+            <SevenDayPlanningHeader 
+                title={projectId} 
+                activeDuration={activeDuration}
+                dateRange={dateRange}
+                setDaysRange={setDaysRange}
+            />
+
+            {/* 2. Navigation Tabs (Dense) */}
+            <div className="sticky top-0 z-10 bg-white shadow-sm">
+                <CashflowTabs 
+                    activeTab={activeTab} 
+                    onTabChange={handleTabChange}
+                    // TODO: Wire up actual counts from react-query data in Phase 2
+                    rightElement={
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                 <Button 
+                                    size="sm" 
+                                    variant="outline" 
+                                    className="h-8 gap-2 px-3 bg-white text-gray-700 border-gray-200 shadow-sm hover:bg-gray-50 hover:text-gray-900 transition-all font-medium"
+                                >
+                                    <Download className="w-3.5 h-3.5 text-gray-500" />
+                                    <span className="text-xs">Export</span>
+                                    <ChevronDown className="w-3 h-3 text-gray-400 opacity-50" />
+                                 </Button>
+                            </DropdownMenuTrigger>
+                            {/* Dropdown width matches button on desktop, full-ish on mobile */}
+                            <DropdownMenuContent align="end" className="w-56 md:w-32">
+                                <DropdownMenuLabel className="text-[10px] uppercase text-gray-500">PDF Reports</DropdownMenuLabel>
+                                
+                                <DropdownMenuItem onClick={() => handleDownload("current")} disabled={isDownloading}>
+                                    <div className="flex flex-col gap-0.5">
+                                        <span className="text-xs font-medium">Export {activeTab}</span>
+                                        <span className="text-[10px] text-gray-500">Current view only</span>
+                                    </div>
+                                    {isDownloading && <span className="ml-auto text-xs animate-pulse">...</span>}
+                                </DropdownMenuItem>
+                                
+                                <DropdownMenuSeparator />
+
+                                <DropdownMenuItem onClick={() => handleDownload("all")} disabled={isDownloadingAll}>
+                                    <div className="flex flex-col gap-0.5">
+                                        <span className="text-xs font-medium">Complete Report</span>
+                                        <span className="text-[10px] text-gray-500">All Modules</span>
+                                    </div>
+                                    {isDownloadingAll && <span className="ml-auto text-xs animate-pulse">...</span>}
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    }
                 />
             </div>
 
-            {/* Tabs Navigation */}
-            <CashflowTabs 
-                activeTab={activeTab} 
-                onTabChange={handleTabChange} 
-                rightContent={
-                    <div className="flex gap-2">
-                        {/* Download Current Tab */}
-                        <Button 
-                            variant="outline" 
-                            size="sm" 
-                            onClick={handleDownloadReport}
-                            disabled={isDownloading}
-                            className="gap-2 text-blue-600 border-blue-200 hover:bg-blue-50"
-                        >
-                            <Download className={`h-4 w-4 ${isDownloading ? "animate-bounce" : ""}`} />
-                            {isDownloading ? "Downloading..." : `Download ${activeTab === "Misc. Cashflow" ? "Misc" : activeTab.split(" ")[0]}`}
-                        </Button>
-                        
-                        {/* Download ALL Combined */}
-                        <Button 
-                            variant="default" 
-                            size="sm" 
-                            onClick={handleDownloadAllReport}
-                            disabled={isDownloadingAll}
-                            className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
-                        >
-                            <Download className={`h-4 w-4 ${isDownloadingAll ? "animate-bounce" : ""}`} />
-                            {isDownloadingAll ? "Downloading..." : "Download All"}
-                        </Button>
-                    </div>
-                }
-            />
-
-            {/* Tab Content */}
-            <div className="flex-1">
-                {activeTab === CASHFLOW_TABS.PO_CASHFLOW && <POCashflow />}
-                {activeTab === CASHFLOW_TABS.WO_CASHFLOW && <WOCashflow />}
-                {activeTab === CASHFLOW_TABS.MISC_CASHFLOW && <MiscCashflow />}
-                {activeTab === CASHFLOW_TABS.INFLOW && <InflowCashflow />}
-            </div>
+            {/* 3. Scrollable Content Area */}
+            <ScrollArea className="flex-1">
+                <div className="p-2">
+                    {activeTab === CASHFLOW_TABS.PO_CASHFLOW && <POCashflow dateRange={dateRange} />}
+                    {activeTab === CASHFLOW_TABS.WO_CASHFLOW && <WOCashflow dateRange={dateRange} />}
+                    {activeTab === CASHFLOW_TABS.MISC_CASHFLOW && <MiscCashflow dateRange={dateRange} />}
+                    {activeTab === CASHFLOW_TABS.INFLOW && <InflowCashflow dateRange={dateRange} />}
+                </div>
+            </ScrollArea>
         </div>
     );
 };

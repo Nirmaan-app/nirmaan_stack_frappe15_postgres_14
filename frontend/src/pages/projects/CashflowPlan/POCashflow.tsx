@@ -3,7 +3,7 @@ import { useFrappeGetDocList, useFrappeDeleteDoc } from "frappe-react-sdk";
 import { format } from "date-fns";
 import { safeFormatDate } from "@/lib/utils";
 import { Trash2, ChevronDown, Receipt, Package, Edit2 } from "lucide-react"; // Using Receipt icon instead of Package
-import { useUrlParam } from "@/hooks/useUrlParam";
+
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AddPOCashflowForm } from "./components/AddPOCashflowForm";
@@ -32,63 +32,33 @@ const cashFlowJsonToArray = (plan: any): any[] => {
     }
 };
 
-export const POCashflow = () => {
-    const { projectId } = useParams<{ projectId: string }>();
-    
-    // Safety check - if no projectId, we can't do much.
-    if (!projectId) return <div className="p-4 text-red-500">Project ID missing</div>;
-
-    return <POCashflowContent projectId={projectId} />;
-}
-
 interface POCashflowContentProps {
     projectId: string;
+    dateRange?: { from?: Date; to?: Date };
 }
 
-const POCashflowContent = ({ projectId }: POCashflowContentProps) => {
-    const isOverview = false; // We can make this dynamic if needed
+export const POCashflow = ({ dateRange }: { dateRange?: { from?: Date; to?: Date } }) => {
+    const { projectId } = useParams<{ projectId: string }>();
+    if (!projectId) return <div className="p-4 text-red-500">Project ID missing</div>;
+    return <POCashflowContent projectId={projectId} dateRange={dateRange} />;
+}
 
-    // --- Date/Duration State (Read from URL, same as Material Plan) ---
-    const activeDurationParam = useUrlParam("planningDuration");
-    const startDateParam = useUrlParam("startDate");
-    const endDateParam = useUrlParam("endDate");
+const POCashflowContent = ({ projectId, dateRange }: POCashflowContentProps) => {
+    const isOverview = false; 
 
-    const { docListFilters, activeDuration } = useMemo(() => {
-        const filters: any[] = [["project", "=", projectId], ["type", "in", ["Existing PO","New PO"]]]; // Filter by PO type if we use generic Cashflow Plan
-        // Wait, does Cashflow Plan have a 'type' field? Yes, I saw it in JSON.
-        
-        let start = null;
-        let end = null;
-        let durationVal: any = "All";
+    const { docListFilters } = useMemo(() => {
+        const filters: any[] = [["project", "=", projectId], ["type", "in", ["Existing PO","New PO"]]];
 
-        if (activeDurationParam && activeDurationParam !== "All") {
-             const num = Number(activeDurationParam);
-             if (!isNaN(num)) {
-                 durationVal = num;
-                 const today = new Date();
-                 start = today;
-                 const endDate = new Date(today);
-                 endDate.setDate(today.getDate() + num);
-                 end = endDate;
-             } else if (activeDurationParam === "custom") {
-                 durationVal = "custom";
-                 if (startDateParam && endDateParam) {
-                     start = new Date(startDateParam);
-                     end = new Date(endDateParam);
-                 }
-             }
-        }
-
-        if (start && end) {
+        if (dateRange?.from && dateRange?.to) {
             filters.push([
                 "planned_date", 
                 "Between", 
-                [format(start, "yyyy-MM-dd"), format(end, "yyyy-MM-dd")]
+                [format(dateRange.from, "yyyy-MM-dd"), format(dateRange.to, "yyyy-MM-dd")]
             ]);
         }
 
-        return { docListFilters: filters, activeDuration: durationVal };
-    }, [projectId, activeDurationParam, startDateParam, endDateParam]);
+        return { docListFilters: filters };
+    }, [projectId, dateRange]);
 
     // Fetch Plans
     const { data: existingPlans, isLoading: isLoadingPlans, mutate: refreshPlans } = useFrappeGetDocList("Cashflow Plan", {
@@ -131,7 +101,7 @@ const POCashflowContent = ({ projectId }: POCashflowContentProps) => {
     return (
         <div className="space-y-6">
             <div className="bg-white shadow-sm p-4 border rounded-lg">
-                <div className="flex justify-between items-center mb-4">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
                     <div className="flex items-center gap-2">
                         <h3 className="text-xl font-bold text-gray-900">PO Cashflow</h3>
                         {existingPlans && (
@@ -140,16 +110,16 @@ const POCashflowContent = ({ projectId }: POCashflowContentProps) => {
                             </Badge>
                         )}
                     </div>
-                    <div className="flex gap-2">
-                        <Button onClick={() => setShowMaterialDialog(true)} variant="outline" className="bg-gray-50 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700">
+                    <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
+                        <Button onClick={() => setShowMaterialDialog(true)} variant="outline" className="w-full md:w-auto bg-gray-50 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700">
                             From Material Plan
                         </Button>
                      {planForms.length === 0 ? (
-                        <Button onClick={addPlanForm} className="bg-red-600 hover:bg-red-700 text-white">
+                        <Button onClick={addPlanForm} className="w-full md:w-auto bg-red-600 hover:bg-red-700 text-white">
                             Add PO Plan
                         </Button>
                      ) : (
-                        <Button onClick={addPlanForm} variant="outline" className="bg-gray-50">
+                        <Button onClick={addPlanForm} variant="outline" className="w-full md:w-auto bg-gray-50">
                             Add Another Plan
                         </Button>
                      )}

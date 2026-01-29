@@ -43,8 +43,8 @@ export const SevenDayPlanningTab = ({ isOverview, projectName }: { isOverview?: 
 
       {/* Tab Content Placeholder */}
       <div className={cn(
-        "min-h-[300px] bg-white",
-        isOverview ? "" : "border rounded-lg p-6 shadow-sm border-[#D7D7EC]"
+        "min-h-[300px]",
+        (isOverview || activeTab === PLANNING_TABS.Cashflow_Plan) ? "" : "bg-white border rounded-lg p-4 md:p-6 shadow-sm border-[#D7D7EC]"
       )}>
         {activeTab === PLANNING_TABS.WORK_PLAN && (
           <SevendaysWorkPlan 
