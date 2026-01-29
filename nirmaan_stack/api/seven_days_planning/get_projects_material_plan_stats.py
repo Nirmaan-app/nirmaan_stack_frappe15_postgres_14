@@ -8,13 +8,14 @@ from datetime import date
 FILTERED_ACCESS_ROLES = {
     "Nirmaan Project Manager Profile",
     "Nirmaan Project Lead Profile",
+    "Nirmaan Procurement Executive Profile",
 }
 
 # Roles with full access to all projects
 FULL_ACCESS_ROLES = {
     "Nirmaan Admin Profile",
     "Nirmaan PMO Executive Profile",
-    "Nirmaan Procurement Executive Profile",
+   
 }
 
 
