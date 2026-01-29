@@ -454,7 +454,7 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
         if (successCount > 0) {
             toast({
                 title: "Success",
-                description: `Successfully created ${successCount} Material Delivery Plan(s).`,
+                description: `Successfully created ${successCount} PO cashflow Plan(s).`,
                 variant: "default"
             });
             if (onSuccess) onSuccess();
@@ -558,7 +558,7 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
             });
             toast({
                 title: "Success",
-                description: "Successfully created Material Plan (New PO).",
+                description: "Successfully created Cashflow Plan (New PO).",
                 variant: "default"
             });
             onSuccess();

@@ -137,7 +137,7 @@ const WOCashflowContent = ({ projectId }: { projectId: string }) => {
 
                     {plans?.map((plan: any, index: number) => {
                         const isExpanded = expandedPlans.includes(plan.name);
-                        const vendorName =plan.vendor_name||"--";
+                        
                         
                         // Progress Calculation
                         const total = plan.grand_total || plan.estimated_price || 0;
@@ -190,7 +190,7 @@ const WOCashflowContent = ({ projectId }: { projectId: string }) => {
                                      {/* Vendor */}
                                      <div className="w-[180px] shrink-0 flex-1 min-w-0">
                                         <div className="text-[10px] text-gray-500 mb-0.5 font-medium">Vendor</div>
-                                        <div className="font-medium text-gray-900 truncate" title={vendorName}>{vendorName}</div>
+                                        <div className="font-medium text-gray-900 truncate" title={plan.vendor_name}>{plan.vendor_name}</div>
                                     </div>
 
                                     {/* Progress / Total */}
