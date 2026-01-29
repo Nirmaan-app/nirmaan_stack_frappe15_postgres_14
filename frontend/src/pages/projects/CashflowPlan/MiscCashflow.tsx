@@ -11,13 +11,13 @@ import { safeFormatDate } from "@/lib/utils";
 
 // ... imports
 
-export const MiscCashflow = ({ dateRange }: { dateRange?: { from?: Date; to?: Date } }) => {
+export const MiscCashflow = ({ dateRange, isOverview }: { dateRange?: { from?: Date; to?: Date }; isOverview?: boolean }) => {
     const { projectId } = useParams<{ projectId: string }>();
     if (!projectId) return <div className="text-red-500">Project ID missing</div>;
-    return <MiscCashflowContent projectId={projectId} dateRange={dateRange} />;
+    return <MiscCashflowContent projectId={projectId} dateRange={dateRange} isOverview={isOverview} />;
 };
 
-const MiscCashflowContent = ({ projectId, dateRange }: { projectId: string, dateRange?: { from?: Date; to?: Date } }) => {
+const MiscCashflowContent = ({ projectId, dateRange, isOverview = false }: { projectId: string, dateRange?: { from?: Date; to?: Date }, isOverview?: boolean }) => {
     const [showAddForm, setShowAddForm] = useState(false);
     const [editingPlan, setEditingPlan] = useState<any>(null);
     const { deleteDoc } = useFrappeDeleteDoc();
@@ -147,7 +147,7 @@ const MiscCashflowContent = ({ projectId, dateRange }: { projectId: string, date
                                     <div className="grid grid-cols-2 gap-4 w-full xl:w-auto shrink-0">
                                         {/* Planned Amount */}
                                         <div className="flex flex-col gap-0.5 min-w-[120px]">
-                                            <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Amount</span>
+                                            <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Planned Amount</span>
                                             <span className="font-bold text-gray-900 text-sm">
                                                 {plan.planned_amount ? `₹ ${Number(plan.planned_amount).toLocaleString()}` : "₹ 0"}
                                             </span>
@@ -155,7 +155,7 @@ const MiscCashflowContent = ({ projectId, dateRange }: { projectId: string, date
     
                                         {/* Planned Date */}
                                         <div className="flex flex-col gap-0.5 min-w-[120px]">
-                                            <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Date</span>
+                                            <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Planned Date</span>
                                             <span className="font-medium text-gray-900 text-sm">
                                                 {safeFormatDate(plan.planned_date)}
                                             </span>
@@ -163,6 +163,7 @@ const MiscCashflowContent = ({ projectId, dateRange }: { projectId: string, date
                                     </div>
 
                                     {/* Section 4: Actions */}
+                                    {!isOverview && (
                                     <div className="flex items-center gap-1 w-full xl:w-auto justify-end xl:justify-start xl:pl-3 xl:border-l border-gray-100 shrink-0 mt-2 xl:mt-0 pt-2 xl:pt-0 border-t xl:border-t-0">
                                          <Button 
                                              variant="ghost" 
@@ -179,6 +180,7 @@ const MiscCashflowContent = ({ projectId, dateRange }: { projectId: string, date
                                              <Trash2 className="w-4 h-4" />
                                          </Button>
                                     </div>
+                                    )}
                                 </div>
                             </div>
                         );

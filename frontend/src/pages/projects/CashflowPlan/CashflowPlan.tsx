@@ -213,10 +213,10 @@ export const CashflowPlan = ({ projectId, isOverview }: CashflowPlanProps) => {
             {/* 3. Scrollable Content Area */}
             <ScrollArea className="flex-1">
                 <div className="p-2">
-                    {activeTab === CASHFLOW_TABS.PO_CASHFLOW && <POCashflow dateRange={dateRange} />}
-                    {activeTab === CASHFLOW_TABS.WO_CASHFLOW && <WOCashflow dateRange={dateRange} />}
-                    {activeTab === CASHFLOW_TABS.MISC_CASHFLOW && <MiscCashflow dateRange={dateRange} />}
-                    {activeTab === CASHFLOW_TABS.INFLOW && <InflowCashflow dateRange={dateRange} />}
+                    {activeTab === CASHFLOW_TABS.PO_CASHFLOW && <POCashflow dateRange={dateRange} isOverview={isOverview} />}
+                    {activeTab === CASHFLOW_TABS.WO_CASHFLOW && <WOCashflow dateRange={dateRange} isOverview={isOverview} />}
+                    {activeTab === CASHFLOW_TABS.MISC_CASHFLOW && <MiscCashflow dateRange={dateRange} isOverview={isOverview} />}
+                    {activeTab === CASHFLOW_TABS.INFLOW && <InflowCashflow dateRange={dateRange} isOverview={isOverview} />}
                 </div>
             </ScrollArea>
         </div>

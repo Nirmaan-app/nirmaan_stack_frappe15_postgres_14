@@ -11,13 +11,13 @@ import { safeFormatDate } from "@/lib/utils";
 
 // ... imports
 
-export const WOCashflow = ({ dateRange }: { dateRange?: { from?: Date; to?: Date } }) => {
+export const WOCashflow = ({ dateRange, isOverview }: { dateRange?: { from?: Date; to?: Date }; isOverview?: boolean }) => {
     const { projectId } = useParams<{ projectId: string }>();
     if (!projectId) return <div className="text-red-500">Project ID missing</div>;
-    return <WOCashflowContent projectId={projectId} dateRange={dateRange} />;
+    return <WOCashflowContent projectId={projectId} dateRange={dateRange} isOverview={isOverview} />;
 };
 
-const WOCashflowContent = ({ projectId, dateRange }: { projectId: string, dateRange?: { from?: Date; to?: Date } }) => {
+const WOCashflowContent = ({ projectId, dateRange, isOverview = false }: { projectId: string, dateRange?: { from?: Date; to?: Date }, isOverview?: boolean }) => {
     const [showAddForm, setShowAddForm] = useState(false);
     const [expandedPlans, setExpandedPlans] = useState<string[]>([]);
     const [editingPlan, setEditingPlan] = useState<any>(null);
@@ -129,14 +129,20 @@ const WOCashflowContent = ({ projectId, dateRange }: { projectId: string, dateRa
                         return (
                             <div key={plan.name} className="border rounded-lg bg-white overflow-hidden transition-all hover:shadow-sm">
                                 <div className="flex flex-col xl:flex-row items-start xl:items-center p-3 gap-3">
-                                    {/* Section 1: Toggle & Plan Info */}
+                                    {/* Section 1: Dot Indicator, Toggle & Plan Info */}
                                     <div className="flex items-start gap-2 w-full xl:w-[22%] shrink-0">
+                                        {/* Orange Dot Indicator */}
+                                        <div className="w-8 shrink-0 flex justify-center mt-1">
+                                            <div className="w-6 h-6 bg-orange-50 rounded-full flex items-center justify-center">
+                                                <span className="block w-2 h-2 bg-orange-500 rounded-full"></span>
+                                            </div>
+                                        </div>
                                          <button onClick={() => togglePlan(plan.name)} className="mt-1 text-gray-400 hover:text-gray-600 shrink-0">
                                              {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
                                          </button>
                                         <div className="flex flex-col gap-0.5 min-w-0 flex-1">
                                             <div className="flex items-center gap-2">
-                                                <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-sm px-1.5 py-0 text-[10px] font-normal uppercase tracking-wider">
+                                                <Badge variant="secondary" className="bg-orange-50 text-orange-700 hover:bg-orange-100 rounded-sm px-1.5 py-0 text-[10px] font-normal uppercase tracking-wider">
                                                     Plan {index + 1}
                                                 </Badge>
                                                 <Badge variant={plan.type === "Existing WO" ? "secondary" : "default"} 
@@ -153,14 +159,25 @@ const WOCashflowContent = ({ projectId, dateRange }: { projectId: string, dateRa
                                         </div>
                                     </div>
 
+
                                     <div className="w-px h-10 bg-gray-200 hidden xl:block mx-1" />
 
                                     {/* Section 2: Stats Grid */}
-                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full xl:w-auto xl:flex-1">
+                                    <div className={`grid gap-2 w-full xl:flex-1 shrink-0 ${plan.type === "New WO" ? "grid-cols-2 md:grid-cols-4" : "grid-cols-2 lg:grid-cols-3"}`}>
                                         
+                                        {/* Estimated Amount (New WO Only) */}
+                                        {plan.type === "New WO" && (
+                                            <div className="flex flex-col gap-0.5">
+                                                <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Estimated Amount</span>
+                                                <span className="font-semibold text-gray-900 text-sm">
+                                                    {plan.estimated_amount ? `₹ ${Number(plan.estimated_amount).toLocaleString()}` : "--"}
+                                                </span>
+                                            </div>
+                                        )}
+
                                         {/* Planned Amount */}
                                         <div className="flex flex-col gap-0.5">
-                                            <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Amount</span>
+                                            <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Planned Amount</span>
                                             <span className="font-semibold text-gray-900 text-sm">
                                                 {plan.planned_amount ? `₹ ${Number(plan.planned_amount).toLocaleString()}` : "--"}
                                             </span>
@@ -168,21 +185,21 @@ const WOCashflowContent = ({ projectId, dateRange }: { projectId: string, dateRa
 
                                         {/* Planned Date */}
                                         <div className="flex flex-col gap-0.5">
-                                            <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Date</span>
+                                            <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Planned Date</span>
                                             <span className="font-semibold text-gray-900 text-sm">
                                                 {safeFormatDate(plan.planned_date)}
                                             </span>
                                         </div>
 
                                         {/* Vendor */}
-                                        <div className="flex flex-col gap-0.5 md:col-span-2 xl:col-span-1">
+                                        <div className="flex flex-col gap-0.5 min-w-0">
                                             <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Vendor</span>
                                             <span className="font-medium text-gray-900 text-xs truncate" title={plan.vendor_name}>
                                                 {plan.vendor_name || "--"}
                                             </span>
                                         </div>
 
-                                         {/* Progress (Visible on grid for mobile/tablet, right aligned on desktop) */}
+                                         {/* Progress (Mobile) - Commented out as per request
                                          <div className="flex flex-col gap-0.5 md:col-span-4 xl:hidden">
                                             <div className="flex justify-between items-baseline">
                                                  <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Total: ₹ {total.toLocaleString()}</span>
@@ -192,13 +209,14 @@ const WOCashflowContent = ({ projectId, dateRange }: { projectId: string, dateRa
                                                 <div className="h-full bg-blue-600 rounded-full" style={{ width: `${percentage}%` }}></div>
                                             </div>
                                         </div>
+                                        */}
                                     </div>
 
                                     <div className="w-px h-10 bg-gray-200 hidden xl:block mx-1" />
 
                                     {/* Section 3: Desktop Progress & Actions */}
                                     <div className="flex items-center justify-between w-full xl:w-auto gap-3 min-w-0">
-                                         {/* Desktop Only Progress */}
+                                         {/* Desktop Only Progress - Commented out as per request
                                         <div className="hidden xl:flex flex-col items-end gap-0.5 min-w-[120px]">
                                             <div className="text-sm font-bold text-gray-900">₹ {total.toLocaleString()}</div>
                                             <div className="flex items-center gap-2 w-full justify-end">
@@ -208,8 +226,10 @@ const WOCashflowContent = ({ projectId, dateRange }: { projectId: string, dateRa
                                                 </div>
                                             </div>
                                         </div>
+                                        */}
 
                                         {/* Actions */}
+                                        {!isOverview && (
                                         <div className="flex items-center gap-1 pl-3 xl:border-l border-gray-100 shrink-0 ml-auto xl:ml-0">
                                              <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-blue-600" onClick={() => setEditingPlan(plan)}>
                                                  <Edit2 className="w-4 h-4" />
@@ -218,6 +238,7 @@ const WOCashflowContent = ({ projectId, dateRange }: { projectId: string, dateRa
                                                  <Trash2 className="w-4 h-4" />
                                              </Button>
                                         </div>
+                                        )}
                                     </div>
                                 </div>
                                 

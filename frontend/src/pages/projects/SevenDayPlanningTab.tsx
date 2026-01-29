@@ -30,11 +30,15 @@ export const SevenDayPlanningTab = ({ isOverview, projectName }: { isOverview?: 
   return (
     <div className={cn(
         "flex flex-col", 
-        isOverview ? "gap-4 p-6 bg-white border border-[#D7D7EC] rounded-xl shadow-sm" : "gap-6 p-4"
+        isOverview ? "gap-4 p-6 bg-white border border-gray-200/80 rounded-xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.12)]" : "gap-6 p-4"
     )}>
       
+      {isOverview && (
+        <h3 className="text-xl font-bold text-gray-900 pb-3 border-b border-[#D7D7EC]">Planning</h3>
+      )}
 
-      {isOverview && <div className="h-px bg-[#D7D7EC] w-full" />}
+      {/* {isOverview && <div className="h-px bg-[#D7D7EC] w-full" />} */}
+      
 
       <SevenDayPlanningTabs 
         activeTab={activeTab}
@@ -61,7 +65,7 @@ export const SevenDayPlanningTab = ({ isOverview, projectName }: { isOverview?: 
           />
         )}
         {activeTab === PLANNING_TABS.Cashflow_Plan && (
-          <CashflowPlan projectId={projectId} />
+          <CashflowPlan projectId={projectId}  isOverview={isOverview}  projectName={projectName}/>
         )}
       </div>
     </div>

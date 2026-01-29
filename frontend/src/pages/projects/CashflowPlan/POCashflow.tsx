@@ -35,16 +35,16 @@ const cashFlowJsonToArray = (plan: any): any[] => {
 interface POCashflowContentProps {
     projectId: string;
     dateRange?: { from?: Date; to?: Date };
+    isOverview?: boolean;
 }
 
-export const POCashflow = ({ dateRange }: { dateRange?: { from?: Date; to?: Date } }) => {
+export const POCashflow = ({ dateRange, isOverview }: { dateRange?: { from?: Date; to?: Date }; isOverview?: boolean }) => {
     const { projectId } = useParams<{ projectId: string }>();
     if (!projectId) return <div className="p-4 text-red-500">Project ID missing</div>;
-    return <POCashflowContent projectId={projectId} dateRange={dateRange} />;
+    return <POCashflowContent projectId={projectId} dateRange={dateRange} isOverview={isOverview} />;
 }
 
-const POCashflowContent = ({ projectId, dateRange }: POCashflowContentProps) => {
-    const isOverview = false; 
+const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashflowContentProps) => { 
 
     const { docListFilters } = useMemo(() => {
         const filters: any[] = [["project", "=", projectId], ["type", "in", ["Existing PO","New PO"]]];
@@ -162,8 +162,14 @@ const POCashflowContent = ({ projectId, dateRange }: POCashflowContentProps) => 
                         return (
                             <div key={plan.name} className="border rounded-lg bg-white shadow-sm overflow-hidden transition-all hover:shadow-md">
                                 <div className="flex flex-col xl:flex-row items-start xl:items-center p-3 gap-3">
-                                    {/* Section 1: Toggle & Plan Info */}
+                                    {/* Section 1: Dot Indicator, Toggle & Plan Info */}
                                     <div className="flex items-start gap-2 w-full xl:w-[22%] shrink-0">
+                                        {/* Purple Dot Indicator */}
+                                        <div className="w-8 shrink-0 flex justify-center mt-1">
+                                            <div className="w-6 h-6 bg-blue-50 rounded-full flex items-center justify-center">
+                                                <span className="block w-2 h-2 bg-blue-500 rounded-full"></span>
+                                            </div>
+                                        </div>
                                         <button onClick={() => togglePlan(plan.name)} className="mt-1 text-gray-400 hover:text-gray-600">
                                             <ChevronDown className={`w-5 h-5 transition-transform duration-200 ${isExpanded ? "" : "-rotate-90"}`} />
                                         </button>
@@ -172,6 +178,7 @@ const POCashflowContent = ({ projectId, dateRange }: POCashflowContentProps) => 
                                                 <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-sm px-1.5 py-0 text-[10px] font-normal uppercase tracking-wider">
                                                     Plan {_index + 1}
                                                 </Badge>
+                                                
                                             </div>
                                             <h4 className="font-semibold text-gray-900 leading-tight text-sm truncate" title={plan.critical_po_task}>
                                                 {plan.critical_po_task || "Untitled Task"}
@@ -190,9 +197,10 @@ const POCashflowContent = ({ projectId, dateRange }: POCashflowContentProps) => 
                                            {plan.id_link || "--"}
                                         </div>
                                         <div className="flex items-center gap-1.5 flex-wrap">
-                                            <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 font-medium bg-gray-50 text-gray-600 border-gray-200">
-                                               {plan.type}
-                                            </Badge>
+                                            <Badge variant={plan.type === "Existing PO" ? "secondary" : "default"} 
+                                                    className={`px-1.5 py-0 text-[10px] font-normal ${plan.type === "Existing PO" ? "bg-blue-100 text-blue-700" : "bg-yellow-100 text-yellow-700"}`}>
+                                                    {plan.type}
+                                                </Badge>
                                             <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 font-medium bg-gray-50 text-gray-600 border-gray-200">
                                                 {itemsList.length} Items
                                             </Badge>
@@ -202,19 +210,37 @@ const POCashflowContent = ({ projectId, dateRange }: POCashflowContentProps) => 
                                     <div className="w-px h-10 bg-gray-200 hidden xl:block mx-1" />
 
                                     {/* Section 3: Planned Stats */}
-                                    <div className="grid grid-cols-3 gap-2 w-full xl:w-[32%] shrink-0">
+                                    <div className={`grid gap-2 w-full xl:flex-1 shrink-0 ${plan.type === "New PO" ? "grid-cols-2 md:grid-cols-4" : "grid-cols-2 lg:grid-cols-3"}`}>
+                                        
+                                        {/* Estimated Amount (New PO Only) */}
+                                        {plan.type === "New PO" && (
+                                            <div className="flex flex-col gap-0.5">
+                                                <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Estimated Amount</span>
+                                                <span className="font-semibold text-gray-900 text-sm">
+                                                    {plan.estimated_price ? `₹ ${Number(plan.estimated_price).toLocaleString()}` : "--"}
+                                                </span>
+                                            </div>
+                                        )}
+
+                                        {/* Planned Amount */}
                                         <div className="flex flex-col gap-0.5">
-                                            <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Amount</span>
+                                            <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">
+                                                Planned Amount
+                                            </span>
                                             <span className="font-semibold text-gray-900 text-sm">
                                                 {plan.planned_amount ? `₹ ${Number(plan.planned_amount).toLocaleString()}` : "--"}
                                             </span>
                                         </div>
+
+                                        {/* Planned Date */}
                                         <div className="flex flex-col gap-0.5">
-                                            <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Date</span>
+                                            <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Planned Date</span>
                                             <span className="font-semibold text-gray-900 text-sm">
                                                 {safeFormatDate(plan.planned_date)}
                                             </span>
                                         </div>
+
+                                        {/* Vendor */}
                                         <div className="flex flex-col gap-0.5 min-w-0">
                                             <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Vendor</span>
                                             <span className="font-medium text-gray-900 text-xs truncate" title={plan.vendor_name}>
@@ -226,7 +252,8 @@ const POCashflowContent = ({ projectId, dateRange }: POCashflowContentProps) => 
                                     <div className="w-px h-10 bg-gray-200 hidden xl:block mx-1" />
 
                                     {/* Section 4: Total & Actions */}
-                                    <div className="flex items-center justify-between w-full xl:w-auto xl:flex-1 gap-3 min-w-0">
+                                    <div className="flex items-center justify-between w-full xl:w-auto gap-3 min-w-0">
+                                        {/* Paid Details - Commented out as per request
                                         <div className="flex flex-col items-end gap-0.5 ml-auto xl:ml-0 min-w-0 flex-1">
                                             <div className="flex items-baseline gap-1">
                                                 <span className="text-[10px] text-gray-500">Paid:</span>
@@ -236,8 +263,11 @@ const POCashflowContent = ({ projectId, dateRange }: POCashflowContentProps) => 
                                                 <div className="h-full bg-blue-600 w-[0%]" />
                                             </div>
                                         </div>
+                                        */}
                                         
-                                        <div className="flex items-center gap-1 pl-3 border-l border-gray-100 shrink-0">
+                                        {!isOverview && (
+                                        <div className="flex items-center gap-1 pl-3 border-l border-gray-100 shrink-0 ml-auto">
+
                                             <button 
                                                 onClick={() => setEditingPlan(plan)} 
                                                 className="p-1.5 text-gray-400 hover:text-blue-600 transition-colors hover:bg-blue-50 rounded-md"
@@ -253,6 +283,7 @@ const POCashflowContent = ({ projectId, dateRange }: POCashflowContentProps) => 
                                                 <Trash2 className="w-4 h-4" />
                                             </button>
                                         </div>
+                                        )}
                                     </div>
                                 </div>
 
