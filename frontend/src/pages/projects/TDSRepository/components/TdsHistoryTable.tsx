@@ -45,6 +45,7 @@ interface ProjectTDSItem {
     tds_status: string;
     tds_rejection_reason?: string;
     tds_attachment?: string;
+    tds_boq_line_item?: string;
     creation: string;
     // owner: string; // Removed in favor of dynamic keys
     [key: string]: any; 
@@ -195,6 +196,34 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
             },
             size: 80,
             enableSorting: false,
+        },
+        {
+            accessorKey: "tds_boq_line_item",
+            header: ({ column }) => <DataTableColumnHeader column={column} title="BOQ Ref" />,
+            cell: ({ row }) => {
+                const boqRef = row.getValue("tds_boq_line_item") as string;
+                return boqRef ? (
+                    <div className="flex justify-start items-center">
+                         <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <div className="cursor-pointer p-1 rounded-full hover:bg-slate-100">
+                                        <MessageSquare className="h-4 w-4 text-blue-500 hover:text-blue-700" />
+                                    </div>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-[300px] whitespace-normal break-words z-50">
+                                    <p>{boqRef}</p>
+                                </TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                    </div>
+                ) : <span className="text-gray-300 ml-2">-</span>;
+            },
+            size: 100,
+            enableSorting: true,
+            meta: {
+                exportHeaderName: "BOQ Ref"
+            }
         },
         {
             id: "actions",
