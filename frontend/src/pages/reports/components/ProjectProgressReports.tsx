@@ -758,17 +758,17 @@ console.log("mergedData",mergedData);
             // MODIFIED COLUMN: Consolidated Assigned Users/Leads
             {
                 id: "assigned_users", 
-                header: ({ column }) => <DataTableColumnHeader column={column} title="Leads" />,
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Assignees" className="justify-start" />,
                 cell: ({ row }) => {
                     // Use the pre-merged array
                     const leads = row.original.assigned_leads; 
                     // console.log("leads",leads)
                     if (leads.length === 0) {
-                        return <span className="text-gray-400 text-start block">--</span>;
+                        return <span className="text-gray-400 text-center block">--</span>;
                     }
 
                     return (
-                        <div className="flex justify-start w-full">
+                        <div className="flex justify-center w-full">
                             <TooltipProvider>
                                 <Tooltip>
                                     <TooltipTrigger asChild>
@@ -780,7 +780,7 @@ console.log("mergedData",mergedData);
                                     <TooltipContent className="p-3">
     <div className="space-y-3">
         <p className="font-bold text-center border-b pb-1">
-            User Responsive
+            Responsible Users
         </p>
 
         {leads.map((lead) => (
