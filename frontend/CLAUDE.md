@@ -395,6 +395,46 @@ const searchConfig: TokenSearchConfig = {
 
 When reviewing or creating react-select components, check if FuzzySearchSelect would improve the UX.
 
+### React-Select in Radix UI Dialogs (AlertDialog/Dialog)
+
+**Problem:** When using react-select inside Radix UI AlertDialog or Dialog, the dropdown menu becomes unclickable and unscrollable. Users can type and use keyboard navigation, but mouse interaction is blocked.
+
+**Root Cause:** Radix UI dialogs set `pointer-events: none` on the `<body>` when modal to implement focus trapping. When react-select portals its menu to `document.body` via `menuPortalTarget`, those elements inherit `pointer-events: none` and become uninteractable.
+
+**Solution:** The centralized theme in `src/config/selectTheme.ts` includes `pointerEvents: 'auto'` on menu, menuPortal, menuList, and option styles to override this behavior.
+
+**Usage with ProjectSelect:**
+```tsx
+// Inside a dialog, use the usePortal prop
+<ProjectSelect
+    onChange={handleChange}
+    universal={false}
+    usePortal  // Enables menuPortalTarget={document.body} with proper pointer-events
+/>
+```
+
+**If creating a new select component:**
+```tsx
+import { getSelectStyles } from "@/config/selectTheme";
+
+// The default styles already include the pointer-events fix
+<ReactSelect
+    styles={getSelectStyles()}
+    menuPortalTarget={document.body}
+    menuPosition="fixed"
+    // ...other props
+/>
+```
+
+**Key files:**
+- `src/config/selectTheme.ts` - Centralized theme with pointer-events fix
+- `src/components/ui/fuzzy-search-select.tsx` - Applies theme automatically
+- `src/components/custom-select/project-select.tsx` - Has `usePortal` prop
+
+**References:**
+- [Radix UI Issue #2122](https://github.com/radix-ui/primitives/issues/2122) - DialogContent disables pointer events
+- [Radix UI Issue #3141](https://github.com/radix-ui/primitives/issues/3141) - Dialog and Dropdown Menu conflict
+
 ---
 
 ## Important Notes
