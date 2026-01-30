@@ -167,7 +167,7 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
                         <div className="grid grid-cols-4 items-center gap-4">
                             <Label htmlFor="project" className="text-right">Project <sup className="text-destructive">*</sup></Label>
                             <div className="col-span-3">
-                                <ProjectSelect universal onChange={(selected) => handleInputChange('projects', selected?.value || '')} />
+                                <ProjectSelect universal usePortal onChange={(selected) => handleInputChange('projects', selected?.value || '')} />
                                 {formErrors.projects && <p className="text-xs text-destructive mt-1">{formErrors.projects}</p>}
                             </div>
                         </div>

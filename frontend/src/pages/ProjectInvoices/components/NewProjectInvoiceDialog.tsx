@@ -285,6 +285,7 @@ export function NewProjectInvoiceDialog({ listMutate, ProjectId, onClose }: NewP
                                     disabled={isLoading}
                                     universal={false}
                                     all
+                                    usePortal
                                 />
                                 {formErrors.project && (
                                     <p className="text-xs text-red-500 flex items-center gap-1 mt-1">

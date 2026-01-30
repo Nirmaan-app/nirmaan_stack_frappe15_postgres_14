@@ -2,6 +2,7 @@ import { FuzzySearchSelect, FuzzyOptionType, TokenSearchConfig } from "@/compone
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { useEffect, useMemo, useState } from "react";
+import { StylesConfig } from "react-select";
 
 interface SelectOptions extends FuzzyOptionType {
     value: string;
@@ -12,6 +13,12 @@ interface ProjectSelectProps {
     onChange: (selectedOption: SelectOptions | null) => void;
     universal?: boolean;
     all?: boolean;
+    /** Enable portal rendering for dialogs/modals - dropdown renders in document.body */
+    usePortal?: boolean;
+    /** Custom style overrides */
+    styles?: StylesConfig<SelectOptions, false>;
+    /** Disable the select */
+    disabled?: boolean;
 }
 
 // Token-based search config optimized for projects
@@ -28,8 +35,14 @@ const projectSearchConfig: TokenSearchConfig = {
     minTokenMatches: 1
 };
 
-export default function ProjectSelect({ onChange, universal = true, all = false }: ProjectSelectProps) {
-
+export default function ProjectSelect({
+    onChange,
+    universal = true,
+    all = false,
+    usePortal = false,
+    styles,
+    disabled = false,
+}: ProjectSelectProps) {
     // First build the filters array dynamically
     const projectFilters = [["status", "not in", ["Completed", "Halted"]]];
 
@@ -70,17 +83,28 @@ export default function ProjectSelect({ onChange, universal = true, all = false 
         label: item.project_name,
     })) || [], [data]);
 
+    // Portal props for rendering dropdown in document.body (fixes clipping in dialogs)
+    const portalProps = usePortal
+        ? {
+              menuPortalTarget: document.body,
+              menuPosition: "fixed" as const,
+          }
+        : {};
+
     if (error) return <h1>Error</h1>;
     return (
         <FuzzySearchSelect<SelectOptions, false>
             allOptions={options}
             tokenSearchConfig={projectSearchConfig}
             isLoading={loading}
+            isDisabled={disabled}
             value={selectedOption}
             onChange={handleChange}
             placeholder="Select Project"
             isClearable
             onMenuOpen={() => handleChange(null)}
+            styles={styles}
+            {...portalProps}
         />
     );
 }

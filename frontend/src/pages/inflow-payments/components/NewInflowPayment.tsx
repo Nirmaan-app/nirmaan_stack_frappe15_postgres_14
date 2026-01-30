@@ -261,6 +261,7 @@ export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) =
                                 all={true}
                                 onChange={handleProjectChange}
                                 universal={false}
+                                usePortal
                             />
                             {formErrors.project && (
                                 <p className="text-xs text-red-500 flex items-center gap-1 mt-1">
