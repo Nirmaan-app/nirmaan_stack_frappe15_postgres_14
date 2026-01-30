@@ -53,15 +53,17 @@ export const AddWOCashflowForm = ({ projectId, onClose, onSuccess }: AddWOCashfl
         planned_amount: "",
         planned_date: undefined as Date | undefined
     });
+    const [isCustomVendor, setIsCustomVendor] = useState(false);
 
     const { data: vendors, isLoading: isLoadingVendors } = useFrappeGetDocList("Vendors", {
         fields: ["name", "vendor_name"],
         limit: 0
     });
 
-    const vendorOptions = useMemo(() => 
-        (vendors || []).map(v => ({ value: v.name, label: v.vendor_name })), 
-    [vendors]);
+    const vendorOptions = useMemo(() => [
+        ...(vendors || []).map(v => ({ value: v.name, label: v.vendor_name })),
+        { label: "Others", value: "__others__" }
+    ], [vendors]);
 
     const { createDoc, loading: isSubmitting } = useFrappeCreateDoc();
 
@@ -102,8 +104,10 @@ export const AddWOCashflowForm = ({ projectId, onClose, onSuccess }: AddWOCashfl
                     type: "Existing WO",
                     id_link: plan.name,
                     planned_amount: parseFloat(plan.planned_amount),
+                  
                     planned_date: format(plan.planned_date!, "yyyy-MM-dd"),
                     vendor: plan.vendor,
+                    vendor_name: plan.vendor_name,
                     grand_total: plan.grand_total, // Store snapshot
                     total_paid: plan.total_paid,
                     items: JSON.stringify({ list: plan.items || [] })
@@ -184,8 +188,9 @@ export const AddWOCashflowForm = ({ projectId, onClose, onSuccess }: AddWOCashfl
             await createDoc("Cashflow Plan", {
                 project: projectId,
                 type: "New WO",
-                vendor: newPlan.vendor.value,
-                              estimated_price: parseFloat(newPlan.estimated_value),
+                vendor: isCustomVendor ? "" : newPlan.vendor.value,
+                vendor_name: newPlan.vendor.label,
+                estimated_price: parseFloat(newPlan.estimated_value),
                 planned_amount: parseFloat(newPlan.planned_amount),
                 planned_date: plannedDateStr,
                 items: JSON.stringify({ list: [{ description: newPlan.description, category: "" }] })
@@ -320,14 +325,71 @@ export const AddWOCashflowForm = ({ projectId, onClose, onSuccess }: AddWOCashfl
                          <div className="space-y-4">
                             <div className="space-y-2">
                                 <Label>Vendor <span className="text-red-500">*</span></Label>
-                                <Select 
-                                    options={vendorOptions}
-                                    value={newPlan.vendor}
-                                    onChange={(val) => setNewPlan({...newPlan, vendor: val})}
-                                    placeholder="Select or type vendor name"
-                                    className="text-sm"
-                                    isLoading={isLoadingVendors}
-                                />
+                                {isCustomVendor ? (
+                                    <div className="space-y-2">
+                                        <Input
+                                            placeholder="Enter custom vendor name"
+                                            value={newPlan.vendor?.label || ""}
+                                            onChange={(e) => setNewPlan({ ...newPlan, vendor: { value: "", label: e.target.value } })}
+                                            className="h-9 text-sm"
+                                        />
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => {
+                                                setIsCustomVendor(false);
+                                                setNewPlan({ ...newPlan, vendor: null });
+                                            }}
+                                            className="text-xs text-gray-500 hover:text-gray-700 h-6 px-2"
+                                        >
+                                            ← Back to Vendor list
+                                        </Button>
+                                    </div>
+                                ) : (
+                                    <Select 
+                                        options={vendorOptions}
+                                        value={newPlan.vendor}
+                                        onChange={(option) => {
+                                            if (option?.value === "__others__") {
+                                                setIsCustomVendor(true);
+                                                setNewPlan({ ...newPlan, vendor: { value: "", label: "" } });
+                                            } else {
+                                                setNewPlan({ ...newPlan, vendor: option });
+                                            }
+                                        }}
+                                        placeholder="Select Vendor"
+                                        className="text-sm"
+                                        isLoading={isLoadingVendors}
+                                        filterOption={(option, inputValue) => {
+                                             if (option.data.value === "__others__") return true;
+                                             return option.label.toLowerCase().includes(inputValue.toLowerCase());
+                                        }}
+                                        styles={{
+                                             control: (base) => ({ ...base, minHeight: '36px', height: '36px', fontSize: '0.875rem' }),
+                                             option: (base, state) => ({
+                                                 ...base,
+                                                 ...(state.data.value === "__others__" ? {
+                                                     backgroundColor: state.isFocused ? '#dbeafe' : '#eff6ff',
+                                                     color: '#2563eb',
+                                                     fontWeight: 600,
+                                                     borderTop: '1px solid #e5e7eb',
+                                                     position: 'sticky',
+                                                     bottom: 0,
+                                                 } : {})
+                                             }),
+                                             menuList: (base) => ({ ...base, paddingBottom: 0 })
+                                        }}
+                                        formatOptionLabel={(option: any) => (
+                                             option.value === "__others__" ? (
+                                                 <span className="flex items-center gap-1">
+                                                     <span>+ Others</span>
+                                                     <span className="text-xs text-blue-400">(type custom)</span>
+                                                 </span>
+                                             ) : option.label
+                                        )}
+                                    />
+                                )}
                             </div>
 
                             <div className="space-y-2">

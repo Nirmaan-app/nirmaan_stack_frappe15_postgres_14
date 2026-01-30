@@ -47,17 +47,19 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
     const [description, setDescription] = useState("");
     const [estimatedValue, setEstimatedValue] = useState("");
     const [vendor, setVendor] = useState<{ value: string, label: string } | null>(null);
+    const [isCustomVendor, setIsCustomVendor] = useState(false);
 
-    // Fetch Vendors for New WO edit
+    // Fetch Vendors for edit (enabled for all types)
     const { data: vendors, isLoading: isLoadingVendors } = useFrappeGetDocList("Vendors", {
         fields: ["name", "vendor_name"],
         limit: 0,
-        enabled: isOpen && !isExistingWO
+        enabled: isOpen
     });
 
-    const vendorOptions = useMemo(() => 
-        (vendors || []).map(v => ({ value: v.name, label: v.vendor_name })), 
-    [vendors]);
+    const vendorOptions = useMemo(() => [
+        ...(vendors || []).map(v => ({ value: v.name, label: v.vendor_name })),
+        { label: "Others", value: "__others__" }
+    ], [vendors]);
 
     // Initialize/Reset State
     useEffect(() => {
@@ -83,39 +85,66 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                 }
                 setDescription(desc);
                 setEstimatedValue(plan.estimated_price?.toString() || "");
-                if (plan.vendor) {
-                    setVendor({ 
-                        value: plan.vendor, 
-                        label: plan.vendor_name || plan.vendor // fallback
-                    });
+                if (plan.vendor || plan.vendor_name) {
+                    // Check if existing vendor ID (starts with VEND usually or matches list)
+                    // Simple check: if vendor ID is empty but name exists -> custom
+                    if (!plan.vendor && plan.vendor_name) {
+                        setIsCustomVendor(true);
+                        setVendor({ value: "", label: plan.vendor_name });
+                    } else {
+                        setIsCustomVendor(false);
+                        setVendor({ 
+                            value: plan.vendor, 
+                            label: plan.vendor_name || plan.vendor // fallback
+                        });
+                    }
+                }
+            } else {
+                // Existing WO - also populate vendor
+                if (plan.vendor || plan.vendor_name) {
+                    if (!plan.vendor && plan.vendor_name) {
+                        setIsCustomVendor(true);
+                        setVendor({ value: "", label: plan.vendor_name });
+                    } else {
+                        setIsCustomVendor(false);
+                        setVendor({ 
+                            value: plan.vendor, 
+                            label: plan.vendor_name || plan.vendor
+                        });
+                    }
                 }
             }
         }
     }, [isOpen, plan, isExistingWO]);
 
     // Update vendor label when options load if needed
+    // Update vendor label when options load if needed
     useEffect(() => {
-        if (!isExistingWO && vendors && plan?.vendor) {
+        if (vendors && plan?.vendor && !isCustomVendor) {
              const found = vendors.find(v => v.name === plan.vendor);
              if (found) {
                  setVendor({ value: found.name, label: found.vendor_name });
              }
         }
-    }, [vendors, plan, isExistingWO]);
+    }, [vendors, plan, isCustomVendor]);
 
     const handleSubmit = async () => {
         if (!plannedAmount || parseFloat(plannedAmount) <= 0) {
             toast({ title: "Invalid Amount", description: "Amount must be > 0", variant: "destructive" });
             return;
         }
-        if (!plannedDate) {
-            toast({ title: "Invalid Date", description: "Date is required", variant: "destructive" });
-            return;
+
+
+        if (!vendor) {
+             toast({ title: "Missing Vendor", description: "Vendor is required", variant: "destructive" });
+             return;
         }
 
         const updateData: any = {
             planned_amount: parseFloat(plannedAmount),
             planned_date: format(plannedDate, "yyyy-MM-dd"),
+            vendor: isCustomVendor ? "" : vendor.value,
+            vendor_name: vendor.label
         };
 
         if (isExistingWO) {
@@ -130,13 +159,9 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                 toast({ title: "Invalid Estimated Value", description: "Estimated Value must be > 0", variant: "destructive" });
                 return;
             }
-            if (!vendor) {
-                 toast({ title: "Missing Vendor", description: "Vendor is required", variant: "destructive" });
-                 return;
-            }
+
             // updateData.remarks = description;
             updateData.estimated_price = parseFloat(estimatedValue);
-            updateData.vendor = vendor.value;
             // Also update the single item description if we store it that way for New WO
             updateData.items = JSON.stringify({ list: [{ description: description, category: "" }] });
         }
@@ -180,29 +205,85 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                 </div>
 
                 <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
-                    {/* New WO Specific Fields */}
+                    {/* Vendor Field (Now for both Existing and New) */}
+                    <div className="space-y-2">
+                        <Label>Vendor</Label>
+                        {isCustomVendor ? (
+                            <div className="space-y-2">
+                                <Input
+                                    placeholder="Enter custom vendor name"
+                                    value={vendor?.label || ""}
+                                    onChange={(e) => setVendor({ value: "", label: e.target.value })}
+                                    className="h-9 text-sm"
+                                />
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                        setIsCustomVendor(false);
+                                        setVendor(null);
+                                    }}
+                                    className="text-xs text-gray-500 hover:text-gray-700 h-6 px-2"
+                                >
+                                    ← Back to Vendor list
+                                </Button>
+                            </div>
+                        ) : (
+                            <Select 
+                                options={vendorOptions}
+                                value={vendor}
+                                onChange={(option: any) => {
+                                    if (option?.value === "__others__") {
+                                        setIsCustomVendor(true);
+                                        setVendor({ value: "", label: "" });
+                                    } else {
+                                        setVendor(option);
+                                    }
+                                }}
+                                placeholder="Select vendor"
+                                className="text-sm"
+                                isLoading={isLoadingVendors}
+                                filterOption={(option: any, inputValue: any) => {
+                                        if (option.data.value === "__others__") return true;
+                                        return option.label.toLowerCase().includes(inputValue.toLowerCase());
+                                }}
+                                styles={{
+                                        option: (base: any, state: any) => ({
+                                            ...base,
+                                            ...(state.data.value === "__others__" ? {
+                                                backgroundColor: state.isFocused ? '#dbeafe' : '#eff6ff',
+                                                color: '#2563eb',
+                                                fontWeight: 600,
+                                                borderTop: '1px solid #e5e7eb',
+                                                position: 'sticky',
+                                                bottom: 0,
+                                            } : {})
+                                        }),
+                                        menuList: (base: any) => ({ ...base, paddingBottom: 0 })
+                                }}
+                                formatOptionLabel={(option: any) => (
+                                        option.value === "__others__" ? (
+                                            <span className="flex items-center gap-1">
+                                                <span>+ Others</span>
+                                                <span className="text-xs text-blue-400">(type custom)</span>
+                                            </span>
+                                        ) : option.label
+                                )}
+                            />
+                        )}
+                    </div>
+
+                    {/* New WO Specific Description */}
                     {!isExistingWO && (
-                        <div className="space-y-4">
-                            <div className="space-y-2">
-                                <Label>Vendor <span className="text-red-500">*</span></Label>
-                                <Select 
-                                    options={vendorOptions}
-                                    value={vendor}
-                                    onChange={setVendor}
-                                    placeholder="Select vendor"
-                                    className="text-sm"
-                                    isLoading={isLoadingVendors}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Description <span className="text-red-500">*</span></Label>
-                                <Textarea 
-                                    value={description}
-                                    onChange={(e) => setDescription(e.target.value)}
-                                    placeholder="Description"
-                                    className="resize-none"
-                                />
-                            </div>
+                        <div className="space-y-2">
+                            <Label>Description <span className="text-red-500">*</span></Label>
+                            <Textarea 
+                                value={description}
+                                onChange={(e) => setDescription(e.target.value)}
+                                placeholder="Description"
+                                className="resize-none"
+                            />
                         </div>
                     )}
 

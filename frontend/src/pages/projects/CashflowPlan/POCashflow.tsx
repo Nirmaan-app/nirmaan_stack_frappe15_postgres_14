@@ -72,7 +72,7 @@ const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashf
 
     // Fetch Plans
     const { data: existingPlans, isLoading: isLoadingPlans, mutate: refreshPlans } = useFrappeGetDocList("Cashflow Plan", {
-        fields: ["name", "id_link","type", "planned_date", "planned_amount", "creation", "critical_po_category", "critical_po_task", "items", "remarks", "vendor.vendor_name", "estimated_price"],
+        fields: ["name", "id_link","type", "planned_date", "planned_amount", "creation", "critical_po_category", "critical_po_task", "items", "remarks", "vendor","vendor_name", "estimated_price"],
         filters: docListFilters,
         orderBy: { field: "creation", order: "desc" },
         limit:0

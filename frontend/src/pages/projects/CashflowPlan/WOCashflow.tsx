@@ -51,7 +51,7 @@ const WOCashflowContent = ({ projectId, dateRange, isOverview = false }: { proje
     }, [projectId, dateRange]);
 
     const { data: plans, isLoading, mutate: refreshPlans } = useFrappeGetDocList("Cashflow Plan", {
-        fields: ["name", "type", "id_link", "planned_date", "planned_amount", "vendor","vendor.vendor_name", "remarks", "creation", "estimated_price","items"],
+        fields: ["name", "type", "id_link", "planned_date", "planned_amount", "vendor","vendor_name", "remarks", "creation", "estimated_price","items"],
         filters: docListFilters,
         orderBy: { field: "creation", order: "desc" },
         limit: 0

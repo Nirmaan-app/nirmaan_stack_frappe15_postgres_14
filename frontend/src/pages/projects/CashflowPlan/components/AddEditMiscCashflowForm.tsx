@@ -72,30 +72,8 @@ export const AddEditMiscCashflowForm = ({ isOpen, projectId, initialData, onClos
             return;
         }
 
-        if (!plannedDate) {
-             toast({
-                title: "Missing Planned Date",
-                description: "Review your fields! Planned Date is mandatory.",
-                variant: "destructive"
-            });
-            return;
-        }
-
         const today = new Date().toISOString().split('T')[0];
-        const plannedDateStr = format(plannedDate, "yyyy-MM-dd");
-        
-        // Only validate date in past for NEW plans, maybe allow editing past plans? 
-        // User didn't specify, but usually past dates are allowed if editing historical data or correcting a mistake.
-        // But for consistency let's keep the check unless user complains or if it's existing plan we might skip?
-        // Let's keep the check for now.
-        if (plannedDateStr < today) {
-            toast({
-                title: "Invalid Date",
-                description: "Planned Date cannot be in the past.",
-                variant: "destructive"
-            });
-            return;
-        }
+        const plannedDateStr = plannedDate ? format(plannedDate, "yyyy-MM-dd") : undefined;
 
         try {
             if (initialData) {

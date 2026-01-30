@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { useFrappeGetDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeGetDoc, useFrappeUpdateDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { CalendarIcon, Search, X } from "lucide-react";
+import ReactSelect from "react-select";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/use-toast";
@@ -36,6 +37,8 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
     
     // New PO Specific
     const [manualItemsText, setManualItemsText] = useState("");
+    const [vendor, setVendor] = useState<{ value: string, label: string } | null>(null);
+    const [isCustomVendor, setIsCustomVendor] = useState(false);
 
     const isNewPO = plan?.type === "New PO";
 
@@ -45,6 +48,19 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
     const { data: poDoc, isLoading: isLoadingPO } = useFrappeGetDoc("Procurement Orders", poId, {
         enabled: !!poId && isOpen && !isNewPO
     });
+
+    // Fetch Vendors for New PO edit
+    // Fetch Vendors for edit (enabled for both New and Existing to allow overrides)
+    const { data: vendors, isLoading: isLoadingVendors } = useFrappeGetDocList("Vendors", {
+        fields: ["name", "vendor_name"],
+        limit: 0,
+        enabled: isOpen
+    });
+
+    const vendorOptions = useMemo(() => [
+        ...(vendors || []).map((v: any) => ({ value: v.name, label: v.vendor_name })),
+        { label: "Others", value: "__others__" }
+    ], [vendors]);
 
     // Initialize/Reset State when Plan changes or Form opens
     useEffect(() => {
@@ -68,13 +84,51 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                 // For New PO, populate textarea
                 const text = list.map((i: any) => i.item_name || i.description).join("\n");
                 setManualItemsText(text);
+
+                // Populate Vendor (Common for New and Existing now)
+                if (plan.vendor || plan.vendor_name) {
+                    if (!plan.vendor && plan.vendor_name) {
+                         setIsCustomVendor(true);
+                         setVendor({ value: "", label: plan.vendor_name });
+                    } else {
+                         setIsCustomVendor(false);
+                         setVendor({ 
+                             value: plan.vendor, 
+                             label: plan.vendor_name || plan.vendor
+                         });
+                    }
+                }
             } else {
                 // For Existing PO, populate selection
                 const currentItemNames = new Set<string>(list.map((i: any) => i.name));
                 setSelectedItems(currentItemNames);
+
+                // Populate Vendor for Existing PO as well
+                if (plan.vendor || plan.vendor_name) {
+                    if (!plan.vendor && plan.vendor_name) {
+                         setIsCustomVendor(true);
+                         setVendor({ value: "", label: plan.vendor_name });
+                    } else {
+                         setIsCustomVendor(false);
+                         setVendor({ 
+                             value: plan.vendor, 
+                             label: plan.vendor_name || plan.vendor
+                         });
+                    }
+                }
             }
         }
     }, [isOpen, plan, isNewPO]);
+
+    // Update vendor label when options load if needed
+    useEffect(() => {
+        if (vendors && plan?.vendor && !isCustomVendor) {
+             const found = vendors.find((v: any) => v.name === plan.vendor);
+             if (found) {
+                 setVendor({ value: found.name, label: found.vendor_name });
+             }
+        }
+    }, [vendors, plan, isCustomVendor]);
 
     // All Items from the PO
     const allPOItems = useMemo(() => {
@@ -135,25 +189,7 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
             return;
         }
 
-        if (!plannedDate) {
-            toast({
-                title: "Invalid Date",
-                description: "Planned Date is required.",
-                variant: "destructive"
-            });
-            return;
-        }
-
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        if (plannedDate < today) {
-             toast({
-                title: "Invalid Date",
-                description: "Planned Date cannot be in the past.",
-                variant: "destructive"
-            });
-            return;
-        }
+       
 
         let finalItemsList = [];
 
@@ -188,11 +224,24 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                 }));
         }
 
+        if (isNewPO && !vendor) {
+            toast({
+                title: "Missing Vendor",
+                description: "Review your fields! Vendor selection is mandatory.",
+                variant: "destructive"
+            });
+            return;
+        }
+
         try {
             await updateDoc("Cashflow Plan", plan.name, {
                 planned_amount: parseFloat(plannedAmount),
+                planned_amount: parseFloat(plannedAmount),
                 estimated_price: isNewPO ? parseFloat(estimatedPrice) : undefined,
                 planned_date: format(plannedDate, "yyyy-MM-dd"),
+                lines: undefined, // ensure no collision if any
+                vendor: isCustomVendor ? "" : vendor?.value,
+                vendor_name: vendor?.label,
                 items: JSON.stringify({ list: finalItemsList })
             });
 
@@ -291,6 +340,75 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                                     </div>
                                 </div>
                             )}
+                            
+                            <div className="space-y-2">
+                                <Label className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                                    Vendor
+                                </Label>
+                                    {isCustomVendor ? (
+                                        <div className="space-y-2">
+                                            <Input
+                                                placeholder="Enter custom vendor name"
+                                                value={vendor?.label || ""}
+                                                onChange={(e) => setVendor({ value: "", label: e.target.value })}
+                                            />
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => {
+                                                    setIsCustomVendor(false);
+                                                    setVendor(null);
+                                                }}
+                                                className="text-xs text-gray-500 hover:text-gray-700 h-6 px-2"
+                                            >
+                                                ← Back to Vendor list
+                                            </Button>
+                                        </div>
+                                    ) : (
+                                        <ReactSelect
+                                            options={vendorOptions}
+                                            value={vendor}
+                                            onChange={(option: any) => {
+                                                if (option?.value === "__others__") {
+                                                    setIsCustomVendor(true);
+                                                    setVendor({ value: "", label: "" });
+                                                } else {
+                                                    setVendor(option);
+                                                }
+                                            }}
+                                            placeholder="Select Vendor"
+                                            isLoading={isLoadingVendors}
+                                            filterOption={(option: any, inputValue: any) => {
+                                                 if (option.data.value === "__others__") return true;
+                                                 return option.label.toLowerCase().includes(inputValue.toLowerCase());
+                                            }}
+                                            styles={{
+                                                 control: (base: any) => ({ ...base, minHeight: '36px', height: '36px', fontSize: '0.875rem' }),
+                                                 option: (base: any, state: any) => ({
+                                                     ...base,
+                                                     ...(state.data.value === "__others__" ? {
+                                                         backgroundColor: state.isFocused ? '#dbeafe' : '#eff6ff',
+                                                         color: '#2563eb',
+                                                         fontWeight: 600,
+                                                         borderTop: '1px solid #e5e7eb',
+                                                         position: 'sticky',
+                                                         bottom: 0,
+                                                     } : {})
+                                                 }),
+                                                 menuList: (base: any) => ({ ...base, paddingBottom: 0 })
+                                            }}
+                                            formatOptionLabel={(option: any) => (
+                                                 option.value === "__others__" ? (
+                                                     <span className="flex items-center gap-1">
+                                                         <span>+ Others</span>
+                                                         <span className="text-xs text-blue-400">(type custom)</span>
+                                                     </span>
+                                                 ) : option.label
+                                            )}
+                                        />
+                                    )}
+                                </div>
                         </div>
 
                         <div className="space-y-2">

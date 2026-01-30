@@ -57,6 +57,8 @@ interface POPlan {
     task?: string;
     vendor?: string;
     vendorName?: string;
+    total_amount?: number;
+    amount_paid?: number;
 }
 
 
@@ -99,6 +101,7 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
     const [manualItemsText, setManualItemsText] = useState<string>("");
     const [plannedDate, setPlannedDate] = useState<Date | undefined>(undefined);
     const [newPOVendor, setNewPOVendor] = useState<{value: string, label: string} | null>(null);
+    const [isCustomVendor, setIsCustomVendor] = useState(false);
     const [newPOAmount, setNewPOAmount] = useState<string>("");
     const [estimatedPrice, setEstimatedPrice] = useState<string>("");
     
@@ -153,10 +156,13 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
     const allProjectPOs = allPOsResult?.message?.pos || [];
     
     // Vendors
-    const vendorOptions = (vendors || []).map((v: any) => ({
-        label: v.vendor_name,
-        value: v.name
-    }));
+    const vendorOptions = [
+        ...(vendors || []).map((v: any) => ({
+            label: v.vendor_name,
+            value: v.name
+        })),
+        { label: "Others", value: "__others__" }
+    ];
 
     // ==========================================================================
     // EFFECTS
@@ -362,6 +368,8 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
                     poId: po.name,
                     poName: po.name,
                     items: po.items || [],
+                    total_amount:po.total_amount,
+                    amount_paid:po.amount_paid,
                     selectedItems: new Set(
                         (po.items || [])
                             .filter((i: any) => selectedItems[i.name])
@@ -442,6 +450,7 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
                     planned_amount: plan.plannedAmount || 0,
                     estimated_price: plan.estimatedPrice || 0,
                     vendor: plan.vendor,
+                    vendor_name: plan.vendorName,
                     type: "Existing PO",
                     items: JSON.stringify({ list: minimalItems })
                 });
@@ -552,7 +561,9 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
                 planned_date: plannedDate,
                 planned_amount: parseFloat(newPOAmount),
                 estimated_price: parseFloat(estimatedPrice),
-                vendor: newPOVendor.value,
+                estimated_price: parseFloat(estimatedPrice),
+                vendor: isCustomVendor ? "" : newPOVendor.value,
+                vendor_name: newPOVendor.label,
                 type: "New PO",
                 items: JSON.stringify({ list: finalManualItems })
             });
@@ -975,15 +986,71 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
                             
                             <div className="mb-4">
                                 <Label className="mb-2 block font-medium">Vendor <span className="text-red-500">*</span></Label>
-                                <ReactSelect
-                                    options={vendorOptions}
-                                    value={newPOVendor}
-                                    onChange={setNewPOVendor}
-                                    placeholder="Select Vendor..."
-                                    className="text-sm"
-                                    isClearable
-                                    isLoading={isLoadingVendors}
-                                />
+                                {isCustomVendor ? (
+                                    <div className="space-y-2">
+                                        <Input
+                                            placeholder="Enter custom vendor name"
+                                            value={newPOVendor?.label || ""}
+                                            onChange={(e) => setNewPOVendor({ value: "", label: e.target.value })}
+                                            className="h-9 text-sm"
+                                        />
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => {
+                                                setIsCustomVendor(false);
+                                                setNewPOVendor(null);
+                                            }}
+                                            className="text-xs text-gray-500 hover:text-gray-700 h-6 px-2"
+                                        >
+                                            ← Back to Vendor list
+                                        </Button>
+                                    </div>
+                                ) : (
+                                    <ReactSelect
+                                        options={vendorOptions}
+                                        value={newPOVendor}
+                                        onChange={(option) => {
+                                            if (option?.value === "__others__") {
+                                                setIsCustomVendor(true);
+                                                setNewPOVendor({ value: "", label: "" });
+                                            } else {
+                                                setNewPOVendor(option);
+                                            }
+                                        }}
+                                        placeholder="Select Vendor..."
+                                        className="text-sm"
+                                        isLoading={isLoadingVendors}
+                                        filterOption={(option, inputValue) => {
+                                             if (option.data.value === "__others__") return true;
+                                             return option.label.toLowerCase().includes(inputValue.toLowerCase());
+                                        }}
+                                        styles={{
+                                             control: (base) => ({ ...base, minHeight: '36px', height: '36px', fontSize: '0.875rem' }),
+                                             option: (base, state) => ({
+                                                 ...base,
+                                                 ...(state.data.value === "__others__" ? {
+                                                     backgroundColor: state.isFocused ? '#dbeafe' : '#eff6ff',
+                                                     color: '#2563eb',
+                                                     fontWeight: 600,
+                                                     borderTop: '1px solid #e5e7eb',
+                                                     position: 'sticky',
+                                                     bottom: 0,
+                                                 } : {})
+                                             }),
+                                             menuList: (base) => ({ ...base, paddingBottom: 0 })
+                                        }}
+                                        formatOptionLabel={(option: any) => (
+                                             option.value === "__others__" ? (
+                                                 <span className="flex items-center gap-1">
+                                                     <span>+ Others</span>
+                                                     <span className="text-xs text-blue-400">(type custom)</span>
+                                                 </span>
+                                             ) : option.label
+                                        )}
+                                    />
+                                )}
                             </div>
 
                             <div className="grid grid-cols-3 gap-4 mb-4">

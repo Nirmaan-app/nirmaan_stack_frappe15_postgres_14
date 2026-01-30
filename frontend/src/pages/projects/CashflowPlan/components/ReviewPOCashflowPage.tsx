@@ -35,6 +35,8 @@ interface POPlan {
     task?: string;
     vendor?: string;
     vendorName?: string;
+    total_amount?: number;
+    amount_paid?: number;
 }
 
 interface ReviewPOCashflowPageProps {
@@ -93,6 +95,10 @@ export const ReviewPOCashflowPage: React.FC<ReviewPOCashflowPageProps> = ({
             poName: newPO.name,
             items: newPO.items || [],
             selectedItems: new Set(), // Reset selection as items changed
+            vendor: newPO.vendor,
+            vendorName: newPO.vendor_name,
+            total_amount: newPO.total_amount,
+            amount_paid: newPO.amount_paid,
             isCritical: isCritical,
             category: assocTasks.length > 0 ? assocTasks[0].category : ((isLocal || isFallback) ? categoryName : undefined),
             task: assocTasks.length > 0 ? assocTasks[0].item_name : ((isLocal || isFallback) ? taskName : undefined)
@@ -522,6 +528,24 @@ export const ReviewPOCashflowPage: React.FC<ReviewPOCashflowPageProps> = ({
                                             value={plan.plannedAmount || ""}
                                             onChange={(e) => updatePlannedAmount(planIndex, e.target.value)}
                                         />
+                                         {(() => {
+                                             const po = availablePOs.find(p => p.name === plan.poId);
+                                             if (po) {
+                                                const total = po.total_amount || 0;
+                                                const paid = po.amount_paid || 0;
+                                                const due = total - paid;
+                                                return (
+                                                    <div className="text-xs text-gray-500 mt-1 pl-1">
+                                                        <span>PO Total: ₹{total.toLocaleString()}</span>
+                                                        <span className="mx-1.5">•</span>
+                                                        <span>PO Paid: ₹{paid.toLocaleString()}</span>
+                                                        <span className="mx-1.5">•</span>
+                                                        <span className="font-medium text-gray-700">PO Due: ₹{due.toLocaleString()}</span>
+                                                    </div>
+                                                );
+                                             }
+                                             return null;
+                                         })()}
                                     </div>
                                 </div>
                             </div>

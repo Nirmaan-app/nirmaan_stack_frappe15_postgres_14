@@ -362,6 +362,8 @@ def get_all_project_pos(project):
                 "name": doc.name,
                 "vendor":doc.vendor,
                 "vendor_name": doc.vendor_name,
+                "total_amount": doc.total_amount or 0,
+                "amount_paid": doc.amount_paid or 0,
                 "items_count": len(doc.items) if doc.items else 0,
                 "creation": str(doc.creation),
                 "status": doc.status,

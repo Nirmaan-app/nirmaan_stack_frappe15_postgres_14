@@ -72,26 +72,8 @@ export const AddEditInflowCashflowForm = ({ isOpen, projectId, initialData, onCl
             return;
         }
 
-        if (!plannedDate) {
-             toast({
-                title: "Missing Planned Date",
-                description: "Review your fields! Planned Date is mandatory.",
-                variant: "destructive"
-            });
-            return;
-        }
-
         const today = new Date().toISOString().split('T')[0];
-        const plannedDateStr = format(plannedDate, "yyyy-MM-dd");
-        
-        if (plannedDateStr < today) {
-            toast({
-                title: "Invalid Date",
-                description: "Planned Date cannot be in the past.",
-                variant: "destructive"
-            });
-            return;
-        }
+        const plannedDateStr = plannedDate ? format(plannedDate, "yyyy-MM-dd") : undefined;
 
         try {
             if (initialData) {

@@ -14,6 +14,7 @@
   "planned_amount",
   "type",
   "items",
+  "vendor_name",
   "for_new_powo_section",
   "estimated_price",
   "for_pos_section",
@@ -104,12 +105,17 @@
    "fieldname": "items",
    "fieldtype": "JSON",
    "label": "Items"
+  },
+  {
+   "fieldname": "vendor_name",
+   "fieldtype": "Data",
+   "label": "Vendor Name"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-29 19:52:41.503168",
+ "modified": "2026-01-30 13:24:34.990097",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Cashflow Plan",
