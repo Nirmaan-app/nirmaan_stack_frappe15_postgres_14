@@ -8,7 +8,20 @@ import { parseNumber } from '@/utils/parseNumber';
 import {
     queryKeys,
     getPOReportListOptions,
+    getUsersListOptions,
 } from '@/config/queryKeys';
+
+interface NirmaanUserPermissionDoc extends FrappeDoc<any> {
+    user: string;
+    allow: string;
+    for_value: string;
+}
+
+interface NirmaanUserDoc extends FrappeDoc<any> {
+    name: string;
+    full_name: string;
+    role_profile: string;
+}
 
 export interface POReportRowData {
     name: string;
@@ -23,6 +36,7 @@ export interface POReportRowData {
     amountPaid: number;
     dispatch_date?: string;
     originalDoc: ProcurementOrder;
+    assignees?: { email: string; name: string; role: string }[];
 }
 
 interface UsePOReportsDataResult {
@@ -101,6 +115,30 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
         allVendorsQueryKey
     );
 
+    // --- Fetch Users and Permissions for Assignees ---
+    const usersOptions = getUsersListOptions(); // limit 1000
+    // Fetch Users
+    const { data: usersList, isLoading: usersLoading, error: usersError } = useFrappeGetDocList<NirmaanUserDoc>(
+        "Nirmaan Users",
+        {
+            fields: usersOptions.fields,
+            limit: usersOptions.limit
+        } as GetDocListArgs<FrappeDoc<NirmaanUserDoc>>,
+        queryKeys.users.list(usersOptions)
+    );
+
+    // Fetch Permissions (All relevant ones)
+    // We fetch all permissions where allow="Projects" to avoid large URL issues with filtering by many projects
+    const { data: permissions, isLoading: permissionsLoading, error: permissionsError } = useFrappeGetDocList<NirmaanUserPermissionDoc>(
+        "Nirmaan User Permissions",
+        {
+            fields: ["user", "allow", "for_value"],
+            filters: [["allow", "=", "Projects"]],
+            limit: 0
+        },
+        "nirmaan_project_permissions_all"
+    );
+
     // --- Create Lookup Maps (Memoized) ---
     const projectMap = useMemo(() => {
         return projects?.reduce((acc, p) => {
@@ -139,16 +177,55 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
             return [];
         }
 
+        const allowedRoles = ["Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"];
+
+        // Create User Lookup Map
+        const userLookup = usersList?.reduce((acc, user) => {
+            if (user.name) {
+                acc[user.name] = {
+                    full_name: user.full_name,
+                    role_profile: user.role_profile
+                };
+            }
+            return acc;
+        }, {} as Record<string, { full_name: string; role_profile: string }>) ?? {};
+
+        // Create Project Assignments Map (Project Name -> Assignees[])
+        const assignmentsLookup = permissions?.reduce((acc, perm) => {
+            const project = perm.for_value;
+            const userEmail = perm.user;
+            const userInfo = userLookup[userEmail];
+
+            if (userInfo && allowedRoles.includes(userInfo.role_profile)) {
+                if (!acc[project]) acc[project] = [];
+                // Avoid duplicates
+                if (!acc[project].some(a => a.email === userEmail)) {
+                    acc[project].push({
+                        email: userEmail,
+                        name: userInfo.full_name,
+                        role: userInfo.role_profile
+                    });
+                }
+            }
+            return acc;
+        }, {} as Record<string, { email: string; name: string; role: string }[]>) ?? {};
+
         const combinedData: POReportRowData[] = [];
 
         // Process Purchase Orders
         (purchaseOrders || []).forEach(po => {
             if (po) {
+                const projectName = projectMap[po.project] || po.project_name || po.project;
+                // Use project name (ID) for lookup as permissions use that usually, 
+                // but need to verify if 'for_value' is ID or Name. Usually ID.
+                // In ProjectOverviewTab: for_value: projectData?.name (which is ID: "PROJ-...")
+                const assignees = assignmentsLookup[po.project] || [];
+
                 combinedData.push({
                     name: po.name,
                     creation: po.creation,
                     project: po.project,
-                    projectName: projectMap[po.project] || po.project_name || po.project,
+                    projectName: projectName,
                     vendor: po.vendor,
                     vendorName: vendorMap[po.vendor] || po.vendor_name || po.vendor,
                     totalAmount: parseNumber(po.total_amount),
@@ -156,6 +233,7 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
                     amountPaid: parseNumber(po.amount_paid),
                     dispatch_date: po.dispatch_date || undefined,
                     originalDoc: po,
+                    assignees: assignees, // Add assignees
                 });
             }
         });
@@ -170,14 +248,14 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
         return combinedData;
 
     }, [
-        purchaseOrders, projects, vendors, vendorInvoices,
-        poLoading, projectsLoading, vendorsLoading, invoicesLoading,
+        purchaseOrders, projects, vendors, vendorInvoices, usersList, permissions,
+        poLoading, projectsLoading, vendorsLoading, invoicesLoading, usersLoading, permissionsLoading,
         projectMap, vendorMap, invoiceTotalsMap,
     ]);
 
     // --- Consolidated Loading and Error State ---
-    const isLoading = poLoading || projectsLoading || vendorsLoading || invoicesLoading;
-    const error = poError || projectsError || vendorsError || invoicesError;
+    const isLoading = poLoading || projectsLoading || vendorsLoading || invoicesLoading || usersLoading || permissionsLoading;
+    const error = poError || projectsError || vendorsError || invoicesError || usersError || permissionsError;
 
     return {
         reportData,

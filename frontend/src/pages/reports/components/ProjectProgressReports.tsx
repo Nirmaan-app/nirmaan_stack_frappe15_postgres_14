@@ -435,6 +435,11 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button"; 
+import {
+    HoverCard,
+    HoverCardContent,
+    HoverCardTrigger,
+} from "@/components/ui/hover-card"; 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { facetedFilterFn } from "@/utils/tableFilters";
 
@@ -767,43 +772,65 @@ console.log("mergedData",mergedData);
                         return <span className="text-gray-400 text-center block">--</span>;
                     }
 
+                    // Group by Role
+                    const grouped = leads.reduce((acc, user) => {
+                        const roleName = user.role_profile?.replace(/Nirmaan\s|\sProfile/g, "") || "Others";
+                        if (!acc[roleName]) acc[roleName] = [];
+                        acc[roleName].push(user);
+                        return acc;
+                    }, {} as Record<string, typeof leads>);
+
                     return (
                         <div className="flex justify-center w-full">
-                            <TooltipProvider>
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        {/* Single icon to represent all leads */}
-                                        <div className="cursor-pointer">
-                                            <Users className="w-5 h-5 text-gray-700 hover:text-blue-600" />
-                                        </div>
-                                    </TooltipTrigger>
-                                    <TooltipContent className="p-3">
-    <div className="space-y-3">
-        <p className="font-bold text-center border-b pb-1">
-            Responsible Users
-        </p>
-
-        {leads.map((lead) => (
-            <div 
-                key={`${lead.role}-${lead.name}`} 
-                className="flex flex-col"
-            >
-                {/* Role Profile */}
-                {/* <span className="text-xs font-semibold text-white-500 uppercase tracking-wide">
-                    {lead.role_profile || "No Role"}
-                </span> */}
-
-                {/* User Name */}
-                <span className="text-sm font-medium text-gray-900 pl-1">
-                    {lead.name} <span>{(lead.role_profile) ? `(${lead.role_profile.replace('Nirmaan ', '').replace(' Profile', '')})` : ''  }</span>
-                </span>
-            </div>
-        ))}
-    </div>
-</TooltipContent>
-
-                                </Tooltip>
-                            </TooltipProvider>
+                            <HoverCard openDelay={200} closeDelay={100}>
+                                <HoverCardTrigger asChild>
+                                    <div className="cursor-pointer p-1.5 hover:bg-gray-100 rounded-full transition-colors group">
+                                        <Users className="w-5 h-5 text-gray-500 group-hover:text-blue-600" />
+                                    </div>
+                                </HoverCardTrigger>
+                                <HoverCardContent className="w-72 p-0 shadow-lg" side="left" align="start">
+                                    <div className="p-3 border-b bg-gray-50/50 flex justify-between items-center">
+                                        <h4 className="font-semibold text-sm text-gray-900">Responsible Team</h4>
+                                        <Badge variant="outline" className="bg-white text-xs font-normal">
+                                            {leads.length} Members
+                                        </Badge>
+                                    </div>
+                                    <div className="max-h-[300px] overflow-y-auto p-2 space-y-3 custom-scrollbar">
+                                        {Object.entries(grouped).map(([role, users]) => (
+                                            <div key={role} className="space-y-1">
+                                                <div className="flex items-center gap-1 px-2">
+                                                    <h5 className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+                                                        {role}
+                                                    </h5>
+                                                    <div className="h-px bg-gray-100 flex-1 ml-2" />
+                                                </div>
+                                                <div className="space-y-1">
+                                                    {users.map((user, idx) => (
+                                                        <div 
+                                                            key={`${user.name}-${idx}`} 
+                                                            className="flex items-center gap-3 p-2 rounded hover:bg-gray-50 transition-colors"
+                                                        >
+                                                            <div className="h-6 w-6 rounded-full bg-blue-50 flex items-center justify-center shrink-0 border border-blue-100">
+                                                                <span className="text-[10px] font-bold text-blue-600">
+                                                                    {user.name.charAt(0).toUpperCase()}
+                                                                </span>
+                                                            </div>
+                                                            <div className="flex flex-col">
+                                                                <span className="text-sm font-medium text-gray-900 leading-none">
+                                                                    {user.name}
+                                                                </span>
+                                                                {/* <span className="text-[10px] text-gray-500 mt-0.5">
+                                                                    {user.email || 'Nirmaan User'}
+                                                                </span> */}
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </HoverCardContent>
+                            </HoverCard>
                         </div>
                     );
                 },
