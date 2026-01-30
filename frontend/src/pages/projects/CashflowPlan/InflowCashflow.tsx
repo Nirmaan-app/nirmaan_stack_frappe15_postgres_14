@@ -4,7 +4,7 @@ import { useFrappeGetDocList, useFrappeDeleteDoc } from "frappe-react-sdk";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
-import { Trash2, Edit2 } from "lucide-react";
+import { Trash2, Edit2, CirclePlus } from "lucide-react";
 import { AddEditInflowCashflowForm } from "./components/AddEditInflowCashflowForm";
 
 import { safeFormatDate } from "@/lib/utils";
@@ -80,7 +80,8 @@ const InflowCashflowContent = ({ projectId, dateRange, isOverview = false }: { p
                                 }} 
                                 className="w-full md:w-auto bg-red-600 hover:bg-red-700 text-white"
                             >
-                                Add Inflow Plan
+                                <CirclePlus className="w-4 h-4 mr-2" />
+                                Add Plan
                             </Button>
                         </div>
                     )}
@@ -107,7 +108,10 @@ const InflowCashflowContent = ({ projectId, dateRange, isOverview = false }: { p
                     {!isLoading && plans?.length === 0 && !showAddForm && (
                          <div className="text-center py-12 bg-gray-50/50 rounded-lg border border-dashed">
                             <p className="text-gray-500 mb-4">No Inflow plans found.</p>
-                            <Button onClick={() => setShowAddForm(true)}>Create Your First Plan</Button>
+                            <Button onClick={() => setShowAddForm(true)} className="bg-red-600 hover:bg-red-700 text-white">
+                                <CirclePlus className="w-4 h-4 mr-2" />
+                                Create Your First Plan
+                            </Button>
                          </div>
                     )}
 

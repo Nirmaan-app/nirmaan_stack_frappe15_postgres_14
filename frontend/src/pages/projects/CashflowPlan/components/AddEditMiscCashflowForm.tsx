@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { CalendarIcon } from "lucide-react";
+import { CalendarIcon, CheckCircle } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
@@ -148,9 +148,9 @@ export const AddEditMiscCashflowForm = ({ isOpen, projectId, initialData, onClos
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
-                            <Label className="text-sm font-medium text-gray-700">Planned Amount</Label>
+                            <Label className="text-sm font-medium text-gray-700">Planned Amount <span className="text-red-500">*</span></Label>
                             <div className="relative">
-                                <span className="absolute left-3 top-2.5 text-gray-500">₹</span>
+                                <span className="absolute left-3 top-2 text-gray-500">₹</span>
                                 <Input
                                     type="number"
                                     className="pl-7"
@@ -181,7 +181,8 @@ export const AddEditMiscCashflowForm = ({ isOpen, projectId, initialData, onClos
                         disabled={isSubmitting}
                         className="bg-red-600 hover:bg-red-700 text-white"
                     >
-                        {isSubmitting ? "Saving..." : initialData ? "Save Changes" : "Confirm Selection"}
+                        <CheckCircle className="w-4 h-4 mr-2" />
+                        {isSubmitting ? "Saving..." : initialData ? "Save Changes" : "Create Plan"}
                     </Button>
                 </div>
             </DialogContent>
