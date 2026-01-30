@@ -29,6 +29,8 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { ColumnDef } from "@tanstack/react-table";
 import { FileText, Truck, ClipboardCheck, Package, Receipt, IndianRupee, AlertTriangle } from "lucide-react";
+import { useProjectAssignees } from "@/hooks/useProjectAssignees";
+import { getAssigneesColumn } from "@/components/common/assigneesTableColumns";
 
 interface SelectOption {
     label: string;
@@ -43,8 +45,21 @@ export default function POAttachmentReconcileReport() {
         error: initialDataError,
     } = usePOAttachmentReconcileData();
 
+    // Fetch Assignees
+    const { assignmentsLookup, isLoading: isAssigneesLoading } = useProjectAssignees();
+
     // Use the column definitions
-    const tableColumnsToDisplay = useMemo(() => poAttachmentReconcileColumns, []);
+    const tableColumnsToDisplay = useMemo(() => {
+        const columns = [...poAttachmentReconcileColumns];
+        // Find index of Project column to insert after
+        const projectIndex = columns.findIndex(c => (c as any).id === "projectName" || (c as any).accessorKey === "projectName");
+        const insertIndex = projectIndex !== -1 ? projectIndex + 1 : 2; // Default to index 2
+
+        columns.splice(insertIndex, 0, getAssigneesColumn<POAttachmentReconcileRowData>("projectId", assignmentsLookup));
+        
+        console.log("POAttachmentReconcileReport Columns:", columns.map(c => c.id || (c as any).accessorKey));
+        return columns;
+    }, [assignmentsLookup]);
 
     // Initialize useServerDataTable in clientData mode
     const {
@@ -251,7 +266,8 @@ export default function POAttachmentReconcileReport() {
         isLoadingInitialData ||
         projectsUiLoading ||
         vendorsUiLoading ||
-        isTableHookLoading;
+        isTableHookLoading ||
+        isAssigneesLoading;
 
     const overallError =
         initialDataError || projectsUiError || vendorsUiError || tableHookError;

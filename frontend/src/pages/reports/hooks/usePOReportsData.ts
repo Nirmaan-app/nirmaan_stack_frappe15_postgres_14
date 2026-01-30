@@ -8,35 +8,19 @@ import { parseNumber } from '@/utils/parseNumber';
 import {
     queryKeys,
     getPOReportListOptions,
-    getUsersListOptions,
 } from '@/config/queryKeys';
+import { useProjectAssignees } from '@/hooks/useProjectAssignees';
+import { format } from "date-fns"; // Added by user's edit, though not used in the final provided code.
 
-interface NirmaanUserPermissionDoc extends FrappeDoc<any> {
-    user: string;
-    allow: string;
-    for_value: string;
-}
+// Assuming NirmaanPurchaseOrder is ProcurementOrder based on context
+type NirmaanPurchaseOrder = ProcurementOrder;
 
-interface NirmaanUserDoc extends FrappeDoc<any> {
-    name: string;
-    full_name: string;
-    role_profile: string;
-}
-
-export interface POReportRowData {
-    name: string;
-    creation: string;
-    total_amount?: number;
-    project: string;
-    projectName?: string;
-    vendor: string;
-    vendorName?: string;
-    totalAmount: number;
-    invoiceAmount: number;
-    amountPaid: number;
-    dispatch_date?: string;
-    originalDoc: ProcurementOrder;
-    assignees?: { email: string; name: string; role: string }[];
+export interface POReportRowData extends NirmaanPurchaseOrder {
+  invoiceAmount: number;
+  amountPaid: number;
+  totalAmounts: number; // This seems to be a new field, or a rename of total_amount
+  originalDoc: NirmaanPurchaseOrder; // Keep reference to original if needed
+  projectId: string; // Add projectId for easier lookup
 }
 
 interface UsePOReportsDataResult {
@@ -44,6 +28,7 @@ interface UsePOReportsDataResult {
     isLoading: boolean;
     error: Error | null;
     mutatePOs: () => Promise<any>;
+    assignmentsLookup: ReturnType<typeof useProjectAssignees>['assignmentsLookup']; // Added assignmentsLookup to result type
 }
 
 // Simpler options for fetching all minimal project/vendor data for lookups
@@ -116,28 +101,7 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
     );
 
     // --- Fetch Users and Permissions for Assignees ---
-    const usersOptions = getUsersListOptions(); // limit 1000
-    // Fetch Users
-    const { data: usersList, isLoading: usersLoading, error: usersError } = useFrappeGetDocList<NirmaanUserDoc>(
-        "Nirmaan Users",
-        {
-            fields: usersOptions.fields,
-            limit: usersOptions.limit
-        } as GetDocListArgs<FrappeDoc<NirmaanUserDoc>>,
-        queryKeys.users.list(usersOptions)
-    );
-
-    // Fetch Permissions (All relevant ones)
-    // We fetch all permissions where allow="Projects" to avoid large URL issues with filtering by many projects
-    const { data: permissions, isLoading: permissionsLoading, error: permissionsError } = useFrappeGetDocList<NirmaanUserPermissionDoc>(
-        "Nirmaan User Permissions",
-        {
-            fields: ["user", "allow", "for_value"],
-            filters: [["allow", "=", "Projects"]],
-            limit: 0
-        },
-        "nirmaan_project_permissions_all"
-    );
+    const { assignmentsLookup, isLoading: assigneesLoading, error: assigneesError } = useProjectAssignees();
 
     // --- Create Lookup Maps (Memoized) ---
     const projectMap = useMemo(() => {
@@ -173,42 +137,7 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
             return null;
         }
 
-        if (!purchaseOrders) {
-            return [];
-        }
 
-        const allowedRoles = ["Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"];
-
-        // Create User Lookup Map
-        const userLookup = usersList?.reduce((acc, user) => {
-            if (user.name) {
-                acc[user.name] = {
-                    full_name: user.full_name,
-                    role_profile: user.role_profile
-                };
-            }
-            return acc;
-        }, {} as Record<string, { full_name: string; role_profile: string }>) ?? {};
-
-        // Create Project Assignments Map (Project Name -> Assignees[])
-        const assignmentsLookup = permissions?.reduce((acc, perm) => {
-            const project = perm.for_value;
-            const userEmail = perm.user;
-            const userInfo = userLookup[userEmail];
-
-            if (userInfo && allowedRoles.includes(userInfo.role_profile)) {
-                if (!acc[project]) acc[project] = [];
-                // Avoid duplicates
-                if (!acc[project].some(a => a.email === userEmail)) {
-                    acc[project].push({
-                        email: userEmail,
-                        name: userInfo.full_name,
-                        role: userInfo.role_profile
-                    });
-                }
-            }
-            return acc;
-        }, {} as Record<string, { email: string; name: string; role: string }[]>) ?? {};
 
         const combinedData: POReportRowData[] = [];
 
@@ -219,7 +148,9 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
                 // Use project name (ID) for lookup as permissions use that usually, 
                 // but need to verify if 'for_value' is ID or Name. Usually ID.
                 // In ProjectOverviewTab: for_value: projectData?.name (which is ID: "PROJ-...")
-                const assignees = assignmentsLookup[po.project] || [];
+                // Use project name (ID) for lookup as permissions use that usually, 
+                // but need to verify if 'for_value' is ID or Name. Usually ID.
+                // In ProjectOverviewTab: for_value: projectData?.name (which is ID: "PROJ-...")
 
                 combinedData.push({
                     name: po.name,
@@ -233,7 +164,7 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
                     amountPaid: parseNumber(po.amount_paid),
                     dispatch_date: po.dispatch_date || undefined,
                     originalDoc: po,
-                    assignees: assignees, // Add assignees
+                    assignees: [], // Deprecated in favor of assignmentsLookup passed to column
                 });
             }
         });
@@ -248,19 +179,20 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
         return combinedData;
 
     }, [
-        purchaseOrders, projects, vendors, vendorInvoices, usersList, permissions,
-        poLoading, projectsLoading, vendorsLoading, invoicesLoading, usersLoading, permissionsLoading,
+        purchaseOrders, projects, vendors, vendorInvoices, 
+        poLoading, projectsLoading, vendorsLoading, invoicesLoading, 
         projectMap, vendorMap, invoiceTotalsMap,
     ]);
 
     // --- Consolidated Loading and Error State ---
-    const isLoading = poLoading || projectsLoading || vendorsLoading || invoicesLoading || usersLoading || permissionsLoading;
-    const error = poError || projectsError || vendorsError || invoicesError || usersError || permissionsError;
+    const isLoading = poLoading || projectsLoading || vendorsLoading || invoicesLoading || assigneesLoading;
+    const error = poError || projectsError || vendorsError || invoicesError || assigneesError;
 
     return {
         reportData,
         isLoading,
         error: error instanceof Error ? error : null,
         mutatePOs,
+        assignmentsLookup, // Export for columns
     };
 };
