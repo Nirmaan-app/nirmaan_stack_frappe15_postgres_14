@@ -135,7 +135,6 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
                 if (project?.project_gst_number) {
                     try {
                         let gstData = project.project_gst_number;
-                        console.log("gstData", gstData);
                         // Check if it's a string (e.g., if field type is Data/Text and stores JSON string)
                         if (typeof gstData === 'string') {
                             gstData = JSON.parse(gstData);
@@ -143,14 +142,12 @@ const NewSRPage = ({ project, category }: NewSRPageProps) => {
 
                         // Drill down to the actual list under the "list" key
                         const gstList = gstData?.list;
-                        console.log("gstList", gstList);
 
                         // Apply the business logic: update ONLY if the list has exactly one entry
                         if (Array.isArray(gstList) && gstList.length === 1) {
                             // Assuming the item structure is { location: "...", gst: "..." }
                             projectGstToSet = gstList[0]?.gst;
                         }
-console.log("projectGstToSet", projectGstToSet);
 
                     } catch (e) {
                         console.error("Failed to parse project_gst_number:", e);

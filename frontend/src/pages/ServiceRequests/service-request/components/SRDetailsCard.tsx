@@ -31,6 +31,8 @@ interface SRDetailsCardProps {
   // Delete button disabled state
   deleteDisabled?: boolean;
   isDeleting?: boolean;
+  // GST validation
+  missingGst?: boolean;
   // Finalization props
   isFinalized?: boolean;
   finalizedBy?: string | null;
@@ -70,6 +72,8 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
   accountsPage = false,
   deleteDisabled = false,
   isDeleting = false,
+  // GST validation
+  missingGst = false,
   // Finalization props
   isFinalized = false,
   finalizedBy,
@@ -269,9 +273,10 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
               <Button
                 variant="outline"
                 size="sm"
-                disabled={isProcessingFinalize}
+                disabled={isProcessingFinalize || missingGst}
                 onClick={onFinalize}
-                className="flex items-center gap-1 border-blue-600 text-blue-600 hover:bg-blue-50 shrink-0"
+                title={missingGst ? "Please select Nirmaan GST for Billing before finalizing" : undefined}
+                className={`flex items-center gap-1 border-blue-600 text-blue-600 hover:bg-blue-50 shrink-0 ${missingGst ? "opacity-50 cursor-not-allowed" : ""}`}
               >
                 <Lock className="h-3.5 w-3.5" />
                 Finalize

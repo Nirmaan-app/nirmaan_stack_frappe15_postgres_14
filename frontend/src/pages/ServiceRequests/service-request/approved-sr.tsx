@@ -505,6 +505,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 onFinalize={() => setFinalizeDialog(true)}
                 onRevertFinalize={() => setRevertFinalizeDialog(true)}
                 isProcessingFinalize={isFinalizingLoading || isRevertingLoading}
+                missingGst={!orderData?.project_gst}
             />
 
             {/* Delete Confirmation Dialog */}
