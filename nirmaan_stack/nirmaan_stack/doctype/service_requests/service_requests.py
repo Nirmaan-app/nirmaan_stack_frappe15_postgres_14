@@ -38,7 +38,7 @@ class ServiceRequests(Document):
 		# if self.service_order_list is not None:
 		try:
             # The field stores a JSON string, so we must parse it into a Python object.
-			order_data = self.service_order_list
+			order_data = json.loads(self.service_order_list) if isinstance(self.service_order_list, str) else (self.service_order_list or {})
 			# print(f"DEBUGGPS1: Service Request {self.name} - Parsed service_order_list: {order_data}")
             
             # The actual items are inside the "list" key based on your example.
