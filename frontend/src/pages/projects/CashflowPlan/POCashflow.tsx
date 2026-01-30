@@ -2,7 +2,17 @@ import { useState, useMemo } from "react";
 import { useFrappeGetDocList, useFrappeDeleteDoc } from "frappe-react-sdk";
 import { format } from "date-fns";
 import { safeFormatDate } from "@/lib/utils";
-import { Trash2, ChevronDown, Receipt, Package, Edit2 ,CirclePlus} from "lucide-react"; // Using Receipt icon instead of Package
+import { Trash2, ChevronDown, Edit2 ,CirclePlus} from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -73,6 +83,7 @@ const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashf
     const [expandedPlans, setExpandedPlans] = useState<string[]>([]);
     const [showMaterialDialog, setShowMaterialDialog] = useState(false);
     const [editingPlan, setEditingPlan] = useState<any>(null); // State for editing
+    const [deleteId, setDeleteId] = useState<string | null>(null);
 
     const addPlanForm = () => {
         setPlanForms(prev => [...prev, Date.now()]);
@@ -88,11 +99,12 @@ const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashf
 
     const { deleteDoc } = useFrappeDeleteDoc();
 
-    const handleDelete = async (name: string) => {
-        if (!confirm("Are you sure you want to delete this plan?")) return;
+    const confirmDelete = async () => {
+        if (!deleteId) return;
         try {
-            await deleteDoc("Cashflow Plan", name);
+            await deleteDoc("Cashflow Plan", deleteId);
             refreshPlans();
+            setDeleteId(null);
         } catch (e) {
             console.error(e);
         }
@@ -279,7 +291,7 @@ const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashf
                                                 <Edit2 className="w-4 h-4" />
                                             </button>
                                             <button 
-                                                onClick={() => handleDelete(plan.name)} 
+                                                onClick={() => setDeleteId(plan.name)} 
                                                 className="p-1.5 text-gray-400 hover:text-red-600 transition-colors hover:bg-red-50 rounded-md"
                                                 title="Delete Plan"
                                             >
@@ -340,6 +352,22 @@ const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashf
                     setEditingPlan(null);
                 }}
             />
+            <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This delete can't be undone anywhere. Are you sure you want to delete it?
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={confirmDelete} className="bg-red-600 hover:bg-red-700 text-white">
+                            Confirm
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 };

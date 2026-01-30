@@ -5,6 +5,16 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { ChevronDown, Trash2, Edit2, ChevronRight, CirclePlus } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { AddWOCashflowForm } from "./components/AddWOCashflowForm";
 import { EditWOCashflowForm } from "./components/EditWOCashflowForm";
 import { safeFormatDate } from "@/lib/utils";
@@ -21,6 +31,7 @@ const WOCashflowContent = ({ projectId, dateRange, isOverview = false }: { proje
     const [showAddForm, setShowAddForm] = useState(false);
     const [expandedPlans, setExpandedPlans] = useState<string[]>([]);
     const [editingPlan, setEditingPlan] = useState<any>(null);
+    const [deleteId, setDeleteId] = useState<string | null>(null);
     const { deleteDoc } = useFrappeDeleteDoc();
 
     const docListFilters = useMemo(() => {
@@ -55,11 +66,12 @@ const WOCashflowContent = ({ projectId, dateRange, isOverview = false }: { proje
         setExpandedPlans(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]);
     };
 
-    const handleDelete = async (name: string) => {
-        if (!confirm("Are you sure you want to delete this plan?")) return;
+    const confirmDelete = async () => {
+        if (!deleteId) return;
         try {
-            await deleteDoc("Cashflow Plan", name);
+            await deleteDoc("Cashflow Plan", deleteId);
             refreshPlans();
+            setDeleteId(null);
         } catch (e) {
             console.error(e);
         }
@@ -238,7 +250,7 @@ const WOCashflowContent = ({ projectId, dateRange, isOverview = false }: { proje
                                              <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-blue-600" onClick={() => setEditingPlan(plan)}>
                                                  <Edit2 className="w-4 h-4" />
                                              </Button>
-                                             <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-600" onClick={() => handleDelete(plan.name)}>
+                                             <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-600" onClick={() => setDeleteId(plan.name)}>
                                                  <Trash2 className="w-4 h-4" />
                                              </Button>
                                         </div>
@@ -321,6 +333,22 @@ const WOCashflowContent = ({ projectId, dateRange, isOverview = false }: { proje
                     setEditingPlan(null);
                 }}
             />
+            <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This delete can't be undone anywhere. Are you sure you want to delete it?
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={confirmDelete} className="bg-red-600 hover:bg-red-700 text-white">
+                            Confirm
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 };
