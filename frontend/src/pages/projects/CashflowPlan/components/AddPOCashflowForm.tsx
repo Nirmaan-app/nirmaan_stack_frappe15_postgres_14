@@ -1,4 +1,4 @@
-import { X, RefreshCw,Package,ExternalLink } from "lucide-react";
+import { X, RefreshCw,Package,ExternalLink, CheckCircle } from "lucide-react";
 import ReactSelect from 'react-select';
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -988,9 +988,9 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
 
                             <div className="grid grid-cols-3 gap-4 mb-4">
                                 <div className="space-y-2">
-                                     <Label>Estimated Amount <span className="text-red-500">*</span></Label>
+                                     <Label>Estimated PO Amount <span className="text-red-500">*</span></Label>
                                      <div className="relative">
-                                         <span className="absolute left-3 top-2.5 text-gray-500">₹</span>
+                                         <span className="absolute left-3 top-2 text-gray-500">₹</span>
                                          <Input 
                                             type="number" 
                                             className="pl-7" 
@@ -1003,7 +1003,7 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
                                 <div className="space-y-2">
                                      <Label>Planned Amount <span className="text-red-500">*</span></Label>
                                      <div className="relative">
-                                         <span className="absolute left-3 top-2.5 text-gray-500">₹</span>
+                                         <span className="absolute left-3 top-2 text-gray-500">₹</span>
                                          <Input 
                                             type="number" 
                                             className="pl-7" 
@@ -1025,7 +1025,8 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
                             
                             <div className="flex justify-end gap-2">
                                 <Button variant="outline" onClick={onClose}>Cancel</Button>
-                                <Button onClick={handleSubmitNewPO} disabled={isCreating}>
+                                <Button onClick={handleSubmitNewPO} disabled={isCreating} className="bg-red-600 hover:bg-red-700 text-white">
+                                    <CheckCircle className="w-4 h-4 mr-2" />
                                     {isCreating ? "Creating..." : "Create Plan"}
                                 </Button>
                             </div>

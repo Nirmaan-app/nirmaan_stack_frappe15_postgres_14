@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { X, Package, CheckCircle2, Pencil } from "lucide-react";
+import { X, Package, CheckCircle2, Pencil,CheckCircle } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 
@@ -542,7 +542,9 @@ export const ReviewPOCashflowPage: React.FC<ReviewPOCashflowPageProps> = ({
                     <Button
                         onClick={onSubmit}
                         disabled={!isValid || isSubmitting}
-                    >
+                        className="bg-red-600 hover:bg-red-700 text-white">
+                                                            <CheckCircle className="w-4 h-4 mr-2" />
+                    
                         {isSubmitting
                             ? "Submitting..."
                             : `Confirm All Plans (${plans.length})`}

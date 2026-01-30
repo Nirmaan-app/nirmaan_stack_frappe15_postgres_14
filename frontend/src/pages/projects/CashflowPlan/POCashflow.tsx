@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { useFrappeGetDocList, useFrappeDeleteDoc } from "frappe-react-sdk";
 import { format } from "date-fns";
 import { safeFormatDate } from "@/lib/utils";
-import { Trash2, ChevronDown, Receipt, Package, Edit2 } from "lucide-react"; // Using Receipt icon instead of Package
+import { Trash2, ChevronDown, Receipt, Package, Edit2 ,CirclePlus} from "lucide-react"; // Using Receipt icon instead of Package
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -112,14 +112,17 @@ const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashf
                     </div>
                     <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
                         <Button onClick={() => setShowMaterialDialog(true)} variant="outline" className="w-full md:w-auto bg-gray-50 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700">
-                            From Material Plan
+                             <CirclePlus className="w-4 h-4 mr-2" />
+                            Get From Material Plan
                         </Button>
                      {planForms.length === 0 ? (
                         <Button onClick={addPlanForm} className="w-full md:w-auto bg-red-600 hover:bg-red-700 text-white">
-                            Add PO Plan
+                             <CirclePlus className="w-4 h-4 mr-2" />
+                            Add Plan
                         </Button>
                      ) : (
                         <Button onClick={addPlanForm} variant="outline" className="w-full md:w-auto bg-gray-50">
+                             <CirclePlus className="w-4 h-4 mr-2" />
                             Add Another Plan
                         </Button>
                      )}
@@ -215,7 +218,7 @@ const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashf
                                         {/* Estimated Amount (New PO Only) */}
                                         {plan.type === "New PO" && (
                                             <div className="flex flex-col gap-0.5">
-                                                <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Estimated Amount</span>
+                                                <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Estimated PO Amount</span>
                                                 <span className="font-semibold text-gray-900 text-sm">
                                                     {plan.estimated_price ? `₹ ${Number(plan.estimated_price).toLocaleString()}` : "--"}
                                                 </span>

@@ -29,6 +29,7 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
 
     // State
     const [plannedAmount, setPlannedAmount] = useState<string>("");
+    const [estimatedPrice, setEstimatedPrice] = useState<string>("");
     const [plannedDate, setPlannedDate] = useState<Date | undefined>(undefined);
     const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
     const [searchQuery, setSearchQuery] = useState("");
@@ -49,6 +50,7 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
     useEffect(() => {
         if (isOpen && plan) {
             setPlannedAmount(plan.planned_amount?.toString() || "");
+            setEstimatedPrice(plan.estimated_price?.toString() || "");
             setPlannedDate(plan.planned_date ? new Date(plan.planned_date) : undefined);
 
             // Parse existing items
@@ -124,6 +126,15 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
             return;
         }
 
+        if (isNewPO && (!estimatedPrice || parseFloat(estimatedPrice) <= 0)) {
+            toast({
+                title: "Invalid Amount",
+                description: "Estimated PO Amount must be greater than 0.",
+                variant: "destructive"
+            });
+            return;
+        }
+
         if (!plannedDate) {
             toast({
                 title: "Invalid Date",
@@ -180,6 +191,7 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
         try {
             await updateDoc("Cashflow Plan", plan.name, {
                 planned_amount: parseFloat(plannedAmount),
+                estimated_price: isNewPO ? parseFloat(estimatedPrice) : undefined,
                 planned_date: format(plannedDate, "yyyy-MM-dd"),
                 items: JSON.stringify({ list: finalItemsList })
             });
@@ -209,7 +221,7 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                 <div className="px-6 py-4 border-b bg-white flex items-center justify-between">
                     <div className="flex items-center gap-3">
                         <DialogTitle className="text-lg font-semibold text-gray-900">
-                            Edit PO Plan-
+                            Edit PO Cashflow Plan-
                         </DialogTitle>
                         <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-sm font-normal">
                              {plan?.name}
@@ -245,17 +257,40 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                 <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
                     {/* Amount & Date */}
                     <div className="space-y-4">
-                        <div className="space-y-2">
-                            <Label className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                                <span className="text-gray-500"><i className="far fa-money-bill-alt"></i></span> 
-                                Planned Amount
-                            </Label>
-                            <Input 
-                                value={plannedAmount}
-                                onChange={(e) => setPlannedAmount(e.target.value)}
-                                className="h-11 text-lg"
-                                prefix="₹"
-                            />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                                    Planned Amount <span className="text-red-500">*</span>
+                                </Label>
+                                <div className="relative">
+                                    <span className="absolute left-3 top-2 text-gray-500">₹</span>
+                                    <Input 
+                                        type="number"
+                                        value={plannedAmount}
+                                        onChange={(e) => setPlannedAmount(e.target.value)}
+                                        className="pl-7"
+                                        placeholder="Enter amount"
+                                    />
+                                </div>
+                            </div>
+
+                            {isNewPO && (
+                                <div className="space-y-2">
+                                    <Label className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                                        Estimated PO Amount <span className="text-red-500">*</span>
+                                    </Label>
+                                    <div className="relative">
+                                        <span className="absolute left-3 top-2 text-gray-500">₹</span>
+                                        <Input 
+                                            type="number"
+                                            value={estimatedPrice}
+                                            onChange={(e) => setEstimatedPrice(e.target.value)}
+                                            className="pl-7"
+                                            placeholder="Enter estimated amount"
+                                        />
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         <div className="space-y-2">
@@ -263,6 +298,7 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                                 date={plannedDate}
                                 setDate={setPlannedDate}
                                 label="Planned Date"
+                                required
                             />
                             <p className="text-xs text-gray-500 mt-1">
                                 This delivery date will apply to all selected items in this plan
