@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { CheckCircle } from "lucide-react";
 import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -66,7 +67,21 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
 
             if (!isExistingWO) {
                 // New WO initialization
-                setDescription(plan.remarks || "");
+                let desc = plan.remarks || "";
+                // Fallback to items if remarks is empty
+                if (!desc && plan.items) {
+                    try {
+                        const raw = plan.items;
+                        const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                        const list = data?.list || (Array.isArray(data) ? data : []);
+                        if (list.length > 0 && list[0].description) {
+                            desc = list[0].description;
+                        }
+                    } catch (e) {
+                         console.error("Failed to parse items for description", e);
+                    }
+                }
+                setDescription(desc);
                 setEstimatedValue(plan.estimated_price?.toString() || "");
                 if (plan.vendor) {
                     setVendor({ 
@@ -119,7 +134,7 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                  toast({ title: "Missing Vendor", description: "Vendor is required", variant: "destructive" });
                  return;
             }
-            updateData.remarks = description;
+            // updateData.remarks = description;
             updateData.estimated_price = parseFloat(estimatedValue);
             updateData.vendor = vendor.value;
             // Also update the single item description if we store it that way for New WO
@@ -145,7 +160,7 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                 <div className="px-6 py-4 border-b bg-white flex items-center justify-between">
                     <div className="flex items-center gap-3">
                         <DialogTitle className="text-lg font-semibold text-gray-900">
-                            Edit WO Plan
+                            Edit WO Cashflow Plan-
                         </DialogTitle>
                         <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-sm font-normal">
                              {plan?.name}
@@ -167,9 +182,9 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                 <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
                     {/* New WO Specific Fields */}
                     {!isExistingWO && (
-                        <div className="space-y-4 border-b pb-6">
+                        <div className="space-y-4">
                             <div className="space-y-2">
-                                <Label>Vendor</Label>
+                                <Label>Vendor <span className="text-red-500">*</span></Label>
                                 <Select 
                                     options={vendorOptions}
                                     value={vendor}
@@ -180,7 +195,7 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                                 />
                             </div>
                             <div className="space-y-2">
-                                <Label>Description</Label>
+                                <Label>Description <span className="text-red-500">*</span></Label>
                                 <Textarea 
                                     value={description}
                                     onChange={(e) => setDescription(e.target.value)}
@@ -188,57 +203,55 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                                     className="resize-none"
                                 />
                             </div>
-                             <div className="space-y-2">
-                                <Label className="flex items-center gap-2">Estimated Value</Label>
-                                <Input 
-                                    value={estimatedValue}
-                                    onChange={(e) => setEstimatedValue(e.target.value)}
-                                    type="number"
-                                    prefix="₹"
-                                />
-                            </div>
                         </div>
                     )}
 
-                    {/* Common Fields */}
-                    <div className="space-y-4">
+                    {/* Amount Fields Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
-                            <Label className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                                Planned Amount
+                            <Label className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                                Planned Amount <span className="text-red-500">*</span>
                             </Label>
-                            <Input 
-                                value={plannedAmount}
-                                onChange={(e) => setPlannedAmount(e.target.value)}
-                                className="h-11 text-lg"
-                                prefix="₹"
-                            />
-                        </div>
-
-                        <div className="space-y-2">
-                            <CashflowDatePicker
-                                date={plannedDate}
-                                setDate={setPlannedDate}
-                                label="Planned Date"
-                            />
-                        </div>
-                    </div>
-
-                    {/* Existing WO Items Display (Read Only) */}
-                    {/* {isExistingWO && existingItems.length > 0 && (
-                        <div className="border-t pt-4">
-                            <Label className="text-sm font-semibold text-gray-900 mb-3 block">
-                                Items Description ({existingItems.length})
-                            </Label>
-                            <div className="flex flex-wrap gap-2 group-hover:block">
-                                {existingItems.map((item: any, i: number) => (
-                                    <div key={i} className="bg-[#EBE9F8] text-gray-700 text-xs px-2.5 py-1 rounded-md font-medium">
-                                        {item.description || item.item_name || "Item"}
-                                        {item.category && <span className="ml-1 text-gray-500 font-normal">({item.category})</span>}
-                                    </div>
-                                ))}
+                            <div className="relative">
+                                <span className="absolute left-3 top-2 text-gray-500">₹</span>
+                                <Input 
+                                    type="number"
+                                    value={plannedAmount}
+                                    onChange={(e) => setPlannedAmount(e.target.value)}
+                                    className="pl-7"
+                                    placeholder="Enter amount"
+                                />
                             </div>
                         </div>
-                    )} */}
+
+                        {!isExistingWO && (
+                            <div className="space-y-2">
+                                <Label className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                                    Estimated WO Amount <span className="text-red-500">*</span>
+                                </Label>
+                                <div className="relative">
+                                    <span className="absolute left-3 top-2 text-gray-500">₹</span>
+                                    <Input 
+                                        type="number"
+                                        value={estimatedValue}
+                                        onChange={(e) => setEstimatedValue(e.target.value)}
+                                        className="pl-7"
+                                        placeholder="Enter estimated value"
+                                     
+                                    />
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="space-y-2">
+                        <CashflowDatePicker
+                            date={plannedDate}
+                            setDate={setPlannedDate}
+                            label="Planned Date"
+                            required
+                        />
+                    </div>
                 </div>
 
                  <div className="flex justify-end items-center gap-3 px-6 py-4 bg-gray-50 border-t">
@@ -250,6 +263,7 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                         disabled={isUpdating}
                         className="bg-red-600 hover:bg-red-700 text-white"
                     >
+                        <CheckCircle className="w-4 h-4 mr-2" />
                         {isUpdating ? "Saving..." : "Confirm"}
                     </Button>
                 </div>

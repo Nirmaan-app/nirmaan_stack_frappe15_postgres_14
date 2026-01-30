@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
-import { FolderOpen, Plus, X, Calendar as CalendarIcon, Edit2, Trash2, Folder } from "lucide-react";
+import { FolderOpen, Plus, X, Calendar as CalendarIcon, Edit2, Trash2, Folder, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { SelectWOModal } from "./SelectWOModal";
 import { Input } from "@/components/ui/input";
@@ -184,8 +185,7 @@ export const AddWOCashflowForm = ({ projectId, onClose, onSuccess }: AddWOCashfl
                 project: projectId,
                 type: "New WO",
                 vendor: newPlan.vendor.value,
-                remarks: newPlan.description, // Mapping description to remarks
-                estimated_price: parseFloat(newPlan.estimated_value),
+                              estimated_price: parseFloat(newPlan.estimated_value),
                 planned_amount: parseFloat(newPlan.planned_amount),
                 planned_date: plannedDateStr,
                 items: JSON.stringify({ list: [{ description: newPlan.description, category: "" }] })
@@ -201,32 +201,31 @@ export const AddWOCashflowForm = ({ projectId, onClose, onSuccess }: AddWOCashfl
 
     return (
         <div className="bg-white border rounded-lg overflow-hidden shadow-sm">
-            <div className="p-2 bg-gray-50/50 border-b flex justify-between items-center">
-                 {/* Custom Tab Switcher to match image style somewhat */}
-                 <div className="flex gap-2 p-1">
-                    <Button 
-                        onClick={() => setActiveTab("existing")}
-                        variant={activeTab === "existing" ? "default" : "ghost"}
-                        className={cn("gap-2 h-9", activeTab === "existing" ? "bg-blue-600 hover:bg-blue-700" : "bg-transparent hover:bg-gray-100")}
-                    >
-                        <FolderOpen className="w-4 h-4" />
-                        Use Existing WO
-                    </Button>
-                    <Button 
-                        onClick={() => setActiveTab("new")}
-                        variant={activeTab === "new" ? "secondary" : "ghost"}
-                        className={cn("gap-2 h-9", activeTab === "new" ? "bg-gray-200" : "text-gray-500 hover:bg-gray-100")}
-                    >
-                        <Plus className="w-4 h-4" />
-                        Create New WO
-                    </Button>
-                 </div>
-                 <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
+            <div className="px-4 py-3 border-b flex justify-between items-center bg-gray-50/50">
+                 <h3 className="font-semibold text-gray-900">Add WO Cashflow Plan</h3>
+                 <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8 hover:bg-gray-200 rounded-full">
                      <X className="w-4 h-4" />
                  </Button>
             </div>
 
             <div className="p-4 bg-white min-h-[300px]">
+                <div className="space-y-4 mb-6">
+                    <Label className="text-sm font-semibold text-gray-900">WO Type</Label>
+                    <RadioGroup
+                        value={activeTab}
+                        onValueChange={(val) => setActiveTab(val as "existing" | "new")}
+                        className="flex items-center gap-6"
+                    >
+                        <div className="flex items-center gap-2">
+                            <RadioGroupItem value="existing" id="existing" />
+                            <Label htmlFor="existing" className="cursor-pointer font-normal">Use Existing WO</Label>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <RadioGroupItem value="new" id="new" />
+                            <Label htmlFor="new" className="cursor-pointer font-normal">Create New WO</Label>
+                        </div>
+                    </RadioGroup>
+                </div>
                 {activeTab === "existing" ? (
                     <div className="space-y-6">
                         {selectedPlans.length === 0 ? (
@@ -259,12 +258,12 @@ export const AddWOCashflowForm = ({ projectId, onClose, onSuccess }: AddWOCashfl
                                              {/* Left: Inputs */}
                                              <div className="w-full lg:w-5/12 flex flex-col sm:flex-row gap-4 p-4 border rounded-lg bg-white shadow-sm">
                                                  <div className="flex-1 space-y-2">
-                                                     <Label className="text-xs text-gray-500 uppercase font-bold tracking-wider">Planned Amount <span className="text-red-500">*</span></Label>
+                                                     <Label className="text-sm font-medium text-gray-700">Planned Amount <span className="text-red-500">*</span></Label>
                                                      <div className="relative">
-                                                         <span className="absolute left-3 top-2.5 text-gray-500">₹</span>
+                                                         <span className="absolute left-3 top-2 text-gray-500">₹</span>
                                                          <Input 
                                                             type="number" 
-                                                            className="pl-7 bg-white h-10" 
+                                                            className="pl-7 bg-white" 
                                                             value={plan.planned_amount}
                                                             onChange={(e) => updatePlanItem(plan.temp_id, "planned_amount", e.target.value)}
                                                          />
@@ -308,6 +307,7 @@ export const AddWOCashflowForm = ({ projectId, onClose, onSuccess }: AddWOCashfl
                                         onClick={handleSubmitExisting}
                                         disabled={isSubmitting}
                                     >
+                                        <CheckCircle className="w-4 h-4 mr-2" />
                                         {isSubmitting ? "Creating..." : selectedPlans.length > 1 ? "Create All Plan" : "Create Plan"}
                                     </Button>
                                 </div>
@@ -342,9 +342,9 @@ export const AddWOCashflowForm = ({ projectId, onClose, onSuccess }: AddWOCashfl
 
                             <div className="grid grid-cols-3 gap-4">
                                 <div className="space-y-2">
-                                     <Label>Estimated Amount <span className="text-red-500">*</span></Label>
+                                     <Label>Estimated WO Amount <span className="text-red-500">*</span></Label>
                                      <div className="relative">
-                                         <span className="absolute left-3 top-2.5 text-gray-500">₹</span>
+                                         <span className="absolute left-3 top-2 text-gray-500">₹</span>
                                          <Input 
                                             type="number" 
                                             className="pl-7" 
@@ -356,7 +356,7 @@ export const AddWOCashflowForm = ({ projectId, onClose, onSuccess }: AddWOCashfl
                                 <div className="space-y-2">
                                      <Label>Planned Amount <span className="text-red-500">*</span></Label>
                                      <div className="relative">
-                                         <span className="absolute left-3 top-2.5 text-gray-500">₹</span>
+                                         <span className="absolute left-3 top-2 text-gray-500">₹</span>
                                          <Input 
                                             type="number" 
                                             className="pl-7" 
@@ -392,6 +392,7 @@ export const AddWOCashflowForm = ({ projectId, onClose, onSuccess }: AddWOCashfl
                                         !newPlan.planned_date
                                     }
                                 >
+                                    <CheckCircle className="w-4 h-4 mr-2" />
                                     {isSubmitting ? "Creating..." : "Create Plan"}
                                 </Button>
                          </div>

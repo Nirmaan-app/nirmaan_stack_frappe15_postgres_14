@@ -4,7 +4,7 @@ import { useFrappeGetDocList, useFrappeDeleteDoc } from "frappe-react-sdk";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
-import { ChevronDown, Trash2, Edit2, ChevronRight } from "lucide-react";
+import { ChevronDown, Trash2, Edit2, ChevronRight, CirclePlus } from "lucide-react";
 import { AddWOCashflowForm } from "./components/AddWOCashflowForm";
 import { EditWOCashflowForm } from "./components/EditWOCashflowForm";
 import { safeFormatDate } from "@/lib/utils";
@@ -87,7 +87,8 @@ const WOCashflowContent = ({ projectId, dateRange, isOverview = false }: { proje
                                 onClick={() => setShowAddForm(true)} 
                                 className="w-full md:w-auto bg-red-600 hover:bg-red-700 text-white" 
                             >
-                                Add Another Plan
+                                <CirclePlus className="w-4 h-4 mr-2" />
+                                Add  Plan
                             </Button>
                         </div>
                     )}
@@ -112,7 +113,10 @@ const WOCashflowContent = ({ projectId, dateRange, isOverview = false }: { proje
                     {!isLoading && plans?.length === 0 && !showAddForm && (
                          <div className="text-center py-12 bg-gray-50/50 rounded-lg border border-dashed">
                             <p className="text-gray-500 mb-4">No Work Order plans found.</p>
-                            <Button onClick={() => setShowAddForm(true)}>Create Your First Plan</Button>
+                            <Button onClick={() => setShowAddForm(true)}>
+                                <CirclePlus className="w-4 h-4 mr-2" />
+                                Create Your First Plan
+                            </Button>
                          </div>
                     )}
 
@@ -151,7 +155,7 @@ const WOCashflowContent = ({ projectId, dateRange, isOverview = false }: { proje
                                                 </Badge>
                                             </div>
                                             <div className="font-semibold text-gray-900 text-sm truncate" title={plan.id_link || plan.remarks || "Untitled"}>
-                                                {plan.id_link || plan.remarks || "Untitled Plan"}
+                                                {plan.id_link || "--"}
                                             </div>
                                             {plan.type === "New WO" && plan.remarks && (
                                                 <div className="text-[11px] text-gray-500 truncate">{plan.remarks}</div>
@@ -168,9 +172,9 @@ const WOCashflowContent = ({ projectId, dateRange, isOverview = false }: { proje
                                         {/* Estimated Amount (New WO Only) */}
                                         {plan.type === "New WO" && (
                                             <div className="flex flex-col gap-0.5">
-                                                <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Estimated Amount</span>
+                                                <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Estimated WO Amount</span>
                                                 <span className="font-semibold text-gray-900 text-sm">
-                                                    {plan.estimated_amount ? `₹ ${Number(plan.estimated_amount).toLocaleString()}` : "--"}
+                                                    {plan.estimated_price ? `₹ ${Number(plan.estimated_price).toLocaleString()}` : "--"}
                                                 </span>
                                             </div>
                                         )}
@@ -293,12 +297,12 @@ const WOCashflowContent = ({ projectId, dateRange, isOverview = false }: { proje
                                            Let's keep it simple and follow the snippet structure, but I will put it inside the Try block flow or after. 
                                            The user snippet had both items loop AND remarks.
                                         */}
-                                         {plan.remarks && plan.type !== "New WO" && (
+                                         {/* {plan.remarks && plan.type !== "New WO" && (
                                             <div className="mt-4 text-xs">
                                                 <span className="font-semibold text-gray-700">Remarks: </span>
                                                 <span className="text-gray-600">{plan.remarks}</span>
                                             </div>
-                                        )}
+                                        )} */}
                                     </div>
                                 )}
                             </div>
