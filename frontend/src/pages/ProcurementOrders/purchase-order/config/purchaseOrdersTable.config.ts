@@ -9,7 +9,7 @@ export const DEFAULT_PO_FIELDS_TO_FETCH: (keyof ProcurementOrder | 'name')[] = [
 
 // Searchable fields configuration for PO tables
 export const PO_SEARCHABLE_FIELDS: SearchFieldOption[] = [
-    { value: "name", label: "PO ID", placeholder: "Search by PO ID...", default: true },
+    { value: "name", label: "PO ID", placeholder: "Search by PO ID..." },
     { value: "project", label: "Project ID", placeholder: "Search by Project ID..." },
     { value: "project_name", label: "Project Name", placeholder: "Search by Project Name..." },
     { value: "vendor", label: "Vendor ID", placeholder: "Search by Vendor ID..." },
@@ -18,6 +18,7 @@ export const PO_SEARCHABLE_FIELDS: SearchFieldOption[] = [
         value: "items", // Field name for backend
         label: "Item in PO",
         placeholder: "Search by Item Name in orde list...",
+        default: true,
         is_json: true, // Signal to backend for special JSON search logic
     },
 ];
