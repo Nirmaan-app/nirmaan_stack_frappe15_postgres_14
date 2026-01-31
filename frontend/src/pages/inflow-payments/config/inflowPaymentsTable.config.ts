@@ -10,12 +10,12 @@ export const DEFAULT_INFLOW_FIELDS_TO_FETCH: (keyof ProjectInflows | 'name')[] =
 
 // Searchable fields configuration for Inflow Payments tables
 export const INFLOW_SEARCHABLE_FIELDS: SearchFieldOption[] = [
-    { value: "name", label: "Inflow ID", placeholder: "Search by Inflow ID...", default: true },
+    { value: "name", label: "Inflow ID", placeholder: "Search by Inflow ID..." },
     { value: "project", label: "Project ID", placeholder: "Search by Project ID..." },
     // { value: "project_name", label: "Project Name", placeholder: "Search by Project Name..." },
     { value: "customer", label: "Customer ID", placeholder: "Search by Customer ID..." },
     // { value: "customer_name", label: "Customer Name", placeholder: "Search by Customer Name..." },
-    { value: "utr", label: "Payment Ref (UTR)", placeholder: "Search by UTR..." },
+    { value: "utr", label: "Payment (UTR)", placeholder: "Search by UTR...", default: true },
     { value: "amount", label: "Amount", placeholder: "Search by Amount..." },
 ];
 
