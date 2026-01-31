@@ -92,6 +92,10 @@ import WorkPlanTrackerDetail from "@/pages/WorkPlanTracker/work-plan-tracker-det
 import MaterialPlanTrackerList from "@/pages/MaterialPlanTracker/material-plan-tracker-list";
 import MaterialPlanTrackerDetail from "@/pages/MaterialPlanTracker/material-plan-tracker-detail";
 
+//Cashflow Plan Tracker
+import CashflowPlanTrackerList from "@/pages/CashflowPlanTracker/cashflow-plan-tracker-list";
+import CashflowPlanTrackerDetail from "@/pages/CashflowPlanTracker/cashflow-plan-tracker-detail";
+
 import TDSApprovalList from "@/pages/tds/TDSApprovalList";
 import TDSApprovalDetail from "@/pages/tds/TDSApprovalDetail";
 
@@ -346,6 +350,22 @@ export const appRoutes: RouteObject[] = [
           },
           // ======================================================
           // --- END: MATERIAL PLAN TRACKER SECTION ---
+          // ======================================================
+
+          // ======================================================
+          // --- START: CASHFLOW PLAN TRACKER SECTION ---
+          // ======================================================
+          {
+            path: "cashflow-plan-tracker",
+            children: [
+              // List View (e.g., /cashflow-plan-tracker)
+              { index: true, element: <CashflowPlanTrackerList /> },
+              // Detail View (e.g., /cashflow-plan-tracker/PROJ-0001)
+              { path: ":projectId", element: <CashflowPlanTrackerDetail /> },
+            ],
+          },
+          // ======================================================
+          // --- END: CASHFLOW PLAN TRACKER SECTION ---
           // ======================================================
 
           // --- Projects Section ---

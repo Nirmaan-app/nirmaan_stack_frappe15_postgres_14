@@ -1,113 +1,125 @@
 {
  "actions": [],
  "allow_rename": 1,
- "creation": "2026-01-15 12:58:37.001494",
+ "creation": "2026-01-27 17:04:19.121685",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "links_section",
-  "tdsi_project_id",
-  "tdsi_project_name",
-  "details_section",
-  "tds_work_package",
-  "tds_request_id",
-  "tds_category",
-  "tds_item_id",
-  "tds_item_name",
-  "tds_make",
-  "tds_boq_line_item",
-  "tds_description",
-  "tds_attachment",
-  "tds_status",
-  "tds_rejection_reason"
+  "link_section",
+  "project",
+  "vendor",
+  "cashflow_details_section",
+  "id_link",
+  "planned_date",
+  "planned_amount",
+  "type",
+  "items",
+  "vendor_name",
+  "for_new_powo_section",
+  "estimated_price",
+  "for_pos_section",
+  "critical_po_category",
+  "critical_po_task",
+  "for_msc_section",
+  "remarks"
  ],
  "fields": [
   {
-   "fieldname": "links_section",
+   "fieldname": "link_section",
    "fieldtype": "Section Break",
-   "label": "Links"
+   "label": "Link"
   },
   {
-   "fieldname": "tdsi_project_id",
+   "fieldname": "project",
    "fieldtype": "Link",
-   "label": "TDSI Project ID",
+   "label": "Project",
    "options": "Projects"
   },
   {
-   "fetch_from": "tdsi_project_id.project_name",
-   "fieldname": "tdsi_project_name",
-   "fieldtype": "Data",
-   "label": "TDSI Project Name"
+   "fieldname": "vendor",
+   "fieldtype": "Link",
+   "label": "Vendor",
+   "options": "Vendors"
   },
   {
-   "fieldname": "details_section",
+   "fieldname": "cashflow_details_section",
    "fieldtype": "Section Break",
-   "label": "Details"
+   "label": "Cashflow Common"
   },
   {
-   "fieldname": "tds_work_package",
+   "fieldname": "id_link",
    "fieldtype": "Data",
-   "label": "TDS Work Package"
+   "label": "ID Link"
   },
   {
-   "fieldname": "tds_category",
+   "fieldname": "planned_date",
+   "fieldtype": "Date",
+   "label": "Planned Date"
+  },
+  {
+   "fieldname": "planned_amount",
+   "fieldtype": "Currency",
+   "label": "Planned Amount"
+  },
+  {
+   "fieldname": "type",
    "fieldtype": "Data",
-   "label": "TDS Category"
+   "label": "Type"
   },
   {
-   "fieldname": "tds_item_id",
-   "fieldtype": "Data",
-   "label": "TDS Item ID"
+   "fieldname": "for_new_powo_section",
+   "fieldtype": "Section Break",
+   "label": "For New PO/WO"
   },
   {
-   "fieldname": "tds_item_name",
-   "fieldtype": "Data",
-   "label": "TDS Item Name"
+   "fieldname": "estimated_price",
+   "fieldtype": "Currency",
+   "label": "Estimated Price"
   },
   {
-   "fieldname": "tds_make",
-   "fieldtype": "Data",
-   "label": "TDS Make"
+   "fieldname": "for_msc_section",
+   "fieldtype": "Section Break",
+   "label": "For MSC/Inflow"
   },
   {
-   "fieldname": "tds_description",
+   "fieldname": "remarks",
    "fieldtype": "Text",
-   "label": "TDS Description"
+   "label": "Remarks"
   },
   {
-   "fieldname": "tds_attachment",
-   "fieldtype": "Attach",
-   "label": "TDS Attachment"
+   "fieldname": "for_pos_section",
+   "fieldtype": "Section Break",
+   "label": "For POs"
   },
   {
-   "fieldname": "tds_status",
+   "fieldname": "critical_po_category",
    "fieldtype": "Data",
-   "label": "TDS Status"
+   "label": "Critical PO Category"
   },
   {
-   "fieldname": "tds_request_id",
+   "fieldname": "critical_po_task",
    "fieldtype": "Data",
-   "label": "TDS Request ID"
+   "label": "Critical PO Task"
   },
   {
-   "fieldname": "tds_rejection_reason",
+   "fieldname": "items",
+   "fieldtype": "JSON",
+   "label": "Items"
+  },
+  {
+   "fieldname": "vendor_name",
    "fieldtype": "Data",
-   "label": "TDS Rejection Reason"
-  },
-  {
-   "fieldname": "tds_boq_line_item",
-   "fieldtype": "Text",
-   "label": "TDS BOQ Line Item"
+   "label": "Vendor Name"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-30 19:03:44.702716",
+ "modified": "2026-01-30 13:24:34.990097",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
- "name": "Project TDS Item List",
- "owner": "madhubalan1247@gmail.com",
+ "name": "Cashflow Plan",
+ "owner": "Administrator",
  "permissions": [
   {
    "create": 1,

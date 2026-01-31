@@ -9,20 +9,18 @@ import {
     queryKeys,
     getPOReportListOptions,
 } from '@/config/queryKeys';
+import { useProjectAssignees } from '@/hooks/useProjectAssignees';
+import { format } from "date-fns"; // Added by user's edit, though not used in the final provided code.
 
-export interface POReportRowData {
-    name: string;
-    creation: string;
-    total_amount?: number;
-    project: string;
-    projectName?: string;
-    vendor: string;
-    vendorName?: string;
-    totalAmount: number;
-    invoiceAmount: number;
-    amountPaid: number;
-    dispatch_date?: string;
-    originalDoc: ProcurementOrder;
+// Assuming NirmaanPurchaseOrder is ProcurementOrder based on context
+type NirmaanPurchaseOrder = ProcurementOrder;
+
+export interface POReportRowData extends NirmaanPurchaseOrder {
+  invoiceAmount: number;
+  amountPaid: number;
+  totalAmounts: number; // This seems to be a new field, or a rename of total_amount
+  originalDoc: NirmaanPurchaseOrder; // Keep reference to original if needed
+  projectId: string; // Add projectId for easier lookup
 }
 
 interface UsePOReportsDataResult {
@@ -30,6 +28,7 @@ interface UsePOReportsDataResult {
     isLoading: boolean;
     error: Error | null;
     mutatePOs: () => Promise<any>;
+    assignmentsLookup: ReturnType<typeof useProjectAssignees>['assignmentsLookup']; // Added assignmentsLookup to result type
 }
 
 // Simpler options for fetching all minimal project/vendor data for lookups
@@ -101,6 +100,9 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
         allVendorsQueryKey
     );
 
+    // --- Fetch Users and Permissions for Assignees ---
+    const { assignmentsLookup, isLoading: assigneesLoading, error: assigneesError } = useProjectAssignees();
+
     // --- Create Lookup Maps (Memoized) ---
     const projectMap = useMemo(() => {
         return projects?.reduce((acc, p) => {
@@ -135,20 +137,26 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
             return null;
         }
 
-        if (!purchaseOrders) {
-            return [];
-        }
+
 
         const combinedData: POReportRowData[] = [];
 
         // Process Purchase Orders
         (purchaseOrders || []).forEach(po => {
             if (po) {
+                const projectName = projectMap[po.project] || po.project_name || po.project;
+                // Use project name (ID) for lookup as permissions use that usually, 
+                // but need to verify if 'for_value' is ID or Name. Usually ID.
+                // In ProjectOverviewTab: for_value: projectData?.name (which is ID: "PROJ-...")
+                // Use project name (ID) for lookup as permissions use that usually, 
+                // but need to verify if 'for_value' is ID or Name. Usually ID.
+                // In ProjectOverviewTab: for_value: projectData?.name (which is ID: "PROJ-...")
+
                 combinedData.push({
                     name: po.name,
                     creation: po.creation,
                     project: po.project,
-                    projectName: projectMap[po.project] || po.project_name || po.project,
+                    projectName: projectName,
                     vendor: po.vendor,
                     vendorName: vendorMap[po.vendor] || po.vendor_name || po.vendor,
                     totalAmount: parseNumber(po.total_amount),
@@ -156,6 +164,7 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
                     amountPaid: parseNumber(po.amount_paid),
                     dispatch_date: po.dispatch_date || undefined,
                     originalDoc: po,
+                    assignees: [], // Deprecated in favor of assignmentsLookup passed to column
                 });
             }
         });
@@ -170,19 +179,20 @@ export const usePOReportsData = (): UsePOReportsDataResult => {
         return combinedData;
 
     }, [
-        purchaseOrders, projects, vendors, vendorInvoices,
-        poLoading, projectsLoading, vendorsLoading, invoicesLoading,
+        purchaseOrders, projects, vendors, vendorInvoices, 
+        poLoading, projectsLoading, vendorsLoading, invoicesLoading, 
         projectMap, vendorMap, invoiceTotalsMap,
     ]);
 
     // --- Consolidated Loading and Error State ---
-    const isLoading = poLoading || projectsLoading || vendorsLoading || invoicesLoading;
-    const error = poError || projectsError || vendorsError || invoicesError;
+    const isLoading = poLoading || projectsLoading || vendorsLoading || invoicesLoading || assigneesLoading;
+    const error = poError || projectsError || vendorsError || invoicesError || assigneesError;
 
     return {
         reportData,
         isLoading,
         error: error instanceof Error ? error : null,
         mutatePOs,
+        assignmentsLookup, // Export for columns
     };
 };

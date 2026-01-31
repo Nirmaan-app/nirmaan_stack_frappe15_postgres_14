@@ -559,6 +559,15 @@ export function NewSidebar() {
         },
       ]
       : []),
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile"].includes(role)
+      ? [
+        {
+          key: '/cashflow-plan-tracker',
+          icon: CircleDollarSign,
+          label: 'Cashflow Plan Tracker',
+        },
+      ]
+      : []),
     ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role)
       ? [
         {
@@ -615,6 +624,7 @@ export function NewSidebar() {
     'critical-po-tracker',
     'work-plan-tracker',
     'material-plan-tracker',
+    'cashflow-plan-tracker',
     'tds-approval'
 
   ]), [])
@@ -648,6 +658,7 @@ export function NewSidebar() {
     '/critical-po-tracker': ['critical-po-tracker'],
     '/work-plan-tracker': ['work-plan-tracker'],
     '/material-plan-tracker': ['material-plan-tracker'],
+    '/cashflow-plan-tracker': ['cashflow-plan-tracker'],
     '/tds-approval': ['tds-approval']
   }), []);
 
@@ -726,7 +737,7 @@ export function NewSidebar() {
                 <SidebarMenuItem>
 
                   {new Set(["Dashboard", "Item Price Search", "TDS Repository", "Procurement Requests", "Purchase Orders", "Project Payments", "Credit Payments", "Sent Back Requests", "Projects", "Work Orders", "In-Flow Payments", "Invoice Recon", "Reports",
-                    "Design Tracker", "PO Tracker", "Work Plan Tracker", "Material Plan Tracker", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses", "Users", "Assets", "Vendors", "Customers", "Products", "TDS Approval"]).has(item?.label) ? (
+                    "Design Tracker", "PO Tracker", "Work Plan Tracker", "Material Plan Tracker", "Cashflow Plan Tracker", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses", "Users", "Assets", "Vendors", "Customers", "Products", "TDS Approval"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
                         ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"

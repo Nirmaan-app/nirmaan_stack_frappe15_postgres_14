@@ -38,6 +38,7 @@ interface TDSItem {
     tds_rejection_reason?: string;
     owner: string;
     creation: string;
+    tds_boq_line_item?: string;
 }
 
 // Format date as "27 Nov, 2025"
@@ -393,6 +394,35 @@ export const TDSApprovalDetail: React.FC = () => {
                 size: 100,
             },
             {
+                accessorKey: "tds_boq_line_item",
+                header: "BOQ Ref",
+                cell: ({ row }) => {
+                    const text = row.original.tds_boq_line_item;
+                    
+                    return (
+                        <div className="flex justify-start items-center">
+                            {text ? (
+                                <TooltipProvider>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <div className="cursor-pointer p-1 rounded-full hover:bg-slate-100">
+                                                <MessageSquare className="h-4 w-4 text-blue-500 hover:text-blue-700" />
+                                            </div>
+                                        </TooltipTrigger>
+                                        <TooltipContent className="max-w-[400px] whitespace-normal break-words z-50">
+                                            <p>{text}</p>
+                                        </TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
+                            ) : (
+                                <span className="text-gray-300 ml-2">-</span>
+                            )}
+                        </div>
+                    );
+                },
+                size: 100,
+            },
+            {
                 id: "doc",
                 header: "Doc",
                 cell: ({ row }) => (
@@ -479,6 +509,35 @@ export const TDSApprovalDetail: React.FC = () => {
             size: 100,
         },
         {
+            accessorKey: "tds_boq_line_item",
+            header: "BOQ Ref",
+            cell: ({ row }) => {
+                const text = row.original.tds_boq_line_item;
+                
+                return (
+                    <div className="flex justify-start items-center">
+                        {text ? (
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <div className="cursor-pointer p-1 rounded-full hover:bg-slate-100">
+                                            <MessageSquare className="h-4 w-4 text-blue-500 hover:text-blue-700" />
+                                        </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="max-w-[400px] whitespace-normal break-words">
+                                        <p>{text}</p>
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        ) : (
+                            <span className="text-gray-300 ml-2">-</span>
+                        )}
+                    </div>
+                );
+            },
+            size: 100,
+        },
+        {
             id: "doc",
             header: "Doc",
             cell: ({ row }) => (
@@ -538,6 +597,35 @@ export const TDSApprovalDetail: React.FC = () => {
             accessorKey: "tds_make",
             header: "Make",
             cell: ({ row }) => <MakePill make={row.original.tds_make} />,
+            size: 100,
+        },
+        {
+            accessorKey: "tds_boq_line_item",
+            header: "BOQ Ref",
+            cell: ({ row }) => {
+                const text = row.original.tds_boq_line_item;
+                
+                return (
+                    <div className="flex justify-start items-center">
+                        {text ? (
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <div className="cursor-pointer p-1 rounded-full hover:bg-slate-100">
+                                            <MessageSquare className="h-4 w-4 text-blue-500 hover:text-blue-700" />
+                                        </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="max-w-[400px] whitespace-normal break-words">
+                                        <p>{text}</p>
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        ) : (
+                            <span className="text-gray-300 ml-2">-</span>
+                        )}
+                    </div>
+                );
+            },
             size: 100,
         },
         {

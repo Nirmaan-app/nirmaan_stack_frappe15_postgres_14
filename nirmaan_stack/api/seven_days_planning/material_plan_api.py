@@ -236,7 +236,6 @@ def get_material_plan_data_v2(project=None, task_id=None, search_type="po"):
             "items": all_items,
             "associated_pos": associated_pos
         }
-    
     # SEARCH TYPE: "po" - Return PO list with items
     pos = []
     for po_id in associated_pos:
@@ -247,6 +246,8 @@ def get_material_plan_data_v2(project=None, task_id=None, search_type="po"):
                 "items_count": len(doc.items) if doc.items else 0,
                 "creation": str(doc.creation),
                 "status": doc.status,
+                "vendor": doc.vendor,
+                "vendor_name": doc.vendor_name,
                 "items": [item.as_dict() for item in doc.items] if doc.items else [],
                 "is_critical": True
             })
@@ -359,6 +360,10 @@ def get_all_project_pos(project):
             
             pos.append({
                 "name": doc.name,
+                "vendor":doc.vendor,
+                "vendor_name": doc.vendor_name,
+                "total_amount": doc.total_amount or 0,
+                "amount_paid": doc.amount_paid or 0,
                 "items_count": len(doc.items) if doc.items else 0,
                 "creation": str(doc.creation),
                 "status": doc.status,

@@ -47,6 +47,7 @@ export default function POReports() {
     reportData: allPOsForReports, // This is POReportRowData[] | null
     isLoading: isLoadingInitialData,
     error: initialDataError,
+    assignmentsLookup,
   } = usePOReportsData();
 
   const selectedReportType = useReportStore(
@@ -55,8 +56,8 @@ export default function POReports() {
 
   // 2. Dynamically determine columns based on selectedReportType
   const tableColumnsToDisplay = useMemo(
-    () => getPOReportColumns(selectedReportType, role),
-    [selectedReportType]
+    () => getPOReportColumns(selectedReportType, role, assignmentsLookup),
+    [selectedReportType, role, assignmentsLookup]
   );
   const payment_delta = 100;
   const invoice_delta = 100;

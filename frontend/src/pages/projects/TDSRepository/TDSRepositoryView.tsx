@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Download } from 'lucide-react';
+import { Download, Loader2 } from 'lucide-react';
 import { useFrappeGetDocList, useFrappeGetDoc } from 'frappe-react-sdk';
 import { format } from 'date-fns';
 import { toast } from "@/components/ui/use-toast";
@@ -21,6 +21,7 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
     const [activeTab, setActiveTab] = useState("new");
     const [refreshKey, setRefreshKey] = useState(0);
     const [isExporting, setIsExporting] = useState(false);
+    const [isExportingHistory, setIsExportingHistory] = useState(false);
 
     // Fetch TDS history data directly for export
     const { data: historyData } = useFrappeGetDocList("Project TDS Item List", {
@@ -31,6 +32,90 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
 
     const { data: projectData } = useFrappeGetDoc("Projects", projectId);
     const projectName = projectData?.project_name || projectId;
+
+    // Export History to CSV
+    const handleExportHistory = () => {
+        if (!historyData || historyData.length === 0) {
+            toast({ 
+                title: "No Data", 
+                description: "No TDS history to export.", 
+                variant: "destructive" 
+            });
+            return;
+        }
+
+        setIsExportingHistory(true);
+
+        // Allow React to render loading state before heavy lifting
+        setTimeout(() => {
+            try {
+                // Define CSV headers
+                const headers = [
+                    "TDS ID",
+                    "Work Package",
+                    "Category",
+                    "Item ID",
+                    "Item Name",
+                    "Description",
+                    "Make",
+                    "BOQ Ref",
+                    "Status",
+                    "Rejection Reason",
+                    "Doc",
+                    "Created On"
+                ];
+
+                // Map data to CSV rows
+                const rows = historyData.map((item: any) => [
+                    item.tds_request_id || "",
+                    item.tds_work_package || "",
+                    item.tds_category || "",
+                    item.tds_item_id || "",
+                    item.tds_item_name || "",
+                    (item.tds_description || "").replace(/,/g, ";"), // Escape commas
+                    item.tds_make || "",
+                    item.tds_boq_line_item || "",
+                    item.tds_status || "",
+                    (item.tds_rejection_reason || "").replace(/,/g, ";"),
+                    item.tds_attachment || "",
+                    item.creation ? format(new Date(item.creation), "dd-MMM-yyyy HH:mm") : ""
+                ]);
+
+                // Create CSV content
+                const csvContent = [
+                    headers.join(","),
+                    ...rows.map(row => row.map((cell: string) => `"${cell}"`).join(","))
+                ].join("\n");
+
+                // Download file
+                const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement("a");
+                link.href = url;
+                const dateStr = format(new Date(), "dd-MMM-yyyy");
+                const cleanProjectName = (projectName || projectId).replace(/[^a-zA-Z0-9-_]/g, "_");
+                link.setAttribute("download", `TDS_History_${cleanProjectName}_${dateStr}.csv`);
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                window.URL.revokeObjectURL(url);
+
+                toast({ 
+                    title: "Success", 
+                    description: "TDS History exported successfully." 
+                });
+            } catch (error) {
+                console.error("Export history failed", error);
+                toast({ 
+                    title: "Error", 
+                    description: "Failed to export history.", 
+                    variant: "destructive" 
+                });
+            } finally {
+                setIsExportingHistory(false);
+            }
+        }, 100);
+    };
 
 
     const handleUpdateConfirm = async (updatedData: TDSRepositoryData) => {
@@ -135,15 +220,32 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                                 These details will appear for all TDS submissions for this project
                             </p>
                          </div>
-                         <div className="flex gap-2">
+                         <div className="flex flex-col sm:flex-row gap-2">
+                            <Button 
+                                onClick={handleExportHistory}
+                                variant="outline"
+                                disabled={isExportingHistory || !historyData || historyData.length === 0}
+                               className="bg-white border-red-500 text-red-700 hover:bg-red-50 font-medium px-4 shadow-sm"
+                            >
+                                {isExportingHistory ? (
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                ) : (
+                                    <Download className="w-4 h-4 mr-2" />
+                                )}
+                                {isExportingHistory ? 'Exporting...' : 'Export CSV'}
+                            </Button>
                             <Button 
                                 onClick={() => setIsExportDialogOpen(true)}
                                 variant="outline"
                                 disabled={isExporting || !historyData || historyData.length === 0}
                                 className="bg-white border-red-500 text-red-700 hover:bg-red-50 font-medium px-4 shadow-sm"
                             >
-                                <Download className="w-4 h-4 mr-2" />
-                                {isExporting ? 'Exporting...' : 'Export With TDS History'}
+                                {isExporting ? (
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                ) : (
+                                    <Download className="w-4 h-4 mr-2" />
+                                )}
+                                {isExporting ? 'Exporting...' : 'Export PDF'}
                             </Button>
                             <Button 
                                 onClick={() => setIsSetupDialogOpen(true)} 

@@ -435,6 +435,11 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button"; 
+import {
+    HoverCard,
+    HoverCardContent,
+    HoverCardTrigger,
+} from "@/components/ui/hover-card"; 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { facetedFilterFn } from "@/utils/tableFilters";
 
@@ -442,6 +447,8 @@ import { facetedFilterFn } from "@/utils/tableFilters";
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { exportToCsv } from "@/utils/exportToCsv";
 import { startOfToday, subDays, format } from 'date-fns';
+import { useProjectAssignees } from "@/hooks/useProjectAssignees";
+import { getAssigneesColumn } from "@/components/common/assigneesTableColumns";
 
 // --- Types & Config ---
 import { Projects } from "@/types/NirmaanStack/Projects"; 
@@ -452,19 +459,7 @@ import { UserContext } from "@/utils/auth/UserProvider";
 
 // --- NEW TYPES FOR NEW DATA SOURCES ---
 
-// 1. Nirmaan User Permissions Doctype
-interface NirmaanUserPermissionDoc extends FrappeDoc {
-    user: string; // User Email ID
-    allow: string; // The role/permission name (e.g., 'Nirmaan Project Manager')
-    for_value: string; // The Project Name/ID
-}
 
-// 2. Nirmaan Users Doctype
-interface NirmaanUserDoc extends FrappeDoc {
-    email: string; // Primary key/Email ID
-    full_name: string; 
-    role_profile: string; // The role name we need to filter by
-}
 
 // Mock Type for the Progress Report Doctype
 interface ProjectProgressReportDoc extends FrappeDoc {
@@ -476,8 +471,6 @@ interface ProjectProgressReportDoc extends FrappeDoc {
 
 // Merged Row Data: Project fields + dynamic date fields
 interface ProjectProgressReportRow extends Projects {
-    // NEW STRUCTURE: Hold all assigned leads/managers from permissions
-    assigned_leads: { role: string; name: string }[]; 
     [key: string]: any; 
 }
 
@@ -569,36 +562,7 @@ const projects = reportsData?.message?.data
 
 console.log("Fetched Projects:", projects);
  
-    // 2b. Fetch all relevant users/permissions
-    const RELEVANT_ROLES = ["Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile"];
-    
-    // Fetch all User Permissions for the relevant roles and all projects
-    const { data: permissions, isLoading: isPermissionsLoading, error: permissionsError } = useFrappeGetDocList<NirmaanUserPermissionDoc>(
-        DOCTYPE_USER_PERMISSIONS,
-        {
-            fields: ["user", "allow", "for_value"],
-            limit: 0
-        },
-        "nirmaan_project_permissions"
-    );
-
-    // 2c. Fetch Nirmaan Users data to get full names (assuming this is required)
-    const userEmails = useMemo(() => {
-        if (!permissions) return [];
-        return Array.from(new Set(permissions.map(p => p.user)));
-    }, [permissions]);
-
-    const { data: nirmaanUsers, isLoading: isUsersLoading, error: usersError } = useFrappeGetDocList<NirmaanUserDoc>(
-        DOCTYPE_NIRMAAN_USERS,
-        {
-            fields: ["email", "full_name", "role_profile"],
-            filters: [
-                ["role_profile", "in", RELEVANT_ROLES] // Re-filter to be safe
-            ],
-            limit: 0
-        },
-        userEmails.length > 0 ? ["nirmaan_users_for_roles", userEmails] : null // Skip if no emails
-    );
+    const { assignmentsLookup } = useProjectAssignees();
 
 
     // 2d. Fetch all progress reports for the relevant date range (for cell content)
@@ -622,28 +586,19 @@ const ALLOWED_ROLE_PROFILES = [
 ];
 
 const mergedData = useMemo<ProjectProgressReportRow[]>(() => {
-    if (!projects || !progressReports || !permissions || !nirmaanUsers) return [];
-
-    // STEP 1: Build user lookup with full_name + role_profile
-    const userLookup = nirmaanUsers.reduce((acc, user) => {
-        acc[user.email] = {
-            name: user.full_name,
-            role_profile: user.role_profile
-        };
-        return acc;
-    }, {} as Record<string, { name: string; role_profile: string | null }>);
+    if (!projects || !progressReports) return [];
 
      const progressLookup = progressReports.reduce((acc, report) => {
         const project = report.project;
         const isoDate = report.report_date;
         const colId = `report_${isoDate}`;
-        const zone = report.report_zone; // NEW
+        const zone = report.report_zone; 
 
         if (!acc[project]) acc[project] = {};
         if (!acc[project][colId]) {
             acc[project][colId] = {
                 totalReported: 0,
-                reportNames: {}, // Key: zone_name, Value: report_id
+                reportNames: {}, 
             };
         }
 
@@ -653,49 +608,13 @@ const mergedData = useMemo<ProjectProgressReportRow[]>(() => {
         return acc;
     }, {} as Record<string, Record<string, { totalReported: number; reportNames: Record<string, string> }>>);
 
-    // STEP 3: Build assignments lookup from permissions
-    const assignmentsLookup = permissions.reduce((acc, perm) => {
-        const project = perm.for_value;
-        const role = perm.allow;
-        const userInfo = userLookup[perm.user];
-
-        // Skip assigned user if not found or role_profile not allowed
-        if (!userInfo || !ALLOWED_ROLE_PROFILES.includes(userInfo.role_profile || "")) {
-            return acc;
-        }
-
-        if (!acc[project]) acc[project] = [];
-
-        const assignment = {
-            project,
-            email: perm.user,
-            name: userInfo.name,
-            role_profile: userInfo.role_profile
-        };
-
-        // prevent duplicates by email + role_profile
-        if (!acc[project].some(a =>
-            a.email === assignment.email &&
-            a.role_profile === assignment.role_profile
-        )) {
-            acc[project].push(assignment);
-        }
-
-        return acc;
-    }, {} as Record<string, {
-        project: string;
-        name: string;
-        email: string;
-        role_profile: string | null;
-    }[]>);
-
     // STEP 4: Build final rows
    return projects.map(project => {
         const totalZones = project.project_zones?.length || 0; // Get the total zone count for this project
 
         const row: ProjectProgressReportRow = {
             ...project,
-            assigned_leads: assignmentsLookup[project.name] || [],
+            // assigned_leads removed, handled by column
         } as ProjectProgressReportRow; // Cast to include dynamic columns
 
         // Inject the ZoneReportStatus object into the dynamic columns
@@ -720,7 +639,7 @@ const mergedData = useMemo<ProjectProgressReportRow[]>(() => {
 
         return row;
     });
-}, [projects, progressReports, permissions, nirmaanUsers, dynamicDateColumns]);
+}, [projects, progressReports, dynamicDateColumns]);
 
 console.log("mergedData",mergedData);
 
@@ -756,61 +675,7 @@ console.log("mergedData",mergedData);
                 filterFn: facetedFilterFn,
             },
             // MODIFIED COLUMN: Consolidated Assigned Users/Leads
-            {
-                id: "assigned_users", 
-                header: ({ column }) => <DataTableColumnHeader column={column} title="Leads" />,
-                cell: ({ row }) => {
-                    // Use the pre-merged array
-                    const leads = row.original.assigned_leads; 
-                    // console.log("leads",leads)
-                    if (leads.length === 0) {
-                        return <span className="text-gray-400 text-start block">--</span>;
-                    }
-
-                    return (
-                        <div className="flex justify-start w-full">
-                            <TooltipProvider>
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        {/* Single icon to represent all leads */}
-                                        <div className="cursor-pointer">
-                                            <Users className="w-5 h-5 text-gray-700 hover:text-blue-600" />
-                                        </div>
-                                    </TooltipTrigger>
-                                    <TooltipContent className="p-3">
-    <div className="space-y-3">
-        <p className="font-bold text-center border-b pb-1">
-            User Responsive
-        </p>
-
-        {leads.map((lead) => (
-            <div 
-                key={`${lead.role}-${lead.name}`} 
-                className="flex flex-col"
-            >
-                {/* Role Profile */}
-                {/* <span className="text-xs font-semibold text-white-500 uppercase tracking-wide">
-                    {lead.role_profile || "No Role"}
-                </span> */}
-
-                {/* User Name */}
-                <span className="text-sm font-medium text-gray-900 pl-1">
-                    {lead.name} <span>{(lead.role_profile) ? `(${lead.role_profile.replace('Nirmaan ', '').replace(' Profile', '')})` : ''  }</span>
-                </span>
-            </div>
-        ))}
-    </div>
-</TooltipContent>
-
-                                </Tooltip>
-                            </TooltipProvider>
-                        </div>
-                    );
-                },
-                size: 70, 
-                enableSorting: false,
-                enableColumnFilter: false,
-            },
+            getAssigneesColumn<ProjectProgressReportRow>("name", assignmentsLookup, ["Nirmaan Project Manager Profile"]),
         ];
 
         // Dynamic Date columns
@@ -981,7 +846,7 @@ cell: ({ row }) => {
         fetchFields: [],
         searchableFields: [{ value: "project_name", label: "Project Name", placeholder: "Search by Name...", default: true }],
         clientData: mergedData,
-        clientTotalCount: mergedData.length,
+        clientTotalCount: mergedData?.length,
         urlSyncKey: URL_SYNC_KEY,
         defaultSort: 'project_name asc',
         enableRowSelection: false,
@@ -1041,14 +906,14 @@ cell: ({ row }) => {
     }, [table, dynamicDateColumns]); 
 
 
-    const isLoadingOverall = isProjectsLoading || isReportsLoading || isPermissionsLoading || isUsersLoading || isTableHookLoading;
-    const overallError = projectsError || reportsError || permissionsError || usersError || tableHookError;
+    const isLoadingOverall = isProjectsLoading || isReportsLoading   || isTableHookLoading;
+    const overallError = projectsError || reportsError  || tableHookError;
 
     if (overallError) {
         return <AlertDestructive error={overallError as Error} />;
     }
 
-    if (isLoadingOverall && !mergedData.length) {
+    if (isLoadingOverall && !mergedData?.length) {
         return <LoadingFallback />;
     }
 

@@ -6,6 +6,7 @@ import { useUrlParam } from "@/hooks/useUrlParam";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { SevenDayPlanningTabs, PLANNING_TABS, PlanningTabValue } from "./components/planning/SevenDayPlanningTabs";
 import { cn } from "@/lib/utils";
+import { CashflowPlan } from "./CashflowPlan/CashflowPlan";
 
 export const SevenDayPlanningTab = ({ isOverview, projectName }: { isOverview?: boolean; projectName?: string }) => {
   const { projectId } = useParams<{ projectId: string }>();
@@ -29,11 +30,15 @@ export const SevenDayPlanningTab = ({ isOverview, projectName }: { isOverview?: 
   return (
     <div className={cn(
         "flex flex-col", 
-        isOverview ? "gap-4 p-6 bg-white border border-[#D7D7EC] rounded-xl shadow-sm" : "gap-6 p-4"
+        isOverview ? "gap-4 p-6 bg-white border border-gray-200/80 rounded-xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.12)]" : "gap-6 p-4"
     )}>
       
+      {isOverview && (
+        <h3 className="text-xl font-bold text-gray-900 pb-3 border-b border-[#D7D7EC]">Planning</h3>
+      )}
 
-      {isOverview && <div className="h-px bg-[#D7D7EC] w-full" />}
+      {/* {isOverview && <div className="h-px bg-[#D7D7EC] w-full" />} */}
+      
 
       <SevenDayPlanningTabs 
         activeTab={activeTab}
@@ -42,8 +47,8 @@ export const SevenDayPlanningTab = ({ isOverview, projectName }: { isOverview?: 
 
       {/* Tab Content Placeholder */}
       <div className={cn(
-        "min-h-[300px] bg-white",
-        isOverview ? "" : "border rounded-lg p-6 shadow-sm border-[#D7D7EC]"
+        "min-h-[300px]",
+        (isOverview || activeTab === PLANNING_TABS.Cashflow_Plan) ? "" : "bg-white border rounded-lg p-4 md:p-6 shadow-sm border-[#D7D7EC]"
       )}>
         {activeTab === PLANNING_TABS.WORK_PLAN && (
           <SevendaysWorkPlan 
@@ -59,11 +64,8 @@ export const SevenDayPlanningTab = ({ isOverview, projectName }: { isOverview?: 
             projectName={projectName}
           />
         )}
-        {activeTab === PLANNING_TABS.FINANCIAL_PLAN && (
-          <div>
-             <h3 className="text-lg font-medium mb-4">Financial Plan Content</h3>
-             <p className="text-gray-500">Financial plan details for the selected period will appear here.</p>
-          </div>
+        {activeTab === PLANNING_TABS.Cashflow_Plan && (
+          <CashflowPlan projectId={projectId}  isOverview={isOverview}  projectName={projectName}/>
         )}
       </div>
     </div>
