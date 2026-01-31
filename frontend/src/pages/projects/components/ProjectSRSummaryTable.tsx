@@ -60,16 +60,17 @@ export const SR_SUMMARY_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     value: "name",
     label: "WO #",
     placeholder: "Search by WO #...",
-    default: true,
+    
   },
   // { value: "project_name", label: "Project", placeholder: "Search by Project..." }, // Already filtered by project
   // { value: "vendor_name", label: "Vendor", placeholder: "Search by Vendor..." }, // If vendor is relevant here
   { value: "status", label: "Status", placeholder: "Search by Status..." },
   {
     value: "service_order_list",
-    label: "Service Item",
+    label: "Item in WO",
     placeholder: "Search by Service Item...",
     is_json: true,
+    default: true,
   },
 ];
 
