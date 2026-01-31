@@ -8,13 +8,14 @@ export const DEFAULT_PR_FIELDS_TO_FETCH: (keyof ProcurementRequest | 'name')[] =
 
 // Searchable fields Base configuration for PR tables
 export const PR_SEARCHABLE_FIELDS: SearchFieldOption[] = [
-    { value: "name", label: "PR ID", placeholder: "Search by PR ID...", default: true },
+    { value: "name", label: "PR ID", placeholder: "Search by PR ID..." },
     { value: "project", label: "Project ID", placeholder: "Search by Project ID..." },
     // { value: "project_name", label: "Project Name", placeholder: "Search by Project Name..." },
     {
         value: "order_list",
         label: "Item in PR",
         placeholder: "Search by Item Name in PRs...",
+        default: true,
         is_json: true, // Signal to backend for special JSON search logic
 
     },

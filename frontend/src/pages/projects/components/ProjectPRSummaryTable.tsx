@@ -58,7 +58,7 @@ export const PR_SUMMARY_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     value: "name",
     label: "PR ID",
     placeholder: "Search by PR ID...",
-    default: true,
+   
   },
   {
     value: "work_package",
@@ -70,6 +70,7 @@ export const PR_SUMMARY_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     label: "Item in PR",
     placeholder: "Search by Item Name in PR...",
     is_json: true,
+    default: true,
   },
 ];
 
