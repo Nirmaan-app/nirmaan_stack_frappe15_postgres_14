@@ -231,6 +231,20 @@ export const appRoutes: RouteObject[] = [
             children: [
               { index: true, element: <ServiceRequestsTabs /> },
               { path: ":srId", element: <RenderSRComponent /> },
+              {
+                path: "new/:projectId",
+                lazy: async () => {
+                  const { SRFormWizard } = await import("@/pages/ServiceRequests/sr-form");
+                  return { Component: SRFormWizard };
+                },
+              },
+              {
+                path: ":srId/amend",
+                lazy: async () => {
+                  const { SRAmendPage } = await import("@/pages/ServiceRequests/sr-form/amend");
+                  return { Component: SRAmendPage };
+                },
+              },
             ]
           },
 

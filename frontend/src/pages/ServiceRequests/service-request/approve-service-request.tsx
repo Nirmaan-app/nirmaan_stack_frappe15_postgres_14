@@ -3,19 +3,19 @@ import { RenderPRorSBComments } from "@/components/helpers/RenderPRorSBComments"
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback"
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { toast } from "@/components/ui/use-toast"
 import { useUserData } from "@/hooks/useUserData"
 import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList"
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments"
 import { ServiceItemType } from "@/types/NirmaanStack/ServiceRequests"
-import formatToIndianRupee from "@/utils/FormatPrice"
 import { parseNumber } from "@/utils/parseNumber"
-import { ConfigProvider, Table } from "antd"
 import { useFrappeCreateDoc, useFrappeDocumentEventListener, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk"
-import { CheckCheck, ListChecks, ListX, Undo2 } from "lucide-react"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { CheckCheck, ListChecks, ListX, Store, Undo2 } from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
 import { TailSpin } from "react-loader-spinner"
 import { useNavigate, useParams } from "react-router-dom"
+import { ServiceItemsAccordion, type ServiceItem } from "../sr-form/components"
 
 export const ApproveServiceRequest: React.FC = () => {
     const { srId: id } = useParams<{ srId: string }>()
@@ -23,11 +23,10 @@ export const ApproveServiceRequest: React.FC = () => {
     if (!id) return <div>No Service Request ID Provided</div>
 
     const navigate = useNavigate()
-    const [serviceOrderData, setServiceOrderData] = useState<ServiceItemType[] | null>(null)
+    const [serviceOrderData, setServiceOrderData] = useState<ServiceItem[] | null>(null)
     const [isLoading, setIsLoading] = useState<string | null>(null);
     const [comment, setComment] = useState('')
     const userData = useUserData()
-    const [expandedRowKeys, setExpandedRowKeys] = useState<string[]>([]);
 
     const { data: service_request, isLoading: service_request_loading, mutate: srMutate } = useFrappeGetDoc("Service Requests", id)
 
@@ -62,104 +61,31 @@ export const ApproveServiceRequest: React.FC = () => {
     //     }
     // }
 
+    // Parse service order data from the document
     useEffect(() => {
-        if (service_request) {
-            setServiceOrderData(JSON.parse(service_request?.service_order_list)?.list)
+        if (service_request?.service_order_list) {
+            try {
+                const parsed = typeof service_request.service_order_list === 'string'
+                    ? JSON.parse(service_request.service_order_list)
+                    : service_request.service_order_list;
+
+                // Convert to ServiceItem format with numbers
+                const items: ServiceItem[] = (parsed?.list || []).map((item: ServiceItemType) => ({
+                    id: item.id,
+                    category: item.category,
+                    description: item.description,
+                    uom: item.uom,
+                    quantity: parseNumber(item.quantity),
+                    rate: parseNumber(item.rate),
+                }));
+
+                setServiceOrderData(items);
+            } catch (e) {
+                console.error("Failed to parse service_order_list:", e);
+                setServiceOrderData([]);
+            }
         }
-    }, [service_request])
-
-    // const groupedData = useMemo(() => {
-    //     return serviceOrderData?.reduce((acc, item) => {
-    //         acc[item.category] = acc[item.category] || [];
-    //         acc[item.category].push(item);
-    //         return acc;
-    //     }, {});
-    // }, [serviceOrderData]);
-
-    const groupedData = useMemo(() => {
-        return (serviceOrderData || [])?.reduce((acc: Record<string, { items: ServiceItemType[], total: number, totalWithGST: number }>, item) => {
-            const category = item.category
-            acc[category] = acc[category] || { items: [], total: 0, totalWithGST: 0 }
-            acc[category].items.push(item)
-            const total = parseNumber(item?.rate) * parseNumber(item?.quantity)
-            acc[category].total += total
-            acc[category].totalWithGST += total * 1.18 // Assuming 18% GST
-            return acc
-        }, {})
-    }, [serviceOrderData])
-
-    useEffect(() => {
-        if (groupedData) {
-            setExpandedRowKeys(Object.keys(groupedData));
-        }
-    }, [groupedData]);
-
-    // console.log("groupedData", groupedData)
-
-    // Main table columns
-    const columns = useMemo(() => [
-        {
-            title: "Service",
-            dataIndex: "category",
-            key: "category",
-            width: "55%",
-            render: (text) => <strong className="text-primary">{text}</strong>,
-        },
-        {
-            title: "Selected Vendor",
-            key: "vendor",
-            width: "45%",
-            render: () => <span className="font-semibold text-primary">{serviceVendor?.vendor_name}</span>,
-        },
-    ], [serviceVendor]);
-
-    // Inner table columns
-    const innerColumns = useMemo(() => [
-        {
-            title: "Description",
-            dataIndex: "description",
-            key: "description",
-            width: "50%",
-            render: (text) => <span className="italic whitespace-pre-wrap">{text}</span>
-        },
-        {
-            title: "Unit",
-            dataIndex: "uom",
-            key: "uom",
-            width: "10%",
-            render: (text) => <span>{text}</span>,
-        },
-        {
-            title: "Quantity",
-            dataIndex: "quantity",
-            key: "quantity",
-            width: "10%",
-            render: (text) => <span>{text}</span>,
-        },
-        {
-            title: "Rate",
-            dataIndex: "rate",
-            key: "rate",
-            width: "10%",
-            render: (text) => <span className="italic">{formatToIndianRupee(text)}</span>,
-        },
-        {
-            title: "Amount",
-            dataIndex: "amount",
-            key: "amount",
-            width: "10%",
-            render: (text, record) => <span className={`italic`}>{formatToIndianRupee(record?.id?.endsWith('total') ? text : record.rate * record.quantity)}</span>,
-        },
-        {
-            title: "Amt inc. tax",
-            dataIndex: "amountinctax",
-            key: "amountinctax",
-            width: "20%",
-            render: (text, record) => {
-                return <span className={`italic`}>{formatToIndianRupee(record?.id?.endsWith('total') ? text : record.rate * record.quantity * 1.18)}</span>
-            },
-        },
-    ], []);
+    }, [service_request]);
 
     const handleApprove = async () => {
         try {
@@ -274,48 +200,43 @@ export const ApproveServiceRequest: React.FC = () => {
                 <ProcurementActionsHeaderCard orderData={service_request} sr={true} />
             </div>
 
-            <div className="overflow-x-auto">
-                <ConfigProvider
-                    theme={{
-                        components: {
-                            Table: {
-                                // headerBg: "#FFD3CC"
-                            }
-                        }
-                    }}
-                >
-                    <Table
-                        dataSource={((groupedData && Object.keys(groupedData)) || []).map((key) => ({
-                            key,
-                            category: key,
-                            items: groupedData[key].items,
-                            total: groupedData[key].total,
-                            totalWithGST: groupedData[key].totalWithGST,
-                        }))}
-                        columns={columns}
-                        expandable={{
-                            expandedRowKeys,
-                            onExpandedRowsChange: setExpandedRowKeys,
-                            expandedRowRender: (record) => (
-                                <Table
-                                    dataSource={[
-                                        ...record.items,
-                                        {
-                                            id: `${record.key}-total`,
-                                            description: <strong>Total</strong>,
-                                            amount: record.total,
-                                            amountinctax: record.totalWithGST,
-                                        },
-                                    ]}
-                                    columns={innerColumns}
-                                    pagination={false}
-                                    rowKey={(item) => item.id}
-                                />
-                            ),
-                        }}
-                    />
-                </ConfigProvider>
-            </div>
+            {/* Vendor Info Card */}
+            <Card className="border-primary/20 bg-primary/5">
+                <CardHeader className="py-3 px-4 border-b border-primary/10">
+                    <CardTitle className="text-sm font-medium flex items-center gap-2">
+                        <Store className="h-4 w-4 text-primary" />
+                        Selected Vendor
+                    </CardTitle>
+                </CardHeader>
+                <CardContent className="py-3 px-4">
+                    <div className="flex flex-wrap gap-4 text-sm">
+                        <div>
+                            <span className="text-muted-foreground">Name:</span>{" "}
+                            <span className="font-medium">{serviceVendor?.vendor_name}</span>
+                        </div>
+                        {serviceVendor?.vendor_city && (
+                            <div>
+                                <span className="text-muted-foreground">City:</span>{" "}
+                                <span>{serviceVendor.vendor_city}</span>
+                            </div>
+                        )}
+                        {serviceVendor?.vendor_state && (
+                            <div>
+                                <span className="text-muted-foreground">State:</span>{" "}
+                                <span>{serviceVendor.vendor_state}</span>
+                            </div>
+                        )}
+                    </div>
+                </CardContent>
+            </Card>
+
+            {/* Service Items Accordion - grouped by category with totals */}
+            {serviceOrderData && serviceOrderData.length > 0 && (
+                <ServiceItemsAccordion
+                    items={serviceOrderData}
+                    defaultExpanded={true}
+                />
+            )}
 
             <div className="flex justify-end gap-2 mr-2 mt-2">
                 <AlertDialog>

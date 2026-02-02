@@ -15,13 +15,12 @@ import { SRInvoicePreviewSheet } from './components/SRInvoicePreviewSheet';
 import { SRActionButtons } from './components/SRActionButtons';
 import { SRRemarks } from './components/SRRemarks';
 import { InvoiceDialog } from "@/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceDialog"; // Your existing
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { useApprovedSRData } from './hooks/useApprovedSRData';
 import { useSREditTerms } from './hooks/useSREditTerms';
 import { useSRPaymentManager } from './hooks/useSRPaymentManager';
 import { useSRWorkflowActions } from './hooks/useSRWorkflowActions';
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
-import { SelectServiceVendorPage } from '../service-request/select-service-vendor';
+import { SRAmendSheet } from '../sr-form/amend';
 
 // Combine all props needed by the View
 interface ApprovedSRViewProps {
@@ -243,24 +242,12 @@ export const ApprovedSRView: React.FC<ApprovedSRViewProps> = ({
             )}
 
             {isAmendSheetOpen && serviceRequest && (
-                <Sheet open={isAmendSheetOpen} onOpenChange={toggleAmendSheet}>
-                    <SheetContent className="overflow-auto md:min-w-[700px] sm:min-w-[500px]">
-                        <SheetHeader>
-                            <SheetTitle className="text-center mb-6">Amend Service Request: {serviceRequest.name}</SheetTitle>
-                        </SheetHeader>
-                        {/* SelectServiceVendorPage is your existing page/component for creating/editing SR */}
-                        <SelectServiceVendorPage
-                            sr_data={serviceRequest} // Pass existing data for amendment
-                            sr_data_mutate={mutateSR} // To refresh after amendment
-                            amend={true} // Indicate it's an amendment
-                        // You might need a callback to close the sheet on successful amendment
-                        // onAmendmentComplete={() => {
-                        //     toggleAmendSheet();
-                        //     // navigate to new amended SR if that's the flow
-                        // }}
-                        />
-                    </SheetContent>
-                </Sheet>
+                <SRAmendSheet
+                    srId={serviceRequest.name}
+                    isOpen={isAmendSheetOpen}
+                    onOpenChange={toggleAmendSheet}
+                    onSuccess={() => mutateSR()}
+                />
             )}
 
             {/* Global Loading Overlay for actions */}
