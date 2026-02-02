@@ -1,5 +1,4 @@
 import * as React from 'react';
-import { cn } from '@/lib/utils';
 import {
   AlertDialog,
   AlertDialogContent,
@@ -9,7 +8,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
-import { FileText, Clock, Building2, RefreshCw, Sparkles } from 'lucide-react';
+import { FileText, Clock, Package, RefreshCw, Sparkles, User } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 /* ─────────────────────────────────────────────────────────────
@@ -32,12 +31,16 @@ interface DraftResumeDialogProps {
   onStartFresh: () => void;
   /** ISO timestamp of when draft was last saved */
   draftDate: string | null;
-  /** Project name from draft (if available) */
-  projectName?: string | null;
+  /** Work package name (if available) */
+  workPackage?: string | null;
   /** Current step the draft was on */
   currentStep?: number;
   /** Total steps */
   totalSteps?: number;
+  /** PR ID for Approve PR flow (if available) */
+  prId?: string | null;
+  /** Created by user name for Approve PR flow (if available) */
+  createdBy?: string | null;
 }
 
 export const DraftResumeDialog: React.FC<DraftResumeDialogProps> = ({
@@ -46,10 +49,14 @@ export const DraftResumeDialog: React.FC<DraftResumeDialogProps> = ({
   onResume,
   onStartFresh,
   draftDate,
-  projectName,
+  workPackage,
   currentStep,
   totalSteps = 6,
+  prId,
+  createdBy,
 }) => {
+  // Determine if this is a PR context (has prId)
+  const isPRContext = !!prId;
   // Format the relative time
   const relativeTime = React.useMemo(() => {
     if (!draftDate) return null;
@@ -75,29 +82,50 @@ export const DraftResumeDialog: React.FC<DraftResumeDialogProps> = ({
 
           <div className="space-y-2">
             <AlertDialogTitle className="text-lg font-semibold">
-              Resume Previous Draft?
+              {isPRContext
+                ? `Resume previous draft for ${prId}?`
+                : 'Resume Previous Draft?'}
             </AlertDialogTitle>
 
             <AlertDialogDescription asChild>
               <div className="space-y-3">
                 <p className="text-sm text-muted-foreground">
-                  You have an unfinished project setup. Would you like to continue where you left off?
+                  {isPRContext
+                    ? 'You have unsaved changes from a previous session. Would you like to continue where you left off?'
+                    : 'You have an unfinished project setup. Would you like to continue where you left off?'}
                 </p>
 
                 {/* Draft preview card */}
                 <div className="rounded-lg border border-border bg-muted/30 overflow-hidden">
-                  {/* Project name row */}
-                  {projectName && (
+                  {/* Work Package row */}
+                  {workPackage && (
                     <div className="flex items-center gap-3 px-3 py-2.5 border-b border-border/50">
                       <div className="flex items-center justify-center w-8 h-8 rounded-md bg-primary/10 shrink-0">
-                        <Building2 className="w-4 h-4 text-primary" />
+                        <Package className="w-4 h-4 text-primary" />
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="text-xs text-muted-foreground uppercase tracking-wider">
-                          Project Name
+                          Work Package
                         </p>
                         <p className="text-sm font-medium text-foreground truncate">
-                          {projectName}
+                          {workPackage}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Created by row (PR context only) */}
+                  {createdBy && (
+                    <div className="flex items-center gap-3 px-3 py-2.5 border-b border-border/50">
+                      <div className="flex items-center justify-center w-8 h-8 rounded-md bg-muted shrink-0">
+                        <User className="w-4 h-4 text-muted-foreground" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs text-muted-foreground uppercase tracking-wider">
+                          Created by
+                        </p>
+                        <p className="text-sm font-medium text-foreground truncate">
+                          {createdBy}
                         </p>
                       </div>
                     </div>
