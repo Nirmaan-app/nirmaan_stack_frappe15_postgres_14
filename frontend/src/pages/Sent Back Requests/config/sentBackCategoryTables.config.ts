@@ -6,7 +6,7 @@ export const DEFAULT_SB_FIELDS_TO_FETCH: (keyof SentBackCategory | 'name')[] = [
 ];
 
 export const SB_SEARCHABLE_FIELDS: SearchFieldOption[] = [
-    { value: "name", label: "SB ID", placeholder: "Search by SB ID...", default: true },
+    { value: "name", label: "SB ID", placeholder: "Search by SB ID..." },
     { value: "project", label: "Project ID", placeholder: "Search by Project ID..." },
     // { value: "project_name", label: "Project Name", placeholder: "Search by Project Name..." },
     // { value: "workflow_state", label: "Status", placeholder: "Search by Status..." },
@@ -14,6 +14,7 @@ export const SB_SEARCHABLE_FIELDS: SearchFieldOption[] = [
         value: "order_list", // Field name for backend
         label: "Item in SB",
         placeholder: "Search by Item Name in SBs...",
+        default: true,
         is_json: true, // Signal to backend for special JSON search logic
     },
 ];

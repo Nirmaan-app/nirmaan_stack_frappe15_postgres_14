@@ -90,7 +90,7 @@ export const PO_SUMMARY_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     value: "name",
     label: "PO ID",
     placeholder: "Search by PO ID...",
-    default: true,
+   
   },
   {
     value: "vendor_name",
@@ -113,6 +113,7 @@ export const PO_SUMMARY_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     label: "Item in PO",
     placeholder: "Search by Item in PO...",
     is_json: true,
+     default: true,
   },
 ];
 

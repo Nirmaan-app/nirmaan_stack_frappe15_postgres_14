@@ -44,7 +44,7 @@ import PaymentSummaryCards from "../PaymentSummaryCards";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { useFacetValues } from "@/hooks/useFacetValues";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { getPOTotal, getSRTotal, getTotalAmountPaid } from "@/utils/getAmounts";
+// import { getPOTotal, getSRTotal, getTotalAmountPaid } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import {
   NotificationType,

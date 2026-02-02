@@ -1,4 +1,4 @@
-import { InvoiceDataType, PurchaseOrderItem, POTotals, ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
+import { InvoiceDataType } from "@/types/NirmaanStack/ProcurementOrders";
 import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
@@ -7,63 +7,6 @@ import memoize from "lodash/memoize";
 import { parseNumber } from "./parseNumber";
 import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
 import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
-
-export const getPOTotal = (order: ProcurementOrder): { total: number, totalGst: number, totalWithTax: number } => {
-
-  // console.log("orders",orders)
-  // 1. Guard Clause: If the input is not a valid array, or is empty, return zeros.
-  if (!order) {
-    return { total: 0, totalGst: 0, totalWithTax: 0 };
-  }
-
-
-  // 2. Directly access the pre-calculated fields from the document, using parseNumber for safety.
-  const total = parseNumber(order.amount);
-  const totalGst = parseNumber(order.tax_amount);
-  const totalWithTax = parseNumber(order.total_amount);
-
-  // 3. Return the extracted totals.
-  return { total, totalGst, totalWithTax };
-};
-
-export const getPOSTotals = (order: ProcurementOrder): { total: number, totalGst: number, totalWithTax: number } => {
-
-  // console.log("orders",orders)
-  // 1. Guard Clause: If the input is not a valid array, or is empty, return zeros.
-  if (!order) {
-    return { total: 0, totalGst: 0, totalWithTax: 0 };
-  }
-
-  const totals = order?.reduce(
-    (acc, item) => {
-     
-
-      const itemBaseAmount = parseNumber(item.amount);
-      const itemTaxAmount = parseNumber(item.tax_amount);
-      const totalAmount = parseNumber(item.total_amount);
-
-      acc.total += itemBaseAmount;
-      acc.totalGst += itemTaxAmount;
-      acc.totalWithTax+= totalAmount;
-
-      return acc;
-    },
-    { total: 0, totalGst: 0,totalWithTax:0 }
-  );
-
-
-  // 2. Directly access the pre-calculated fields from the document, using parseNumber for safety.
-  
-
-  // 3. Return the extracted totals.
-   return {
-    totalWithTax: totals.totalWithTax,
-    total: totals.totalBase,
-    totalGst: totals.totalTax,
-  };
-};
-
-
 
 export const getSRTotal = memoize(
   (order: any) => {
@@ -262,36 +205,92 @@ export const getTotalVendorInvoiceAmount = memoize(
 
 // --- THIS IS THE NEW, SIMPLIFIED FUNCTION --- its specially for frontend caculation to 
 // items [array of cal]
-export const getPreviewTotal = (orderData: PurchaseOrderItem[]): POTotals => {
-  // If there's no order, return zeroed values
-  if (!orderData) {
-    return { grandTotal: 0, totalBase: 0, totalTax: 0 };
-  }
+// export const getPreviewTotal = (orderData: PurchaseOrderItem[]): POTotals => {
+//   // If there's no order, return zeroed values
+//   if (!orderData) {
+//     return { grandTotal: 0, totalBase: 0, totalTax: 0 };
+//   }
 
-  // Determine the correct list of items to use
+//   // Determine the correct list of items to use
 
-  // Calculate totals from the items list
-  const totals = orderData?.reduce(
-    (acc, item) => {
-      const rate = parseNumber(item.quote);
-      const quantity = parseNumber(item.quantity);
-      const taxPercent = parseNumber(item.tax);
+//   // Calculate totals from the items list
+//   const totals = orderData?.reduce(
+//     (acc, item) => {
+//       const rate = parseNumber(item.quote);
+//       const quantity = parseNumber(item.quantity);
+//       const taxPercent = parseNumber(item.tax);
 
-      const itemBaseAmount = rate * quantity;
-      const itemTaxAmount = itemBaseAmount * (taxPercent / 100);
+//       const itemBaseAmount = rate * quantity;
+//       const itemTaxAmount = itemBaseAmount * (taxPercent / 100);
 
-      acc.totalBase += itemBaseAmount;
-      acc.totalTax += itemTaxAmount;
+//       acc.totalBase += itemBaseAmount;
+//       acc.totalTax += itemTaxAmount;
 
-      return acc;
-    },
-    { totalBase: 0, totalTax: 0 }
-  );
+//       return acc;
+//     },
+//     { totalBase: 0, totalTax: 0 }
+//   );
 
-  // Return the new, clean object. No additional charges are included.
-  return {
-    grandTotal: totals.totalBase + totals.totalTax,
-    totalBase: totals.totalBase,
-    totalTax: totals.totalTax,
-  };
-};
+//   // Return the new, clean object. No additional charges are included.
+//   return {
+//     grandTotal: totals.totalBase + totals.totalTax,
+//     totalBase: totals.totalBase,
+//     totalTax: totals.totalTax,
+//   };
+// };
+
+// export const getPOTotal = (order: ProcurementOrder): { total: number, totalGst: number, totalWithTax: number } => {
+
+//   // console.log("orders",orders)
+//   // 1. Guard Clause: If the input is not a valid array, or is empty, return zeros.
+//   if (!order) {
+//     return { total: 0, totalGst: 0, totalWithTax: 0 };
+//   }
+
+
+//   // 2. Directly access the pre-calculated fields from the document, using parseNumber for safety.
+//   const total = parseNumber(order.amount);
+//   const totalGst = parseNumber(order.tax_amount);
+//   const totalWithTax = parseNumber(order.total_amount);
+
+//   // 3. Return the extracted totals.
+//   return { total, totalGst, totalWithTax };
+// };
+
+// export const getPOSTotals = (order: ProcurementOrder): { total: number, totalGst: number, totalWithTax: number } => {
+
+//   console.log("orders",order)
+//   // 1. Guard Clause: If the input is not a valid array, or is empty, return zeros.
+//   if (!order) {
+//     return { total: 0, totalGst: 0, totalWithTax: 0 };
+//   }
+
+//   const totals = order?.reduce(
+//     (acc, item) => {
+     
+
+//       const itemBaseAmount = parseNumber(item.amount);
+//       const itemTaxAmount = parseNumber(item.tax_amount);
+//       const totalAmount = parseNumber(item.total_amount);
+
+//       acc.total += itemBaseAmount;
+//       acc.totalGst += itemTaxAmount;
+//       acc.totalWithTax+= totalAmount;
+
+//       return acc;
+//     },
+//     { total: 0, totalGst: 0,totalWithTax:0 }
+//   );
+
+
+//   // 2. Directly access the pre-calculated fields from the document, using parseNumber for safety.
+  
+
+//   // 3. Return the extracted totals.
+//    return {
+//     totalWithTax: totals.totalWithTax,
+//     total: totals.totalBase,
+//     totalGst: totals.totalTax,
+//   };
+// };
+

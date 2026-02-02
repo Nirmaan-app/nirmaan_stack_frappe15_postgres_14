@@ -17,15 +17,18 @@ import { formatDate } from "@/utils/FormatDate"
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice"
 import { getTotalInflowAmount, getTotalProjectInvoiceAmount } from "@/utils/getAmounts"
 import { urlStateManager } from "@/utils/urlStateManager"
-import { Radio } from "antd"
 import { useFrappeGetDocList } from "frappe-react-sdk"
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import { AmountBreakdownHoverCard } from "./components/AmountBreakdownHoverCard"
 import { useProjectAllCredits } from "./hooks/useProjectAllCredits";
+import { CustomerPODetailsCard } from "./components/CustomerPODeatilsCard";
+
 const AllPayments = React.lazy(() => import("../ProjectPayments/AllPayments"));
 const ProjectPaymentsList = React.lazy(() => import("../ProjectPayments/project-payments-list"));
 const ProjectWiseInvoices = React.lazy(() => import("./ProjectWiseInvoices"));
 const ProjectInvoices = React.lazy(() => import("../ProjectInvoices/ProjectInvoices"));
+const InFlowPayments = React.lazy(() => import("../inflow-payments/InFlowPayments"));
+// const CustomerPODeatilsCard = React.lazy(() => import("./components/CustomerPODeatilsCard"));
 
 interface ProjectFinancialsTabProps {
   projectData?: Projects
@@ -243,6 +246,14 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
       label: "Project Invoices",
       value: "Project Invoices"
     },
+    {
+      label: "Inflow",
+      value: "Inflow"
+    },
+    {
+      label: "Client PO",
+      value: "Client PO"
+    },
   ], [])
 
   const onClick = useCallback(
@@ -297,24 +308,44 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
         </CardContent>
       </Card>
 
-      {tabs && (
-        <Radio.Group
-          options={tabs}
-          defaultValue="All Payments"
-          optionType="button"
-          buttonStyle="solid"
-          value={tab}
-          onChange={(e) => onClick(e.target.value)}
-        />
-      )}
+      {/* Tab Navigation - Custom Tailwind buttons matching ServiceRequestsTabs */}
+      <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">
+        <div className="flex gap-1.5 sm:flex-wrap pb-1 sm:pb-0">
+          {tabs.map((option) => {
+            const isActive = tab === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => onClick(option.value)}
+                className={`px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded
+                    transition-colors flex items-center gap-1.5 whitespace-nowrap
+                    ${isActive
+                    ? "bg-sky-500 text-white"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  }`}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
       <Suspense fallback={<LoadingFallback />}>
         {tab === "All Payments" ? (
           <AllPayments tab="Payments Done" projectId={projectData?.name} />
         ) : tab === "All Orders" ? (
-
           <ProjectPaymentsList projectId={projectData?.name} />
-        ) : tab === "All PO Invoices" ? (<ProjectWiseInvoices projectId={projectData?.name} />) : <ProjectInvoices projectId={projectData?.name} customerId={projectData?.customer} />}
+        ) : tab === "All PO Invoices" ? (
+          <ProjectWiseInvoices projectId={projectData?.name} />
+        ) : tab === "Project Invoices" ? (
+          <ProjectInvoices projectId={projectData?.name} customerId={projectData?.customer} />
+        ) : tab === "Inflow" ? (
+          <InFlowPayments projectId={projectData?.name} urlContext="project_financials" />
+        ) : (
+          <CustomerPODetailsCard projectId={projectData?.name} refetchProjectData={async () => { }} role={""} />
+        )}
       </Suspense>
 
       <Dialog open={inflowPaymentsDialog} onOpenChange={toggleInflowPaymentsDialog}>

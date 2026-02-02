@@ -11,7 +11,7 @@ import { MiscCashflow } from "./MiscCashflow";
 import { InflowCashflow } from "./InflowCashflow";
 import { useToast } from "@/components/ui/use-toast";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Download, ChevronDown } from "lucide-react";
+import { Download, ChevronDown, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
@@ -176,11 +176,16 @@ export const CashflowPlan = ({ projectId, isOverview }: CashflowPlanProps) => {
                                  <Button 
                                     size="sm" 
                                     variant="outline" 
-                                    className="h-8 gap-2 px-3 bg-white text-gray-700 border-gray-200 shadow-sm hover:bg-gray-50 hover:text-gray-900 transition-all font-medium"
+                                    disabled={isDownloading || isDownloadingAll}
+                                    className="h-8 gap-2 px-3 bg-white text-gray-700 border-gray-200 shadow-sm hover:bg-gray-50 hover:text-gray-900 transition-all font-medium disabled:opacity-70 disabled:cursor-not-allowed"
                                 >
-                                    <Download className="w-3.5 h-3.5 text-gray-500" />
-                                    <span className="text-xs">Export</span>
-                                    <ChevronDown className="w-3 h-3 text-gray-400 opacity-50" />
+                                    {(isDownloading || isDownloadingAll) ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-500" />
+                                    ) : (
+                                        <Download className="w-3.5 h-3.5 text-gray-500" />
+                                    )}
+                                    <span className="text-xs">{(isDownloading || isDownloadingAll) ? "Exporting..." : "Export"}</span>
+                                    {!(isDownloading || isDownloadingAll) && <ChevronDown className="w-3 h-3 text-gray-400 opacity-50" />}
                                  </Button>
                             </DropdownMenuTrigger>
                             {/* Dropdown width matches button on desktop, full-ish on mobile */}

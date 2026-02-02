@@ -116,15 +116,18 @@ export const TDSApprovalList: React.FC = () => {
 
     const { call } = useFrappePostCall("nirmaan_stack.api.tds.get_tds_requests.get_tds_request_list");
 
+
     // Fetch data
     const fetchData = useCallback(async () => {
         setIsLoading(true);
         try {
+            // Fetch ALL data (large limit) for client-side filtering
             const response = await call({
-                start: pagination.pageIndex * pagination.pageSize,
-                page_length: pagination.pageSize,
+                start: 0,
+                page_length: 50000, // Large limit to get all records
                 tab: activeTab,
-                search_term: searchTerm || null,
+                // Client-side search & filtering, so we don't pass search/filter params to backend
+                search_term: null, 
                 user_id: user_id,
             });
             
@@ -141,7 +144,7 @@ export const TDSApprovalList: React.FC = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [call, activeTab, searchTerm, pagination, user_id, setTabCounts]);
+    }, [call, activeTab, user_id, setTabCounts]);
 
     useEffect(() => {
         fetchData();
@@ -288,16 +291,19 @@ export const TDSApprovalList: React.FC = () => {
         onSortingChange: setSorting,
         onColumnFiltersChange: setColumnFilters,
         onPaginationChange: setPagination,
-        manualPagination: true,
-        pageCount: Math.ceil(totalCount / pagination.pageSize),
+        onGlobalFilterChange: setSearchTerm, // Connect global filter state update
+        manualPagination: false, // Client-side pagination
+        // manualFiltering: false, // Client-side filtering (default)
+        pageCount: undefined, // Let table calculate page count from data
         state: {
             sorting,
             columnFilters,
             pagination,
+            globalFilter: searchTerm, // Pass global filter state
         },
     });
 
-    // Generate facet filter options from loaded data
+    // Generate facet filter options from loaded data (Client-Side)
     const facetFilterOptions = useMemo(() => {
         const uniqueTdsIds = [...new Set(data.map(d => d.request_id).filter(Boolean))];
         const tdsOptions = uniqueTdsIds.map(id => ({ label: id, value: id }));
@@ -314,6 +320,7 @@ export const TDSApprovalList: React.FC = () => {
             created_by_full_name: { title: "Submitted By", options: createdByOptions, isLoading: isLoading },
         };
     }, [data, isLoading]);
+
 
     return (
         <div className="flex-1 space-y-2 p-6 md:p-4 bg-slate-50/50 min-h-screen">

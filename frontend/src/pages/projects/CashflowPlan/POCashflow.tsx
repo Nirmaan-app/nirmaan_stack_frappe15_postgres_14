@@ -114,6 +114,7 @@ const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashf
         <div className="space-y-6">
             <div className="bg-white shadow-sm p-4 border rounded-lg">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
+                     <div className="space-y-1">
                     <div className="flex items-center gap-2">
                         <h3 className="text-xl font-bold text-gray-900">PO Cashflow</h3>
                         {existingPlans && (
@@ -121,6 +122,7 @@ const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashf
                                 {existingPlans.length}
                             </Badge>
                         )}
+                    </div>
                     </div>
                     <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
                         <Button onClick={() => setShowMaterialDialog(true)} variant="outline" className="w-full md:w-auto bg-gray-50 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700">
@@ -161,7 +163,7 @@ const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashf
                 )}
             
                  {/* List */}
-                 <div className="space-y-3">
+                 <div className="space-y-2">
                     {isLoadingPlans && <div className="text-gray-500 text-center py-4">Loading plans...</div>}
                     {!isLoadingPlans && existingPlans?.length === 0 && (
                         <div className="text-gray-500 text-center py-10 bg-gray-50 rounded-lg border border-dashed">
@@ -195,7 +197,7 @@ const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashf
                                                 </Badge>
                                                 
                                             </div>
-                                            <h4 className="font-semibold text-gray-900 leading-tight text-sm truncate" title={plan.critical_po_task}>
+                                            <h4 className="font-semibold text-gray-900 leading-tight text-sm  break-words" title={plan.critical_po_task}>
                                                 {plan.critical_po_task || "Untitled Task"}
                                             </h4>
                                             <span className="text-[11px] text-gray-500 font-medium truncate" title={plan.critical_po_category}>

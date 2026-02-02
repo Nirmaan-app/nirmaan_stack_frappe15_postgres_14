@@ -8,7 +8,7 @@ import { ProjectInflows } from '@/types/NirmaanStack/ProjectInflows';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
 import { ProjectExpenses } from '@/types/NirmaanStack/ProjectExpenses'; // --- (Indicator) NEW: Import ProjectExpenses type ---
 import { VendorInvoice } from '@/types/NirmaanStack/VendorInvoice';
-import { getPOTotal, getSRTotal } from '@/utils/getAmounts';
+import {getSRTotal } from '@/utils/getAmounts';
 import { parseNumber } from '@/utils/parseNumber';
 import {
     queryKeys,
@@ -367,7 +367,7 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
 // console.log("DEBUG: relatedPOs, relatedSRs",relatedPOs,relatedSRs)
             let totalInvoiced = 0;
             relatedPOs.forEach(po => {
-                totalInvoiced += getPOTotal(po)?.totalWithTax || 0;
+                totalInvoiced += po?.total_amount || 0;
             });
             relatedSRs.forEach(sr => {
                 const amount = getSRTotal(sr) || 0;

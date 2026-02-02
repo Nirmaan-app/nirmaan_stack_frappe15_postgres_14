@@ -90,15 +90,11 @@ const getVendorFormSchema = (service: boolean, isTaxGSTType: boolean, accountNum
                 message: "Must be at least 3 characters.",
             }),
         vendor_nickname: z
-            .string({
-                required_error: "Must provide Vendor Nickname"
-            })
-            .min(2, {
-                message: "Must be at least 2 characters.",
-            })
+            .string()
             .max(30, {
                 message: "Must not exceed 30 characters.",
-            }),
+            })
+            .optional(),
         address_line_1: z
             .string({
                 required_error: "Address Line 1 Required"
@@ -462,7 +458,7 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
             render={({ field }) => (
               <FormItem>
                 <FormLabel>
-                  Nickname<sup className="text-sm text-red-600">*</sup>
+                  Nickname
                 </FormLabel>
                 <FormControl>
                   <Input placeholder="Short, memorable name (e.g. Nirmaan, ABC Steel)" {...field}

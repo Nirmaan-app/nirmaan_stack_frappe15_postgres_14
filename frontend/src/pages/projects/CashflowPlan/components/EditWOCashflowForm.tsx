@@ -244,6 +244,7 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                                 placeholder="Select vendor"
                                 className="text-sm"
                                 isLoading={isLoadingVendors}
+                                maxMenuHeight={200}
                                 filterOption={(option: any, inputValue: any) => {
                                         if (option.data.value === "__others__") return true;
                                         return option.label.toLowerCase().includes(inputValue.toLowerCase());

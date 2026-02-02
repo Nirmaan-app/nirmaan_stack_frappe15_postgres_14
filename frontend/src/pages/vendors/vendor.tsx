@@ -157,11 +157,11 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
             <div className="flex items-center gap-1 mb-4">
                 <div className="flex items-baseline gap-2 ml-4">
                     <h2 className="text-2xl md:text-3xl font-bold tracking-tight text-primary">
-                        {vendor?.vendor_nickname || vendor?.vendor_name}
+                        {vendor?.vendor_name || vendor?.vendor_nickname}
                     </h2>
                     {vendor?.vendor_nickname && (
                         <span className="text-sm md:text-base text-muted-foreground">
-                            ({vendor?.vendor_name})
+                            ({vendor?.vendor_nickname})
                         </span>
                     )}
                 </div>

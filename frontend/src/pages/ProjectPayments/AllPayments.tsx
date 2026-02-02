@@ -214,7 +214,24 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
 
     const fieldsToFetch = useMemo(() => DEFAULT_PP_FIELDS_TO_FETCH.concat(['creation', 'modified', 'payment_date', 'payment_attachment', 'tds', 'utr']), [])
 
-    const paymentsSearchableFields = useMemo(() => PP_SEARCHABLE_FIELDS.concat(tab === "Payments Done" ? [{ value: "utr", label: "UTR", placeholder: "Search by UTR..." }] : ["Payments Pending", "All Payments"].includes(tab) ? [{ value: "status", label: "Status", placeholder: "Search by Status..." }] : []), [tab]);
+    const paymentsSearchableFields = useMemo(() => {
+        let fields = [...PP_SEARCHABLE_FIELDS];
+
+        const isUTRDefaultTab = ["Payments Done","All Payments"].includes(tab);
+
+        if (isUTRDefaultTab) {
+            // 1. Remove default from Payment ID (name)
+            fields = fields.map(f => f.value === "name" ? { ...f, default: false } : f);
+            // 2. Add UTR as default
+            fields.push({ value: "utr", label: "Payment (UTR)", placeholder: "Search by UTR...", default: true });
+        }
+
+        if (["Payments Pending", "All Payments"].includes(tab)) {
+            fields.push({ value: "status", label: "Status", placeholder: "Search by Status..." });
+        }
+
+        return fields;
+    }, [tab]);
 
     // --- Date Filter Columns ---
     const dateColumns = useMemo(() => PP_DATE_COLUMNS, []);

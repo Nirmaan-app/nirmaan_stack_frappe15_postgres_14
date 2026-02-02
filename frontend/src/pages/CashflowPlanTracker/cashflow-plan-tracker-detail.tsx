@@ -59,7 +59,7 @@ const CashflowPlanTrackerDetail: React.FC = () => {
           </div>
         </div>
 
-      <CashflowPlan />
+      <CashflowPlan projectId={projectId}/>
     </div>
   );
 };
