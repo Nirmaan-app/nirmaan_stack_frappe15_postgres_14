@@ -5,7 +5,7 @@ import { ProcurementOrder } from '@/types/NirmaanStack/ProcurementOrders';
 import { ServiceRequests } from '@/types/NirmaanStack/ServiceRequests';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
 import { VendorInvoice } from '@/types/NirmaanStack/VendorInvoice';
-import { getPOTotal, getSRTotal } from '@/utils/getAmounts';
+import {  getSRTotal } from '@/utils/getAmounts';
 import { parseNumber } from '@/utils/parseNumber';
 import { isWithinInterval, parseISO, isBefore } from 'date-fns';
 import { Vendors } from '@/types/NirmaanStack/Vendors'; 

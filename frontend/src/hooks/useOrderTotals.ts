@@ -1,6 +1,6 @@
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
-import { getPOTotal, getSRTotal } from "@/utils/getAmounts";
+import {  getSRTotal } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import memoize from "lodash/memoize";
@@ -60,7 +60,10 @@ export const useOrderTotals = () => {
         // --- (FIXED) Directly return the result of the corrected getPOTotal ---
         // The new getPOTotal already returns the object in the desired shape.
         // console.log("getPOTotal", orderId, type, order);
-        return getPOTotal(order);
+        if (order) {
+           return { total: parseNumber(order.amount), totalGst: parseNumber(order.tax_amount), totalWithTax: parseNumber(order.total_amount) };
+        }
+        return { total: 0, totalGst: 0, totalWithTax: 0 };
       }
       if (['Service Requests', 'Service Order'].includes(type)) {
         const order = serviceOrders?.find(i => i?.name === orderId);

@@ -9,7 +9,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { getPOTotal } from "@/utils/getAmounts";
+// import { getPOTotal } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { ColumnDef } from "@tanstack/react-table";
@@ -222,12 +222,12 @@ export const ReleasePOSelect: React.FC = () => {
 
     const projectOptions = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects])
 
-    const getAmountPaid = useMemo(() => memoize((id: string) => {
-        const payments = projectPayments?.filter((payment) => payment?.document_name === id && payment?.status === "Paid") || [];
-        const total = payments.reduce((acc, payment) => acc + parseNumber(payment?.amount), 0);
-        // console.log("getAmountPaid", id, payments, total)
-        return total;
-    }, (id: string) => id), [projectPayments])
+    // const getAmountPaid = useMemo(() => memoize((id: string) => {
+    //     const payments = projectPayments?.filter((payment) => payment?.document_name === id && payment?.status === "Paid") || [];
+    //     const total = payments.reduce((acc, payment) => acc + parseNumber(payment?.amount), 0);
+    //     // console.log("getAmountPaid", id, payments, total)
+    //     return total;
+    // }, (id: string) => id), [projectPayments])
 
     // --- Memoized Calculation Functions ---
     // Define these outside the main component body or ensure dependencies are stable
@@ -675,7 +675,8 @@ export const ReleasePOSelect: React.FC = () => {
                 enableColumnFilter: true
             } as ColumnDef<ProcurementOrdersType>
         ] : []),
-    ], [tab, userList, getAmountPaid, vendorsList, projects, getPOTotal, posMap, invoiceTotalsMap]);
+    ],[tab, userList, vendorsList, projects, posMap, invoiceTotalsMap]); 
+    // [tab, userList, getAmountPaid, vendorsList, projects, getPOTotal, posMap, invoiceTotalsMap]);
 
     const facetFilterOptions = useMemo(() => ({
         // Use the 'accessorKey' or 'id' of the column

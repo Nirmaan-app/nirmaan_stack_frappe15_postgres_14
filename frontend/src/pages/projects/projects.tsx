@@ -34,8 +34,8 @@ import { formatDate } from "@/utils/FormatDate";
 import { formatToApproxLakhs } from "@/utils/FormatPrice";
 import {
   getTotalInflowAmount,
-  getPOSTotals,
-  getPOTotal,
+  // getPOSTotals,
+  // getPOTotal,
   getSRTotal,
   getTotalAmountPaid,
   getTotalExpensePaid,
@@ -332,7 +332,8 @@ export const Projects: React.FC<ProjectsProps> = ({
 
       // let totalInvoiced = 0;
       // relatedPOs.forEach(po => totalInvoiced += getPOTotal(po)?.totalAmt || 0);
-      let totalInvoiced = getPOSTotals(relatedPOs as any)?.totalWithTax || 0;
+      let totalInvoiced = relatedPOs.reduce((sum,term)=>sum+parseNumber(term.total_amount),0);
+      // let totalInvoiced = getPOSTotals(relatedPOs as any)?.totalWithTax || 0;
 
       relatedSRs.forEach((sr) => {
         const srVal = getSRTotal(sr); // Assuming getSRTotal returns value without GST
@@ -507,7 +508,7 @@ export const Projects: React.FC<ProjectsProps> = ({
       {
         id: "po_amount",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="PO Amount (incl.GST)" />
+          <DataTableColumnHeader column={column} title="PO + WO Amount (incl.GST)" />
         ),
         cell: ({ row }) => {
           const financials = getProjectFinancials(row.original.name);

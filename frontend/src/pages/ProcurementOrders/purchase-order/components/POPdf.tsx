@@ -784,7 +784,8 @@ import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 import {
   ProcurementOrder,
   PurchaseOrderItem,
-  PaymentTerm, POTotals
+  PaymentTerm,
+  //  POTotals
 } from "@/types/NirmaanStack/ProcurementOrders";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
@@ -805,7 +806,7 @@ interface POPdfProps {
   orderData?: PurchaseOrderItem[];
   paymentTerms?: PaymentTerm[];
   includeComments: boolean
-  POTotals?: POTotals;
+  // POTotals?: POTotals;
   poPdfSheet: boolean;
   togglePoPdfSheet: () => void;
 }
@@ -1030,7 +1031,7 @@ export const POPdf: React.FC<POPdfProps> = ({
   po,
   orderData,
   includeComments,
-  POTotals,
+  // POTotals,
   paymentTerms,
   poPdfSheet,
   togglePoPdfSheet,
@@ -1380,20 +1381,20 @@ export const POPdf: React.FC<POPdfProps> = ({
                             <td className="py-4 text-sm font-bold text-right pr-4 w-[15%]">
                               <div className="space-y-2">
                                 <div>
-                                  {formatToIndianRupee(POTotals?.totalBase)}
+                                  {formatToIndianRupee(po?.amount)}
                                 </div>
                                 <div>
-                                  {formatToIndianRupee(POTotals?.totalTax)}
+                                  {formatToIndianRupee(po?.tax_amount)}
                                 </div>
                                 <div>
                                   {formatToIndianRupee(
-                                    (POTotals?.grandTotal -
-                                      Math.round(POTotals?.grandTotal)) *
+                                    (po?.total_amount -
+                                      Math.round(po?.total_amount)) *
                                     -1
                                   )}
                                 </div>
                                 <div>
-                                  {formatToIndianRupee(Math.round(POTotals?.grandTotal))}
+                                  {formatToIndianRupee(Math.round(po?.total_amount))}
                                 </div>
                               </div>
                             </td>
