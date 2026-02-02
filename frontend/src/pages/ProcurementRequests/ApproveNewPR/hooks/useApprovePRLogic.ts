@@ -14,7 +14,6 @@ import {
     PRDocType, // This is GlobalPRDocType
     PRScreenData, // New type for hook's main data state
     PRItemUIData, // New type for items in the list (maps to ProcurementRequestItemDetail)
-    DisplayCategory, // New type for category display
     ItemOption, NewItemState, EditItemState, RequestItemState, FuzzyMatch, User, Item, Comment,
     MasterCategory, // Use MasterCategory for the list of all categories
     Project,
@@ -29,6 +28,35 @@ import { Makelist } from '@/types/NirmaanStack/Makelist';
 import { extractMakesFromChildTableForWP } from '../../NewPR/NewProcurementRequestPage';
 import { CategoryMakelist as CategoryMakelistType } from '@/types/NirmaanStack/CategoryMakelist'; // Import the type
 import { ProcurementRequestItemDetail } from '@/types/NirmaanStack/ProcurementRequests';
+import { DraftItem, DraftCategory } from '@/zustand/useApproveNewPRDraftStore';
+
+/* ─────────────────────────────────────────────────────────────
+   DRAFT MANAGER INTERFACE
+   ───────────────────────────────────────────────────────────── */
+
+/**
+ * Interface for the draft manager methods that can be passed to this hook.
+ * When provided, operations will update the draft instead of saving to DB immediately.
+ * The DB save only happens in handleConfirmAction (the final commit point).
+ */
+export interface DraftManagerMethods {
+    addItem: (item: DraftItem) => void;
+    updateItem: (itemName: string, updates: Partial<DraftItem>) => void;
+    deleteItem: (itemName: string) => DraftItem | null;
+    undoDelete: () => void;
+    updateOrderList: (items: DraftItem[]) => void;
+    updateCategoryList: (categories: DraftCategory[]) => void;
+    getDataForSubmission: () => { orderList: DraftItem[], categoryList: DraftCategory[] };
+    clearDraftAfterSubmit: () => void;
+    setUniversalComment: (comment: string) => void;
+    // Data from draft manager (when using draft-first)
+    orderList?: DraftItem[];
+    categoryList?: DraftCategory[];
+    universalComment?: string;
+    undoStack?: DraftItem[];
+    // Whether draft manager has been initialized with data
+    isInitialized?: boolean;
+}
 
 interface UseApprovePRLogicProps {
     workPackage?: string; // Work package name
@@ -47,6 +75,9 @@ interface UseApprovePRLogicProps {
     categoryMakelist?: CategoryMakelistType[];
     categoryMakeListMutate?: () => Promise<any>;
     // initialCategoryMakes: CategoryMakesMap; // No longer needed from props if derived locally
+
+    // Draft manager integration (optional for backwards compatibility)
+    draftManager?: DraftManagerMethods;
 }
 
 export const useApprovePRLogic = ({
@@ -63,8 +94,12 @@ export const useApprovePRLogic = ({
     makeList,
     makeListMutate,
     categoryMakelist,
-    categoryMakeListMutate
+    categoryMakeListMutate,
+    draftManager,
 }: UseApprovePRLogicProps) => {
+
+    // Determine if we're using draft-first approach
+    const useDraftFirst = !!draftManager;
 
     // // *** Add console log HERE ***
     // useEffect(() => {
@@ -170,21 +205,60 @@ export const useApprovePRLogic = ({
         includeScore: true,
     }), [itemList]);
 
-    // const addedItems = useMemo((): PRItem[] => {
-    //     return orderData?.procurement_list?.list?.filter(i => i.status !== 'Request') ?? [];
-    // }, [orderData?.procurement_list?.list]);
+    // Get current order list - from draft manager if using draft-first, otherwise from orderData
+    // This ensures all derived data uses consistent source
+    const currentOrderList = useMemo((): PRItemUIData[] => {
+        // Only use draft manager data if:
+        // 1. Draft-first mode is enabled
+        // 2. Draft manager is initialized
+        // 3. Draft manager has actual data (length > 0)
+        // CRITICAL: Empty array [] is truthy, so we must check length explicitly
+        // This prevents using empty draft state before server data is loaded
+        const draftHasData = draftManager?.orderList && draftManager.orderList.length > 0;
 
-    // const requestedItems = useMemo((): PRItem[] => {
-    //     return orderData?.procurement_list?.list?.filter(i => i.status === 'Request') ?? [];
-    // }, [orderData?.procurement_list?.list]);
+        if (useDraftFirst && draftManager?.isInitialized && draftHasData) {
+            // Filter out deleted items and cast to PRItemUIData
+            // draftHasData already checks draftManager?.orderList exists and has length > 0
+            return draftManager.orderList!
+                .filter(item => !item._isDeleted)
+                .map(item => ({
+                    ...item,
+                    // Ensure compatibility with PRItemUIData
+                } as unknown as PRItemUIData));
+        }
 
-    // addedItems, requestedItems will now filter orderData.order_list
+        // Fallback chain: prDoc.order_list (server data) -> orderData (local state) -> empty
+        // CHANGED: Prioritize prDoc.order_list over orderData since prDoc is the source of truth
+        // This ensures we show data immediately when prDoc loads, before local state catches up
+        return prDoc?.order_list ?? orderData?.order_list ?? [];
+    }, [useDraftFirst, draftManager?.isInitialized, draftManager?.orderList, orderData?.order_list, prDoc?.order_list]);
+
+    const currentCategoryList = useMemo((): PRCategory[] => {
+        // Same logic as currentOrderList - only use draft if it has actual data
+        const draftCategoryHasData = draftManager?.categoryList && draftManager.categoryList.length > 0;
+
+        if (useDraftFirst && draftManager?.isInitialized && draftCategoryHasData) {
+            return draftManager.categoryList as PRCategory[];
+        }
+        // Fallback chain: prDoc.category_list (server data) -> orderData (local state)
+        return prDoc?.category_list?.list ?? orderData?.category_list?.list ?? [];
+    }, [useDraftFirst, draftManager?.isInitialized, draftManager?.categoryList, orderData?.category_list?.list, prDoc?.category_list?.list]);
+
+    const currentUndoStack = useMemo((): PRItemUIData[] => {
+        if (useDraftFirst && draftManager?.isInitialized && draftManager?.undoStack) {
+            return draftManager.undoStack as unknown as PRItemUIData[];
+        }
+        return undoStack;
+    }, [useDraftFirst, draftManager?.isInitialized, draftManager?.undoStack, undoStack]);
+
+    // addedItems, requestedItems will now filter the current order list
     const addedItems = useMemo((): PRItemUIData[] => {
-        return orderData?.order_list?.filter(i => i.status !== 'Request') ?? [];
-    }, [orderData?.order_list]);
+        return currentOrderList.filter(i => i.status !== 'Request');
+    }, [currentOrderList]);
+
     const requestedItems = useMemo((): PRItemUIData[] => {
-        return orderData?.order_list?.filter(i => i.status === 'Request') ?? [];
-    }, [orderData?.order_list]);
+        return currentOrderList.filter(i => i.status === 'Request');
+    }, [currentOrderList]);
 
     // console.log("request ITEMS", requestedItems);
 
@@ -247,16 +321,14 @@ export const useApprovePRLogic = ({
     // }, [orderData?.order_list, orderData?.work_package, projectDoc, categoryList]); // allCategories is needed
 
     const displayedCategoriesWithMakes = useMemo((): PRCategory[] => {
-        // Return the list directly from the orderData state, with a fallback to an empty array.
-        return orderData?.category_list?.list ?? [];
-    }, [orderData?.category_list]); // The only dependency is the category_list itself.  
+        // Use currentCategoryList which handles draft-first vs legacy
+        return currentCategoryList;
+    }, [currentCategoryList]);
 
     // Replace old category derivations with ones based on displayedCategoriesWithMakes
     const addedCategoriesForDisplay = useMemo(() =>
         displayedCategoriesWithMakes.filter(c => c.status !== 'Request' && (addedItems.some(item => item.category === c.name)))
         , [displayedCategoriesWithMakes, addedItems]);
-
-
 
     const requestedCategoriesForDisplay = useMemo(() =>
         displayedCategoriesWithMakes.filter(c => c.status === 'Request' && (requestedItems.some(item => item.category === c.name)))
@@ -364,9 +436,9 @@ export const useApprovePRLogic = ({
                         //     ?.makes || [];
                         const wpData = typeof projectDoc.project_wp_category_makes === 'string' ? JSON.parse(projectDoc.project_wp_category_makes) : projectDoc.project_wp_category_makes;
 
-                        const relevant_wps = wpData?.filter(wp => wp.procurement_package === item.procurement_package && wp.category === item.category) || [];
+                        const relevant_wps = wpData?.filter((wp: { procurement_package?: string; category?: string; make?: string }) => wp.procurement_package === item.procurement_package && wp.category === item.category) || [];
 
-                        makes = relevant_wps.map(wp => wp?.make)?.filter(make => !!make) || []
+                        makes = relevant_wps.map((wp: { make?: string }) => wp?.make)?.filter((make: string | undefined) => !!make) || []
                     } catch (e) {
                         console.error("Error parsing makes in useEffect:", e);
                         // Decide how to handle parse error, maybe log or default to empty makes
@@ -422,8 +494,12 @@ export const useApprovePRLogic = ({
     }, []);
 
     const handleUniversalCommentChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement>) => { // Allow Input for reuse
-        setUniversalComment(e.target.value);
-    }, []);
+        if (useDraftFirst && draftManager) {
+            draftManager.setUniversalComment(e.target.value);
+        } else {
+            setUniversalComment(e.target.value);
+        }
+    }, [useDraftFirst, draftManager]);
 
     // --- Item Management Actions ---
 
@@ -438,10 +514,8 @@ export const useApprovePRLogic = ({
 
         const currentList = orderData.order_list;
 
-        // const isDuplicate = currentList.some(item => item.name === currentItemOption.value);
         // Check if the item_id is the same as the name
         const isDuplicate = currentList.some(item => item.item_id === currentItemOption.value);
-
 
         if (isDuplicate) {
             toast({
@@ -454,35 +528,89 @@ export const useApprovePRLogic = ({
             setShowNewItemsCard(false);
             return;
         }
-        // const newItem: PRItem = {
-        //     item: currentItemOption.label, // item_name
-        //     name: currentItemOption.value, // item docname
-        //     unit: currentItemOption.unit,
-        //     quantity: quantityValue,
-        //     work_package: workPackage,
-        //     category: currentItemOption.category, // category docname
-        //     tax: currentItemOption.tax,
-        //     status: "Pending", // New items are pending
-        //     make: selectedMake, // <<< Add the selected make here
-        //     // Ensure other mandatory fields from PRItem are included if any (doctype, parentfield etc. might be handled by Frappe)
-        // };
 
         const newItemForOrderList: Omit<PRItemUIData, 'name' | 'creation' | 'modified' | 'parent' | 'parentfield' | 'parenttype' | 'docstatus' | 'idx' | 'owner' | 'modified_by'> = {
-            item_id: currentItemOption!.value, // Map to item_id
-            item_name: currentItemOption!.label, // Map to item_name
+            item_id: currentItemOption!.value,
+            item_name: currentItemOption!.label,
             unit: currentItemOption!.unit,
             quantity: quantityValue,
-            procurement_package: workPackage, // Map to procurement_package
+            procurement_package: workPackage,
             category: currentItemOption!.category,
             tax: currentItemOption!.tax,
             status: "Pending",
             make: selectedMake,
-            comment: undefined, // Add if captured
-            vendor: undefined,  // Add if captured
-            quote: undefined    // Add if captured
+            comment: undefined,
+            vendor: undefined,
+            quote: undefined
         };
 
+        // --- DRAFT-FIRST APPROACH ---
+        if (useDraftFirst && draftManager) {
+            // Create a DraftItem for the draft manager
+            const draftItem: DraftItem = {
+                name: '', // New items don't have a name yet
+                item_id: newItemForOrderList.item_id!,
+                item_name: newItemForOrderList.item_name!,
+                unit: newItemForOrderList.unit!,
+                quantity: newItemForOrderList.quantity!,
+                category: newItemForOrderList.category!,
+                procurement_package: newItemForOrderList.procurement_package,
+                make: newItemForOrderList.make,
+                status: newItemForOrderList.status!,
+                tax: newItemForOrderList.tax,
+                comment: newItemForOrderList.comment,
+                vendor: newItemForOrderList.vendor,
+                quote: newItemForOrderList.quote,
+                _isNew: true,
+            };
 
+            // Add item via draft manager (auto-saves to localStorage, NOT to DB)
+            draftManager.addItem(draftItem);
+
+            // Update category list if needed
+            let categoryNeedsUpdate = false;
+            // CRITICAL: Empty array [] is truthy, so we must check length explicitly
+            const currentCategoryList = (draftManager.categoryList && draftManager.categoryList.length > 0)
+                ? draftManager.categoryList
+                : orderData.category_list.list;
+            const updatedCategoryList = currentCategoryList.map(cat => {
+                if (cat.name === newItemForOrderList.category && selectedMake) {
+                    const makes = Array.isArray(cat.makes) ? cat.makes : [];
+                    if (!makes.includes(selectedMake)) {
+                        categoryNeedsUpdate = true;
+                        return { ...cat, makes: [...makes, selectedMake] };
+                    }
+                }
+                return cat;
+            });
+
+            const categoryExists = currentCategoryList.some(c => c.name === newItemForOrderList.category && c.status === newItemForOrderList.status);
+            if (!categoryExists) {
+                categoryNeedsUpdate = true;
+                const initialMakesMap = extractMakesFromChildTableForWP(projectDoc, orderData?.work_package || "");
+                const baselineMakes = initialMakesMap[newItemForOrderList.category] || [];
+                const newCategoryMakes = selectedMake ? Array.from(new Set([...baselineMakes, selectedMake])) : baselineMakes;
+                updatedCategoryList.push({
+                    name: newItemForOrderList.category,
+                    status: newItemForOrderList.status,
+                    makes: newCategoryMakes.length > 0 ? newCategoryMakes : undefined,
+                });
+            }
+
+            if (categoryNeedsUpdate) {
+                draftManager.updateCategoryList(updatedCategoryList as DraftCategory[]);
+            }
+
+            // Reset form
+            setCurrentItemOption(null);
+            setCurrentQuantity('');
+            setShowNewItemsCard(false);
+
+            toast({ title: "Item Added", description: `"${newItemForOrderList.item_name}" added. Changes will be saved when you approve.`, variant: "success" });
+            return;
+        }
+
+        // --- LEGACY APPROACH (backwards compatibility) ---
         // Remove from undo stack if it was previously deleted
         const stackIndex = undoStack.findIndex(stackItem => stackItem.item_id === newItemForOrderList.item_id);
         let newStack = [...undoStack];
@@ -495,15 +623,12 @@ export const useApprovePRLogic = ({
         const updatedList = [...currentList, newItemForOrderList as PRItemUIData];
 
         // --- IMPORTANT: Update Category List with Makes if necessary ---
-        // Check if the category exists in the current list and if the new make needs adding
-
         let categoryNeedsUpdate = false;
         const updatedCategoryList = orderData.category_list.list.map(cat => {
             if (cat.name === newItemForOrderList.category && selectedMake) {
                 const makes = Array.isArray(cat.makes) ? cat.makes : [];
                 if (!makes.includes(selectedMake)) {
                     categoryNeedsUpdate = true;
-                    // console.log(`Hook: Adding make ${selectedMake} to existing category ${cat.name} in orderData`);
                     return { ...cat, makes: [...makes, selectedMake] };
                 }
             }
@@ -514,43 +639,20 @@ export const useApprovePRLogic = ({
         const categoryExists = orderData.category_list.list.some(c => c.name === newItemForOrderList.category && c.status === newItemForOrderList.status);
         if (!categoryExists) {
             categoryNeedsUpdate = true;
-            // Get baseline makes for the truly new category entry
             const initialMakesMap = extractMakesFromChildTableForWP(projectDoc, orderData?.work_package || "");
             const baselineMakes = initialMakesMap[newItemForOrderList.category] || [];
             const newCategoryMakes = selectedMake ? Array.from(new Set([...baselineMakes, selectedMake])) : baselineMakes;
-            //  console.log(`Hook: Adding new category ${newItem.category} with makes ${newCategoryMakes.join(', ')} to orderData`);
             updatedCategoryList.push({
                 name: newItemForOrderList.category,
-                status: newItemForOrderList.status, // Use status from the added item
+                status: newItemForOrderList.status,
                 makes: newCategoryMakes.length > 0 ? newCategoryMakes : undefined,
             });
         }
 
-
-
-        // setOrderData(prev => {
-        //     if (!prev) return null;
-        //     return {
-        //         ...prev,
-        //         order_list: [...prev.order_list, newItemForOrderList as PRItemUIData], // Cast if necessary
-        //         ...(categoryNeedsUpdate ? { category_list: { list: updatedCategoryList } } : {})
-        //     }
-        // });
-        // Reset form
-        // setCurrentItemOption(null);
-        // setCurrentQuantity('');
-        // setShowNewItemsCard(false); // Close the add item card
-
-        // toast({ title: "Item Added", description: `"${newItemForOrderList.item_name}" added successfully.`, variant: "success" });
-
-
-        // ------- Backend Updated lagic--------
-
         try {
             // --- 1. Persist changes to the backend ---
             await updateDoc("Procurement Requests", orderData.name, {
-                order_list: updatedList, // Send the full updated list of items
-                // Conditionally send the updated category list if it has changed
+                order_list: updatedList,
                 ...(categoryNeedsUpdate && { category_list: { list: updatedCategoryList } })
             });
 
@@ -565,11 +667,11 @@ export const useApprovePRLogic = ({
             });
 
             // --- 3. Update Undo Stack & UI ---
-            const stackIndex = undoStack.findIndex(stackItem => stackItem.item_id === newItemForOrderList.item_id);
-            if (stackIndex > -1) {
-                const newStack = [...undoStack];
-                newStack.splice(stackIndex, 1);
-                setUndoStack(newStack);
+            const idxInStack = undoStack.findIndex(stackItem => stackItem.item_id === newItemForOrderList.item_id);
+            if (idxInStack > -1) {
+                const stackCopy = [...undoStack];
+                stackCopy.splice(idxInStack, 1);
+                setUndoStack(stackCopy);
             }
 
             // Reset form
@@ -587,9 +689,7 @@ export const useApprovePRLogic = ({
                 variant: "destructive",
             });
         }
-
-        // -------
-    }, [currentItemOption, currentQuantity, orderData, undoStack, toast, setShowNewItemsCard, projectDoc]);
+    }, [currentItemOption, currentQuantity, orderData, undoStack, toast, setShowNewItemsCard, projectDoc, useDraftFirst, draftManager, workPackage]);
 
 
     const handleOpenEditDialog = useCallback((item: PRItemUIData) => {
@@ -658,27 +758,42 @@ export const useApprovePRLogic = ({
             return;
         }
 
+        // --- DRAFT-FIRST APPROACH ---
+        if (useDraftFirst && draftManager) {
+            // Use the item's name (docname) or item_id to identify the item
+            const itemIdentifier = editItem.name || editItem.item_id;
+
+            draftManager.updateItem(itemIdentifier!, {
+                quantity: quantityValue,
+                comment: editItem.comment?.trim() || undefined,
+                make: editItem?.make,
+            });
+
+            setIsEditItemDialogOpen(false);
+            setEditItem(null);
+            toast({ title: "Item Updated", description: `"${editItem.item_name}" updated. Changes will be saved when you approve.`, variant: "success" });
+            return;
+        }
+
+        // --- LEGACY APPROACH (backwards compatibility) ---
         const updatedList = orderData.order_list.map(item =>
             item.name === editItem.name
-                ? { ...item, quantity: quantityValue, comment: editItem.comment?.trim() || undefined, make: editItem?.make } // Update quantity and comment
+                ? { ...item, quantity: quantityValue, comment: editItem.comment?.trim() || undefined, make: editItem?.make }
                 : item
         );
-        console.log("updatedList", updatedList);
-
 
         setOrderData(prev => prev ? { ...prev, order_list: updatedList } : null);
 
-        // --------new Add-----
         await updateDoc("Procurement Requests", orderData.name, {
-            order_list: updatedList, // Send the current state
-            category_list: orderData.category_list, // Send the current state   
+            order_list: updatedList,
+            category_list: orderData.category_list,
         });
-        // ----------
+
         setIsEditItemDialogOpen(false);
-        setEditItem(null); // Reset edit state
+        setEditItem(null);
         toast({ title: "Item Updated", description: `"${editItem.item_name}" updated successfully.`, variant: "success" });
 
-    }, [editItem, orderData, toast]);
+    }, [editItem, orderData, toast, useDraftFirst, draftManager]);
 
 
     // const handleDeleteItem = useCallback((itemToDelete: PRItemUIData | EditItemState | RequestItemState) => { // Can delete from main list or edit dialog
@@ -726,8 +841,12 @@ export const useApprovePRLogic = ({
 
         const itemNameForToast = itemToDelete.item_name || 'the item';
 
-        // --- NEW VALIDATION (Unchanged from your code, which is good) ---
-        if (orderData.order_list.length <= 1) {
+        // --- VALIDATION: Cannot delete the last item ---
+        const currentListLength = useDraftFirst && draftManager?.orderList
+            ? draftManager.orderList.filter(i => !i._isDeleted).length
+            : orderData.order_list.length;
+
+        if (currentListLength <= 1) {
             toast({
                 title: "Action Not Allowed",
                 description: "Cannot delete the last item from a Procurement Request.",
@@ -737,7 +856,22 @@ export const useApprovePRLogic = ({
             return;
         }
 
-        // --- THE FIX: Persist the deletion to the backend immediately ---
+        // --- DRAFT-FIRST APPROACH ---
+        if (useDraftFirst && draftManager) {
+            // Use the item's name (docname) to identify the item
+            const deletedItem = draftManager.deleteItem(itemToDelete.name!);
+
+            if (deletedItem) {
+                toast({ title: "Item Removed", description: `"${itemNameForToast}" removed. Changes will be saved when you approve.`, variant: "default" });
+            }
+
+            // Close dialog if deletion happened from there
+            if (isEditItemDialogOpen) setIsEditItemDialogOpen(false);
+            setEditItem(null);
+            return;
+        }
+
+        // --- LEGACY APPROACH (backwards compatibility) ---
         // 1. Calculate the intended new list of items.
         const updatedList = orderData.order_list.filter(i => i.name !== itemToDelete.name);
 
@@ -745,8 +879,6 @@ export const useApprovePRLogic = ({
             // 2. Call `updateDoc` to save the new, shorter list to the server.
             await updateDoc("Procurement Requests", orderData.name, {
                 order_list: updatedList,
-                // We don't need to update category_list here, as the useEffect will handle it
-                // on the subsequent state update.
             });
 
             // 3. On successful save, update the local state.
@@ -773,9 +905,17 @@ export const useApprovePRLogic = ({
             });
         }
 
-    }, [orderData, updateDoc, toast, isEditItemDialogOpen]); // Add `updateDoc` to dependency array
+    }, [orderData, updateDoc, toast, isEditItemDialogOpen, useDraftFirst, draftManager]);
 
     const handleUndoDelete = useCallback(() => {
+        // --- DRAFT-FIRST APPROACH ---
+        if (useDraftFirst && draftManager) {
+            draftManager.undoDelete();
+            toast({ title: "Undo Successful", description: "Item restored.", variant: "success" });
+            return;
+        }
+
+        // --- LEGACY APPROACH (backwards compatibility) ---
         if (undoStack.length === 0 || !orderData) return;
 
         const itemToRestore = undoStack[undoStack.length - 1]; // Get last item
@@ -788,21 +928,34 @@ export const useApprovePRLogic = ({
             return;
         }
 
-
         const updatedList = [...orderData.order_list, itemToRestore];
         setOrderData(prev => prev ? { ...prev, order_list: updatedList } : null);
         setUndoStack(newStack);
         toast({ title: "Undo Successful", description: `"${itemToRestore.item_name}" restored.`, variant: "success" });
 
-    }, [undoStack, orderData, toast]);
+    }, [undoStack, orderData, toast, useDraftFirst, draftManager]);
 
     // In useApprovePRLogic.ts, after other handlers
-    // Action required deletion Happens here
+    // Action required deletion Happens here (for "Request" status items)
     const handleRejectRequestItem = useCallback(async (itemToReject: PRItemUIData) => {
         if (!itemToReject?.name || !orderData) return;
 
         const itemNameForToast = itemToReject.item_name || 'the requested item';
 
+        // --- DRAFT-FIRST APPROACH ---
+        if (useDraftFirst && draftManager) {
+            // For Request items, we delete them (they don't go to undo stack since they were never approved)
+            draftManager.deleteItem(itemToReject.name!);
+
+            toast({
+                title: "Request Rejected",
+                description: `Request for "${itemNameForToast}" rejected. Changes will be saved when you approve.`,
+                variant: "success",
+            });
+            return;
+        }
+
+        // --- LEGACY APPROACH (backwards compatibility) ---
         // The new list without the rejected item
         const updatedList = orderData.order_list.filter(i => i.name !== itemToReject.name);
 
@@ -830,7 +983,7 @@ export const useApprovePRLogic = ({
             });
         }
 
-    }, [orderData, updateDoc, toast]);
+    }, [orderData, updateDoc, toast, useDraftFirst, draftManager]);
     // --- New Item Creation ---
     const handleOpenNewItemDialog = useCallback(() => {
         // --- ADD THIS LINE ---
@@ -972,91 +1125,141 @@ export const useApprovePRLogic = ({
         }
 
         try {
-            // --- Create New Item Master ---
+            // --- Create New Item Master (ALWAYS happens immediately - can't draft this) ---
             const createdItemDoc = await createDoc("Items", {
                 item_name: requestItem.newItemName,
                 unit_name: requestItem.newUnit,
-                category: requestItem.newCategory, // category docname
+                category: requestItem.newCategory,
             });
 
-            // --- Prepare Updated Procurement List ---
-            // Map over the *current* list from state to create the new list
+            // Refetch item list to include the new item
+            await itemMutate();
+
+            // --- DRAFT-FIRST APPROACH ---
+            if (useDraftFirst && draftManager) {
+                // 1. Delete the original Request item
+                draftManager.deleteItem(requestItem.name);
+
+                // 2. Add the newly created item to the draft
+                const newDraftItem: DraftItem = {
+                    name: '', // New items don't have a row name yet
+                    item_id: createdItemDoc.name,
+                    item_name: createdItemDoc.item_name,
+                    unit: createdItemDoc.unit_name,
+                    quantity: quantityValue,
+                    procurement_package: workPackage,
+                    category: createdItemDoc.category,
+                    tax: parseNumber(categoryDoc.tax),
+                    status: "Pending",
+                    _isNew: true,
+                };
+                draftManager.addItem(newDraftItem);
+
+                // 3. Update category list
+                // CRITICAL: Empty array [] is truthy, so we must check length explicitly
+                const currentCategoryList = (draftManager.categoryList && draftManager.categoryList.length > 0)
+                    ? draftManager.categoryList
+                    : orderData.category_list.list;
+                let updatedCategoryList = [...currentCategoryList];
+
+                // Ensure the category for the new item exists with 'Pending' status
+                const newItemsCategoryExistsAsPending = updatedCategoryList.some(
+                    cat => cat.name === newDraftItem.category && cat.status === 'Pending'
+                );
+                if (!newItemsCategoryExistsAsPending) {
+                    const initialMakesMap = extractMakesFromChildTableForWP(projectDoc, workPackage || "");
+                    const baselineMakes = initialMakesMap[newDraftItem.category] || [];
+                    updatedCategoryList.push({
+                        name: newDraftItem.category,
+                        status: 'Pending',
+                        makes: baselineMakes.length > 0 ? baselineMakes : undefined,
+                    });
+                }
+
+                // Check if the category of the original requested item is still needed
+                const originalCategoryName = requestItem.category;
+                const updatedOrderListFromDraft = draftManager.orderList?.filter(i => !i._isDeleted) || [];
+                const otherItemsInOriginalCategory = updatedOrderListFromDraft.some(
+                    item => item.category === originalCategoryName && item.status === 'Request'
+                );
+
+                if (!otherItemsInOriginalCategory) {
+                    updatedCategoryList = updatedCategoryList.filter(
+                        cat => !(cat.name === originalCategoryName && cat.status === 'Request')
+                    );
+                }
+
+                draftManager.updateCategoryList(updatedCategoryList as DraftCategory[]);
+
+                toast({ title: "Success", description: `Item "${createdItemDoc.item_name}" created and added. Changes will be saved when you approve.`, variant: "success" });
+                setIsRequestItemDialogOpen(false);
+                setRequestItem(null);
+                setFuzzyMatches([]);
+                return;
+            }
+
+            // --- LEGACY APPROACH (backwards compatibility) ---
+            // Prepare Updated Procurement List
             const updatedProcurementList = orderData.order_list.map(listItem => {
-                if (listItem.name === requestItem.name) { // Find the original requested item by its temp/original name
+                if (listItem.name === requestItem.name) {
                     return {
-                        ...listItem, // Keep potentially existing fields like comments
+                        ...listItem,
                         item_name: createdItemDoc.item_name,
-                        item_id: createdItemDoc.name, // IMPORTANT: Update to the NEW item's docname
+                        item_id: createdItemDoc.name,
                         unit: createdItemDoc.unit_name,
                         procurement_package: workPackage,
                         category: createdItemDoc.category,
-                        quantity: quantityValue, // Use the validated quantity
+                        quantity: quantityValue,
                         tax: parseNumber(categoryDoc.tax),
-                        status: "Pending", // Change status from "Request"
+                        status: "Pending",
                     };
                 }
-                return listItem; // Return other items unchanged
+                return listItem;
             });
 
-            // --- Prepare Updated Category List (Based on the *new* procurement list) ---
+            // Prepare Updated Category List
             const newCategories: PRCategory[] = [];
-            updatedProcurementList.forEach((item) => { // Use forEach for clarity
+            updatedProcurementList.forEach((item) => {
                 const existingCategory = newCategories.find(
                     (category) => category.name === item.category && category.status === item.status
                 );
                 if (!existingCategory) {
-                    // Find makes only if status is Pending (or based on your logic)
-                    // let makes: string[] = [];
                     let makes = orderData?.category_list?.list?.find(c => c.name === item.category)?.makes || [];
                     if (makes?.length === 0 && item.status === "Pending" && projectDoc?.project_work_packages) {
                         try {
-                            // makes = (typeof projectDoc.project_work_packages === 'string' ? JSON.parse(projectDoc.project_work_packages) : projectDoc.project_work_packages).work_packages
-                            //     .flatMap((wp: any) => wp.category_list?.list || [])
-                            //     .find((cat: any) => cat.name === item.category) // Use find for single category
-                            //     ?.makes || []; // Get makes or empty array
                             const wpData = typeof projectDoc.project_wp_category_makes === 'string' ? JSON.parse(projectDoc.project_wp_category_makes) : projectDoc.project_wp_category_makes;
-
-                            const relevant_wps = wpData?.filter(wp => wp.procurement_package === item.procurement_package && wp.category === item.category) || [];
-
-                            makes = relevant_wps.map(wp => wp?.make)?.filter(make => !!make) || []
+                            const relevant_wps = wpData?.filter((wp: { procurement_package?: string; category?: string; make?: string }) => wp.procurement_package === item.procurement_package && wp.category === item.category) || [];
+                            makes = relevant_wps.map((wp: { make?: string }) => wp?.make)?.filter((make: string | undefined) => !!make) || []
                         } catch (e) { console.error("Error parsing makes in handleApproveRequestedItemAsNew:", e); }
                     }
                     newCategories.push({
-                        name: item.category, // Category Docname
+                        name: item.category,
                         status: item.status,
-                        makes: makes.length > 0 ? makes : undefined // Only add makes if found
+                        makes: makes.length > 0 ? makes : undefined
                     });
                 }
             });
-            // Deduplicate categories if needed (though the above logic should prevent duplicates)
             const uniqueNewCategories = newCategories.filter((category, index, self) =>
                 index === self.findIndex((c) => (c.name === category.name && c.status === category.status))
             );
 
-
-            // --- Update Local State ---
-            // IMPORTANT: Update state with BOTH lists
+            // Update Local State
             setOrderData((prevState) => {
-                if (!prevState) return null; // Handle null case
+                if (!prevState) return null;
                 return {
-                    ...prevState, // Keep other PR properties
-                    // procurement_list: { list: updatedProcurementList },
+                    ...prevState,
                     order_list: updatedProcurementList,
-                    category_list: { list: uniqueNewCategories }, // Use the newly calculated categories
+                    category_list: { list: uniqueNewCategories },
                 };
             });
 
-            // --- Update Database ---
-            await updateDoc("Procurement Requests", orderData.name, { // Use orderData.name safely here
-                // procurement_list: { list: updatedProcurementList }, // Send the final list
-                order_list: updatedProcurementList, // Send the final list
-                category_list: { list: uniqueNewCategories }, // Send the final category list
-                // No need to update workflow_state here, only when approving/rejecting the whole PR
+            // Update Database
+            await updateDoc("Procurement Requests", orderData.name, {
+                order_list: updatedProcurementList,
+                category_list: { list: uniqueNewCategories },
             });
 
-            // --- Post-Update Actions ---
-            await prMutate(); // Refetch PR data to confirm backend state (optional but good)
-            await itemMutate(); // Refetch item list as a new item was created
+            await prMutate();
 
             toast({ title: "Success", description: `Requested item approved as "${createdItemDoc.item_name}".`, variant: "success" });
             setIsRequestItemDialogOpen(false);
@@ -1068,7 +1271,7 @@ export const useApprovePRLogic = ({
             toast({ title: "Approval Failed", description: error?.message || "Could not approve the requested item.", variant: "destructive" });
         }
 
-    }, [requestItem, orderData, categoryList, projectDoc, createDoc, updateDoc, itemMutate, prMutate, toast, setIsRequestItemDialogOpen, setRequestItem, setFuzzyMatches, workPackage]); // Added projectDoc, updateDoc, prMutate dependencies
+    }, [requestItem, orderData, categoryList, projectDoc, createDoc, updateDoc, itemMutate, prMutate, toast, setIsRequestItemDialogOpen, setRequestItem, setFuzzyMatches, workPackage, useDraftFirst, draftManager]);
 
 
     const handleAddMatchingItem = useCallback((match: Item, originalRequest: RequestItemState) => {
@@ -1086,50 +1289,13 @@ export const useApprovePRLogic = ({
             return;
         }
 
-        // const currentList = orderData.order_list;
-
-        // // Check if the *matching* item is already in the list (excluding the original request itself)
-        // const isDuplicate = currentList.some(item => item.item_id === match.name && item.item_name !== originalRequest.item_name);
-        // if (isDuplicate) {
-        //     toast({
-        //         title: "Duplicate Item",
-        //         description: `Item "${match.item_name}" is already in the list.`,
-        //         variant: "destructive",
-        //     });
-        //     return;
-        // }
-
-        // // 1. Remove the original 'Request' item
-        // let updatedList = currentList.filter(item => item.item_id !== originalRequest.item_id);
-
-        // // 2. Add the matching item
-        // const itemToAdd: Omit<PRItemUIData, 'name' | 'creation' | 'modified' | 'parent' | 'parentfield' | 'parenttype' | 'docstatus' | 'idx' | 'owner' | 'modified_by'> = {
-        //     item_id: match.name,
-        //     item_name: match.item_name, // docname of the matching item
-        //     unit: match.unit_name,
-        //     quantity: quantityValue, // Use quantity from original request
-        //     procurement_package: workPackage,
-        //     category: match.category,
-        //     tax: parseNumber(categoryDoc.tax),
-        //     status: "Pending",
-        //     // comment: originalRequest.comment // Carry over comment? Decide policy.
-        // };
-        // updatedList.push(itemToAdd as PRItemUIData);
-
-
-        // setOrderData(prev => prev ? { ...prev, order_list: updatedList } : null);
-
-        // toast({
-        //     title: "Success",
-        //     description: `"${match.item_name}" added, replacing requested item "${originalRequest.item_name}".`,
-        //     variant: "success"
-        // });
-
-        // setIsRequestItemDialogOpen(false);
-        // setRequestItem(null);
-        // setFuzzyMatches([]);
-        const currentOrderList = orderData.order_list;
-        const currentCategoryList = orderData.category_list.list;
+        // CRITICAL: Empty array [] is truthy, so we must check length explicitly
+        const currentOrderList = useDraftFirst && draftManager?.orderList && draftManager.orderList.length > 0
+            ? draftManager.orderList.filter(i => !i._isDeleted)
+            : orderData.order_list;
+        const currentCategoryList = useDraftFirst && draftManager?.categoryList && draftManager.categoryList.length > 0
+            ? draftManager.categoryList
+            : orderData.category_list.list;
 
         const isDuplicate = currentOrderList.some(item => item.item_id === match.name && item.name !== originalRequest.name);
         if (isDuplicate) {
@@ -1137,7 +1303,75 @@ export const useApprovePRLogic = ({
             return;
         }
 
-        // --- 2. Prepare the new "Pending" item (Unchanged) ---
+        // --- DRAFT-FIRST APPROACH ---
+        if (useDraftFirst && draftManager) {
+            // 1. Delete the original 'Request' item
+            draftManager.deleteItem(originalRequest.name);
+
+            // 2. Add the new matching item
+            const newDraftItem: DraftItem = {
+                name: '', // New items don't have a name yet
+                item_id: match.name,
+                item_name: match.item_name,
+                unit: match.unit_name,
+                quantity: quantityValue,
+                procurement_package: workPackage,
+                category: match.category,
+                tax: parseNumber(categoryDoc.tax),
+                status: "Pending",
+                _isNew: true,
+            };
+            draftManager.addItem(newDraftItem);
+
+            // 3. Update category list
+            let updatedCategoryList = [...currentCategoryList];
+
+            // Ensure the category for the new item exists with 'Pending' status
+            const newItemsCategoryExistsAsPending = updatedCategoryList.some(
+                cat => cat.name === newDraftItem.category && cat.status === 'Pending'
+            );
+            if (!newItemsCategoryExistsAsPending) {
+                const initialMakesMap = extractMakesFromChildTableForWP(projectDoc, workPackage || "");
+                const baselineMakes = initialMakesMap[newDraftItem.category] || [];
+                updatedCategoryList.push({
+                    name: newDraftItem.category,
+                    status: 'Pending',
+                    makes: baselineMakes.length > 0 ? baselineMakes : undefined,
+                });
+            }
+
+            // Check if the category of the original requested item is still needed
+            const originalCategoryName = originalRequest.category;
+            // Get the updated list from draft manager (after delete + add)
+            const updatedOrderListFromDraft = draftManager.orderList?.filter(i => !i._isDeleted) || [];
+            const otherItemsInOriginalCategory = updatedOrderListFromDraft.some(
+                item => item.category === originalCategoryName && item.status === 'Request'
+            );
+
+            if (!otherItemsInOriginalCategory) {
+                updatedCategoryList = updatedCategoryList.filter(
+                    cat => !(cat.name === originalCategoryName && cat.status === 'Request')
+                );
+            }
+
+            draftManager.updateCategoryList(updatedCategoryList as DraftCategory[]);
+
+            toast({
+                title: "Success",
+                description: `"${match.item_name}" added, replacing "${originalRequest.item_name}". Changes will be saved when you approve.`,
+                variant: "success"
+            });
+            setIsRequestItemDialogOpen(false);
+            setRequestItem(null);
+            setFuzzyMatches([]);
+            return;
+        }
+
+        // --- LEGACY APPROACH (backwards compatibility) ---
+        // NOTE: This is the BUG - it only updates local state, NOT the database!
+        // With draft-first approach above, we fix this by consolidating all saves to handleConfirmAction.
+
+        // Prepare the new "Pending" item
         const itemToAdd: Omit<PRItemUIData, 'name' | 'creation' | 'modified' | 'parent' | 'parentfield' | 'parenttype' | 'docstatus' | 'idx' | 'owner' | 'modified_by'> = {
             item_id: match.name,
             item_name: match.item_name,
@@ -1149,22 +1383,20 @@ export const useApprovePRLogic = ({
             status: "Pending",
         };
 
-        // --- 3. Create the updated order list (Unchanged) ---
+        // Create the updated order list
         // First, remove the original 'Request' item.
         let updatedOrderList = currentOrderList.filter(item => item.name !== originalRequest.name);
         // Then, add the new matching item.
         updatedOrderList.push(itemToAdd as PRItemUIData);
 
-        // --- 4. (THE FIX) Surgically update the category list ---
+        // Surgically update the category list
         let updatedCategoryList = [...currentCategoryList];
 
-        // 4a. Ensure the category for the NEWLY ADDED item exists with 'Pending' status.
+        // Ensure the category for the NEWLY ADDED item exists with 'Pending' status.
         const newItemsCategoryExistsAsPending = updatedCategoryList.some(
             cat => cat.name === itemToAdd.category && cat.status === 'Pending'
         );
         if (!newItemsCategoryExistsAsPending) {
-            // It doesn't exist, so we need to add it.
-            // We can derive its makes from the project document.
             const initialMakesMap = extractMakesFromChildTableForWP(projectDoc, workPackage || "");
             const baselineMakes = initialMakesMap[itemToAdd.category] || [];
             updatedCategoryList.push({
@@ -1174,7 +1406,7 @@ export const useApprovePRLogic = ({
             });
         }
 
-        // 4b. Check if the category of the ORIGINAL REQUESTED item is still needed.
+        // Check if the category of the ORIGINAL REQUESTED item is still needed.
         const originalCategoryName = originalRequest.category;
         const otherItemsInOriginalCategory = updatedOrderList.some(
             item => item.category === originalCategoryName && item.status === 'Request'
@@ -1187,14 +1419,14 @@ export const useApprovePRLogic = ({
             );
         }
 
-        // --- 5. Update the main state ONCE with both updated lists ---
+        // Update the main state ONCE with both updated lists
         setOrderData(prev => prev ? {
             ...prev,
-            order_list: updatedOrderList,
-            category_list: { list: updatedCategoryList }
+            order_list: updatedOrderList as PRItemUIData[],
+            category_list: { list: updatedCategoryList as PRCategory[] }
         } : null);
 
-        // --- 6. Close dialog and show success message (Unchanged) ---
+        // Close dialog and show success message
         toast({
             title: "Success",
             description: `"${match.item_name}" added, replacing requested item "${originalRequest.item_name}".`,
@@ -1204,11 +1436,12 @@ export const useApprovePRLogic = ({
         setRequestItem(null);
         setFuzzyMatches([]);
 
-    }, [orderData, categoryList, toast, workPackage, projectDoc, setIsRequestItemDialogOpen, setRequestItem, setFuzzyMatches]);
+    }, [orderData, categoryList, toast, workPackage, projectDoc, setIsRequestItemDialogOpen, setRequestItem, setFuzzyMatches, useDraftFirst, draftManager]);
 
     // --- PR Actions (Approve, Reject, Delete) ---
 
-    const saveUniversalComment = async (prName: string, subject: string) => {
+    // Helper function available for saving comments separately if needed
+    const _saveUniversalComment = async (prName: string, subject: string) => {
         if (universalComment.trim() && userData?.user_id) {
             try {
                 await createDoc("Nirmaan Comments", {
@@ -1229,8 +1462,14 @@ export const useApprovePRLogic = ({
     };
 
     const handlePrepareAction = useCallback((action: 'approve' | 'reject') => {
+        // Get the current order list (from draft manager if using draft-first, otherwise from orderData)
+        // CRITICAL: Empty array [] is truthy, so we must check length explicitly
+        const currentOrderList = useDraftFirst && draftManager?.orderList && draftManager.orderList.length > 0
+            ? draftManager.orderList.filter(i => !i._isDeleted)
+            : orderData?.order_list || [];
+
         // Check if there are still requested items before approving
-        if (action === 'approve' && orderData?.order_list.some(item => item.status === 'Request')) {
+        if (action === 'approve' && currentOrderList.some(item => item.status === 'Request')) {
             toast({
                 title: "Action Required",
                 description: "Please resolve all 'Requested' items before approving the PR.",
@@ -1240,7 +1479,7 @@ export const useApprovePRLogic = ({
         }
 
         // Check if list is empty
-        if (!orderData?.order_list.length) {
+        if (!currentOrderList.length) {
             toast({
                 title: "Cannot Proceed",
                 description: "Cannot approve or reject an empty PR list.",
@@ -1249,11 +1488,9 @@ export const useApprovePRLogic = ({
             return;
         }
 
-
-        // setPage('summary');
         setSummaryAction(action);
         setIsConfirmActionDialogOpen(true)
-    }, [orderData, toast]);
+    }, [orderData, toast, useDraftFirst, draftManager]);
 
 
     const handleConfirmAction = useCallback(async () => {
@@ -1263,52 +1500,79 @@ export const useApprovePRLogic = ({
         const subjectText = summaryAction === 'approve' ? 'approving pr' : 'rejecting pr';
 
         try {
-            // TODO: Handle file uploads if re-enabled. Ensure uploads complete *before* updating the doc.
-            // const uploadPromises = Object.keys(uploadedFiles).map(cat => handleFileUpload(cat));
-            // await Promise.all(uploadPromises);
+            // Get the data to submit (from draft manager if using draft-first, otherwise from orderData)
+            let orderListToSubmit: any[];
+            let categoryListToSubmit: any;
+            let commentToSave: string;
 
-            // The items to send are already in orderData.order_list
-            // Ensure each item has all required fields for backend child table.
-            // Frappe often only needs non-null values for new/updated rows.
-            // For existing child rows, their 'name' field must be present to be updated.
-            // New child rows won't have a 'name'.
+            if (useDraftFirst && draftManager) {
+                // Get finalized data from draft manager
+                const submissionData = draftManager.getDataForSubmission();
+                orderListToSubmit = submissionData.orderList;
+                categoryListToSubmit = { list: submissionData.categoryList };
+                commentToSave = draftManager.universalComment || '';
+            } else {
+                orderListToSubmit = orderData.order_list;
+                categoryListToSubmit = orderData.category_list;
+                commentToSave = universalComment;
+            }
 
-            const payloadOrderList = orderData.order_list.map(item => {
+            // Transform items for backend submission
+            const payloadOrderList = orderListToSubmit.map(item => {
                 const backendItem: Partial<ProcurementRequestItemDetail> = {
-                    name: item.name?.startsWith("NewRow-") ? undefined : item.name, // Send name for existing, undefined for new
+                    // For existing items, send their name. For new items (empty name or _isNew flag), don't send name
+                    name: (item.name && !item.name.startsWith("NewRow-") && !item._isNew) ? item.name : undefined,
                     item_id: item.item_id,
                     item_name: item.item_name,
                     unit: item.unit,
                     quantity: item.quantity,
                     category: item.category,
                     procurement_package: item.procurement_package,
-                    make: item?.make||"",
+                    make: item?.make || "",
                     status: item.status,
                     tax: item.tax,
                     comment: item.comment,
                     vendor: item.vendor,
                     quote: item?.quote
-                    // Omit parent, parentfield, parenttype, idx, etc. Frappe handles these.
                 };
                 // Remove undefined keys to send cleaner payload
                 return Object.fromEntries(Object.entries(backendItem).filter(([_, v]) => v !== undefined));
             });
 
-            console.log("payloadOrderList", payloadOrderList,orderData);
-            // 1. Update the PR Document
+            console.log("payloadOrderList", payloadOrderList, "categoryList", categoryListToSubmit);
 
+            // 1. Update the PR Document - THIS IS THE SINGLE ATOMIC COMMIT POINT
             const updatedPR = await updateDoc("Procurement Requests", orderData.name, {
-                order_list: payloadOrderList, // Send the current state
-                category_list: orderData.category_list, // Send the current state
-                workflow_state: actionText, // "Approved" or "Rejected"
+                order_list: payloadOrderList,
+                category_list: categoryListToSubmit,
+                workflow_state: actionText,
             });
 
             // 2. Save Comment (if any)
-            await saveUniversalComment(updatedPR.name, subjectText);
+            if (commentToSave.trim() && userData?.user_id) {
+                try {
+                    await createDoc("Nirmaan Comments", {
+                        comment_type: "Comment",
+                        reference_doctype: "Procurement Requests",
+                        reference_name: updatedPR.name,
+                        comment_by: userData.user_id,
+                        content: commentToSave.trim(),
+                        subject: subjectText,
+                    });
+                } catch (error) {
+                    console.error("Error saving comment:", error);
+                    toast({ title: "Comment Warning", description: "Could not save comment, but PR action succeeded.", variant: "destructive" });
+                }
+            }
 
-            // 3. Invalidate Cache & Navigate
-            await prMutate(); // Refetch this specific PR (might show updated state)
-            await globalMutate("ApprovePR,PRListMutate"); // Invalidate list view cache keys
+            // 3. Clear draft after successful submission
+            if (useDraftFirst && draftManager) {
+                draftManager.clearDraftAfterSubmit();
+            }
+
+            // 4. Invalidate Cache & Navigate
+            await prMutate();
+            await globalMutate("ApprovePR,PRListMutate");
 
             toast({
                 title: `PR ${actionText}`,
@@ -1316,8 +1580,8 @@ export const useApprovePRLogic = ({
                 variant: "success",
             });
 
-            setIsConfirmActionDialogOpen(false); // Close confirmation dialog
-            navigate("/procurement-requests?tab=Approve PR"); // Navigate back to list
+            setIsConfirmActionDialogOpen(false);
+            navigate("/procurement-requests?tab=Approve PR");
 
         } catch (error: any) {
             console.error(`Error ${summaryAction === 'approve' ? 'approving' : 'rejecting'} PR:`, error);
@@ -1326,9 +1590,9 @@ export const useApprovePRLogic = ({
                 description: error?.message || `Could not ${summaryAction} PR ${orderData.name}.`,
                 variant: "destructive",
             });
-            setIsConfirmActionDialogOpen(false); // Close dialog even on failure
+            setIsConfirmActionDialogOpen(false);
         }
-    }, [summaryAction, orderData, universalComment, updateDoc, createDoc, userData, prMutate, globalMutate, navigate, toast, saveUniversalComment]);
+    }, [summaryAction, orderData, universalComment, updateDoc, createDoc, userData, prMutate, globalMutate, navigate, toast, useDraftFirst, draftManager]);
 
 
     const handleOpenDeletePRDialog = useCallback(() => {
@@ -1382,18 +1646,21 @@ export const useApprovePRLogic = ({
         // page,
         summaryAction,
         showNewItemsCard,
-        undoStack,
+        undoStack: currentUndoStack, // Use the computed undo stack (from draft manager or local state)
         currentItemOption,
         currentQuantity,
         newItem,
         currentCategoryForNewItem,
         editItem,
         requestItem,
-        universalComment,
+        universalComment: useDraftFirst && draftManager?.universalComment !== undefined ? draftManager.universalComment : universalComment,
         fuzzyMatches,
         itemOptions,
         relevantComments, // Pass filtered comments
         isLoading, // Combined loading state for actions
+
+        // Draft-first mode indicator
+        useDraftFirst,
 
         // Dialog Visibility States
         isNewItemDialogOpen,
@@ -1403,7 +1670,6 @@ export const useApprovePRLogic = ({
         isConfirmActionDialogOpen,
 
         // Handlers
-        // setPage,
         toggleNewItemsCard,
         setCurrentItemOption,
         handleQuantityChange,
@@ -1422,7 +1688,7 @@ export const useApprovePRLogic = ({
         handleNewItemChange,
         handleCreateAndAddItem,
 
-        handleSelectExistingItemFromNewDialog,// matching item 
+        handleSelectExistingItemFromNewDialog,// matching item
         handleOpenRequestItemDialog,
         handleRequestItemFormChange,
         handleApproveRequestedItemAsNew,
@@ -1433,7 +1699,6 @@ export const useApprovePRLogic = ({
         handleOpenDeletePRDialog,
         handleDeletePR,
         navigateBackToList,
-        // navigateToItemList,
 
         handleLocalCategoryMakesUpdate, // <<< Return the new local handler
 
@@ -1442,13 +1707,18 @@ export const useApprovePRLogic = ({
         setIsEditItemDialogOpen,
         setIsRequestItemDialogOpen,
         setIsDeletePRDialogOpen,
-        handleRejectRequestItem,//Actionrequired deletion 
+        handleRejectRequestItem, // Action required deletion
         setIsConfirmActionDialogOpen,
+
+        // Derived data (uses draft manager data when available)
         addedItems,
         requestedItems,
         addedCategoriesForDisplay,
         requestedCategoriesForDisplay,
-        displayedCategoriesWithMakes, // If needed for more complex display logic
+        displayedCategoriesWithMakes,
+        currentOrderList, // Expose the unified order list
+        currentCategoryList, // Expose the unified category list
+
         // Helpers/Derived Data
         getFullName,
         managersIdList, // If needed in UI
