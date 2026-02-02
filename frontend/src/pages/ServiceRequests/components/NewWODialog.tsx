@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { ClipboardList, MapPin, Building2, ArrowRight } from "lucide-react";
 import { useFrappeGetDocList } from "frappe-react-sdk";
@@ -48,16 +48,9 @@ export function NewWODialog() {
     const handleContinue = useCallback(() => {
         if (selectedProject) {
             handleClose();
-            navigate(`/service-requests-list/${selectedProject.value}/new-sr`);
+            navigate(`/service-requests/new/${selectedProject.value}`);
         }
     }, [selectedProject, navigate, handleClose]);
-
-    // Reset on open
-    React.useEffect(() => {
-        if (newWODialog) {
-            setSelectedProject(null);
-        }
-    }, [newWODialog]);
 
     return (
         <AlertDialog open={newWODialog} onOpenChange={(open) => { if (!open) handleClose(); }}>
