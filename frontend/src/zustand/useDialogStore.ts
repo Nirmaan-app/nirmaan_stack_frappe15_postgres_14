@@ -1,6 +1,17 @@
 // src/store/dialogStore.ts
 import { create } from 'zustand';
 
+/* ─────────────────────────────────────────────────────────────
+   LOGGING
+   ───────────────────────────────────────────────────────────── */
+
+const LOG_PREFIX = '[Dialog:Store]';
+const LOG_ENABLED = true;
+
+const log = (...args: any[]) => {
+    if (LOG_ENABLED) console.log(LOG_PREFIX, ...args);
+};
+
 export type DialogStore = {
   // Request Payment Dialog
   requestPaymentDialog: boolean;
@@ -72,6 +83,11 @@ export type DialogStore = {
   deleteConfirmationDialog: boolean;
   setDeleteConfirmationDialog: (open: boolean) => void;
   toggleDeleteConfirmationDialog: () => void;
+
+  // New WO Dialog
+  newWODialog: boolean;
+  setNewWODialog: (open: boolean) => void;
+  toggleNewWODialog: () => void;
   // --- (Explanation)
   // Added state and actions for the "New Non-Project Expense" dialog.
   // - `newNonProjectExpenseDialog`: Boolean to control its visibility.
@@ -79,7 +95,7 @@ export type DialogStore = {
   // - `toggleNewNonProjectExpenseDialog`: Function to toggle its current state.
 };
 
-export const useDialogStore = create<DialogStore>((set, get) => ({
+export const useDialogStore = create<DialogStore>((set) => ({
   requestPaymentDialog: false,
   setRequestPaymentDialog: (open: boolean) => set({ requestPaymentDialog: open }),
   toggleRequestPaymentDialog: () => set((state) => ({ requestPaymentDialog: !state.requestPaymentDialog })), // Using state from set callback
@@ -153,4 +169,15 @@ export const useDialogStore = create<DialogStore>((set, get) => ({
   deleteConfirmationDialog: false,
   setDeleteConfirmationDialog: (open: boolean) => set({ deleteConfirmationDialog: open }),
   toggleDeleteConfirmationDialog: () => set((state) => ({ deleteConfirmationDialog: !state.deleteConfirmationDialog })),
+
+  // New WO Dialog Implementation
+  newWODialog: false,
+  setNewWODialog: (open: boolean) => {
+    log('setNewWODialog:', open);
+    set({ newWODialog: open });
+  },
+  toggleNewWODialog: () => set((state) => {
+    log('toggleNewWODialog:', !state.newWODialog);
+    return { newWODialog: !state.newWODialog };
+  }),
 }));

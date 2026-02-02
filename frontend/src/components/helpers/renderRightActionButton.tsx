@@ -39,10 +39,6 @@ const newButtonRoutes: Record<string, { label: string; route: string }> = {
     label: "New PR",
     route: "prs&milestones/procurement-requests",
   },
-  "/service-requests": {
-    label: "New WO",
-    route: "service-requests-list",
-  },
 };
 
 export const RenderRightActionButton = ({
@@ -53,14 +49,10 @@ export const RenderRightActionButton = ({
   const navigate = useNavigate();
   const { role, user_id } = useUserData()
   const { selectedProject } = useContext(UserContext);
-  const { toggleNewInflowDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog, toggleNewNonProjectExpenseDialog, toggleNewProjectExpenseDialog } = useDialogStore()
+  const { toggleNewInflowDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog, toggleNewNonProjectExpenseDialog, toggleNewProjectExpenseDialog, toggleNewWODialog } = useDialogStore()
 
   if (newButtonRoutes[locationPath]) {
     const routeInfo = newButtonRoutes[locationPath];
-    // Hide "New WO" button for Estimates Executive
-    if (locationPath === "/service-requests" && role === "Nirmaan Estimates Executive Profile") {
-      return null;
-    }
     return (
       <Button
         className="sm:mr-4 mr-2"
@@ -100,6 +92,16 @@ export const RenderRightActionButton = ({
           <CirclePlus className="w-5 h-5 pr-1" />
           Add <span className="hidden md:flex pl-1">New PR</span>
         </Button>)
+    );
+  } else if (locationPath === "/service-requests" && role !== "Nirmaan Estimates Executive Profile") {
+    return (
+      <Button
+        className="sm:mr-4 mr-2"
+        onClick={toggleNewWODialog}
+      >
+        <CirclePlus className="w-5 h-5 pr-1" />
+        Add <span className="hidden md:flex pl-1">New WO</span>
+      </Button>
     );
   } else if (locationPath === "/service-requests-list" && selectedProject && role !== "Nirmaan Project Manager Profile" && role !== "Nirmaan Estimates Executive Profile") {
     return (
