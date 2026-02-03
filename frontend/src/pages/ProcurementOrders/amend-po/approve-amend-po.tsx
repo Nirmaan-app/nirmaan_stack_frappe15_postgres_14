@@ -14,6 +14,8 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast, useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
+import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
+import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
@@ -93,6 +95,7 @@ const ApproveAmendPOPage = ({ po_data, versionsData, usersList,po_mutate }: Appr
     const navigate = useNavigate();
     const userData = useUserData();
     const { toast } = useToast();
+    const { isCEOHold, showBlockedToast } = useCEOHoldGuard(po_data?.project);
     const { updateDoc, loading: update_loading } = useFrappeUpdateDoc();
     const { createDoc, loading: create_loading } = useFrappeCreateDoc();
 
@@ -170,6 +173,10 @@ const ApproveAmendPOPage = ({ po_data, versionsData, usersList,po_mutate }: Appr
 
 
     const handleAction = async () => {
+        if (isCEOHold) {
+            showBlockedToast();
+            return;
+        }
         try {
             if (actionType === 'approve') {
                 // await updateDoc("Procurement Orders", po_data.name, { status: "PO Approved" });
@@ -242,6 +249,8 @@ const ApproveAmendPOPage = ({ po_data, versionsData, usersList,po_mutate }: Appr
                 <h2 className="text-lg font-bold tracking-tight">Approve/Revert Amendments</h2>
                 <ProcurementActionsHeaderCard orderData={po_data} amend={true} />
             </div>
+
+            {isCEOHold && <CEOHoldBanner className="mb-4" />}
 
             <Card className="mt-4 p-4 shadow-lg overflow-hidden">
                 <Table>

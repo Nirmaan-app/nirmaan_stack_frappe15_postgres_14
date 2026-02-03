@@ -1,5 +1,5 @@
 import React, { useCallback, useContext, useMemo } from "react";
-import { ColumnDef } from "@tanstack/react-table";
+import { ColumnDef, Row } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
 import { Link } from "react-router-dom";
 import {
@@ -48,6 +48,8 @@ import {
 } from "../config/prTable.config";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
 // --- Constants ---
 const DOCTYPE = "Procurement Requests";
@@ -56,6 +58,20 @@ const URL_SYNC_KEY = "pr_new_approve"; // Unique key for this specific table ins
 // --- Component ---
 export const ApprovePR: React.FC = () => {
   const { db } = useContext(FrappeContext) as FrappeConfig;
+
+  // --- CEO Hold Row Highlighting ---
+  const { ceoHoldProjectIds } = useCEOHoldProjects();
+
+  const getRowClassName = useCallback(
+    (row: Row<ProcurementRequest>) => {
+      const projectId = row.original.project;
+      if (projectId && ceoHoldProjectIds.has(projectId)) {
+        return CEO_HOLD_ROW_CLASSES;
+      }
+      return undefined;
+    },
+    [ceoHoldProjectIds]
+  );
 
   const projectsFetchOptions = getProjectListOptions();
 
@@ -525,6 +541,7 @@ export const ApprovePR: React.FC = () => {
           dateFilterColumns={dateColumns}
           showExportButton={true} // Enable if needed
           onExport={"default"}
+          getRowClassName={getRowClassName}
           // toolbarActions={<Button size="sm">Bulk Approve/Reject...</Button>} // Placeholder
         />
       )}

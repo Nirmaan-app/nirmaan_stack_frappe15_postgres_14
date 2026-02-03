@@ -17,6 +17,7 @@ import { ConfirmationDialog } from './components/ConfirmationDialog'; // Reusabl
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'; // For Delete PR
 import { PRCommentsSection } from './components/PRCommentsSection';
 import { EditingLockIndicator } from './components/EditingLockIndicator';
+import { CEOHoldBanner } from '@/components/ui/ceo-hold-banner';
 
 
 // Import types
@@ -146,7 +147,10 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
         lockInfo,
         onRefreshLock,
         onEditAnyway,
-        isRefreshingLock = false
+        isRefreshingLock = false,
+
+        // CEO Hold
+        isCEOHold = false,
     } = props;
 
     // // *** Add console log HERE to verify ***
@@ -231,6 +235,9 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                             isRefreshing={isRefreshingLock}
                         />
                     )}
+
+                    {/* CEO Hold Banner */}
+                    {isCEOHold && <CEOHoldBanner className="mb-4" />}
 
                     {/* Action Buttons Row */}
                     <div className="flex justify-end items-center">

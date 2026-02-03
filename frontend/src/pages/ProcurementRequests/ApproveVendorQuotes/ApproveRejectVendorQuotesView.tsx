@@ -17,6 +17,7 @@ import {
   ProcurementRequest,
   ProcurementRequestItemDetail,
 } from "@/types/NirmaanStack/ProcurementRequests";
+import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 
 interface ApproveRejectVendorQuotesViewProps
   extends UseApproveRejectLogicReturn {
@@ -25,6 +26,7 @@ interface ApproveRejectVendorQuotesViewProps
   attachment: NirmaanAttachment | null;
   handleAttachmentClick: (url: string) => void;
   prData?: ProcurementRequest;
+  isCEOHold?: boolean;
 }
 
 export const ApproveRejectVendorQuotesView: React.FC<
@@ -50,6 +52,7 @@ export const ApproveRejectVendorQuotesView: React.FC<
   attachment,
   handleAttachmentClick,
   setDynamicPaymentTerms, // ✨ RECEIVE the setter function
+  isCEOHold = false,
 }) => {
   const isCustomPr = !orderData?.work_package;
   const sendBackActionText = isCustomPr ? "Reject" : "Send Back";
@@ -120,6 +123,8 @@ export const ApproveRejectVendorQuotesView: React.FC<
           <ProcurementActionsHeaderCard orderData={orderData} po={true} />
         )}
       </div>
+
+      {isCEOHold && <CEOHoldBanner className="mb-4" />}
 
       <VendorApprovalTable
         dataSource={vendorDataSource}

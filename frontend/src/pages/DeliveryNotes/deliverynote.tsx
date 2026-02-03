@@ -21,6 +21,8 @@ import { DeliveryNotePrintLayout } from './components/DeliveryNotePrintLayout';
 // Hooks, Types, Constants
 import { useDeliveryNoteData } from './hooks/useDeliveryNoteData';
 import { usePrintHistory } from './hooks/usePrintHistroy'; // Corrected typo here
+import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
+import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 
 import { DeliveryDataType, ProcurementOrder } from '@/types/NirmaanStack/ProcurementOrders';
 import {
@@ -206,7 +208,9 @@ export default function DeliveryNote() {
   // console.log("deliveryNoteData", deliveryNoteData)
   // Use the history printing hook (this is correct)
   const { triggerHistoryPrint, PrintableHistoryComponent } = usePrintHistory(deliveryNoteData);
-  // console.log("deliveryNoteData", deliveryNoteData)
+
+  // CEO Hold check
+  const { isCEOHold } = useCEOHoldGuard(deliveryNoteData?.project);
 
   // It's safe to call useMemo and useCallback even if deliveryNoteData is null initially.
   // They will simply return their initial values and re-calculate on the next render.
@@ -348,6 +352,8 @@ export default function DeliveryNote() {
           </Button>
         </div>
       </div>
+
+      {isCEOHold && <CEOHoldBanner className="mb-4" />}
 
       {/* --- (Indicator) MODIFIED: Main layout now responsive --- */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

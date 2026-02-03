@@ -1,12 +1,14 @@
 import React, { useCallback, useContext, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ColumnDef } from "@tanstack/react-table";
+import { ColumnDef, Row } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, useFrappeGetDocList, Filter, FrappeDoc } from "frappe-react-sdk";
 import { Download, Info, Edit2 } from "lucide-react";
 import memoize from 'lodash/memoize';
 
 // --- UI Components ---
 import { DataTable } from '@/components/data-table/new-data-table';
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 
 import { TableSkeleton } from "@/components/ui/skeleton";
@@ -121,6 +123,9 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
 }) => {
     const { db } = useContext(FrappeContext) as FrappeConfig;
     const { role } = useUserData(); // Get user role
+
+    // --- CEO Hold Highlighting ---
+    const { ceoHoldProjectIds } = useCEOHoldProjects();
     const isAdmin = role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile"; // Check for admin role
     const isAccountant = role === "Nirmaan Accountant Profile"
 
@@ -473,8 +478,17 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
 
     // --- (Indicator) FIX: Move useServerDataTable hook here, into the parent component ---
 
-
-
+    // --- CEO Hold Row Highlighting ---
+    const getRowClassName = useCallback(
+        (row: Row<ProjectPayments>) => {
+            const projectId = row.original.project;
+            if (projectId && ceoHoldProjectIds.has(projectId)) {
+                return CEO_HOLD_ROW_CLASSES;
+            }
+            return undefined;
+        },
+        [ceoHoldProjectIds]
+    );
 
     // --- Combined Loading & Error States ---
     const isLoadingOverall = projectsLoading || vendorsLoading || userListLoading || poLoading || srLoading || listIsLoading;
@@ -508,6 +522,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                     showExportButton={true}
                     onExport={'default'}
                     summaryCard={projectId || customerId ? null : <PaymentSummaryCards totalCount={totalCount} />}
+                    getRowClassName={getRowClassName}
 
                 // toolbarActions={
                 //     (!projectId && !customerId) && (

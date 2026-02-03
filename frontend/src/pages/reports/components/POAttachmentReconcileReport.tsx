@@ -3,6 +3,8 @@ import { Row as TanRow } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { POAttachmentReconcileRowData, usePOAttachmentReconcileData } from "../hooks/usePOAttachmentReconcileData";
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 import { poAttachmentReconcileColumns } from "./columns/poAttachmentReconcileColumns";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
@@ -38,6 +40,8 @@ interface SelectOption {
 }
 
 export default function POAttachmentReconcileReport() {
+    const { ceoHoldProjectIds } = useCEOHoldProjects();
+
     // Fetch attachment reconcile data
     const {
         reportData: allPOData,
@@ -120,14 +124,20 @@ export default function POAttachmentReconcileReport() {
         };
     }, [fullyFilteredData]);
 
-    // Row highlighting callback - highlights rows where Invoice count ≠ DC count
+    // Row highlighting callback - CEO Hold takes priority, then Invoice/DC mismatch
     const getRowClassName = useCallback((row: TanRow<POAttachmentReconcileRowData>) => {
         const data = row.original;
+        // CEO Hold check first (priority)
+        const projectId = data.projectId;
+        if (projectId && ceoHoldProjectIds.has(projectId)) {
+            return CEO_HOLD_ROW_CLASSES;
+        }
+        // Existing mismatch logic as fallback
         if (data.invoiceCount !== data.dcCount) {
             return "bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 dark:hover:bg-amber-950/50";
         }
         return undefined;
-    }, []);
+    }, [ceoHoldProjectIds]);
 
     // Toggle state for showing only mismatched rows
     const [showOnlyMismatched, setShowOnlyMismatched] = useState(false);

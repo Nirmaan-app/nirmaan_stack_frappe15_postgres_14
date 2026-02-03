@@ -33,6 +33,7 @@ import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { queryKeys, getProjectExpenseTypeListOptions } from "@/config/queryKeys";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 
 interface NewProjectExpenseDialogProps {
     projectId?: string; // Optional: If provided, this dialog is for a specific project
@@ -69,6 +70,9 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
     const { toast } = useToast();
 
     const [formState, setFormState] = useState<FormState>({ ...INITIAL_STATE, projects: projectId || "" });
+
+    // CEO Hold guard - use either prop projectId or form-selected project
+    const { isCEOHold, showBlockedToast } = useCEOHoldGuard(projectId || formState.projects || undefined);
     const [formErrors, setFormErrors] = useState<Partial<FormState>>({});
     const [expenseTypePopoverOpen, setExpenseTypePopoverOpen] = useState(false);
     const commandListRef = useRef<HTMLDivElement>(null);
@@ -112,6 +116,10 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
     }, [formState]);
 
     const handleSubmit = async () => {
+        if (isCEOHold) {
+            showBlockedToast();
+            return;
+        }
         if (!validateForm()) {
             toast({ title: "Validation Error", description: "Please fill all required fields correctly.", variant: "destructive" });
             return;

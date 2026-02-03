@@ -5,6 +5,7 @@ import { parseNumber } from '@/utils/parseNumber';
 import { NewPaymentFormState } from '../types'; // Local types
 import { ServiceRequestsExtended } from './useApprovedSRData';
 import { formatToRoundedIndianRupee } from '@/utils/FormatPrice';
+import { useCEOHoldGuard } from '@/hooks/useCEOHoldGuard';
 
 const initialPaymentState: NewPaymentFormState = {
     amount: "",
@@ -20,6 +21,9 @@ export const useSRPaymentManager = (
     const [formState, setFormState] = useState<NewPaymentFormState>(initialPaymentState);
     const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
     const [validationWarning, setValidationWarning] = useState("");
+
+    // CEO Hold guard
+    const { isCEOHold, showBlockedToast } = useCEOHoldGuard(srDoc?.project);
 
     const { createDoc, loading: createPaymentLoading } = useFrappeCreateDoc();
     const { upload, loading: fileUploadLoading } = useFrappeFileUpload();
@@ -63,6 +67,10 @@ export const useSRPaymentManager = (
 
 
     const submitNewPayment = async (totalPayable: number, alreadyPaid: number) => {
+        if (isCEOHold) {
+            showBlockedToast();
+            return;
+        }
         if (!srDoc) {
             toast({ title: "Error", description: "Service Request data not loaded.", variant: "destructive" });
             return;

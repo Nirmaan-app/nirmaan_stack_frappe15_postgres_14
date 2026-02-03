@@ -1,5 +1,7 @@
 import React, { useCallback, useContext, useMemo } from "react";
-import { ColumnDef } from "@tanstack/react-table";
+import { ColumnDef, Row } from "@tanstack/react-table";
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 import { Link } from "react-router-dom";
 import {
   useFrappeGetDocList,
@@ -80,6 +82,20 @@ export const ApproveSelectAmendPO: React.FC = () => {
     error: userError,
   } = useUsersList();
   const { notifications, mark_seen_notification } = useNotificationStore();
+
+  // --- CEO Hold Row Highlighting ---
+  const { ceoHoldProjectIds } = useCEOHoldProjects();
+
+  const getRowClassName = useCallback(
+    (row: Row<ProcurementOrdersType>) => {
+      const projectId = row.original.project;
+      if (projectId && ceoHoldProjectIds.has(projectId)) {
+        return CEO_HOLD_ROW_CLASSES;
+      }
+      return undefined;
+    },
+    [ceoHoldProjectIds]
+  );
 
   // --- Memoized Calculations & Options ---
   const projectOptions = useMemo(
@@ -438,6 +454,7 @@ export const ApproveSelectAmendPO: React.FC = () => {
           dateFilterColumns={dateColumns}
           showExportButton={true}
           onExport={"default"}
+          getRowClassName={getRowClassName}
           // showExport={true} // Enable if needed
           // onExport={handleExport} // Define handleExport if needed
           // toolbarActions={<Button size="sm">Bulk Actions...</Button>} // Placeholder for future actions

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from "@/components/ui/use-toast";
+import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { SentBackCategory } from "@/types/NirmaanStack/SentBackCategory"; // Ensure SentBackCategoryItem is defined or use a generic item type
 import { ProcurementRequestItemDetail } from "@/types/NirmaanStack/ProcurementRequests"; // Child table type
 import { Vendors } from "@/types/NirmaanStack/Vendors";
@@ -67,7 +68,8 @@ export const useApproveSBSLogic = ({
 }: UseApproveSBSLogicProps): UseApproveSBSLogicReturn => {
     const { toast } = useToast();
     const navigate = useNavigate();
-    const { approveSBSelection, sendBackSBSelection, isLoading: isApiLoading } = useSBQuoteApprovalApi(sbId);
+    const { approveSBSelection, sendBackSBSelection, isLoading: isApiLoading } = useSBQuoteApprovalApi(sbId, initialSbData?.project);
+    const { isCEOHold, showBlockedToast } = useCEOHoldGuard(initialSbData?.project);
 
     const [sentBackData, setSentBackData] = useState<SentBackCategory | undefined>(undefined);
     const [selectionMap, setSelectionMap] = useState<SelectionState>(new Map());
@@ -281,6 +283,10 @@ export const useApproveSBSLogic = ({
     const toggleSendBackDialog = useCallback(() => setSendBackDialog(prev => !prev), []);
 
     const handleApproveConfirm = useCallback(async () => {
+        if (isCEOHold) {
+            showBlockedToast();
+            return;
+        }
         if (!sentBackData || selectionMap.size === 0) {
             toast({ title: "No Selection", description: "Please select items to approve from SB.", variant: "destructive" });
             return;
@@ -323,9 +329,13 @@ export const useApproveSBSLogic = ({
             console.error("Error approving SB selection:", error);
             toast({ title: "SB Approval Failed!", description: error?.message || "An error occurred.", variant: "destructive" });
         }
-    }, [sentBackData, selectionMap, approveSBSelection, sbMutate, navigate, toggleApproveDialog, toast,dynamicPaymentTerms]);
+    }, [sentBackData, selectionMap, approveSBSelection, sbMutate, navigate, toggleApproveDialog, toast, dynamicPaymentTerms, isCEOHold, showBlockedToast]);
 
     const handleSendBackConfirm = useCallback(async () => {
+        if (isCEOHold) {
+            showBlockedToast();
+            return;
+        }
         if (!sentBackData || selectionMap.size === 0) {
             toast({ title: "No Selection", description: "Please select items to send back from SB.", variant: "destructive" });
             return;
@@ -359,7 +369,7 @@ export const useApproveSBSLogic = ({
             console.error("Error sending back SB items:", error);
             toast({ title: "SB Send Back Failed!", description: error?.message || "An error occurred.", variant: "destructive" });
         }
-    }, [sentBackData, selectionMap, comment, sendBackSBSelection, sbMutate, navigate, toggleSendBackDialog, toast]);
+    }, [sentBackData, selectionMap, comment, sendBackSBSelection, sbMutate, navigate, toggleSendBackDialog, toast, isCEOHold, showBlockedToast]);
 
     const isSbEditable = useMemo(() => ["Vendor Selected", "Partially Approved"].includes(sentBackData?.workflow_state || ""), [sentBackData?.workflow_state]);
 

@@ -1,7 +1,9 @@
 import React, { useCallback, useState, useMemo } from "react";
 import { cn } from "@/lib/utils";
-import { ColumnDef } from "@tanstack/react-table";
+import { ColumnDef, Row } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 import {
   useFrappeGetDocList,
   FrappeDoc,
@@ -111,6 +113,19 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
   const { toast } = useToast(); // NEW
   const { role } = useUserData(); // NEW: Get user role for permissions
   const { deleteDoc, loading: deleteLoading } = useFrappeDeleteDoc(); // NEW
+  const { ceoHoldProjectIds } = useCEOHoldProjects();
+
+  // CEO Hold row highlighting
+  const getCEOHoldRowClassName = useCallback(
+    (row: Row<ProjectInflows>) => {
+      const projId = row.original.project;
+      if (projId && ceoHoldProjectIds.has(projId)) {
+        return CEO_HOLD_ROW_CLASSES;
+      }
+      return undefined;
+    },
+    [ceoHoldProjectIds]
+  );
 
   // Dynamic URL key for this table instance
   const urlSyncKey = useMemo(
@@ -607,6 +622,7 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
             projectId ||
             "all"
           ).replace(/[^a-zA-Z0-9]/g, "_")} `}
+          getRowClassName={getCEOHoldRowClassName}
           // toolbarActions={
           //     !projectId && !customerId && ( // Only show if not in specific project/customer context
           //         <Button onClick={toggleNewInflowDialog} size="sm">

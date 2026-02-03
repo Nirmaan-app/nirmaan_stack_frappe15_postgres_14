@@ -1,6 +1,8 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { ColumnDef } from "@tanstack/react-table";
+import { ColumnDef, Row } from "@tanstack/react-table";
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 import { Link } from "react-router-dom";
 import {
   useFrappeGetDocList,
@@ -47,6 +49,7 @@ const URL_SYNC_KEY = "sr_select_vendor"; // Unique key for this table instance
 export const SelectServiceVendorList: React.FC = () => {
   const { role, user_id } = useUserData(); // Get user_id for delete check
   // const { db } = useContext(FrappeContext) as FrappeConfig;
+  const { ceoHoldProjectIds } = useCEOHoldProjects();
 
   // --- Dialog State for Delete ---
   const [itemToDelete, setItemToDelete] = useState<ServiceRequests | null>(
@@ -462,6 +465,18 @@ export const SelectServiceVendorList: React.FC = () => {
   const isLoading = projectsLoading || userListLoading;
   const combinedError = projectsError || userError || listError;
 
+  // --- CEO Hold Row Highlighting ---
+  const getRowClassName = useCallback(
+    (row: Row<ServiceRequests>) => {
+      const projectId = row.original.project;
+      if (projectId && ceoHoldProjectIds.has(projectId)) {
+        return CEO_HOLD_ROW_CLASSES;
+      }
+      return undefined;
+    },
+    [ceoHoldProjectIds]
+  );
+
   if (combinedError) {
     return <AlertDestructive error={combinedError} />;
   }
@@ -504,6 +519,7 @@ export const SelectServiceVendorList: React.FC = () => {
           dateFilterColumns={dateColumns}
           showExportButton={true}
           onExport={"default"}
+          getRowClassName={getRowClassName}
           // toolbarActions={<Button size="sm">Bulk Approve...</Button>} // Placeholder for future actions
         />
       )}

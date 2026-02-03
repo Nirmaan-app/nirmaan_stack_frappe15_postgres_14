@@ -1,7 +1,7 @@
 import React, { useCallback, useContext, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Link, useNavigate } from "react-router-dom";
-import { ColumnDef } from "@tanstack/react-table";
+import { ColumnDef, Row } from "@tanstack/react-table";
 import {
   FrappeConfig,
   FrappeContext,
@@ -61,6 +61,9 @@ import {
   PP_SEARCHABLE_FIELDS,
 } from "../config/projectPaymentsTable.config";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
+import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
 import { useSWRConfig } from "swr";
 
@@ -85,6 +88,12 @@ export const ApprovePayments: React.FC = () => {
     DIALOG_ACTION_TYPES.APPROVE
   );
   const [isDialogOpen, setIsDialogOpen] = useState<boolean>(false);
+
+  // --- CEO Hold Guard ---
+  const { isCEOHold, showBlockedToast } = useCEOHoldGuard(selectedPayment?.project);
+
+  // --- CEO Hold Highlighting ---
+  const { ceoHoldProjectIds } = useCEOHoldProjects();
 
   // --- Supporting Data Fetches (Keep these for lookups/calculations) ---
   const projectsFetchOptions = getProjectListOptions();
@@ -603,6 +612,10 @@ export const ApprovePayments: React.FC = () => {
       payment_details?: any
     ) => {
       if (!selectedPayment) return;
+      if (isCEOHold) {
+        showBlockedToast();
+        return;
+      }
       const newStatus =
         actionType === DIALOG_ACTION_TYPES.APPROVE ||
         actionType === DIALOG_ACTION_TYPES.EDIT
@@ -637,10 +650,22 @@ export const ApprovePayments: React.FC = () => {
         });
       }
     },
-    [selectedPayment, updateDoc, closeDialog, toast]
+    [selectedPayment, updateDoc, closeDialog, toast, isCEOHold, showBlockedToast]
   );
 
   // --- useServerDataTable Hook moved up above facets for columnFilters access ---
+
+  // --- CEO Hold Row Highlighting ---
+  const getRowClassName = useCallback(
+    (row: Row<ProjectPayments>) => {
+      const projectId = row.original.project;
+      if (projectId && ceoHoldProjectIds.has(projectId)) {
+        return CEO_HOLD_ROW_CLASSES;
+      }
+      return undefined;
+    },
+    [ceoHoldProjectIds]
+  );
 
   // --- Combined Loading & Error States ---
   const isPageLoading =
@@ -704,6 +729,7 @@ export const ApprovePayments: React.FC = () => {
           dateFilterColumns={dateColumns}
           showExportButton={true} // Optional
           onExport={"default"}
+          getRowClassName={getRowClassName}
           // toolbarActions={...} // Optional
         />
       )}

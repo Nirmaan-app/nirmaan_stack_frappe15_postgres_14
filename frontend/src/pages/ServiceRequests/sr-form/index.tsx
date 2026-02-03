@@ -21,6 +21,8 @@ import {
 
 // Hooks & Utils
 import { useUserData } from "@/hooks/useUserData";
+import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
+import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 import { useSRFormData } from "./hooks/useSRFormData";
 
 // Schema & Constants
@@ -93,6 +95,11 @@ export const SRFormWizard = () => {
     });
 
     const { setValue, trigger, getValues } = form;
+
+    /* ─────────────────────────────────────────────────────────
+       CEO HOLD GUARD
+       ───────────────────────────────────────────────────────── */
+    const { isCEOHold, showBlockedToast } = useCEOHoldGuard(projectId);
 
     /* ─────────────────────────────────────────────────────────
        DATA FETCHING
@@ -242,6 +249,12 @@ export const SRFormWizard = () => {
        SR SUBMISSION
        ───────────────────────────────────────────────────────── */
     const handleSubmit = useCallback(async () => {
+        // CEO Hold guard
+        if (isCEOHold) {
+            showBlockedToast();
+            return;
+        }
+
         // Get current form values
         const currentFormValues = getValues();
 
@@ -337,7 +350,7 @@ export const SRFormWizard = () => {
                 variant: "destructive",
             });
         }
-    }, [getValues, createDoc, userData?.user_id, navigate]);
+    }, [getValues, createDoc, userData?.user_id, navigate, isCEOHold, showBlockedToast]);
 
     /* ─────────────────────────────────────────────────────────
        RENDER CURRENT STEP
@@ -524,6 +537,9 @@ export const SRFormWizard = () => {
                     <p className="text-sm text-muted-foreground">{project.project_name}</p>
                 )}
             </div>
+
+            {/* CEO Hold Banner */}
+            {isCEOHold && <CEOHoldBanner className="mb-4" />}
 
             {/* Wizard Steps Progress */}
             <Card className="border-0 shadow-sm bg-card/50">

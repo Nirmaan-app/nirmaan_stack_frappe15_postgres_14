@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { usePOValidation } from "@/hooks/usePOValidation";
 import { useUserData } from "@/hooks/useUserData";
+import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import {
   Tooltip,
   TooltipContent,
@@ -866,6 +867,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
   const { updateDoc, loading: isUpdatingDoc } = useFrappeUpdateDoc();
   const { errors, isValid, hasVendorIssues } = usePOValidation(PO);
   const { role } = useUserData();
+  const { isCEOHold, showBlockedToast } = useCEOHoldGuard(PO?.project);
   const {
     call: CreatePPApi,
     loading: CreatePPApiLoading,
@@ -953,6 +955,10 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
   const handleOpenRequestDialog = (term: PaymentTerm) => setTermToRequest(term);
 
   const handleConfirmRequestPayment = async () => {
+    if (isCEOHold) {
+      showBlockedToast();
+      return;
+    }
     if (!termToRequest) return;
     setUpdatingTermName(termToRequest.name);
     try {

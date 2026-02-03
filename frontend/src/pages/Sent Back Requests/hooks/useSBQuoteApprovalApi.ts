@@ -1,6 +1,7 @@
 // src/features/procurement/approve-sb-quotes/hooks/useSBQuoteApprovalApi.ts
 import { useFrappePostCall } from "frappe-react-sdk";
 import { useCallback } from "react";
+import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 
 // Define specific payload types for SB APIs
 export interface ApproveSBPayload {
@@ -26,16 +27,21 @@ interface ApiResponse {
     }
 }
 
-export const useSBQuoteApprovalApi = (sbId?: string) => {
+export const useSBQuoteApprovalApi = (sbId?: string, projectId?: string) => {
+    const { isCEOHold, showBlockedToast } = useCEOHoldGuard(projectId);
     // Update API endpoint paths
     const { call: approveItemsCall, loading: approveLoading } = useFrappePostCall<ApiResponse>("nirmaan_stack.api.approve_reject_sb_vendor_quotes.new_handle_approve");
 
     const { call: sendBackItemsCall, loading: sendBackLoading } = useFrappePostCall<ApiResponse>("nirmaan_stack.api.approve_reject_sb_vendor_quotes.new_handle_sent_back");
 
     const approveSelection = useCallback(async (payload: ApproveSBPayload) => {
+        if (isCEOHold) {
+            showBlockedToast();
+            return;
+        }
         if (!sbId) throw new Error("Sent Back ID is required for approval.");
         return await approveItemsCall(payload);
-    }, [approveItemsCall, sbId]);
+    }, [approveItemsCall, sbId, isCEOHold, showBlockedToast]);
 
     const sendBackSelection = useCallback(async (payload: SendBackSBPayload) => {
         if (!sbId) throw new Error("Sent Back ID is required for send back.");

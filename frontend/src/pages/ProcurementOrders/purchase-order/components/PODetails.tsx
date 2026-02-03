@@ -1,5 +1,6 @@
 import { usePOValidation } from "@/hooks/usePOValidation";
 import { useUserData } from "@/hooks/useUserData";
+import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import DeliveryHistoryTable from "@/pages/DeliveryNotes/components/DeliveryHistory";
 import { DeliveryNoteItemsDisplay } from "@/pages/DeliveryNotes/components/deliveryNoteItemsDisplay";
 import { ProcurementOrder, DeliveryDataType } from "@/types/NirmaanStack/ProcurementOrders";
@@ -137,6 +138,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
   const { role } = useUserData();
   const isProjectManager = role === "Nirmaan Project Manager Profile";
   const { errors, isValid, hasVendorIssues } = usePOValidation(po);
+  const { isCEOHold, showBlockedToast } = useCEOHoldGuard(po?.project);
 
   const { updateDoc, loading: update_loading } = useFrappeUpdateDoc();
   const { call: deleteCustomPOCall, loading: deleteCustomPOCallLoading } =
@@ -204,6 +206,10 @@ export const PODetails: React.FC<PODetailsProps> = ({
   }, []);
 
   const handleUploadFile = useCallback(async () => {
+    if (isCEOHold) {
+      showBlockedToast();
+      return;
+    }
     if (!selectedFile || !uploadDialog.type || !po?.name) {
       toast({
         title: "No File Selected",
@@ -337,6 +343,10 @@ export const PODetails: React.FC<PODetailsProps> = ({
   }, []);
 
   const handleDispatchPO = async (linkCriticalTasks: boolean = false) => {
+    if (isCEOHold) {
+      showBlockedToast();
+      return;
+    }
     try {
       // If linking to critical tasks, do that first (now supports multiple)
       if (linkCriticalTasks && criticalPOLinking.selectedTasks.length > 0) {
@@ -401,6 +411,10 @@ export const PODetails: React.FC<PODetailsProps> = ({
   }, []);
 
   const handleRevertPO = async () => {
+    if (isCEOHold) {
+      showBlockedToast();
+      return;
+    }
     try {
       await updateDoc("Procurement Orders", po.name, {
         status: "PO Approved",
@@ -429,6 +443,10 @@ export const PODetails: React.FC<PODetailsProps> = ({
   };
 
   const handleDeleteCustomPO = async () => {
+    if (isCEOHold) {
+      showBlockedToast();
+      return;
+    }
     try {
       const response = await deleteCustomPOCall({
         po_id: po.name,

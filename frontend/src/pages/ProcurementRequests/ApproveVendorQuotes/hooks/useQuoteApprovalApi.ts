@@ -1,6 +1,7 @@
 import { useFrappePostCall, useFrappeUpdateDoc, useFrappeCreateDoc } from "frappe-react-sdk";
 import { useCallback } from "react";
 import { useUserData } from "@/hooks/useUserData"; // Adjust path
+import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 
 export interface ApprovePayload {
     project_id: string;
@@ -28,23 +29,32 @@ interface ApiResponse {
     }
 }
 
-export const useQuoteApprovalApi = (prId?: string) => {
+export const useQuoteApprovalApi = (prId?: string, projectId?: string) => {
     const userData = useUserData();
+    const { isCEOHold, showBlockedToast } = useCEOHoldGuard(projectId);
     const { call: approveItemsCall, loading: approveLoading } = useFrappePostCall<ApiResponse>("nirmaan_stack.api.approve_vendor_quotes.generate_pos_from_selection");
     const { call: sendBackItemsCall, loading: sendBackLoading } = useFrappePostCall<ApiResponse>("nirmaan_stack.api.reject_vendor_quotes.send_back_items");
     const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
     const { createDoc, loading: createLoading } = useFrappeCreateDoc();
 
     const approveSelection = useCallback(async (payload: ApprovePayload) => {
+        if (isCEOHold) {
+            showBlockedToast();
+            return;
+        }
         if (!prId) throw new Error("PR ID is required for approval.");
         // Add validation for payload if needed
         return await approveItemsCall(payload);
-    }, [approveItemsCall, prId]);
+    }, [approveItemsCall, prId, isCEOHold, showBlockedToast]);
 
     const sendBackSelection = useCallback(async (payload: SendBackPayload) => {
+        if (isCEOHold) {
+            showBlockedToast();
+            return;
+        }
         if (!prId) throw new Error("PR ID is required for send back.");
         return await sendBackItemsCall(payload);
-    }, [sendBackItemsCall, prId]);
+    }, [sendBackItemsCall, prId, isCEOHold, showBlockedToast]);
 
     // Specific function for rejecting a custom PR (no work package)
     const rejectCustomPr = useCallback(async (comment?: string) => {

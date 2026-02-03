@@ -6,9 +6,12 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { SevenDaysMaterialPlan } from "@/pages/projects/components/planning/SevenDaysMaterialPlan";
 import { Projects } from "@/types/NirmaanStack/Projects";
+import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
+import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 
 const MaterialPlanTrackerDetail: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
+  const { isCEOHold } = useCEOHoldGuard(projectId);
 
   // Fetch project data
   const {
@@ -37,6 +40,7 @@ const MaterialPlanTrackerDetail: React.FC = () => {
 
   return (
     <div className="flex-1 p-6 space-y-6">
+      {isCEOHold && <CEOHoldBanner className="mb-4" />}
       {/* Header with project info */}
       <div className="flex items-center gap-3">
         <Package className="h-6 w-6 text-primary" />

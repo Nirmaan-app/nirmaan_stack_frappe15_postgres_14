@@ -10,6 +10,7 @@ import {
 import Fuse, { IFuseOptions } from 'fuse.js';
 import { useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
+import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import {
     PRDocType, // This is GlobalPRDocType
     PRScreenData, // New type for hook's main data state
@@ -110,6 +111,9 @@ export const useApprovePRLogic = ({
     const { toast } = useToast();
     const userData = useUserData();
     const { mutate: globalMutate } = useSWRConfig(); // For broader cache updates if needed
+
+    // CEO Hold guard
+    const { isCEOHold, showBlockedToast } = useCEOHoldGuard(prDoc?.project);
 
     // --- Frappe Hooks ---
     const { createDoc, loading: createLoading } = useFrappeCreateDoc();
@@ -1529,6 +1533,11 @@ export const useApprovePRLogic = ({
 
 
     const handleConfirmAction = useCallback(async () => {
+        if (isCEOHold) {
+            showBlockedToast();
+            return;
+        }
+
         if (!summaryAction || !orderData || !orderData.name) return;
 
         const actionText = summaryAction === 'approve' ? 'Approved' : 'Rejected';
@@ -1627,7 +1636,7 @@ export const useApprovePRLogic = ({
             });
             setIsConfirmActionDialogOpen(false);
         }
-    }, [summaryAction, orderData, universalComment, updateDoc, createDoc, userData, prMutate, globalMutate, navigate, toast, useDraftFirst, draftManager]);
+    }, [summaryAction, orderData, universalComment, updateDoc, createDoc, userData, prMutate, globalMutate, navigate, toast, useDraftFirst, draftManager, isCEOHold, showBlockedToast]);
 
 
     const handleOpenDeletePRDialog = useCallback(() => {
@@ -1636,6 +1645,11 @@ export const useApprovePRLogic = ({
 
 
     const handleDeletePR = useCallback(async () => {
+        if (isCEOHold) {
+            showBlockedToast();
+            return;
+        }
+
         if (!orderData || !orderData.name) return;
 
         try {
@@ -1663,7 +1677,7 @@ export const useApprovePRLogic = ({
             });
             setIsDeletePRDialogOpen(false); // Close dialog even on failure
         }
-    }, [orderData, deleteDoc, globalMutate, navigate, toast]);
+    }, [orderData, deleteDoc, globalMutate, navigate, toast, isCEOHold, showBlockedToast]);
 
 
     // --- Navigation ---
@@ -1763,6 +1777,9 @@ export const useApprovePRLogic = ({
         makeListMutate,
         categoryMakelist,
         categoryMakeListMutate,
-        itemFuseOptions
+        itemFuseOptions,
+
+        // CEO Hold
+        isCEOHold,
     };
 };

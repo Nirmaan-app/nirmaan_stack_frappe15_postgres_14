@@ -12,7 +12,9 @@ import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice
 // import { getPOTotal } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
-import { ColumnDef } from "@tanstack/react-table";
+import { ColumnDef, Row } from "@tanstack/react-table";
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 import { Radio } from "antd";
 import { FrappeDoc, useFrappeGetDocList, GetDocListArgs } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
@@ -100,6 +102,20 @@ const PODataTableWrapper: React.FC<{
             vendor: { ...facetFilterOptions.vendor, options: vendorFacetOptions, isLoading: isVendorFacetLoading },
         }), [facetFilterOptions, projectFacetOptions, isProjectFacetLoading, vendorFacetOptions, isVendorFacetLoading]);
 
+        // --- CEO Hold Row Highlighting ---
+        const { ceoHoldProjectIds } = useCEOHoldProjects();
+
+        const getRowClassName = useCallback(
+            (row: Row<ProcurementOrdersType>) => {
+                const projectId = row.original.project;
+                if (projectId && ceoHoldProjectIds.has(projectId)) {
+                    return CEO_HOLD_ROW_CLASSES;
+                }
+                return undefined;
+            },
+            [ceoHoldProjectIds]
+        );
+
         return (
             <DataTable<ProcurementOrdersType>
                 table={serverDataTable.table}
@@ -116,6 +132,7 @@ const PODataTableWrapper: React.FC<{
                 dateFilterColumns={dateColumns}
                 showExportButton={true}
                 onExport={'default'}
+                getRowClassName={getRowClassName}
             />
         );
     };

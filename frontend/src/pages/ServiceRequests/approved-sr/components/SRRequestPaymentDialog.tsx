@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { TailSpin } from 'react-loader-spinner';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radiogroup';
+import { useCEOHoldGuard } from '@/hooks/useCEOHoldGuard';
 
 interface SRRequestPaymentDialogProps {
     isOpen: boolean;
@@ -40,6 +41,9 @@ export const SRRequestPaymentDialog: React.FC<SRRequestPaymentDialogProps> = ({
 
     const gstApplicableOnSR = srDoc.gst === "true";
     const baseAmountForPayment = gstApplicableOnSR ? totalSrAmountInclGST : totalSrAmountExclGST;
+
+    // CEO Hold guard
+    const { isCEOHold, showBlockedToast } = useCEOHoldGuard(srDoc.project);
 
     const maxPossibleNewRequest = useMemo(() =>
         Math.max(0, baseAmountForPayment - currentPaidAmount - currentPendingAmount),
@@ -82,6 +86,10 @@ export const SRRequestPaymentDialog: React.FC<SRRequestPaymentDialogProps> = ({
 
 
     const handleSubmitRequest = async () => {
+        if (isCEOHold) {
+            showBlockedToast();
+            return;
+        }
         // ... (validation checks for warning or amount <= 0)
         if (validationWarning || effectiveAmountRequesting <= 0) { /* ... toast error ... */ return; }
 

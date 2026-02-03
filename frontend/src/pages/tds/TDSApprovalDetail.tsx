@@ -2,6 +2,8 @@ import React, { useMemo, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, CheckCircle2, XCircle, FileText, Pencil, MessageSquare, Clock, User, Layers } from "lucide-react";
+import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
+import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 import { 
     Tooltip, 
     TooltipContent, 
@@ -27,6 +29,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 interface TDSItem {
     name: string;
     tds_request_id: string;
+    tdsi_project_id: string;
     tdsi_project_name: string;
     tds_work_package: string;
     tds_category: string;
@@ -260,10 +263,14 @@ export const TDSApprovalDetail: React.FC = () => {
     // Fetch items for this request ID
     const { data: allItems, isLoading, mutate } = useFrappeGetDocList<TDSItem>("Project TDS Item List", {
         fields: ["*"],
-        filters: [["tds_request_id", "=", requestId ?? ""]], 
+        filters: [["tds_request_id", "=", requestId ?? ""]],
         limit: 0
     });
-    
+
+    // CEO Hold guard - use project ID from first TDS item
+    const projectId = allItems?.[0]?.tdsi_project_id;
+    const { isCEOHold, showBlockedToast } = useCEOHoldGuard(projectId);
+
     // Split items by status
     const pendingItems = useMemo(() => 
         (allItems || []).filter(item => !item.tds_status || item.tds_status === "Pending"), 
@@ -678,6 +685,11 @@ export const TDSApprovalDetail: React.FC = () => {
     ], []);
 
     const handleApprove = async () => {
+        if (isCEOHold) {
+            showBlockedToast();
+            return;
+        }
+
         const selectedItems = pendingItems.filter((_, index) => rowSelection[index.toString()]);
 
         if (selectedItems.length === 0) {
@@ -709,8 +721,13 @@ export const TDSApprovalDetail: React.FC = () => {
     };
 
     const handleReject = (remarks: string) => {
+        if (isCEOHold) {
+            showBlockedToast();
+            return;
+        }
+
         const selectedItems = pendingItems.filter((_, index) => rowSelection[index.toString()]);
-         
+
         if (selectedItems.length === 0) return;
 
         const willBeEmpty = selectedItems.length === pendingItems.length;
@@ -748,6 +765,11 @@ export const TDSApprovalDetail: React.FC = () => {
     };
 
     const handleEditSave = async (itemName: string, updates: Partial<TDSItem>, itemsToDelete?: string[]) => {
+        if (isCEOHold) {
+            showBlockedToast();
+            return;
+        }
+
         setProcessing(true);
         try {
             // Check if there are items to delete (resubmission logic)
@@ -786,11 +808,12 @@ export const TDSApprovalDetail: React.FC = () => {
 
     return (
         <div className="flex-1 space-y-4 md:space-y-6 p-2 md:p-4 bg-slate-50/50 min-h-screen">
+            {isCEOHold && <CEOHoldBanner className="mb-4" />}
             {/* Breadcrumb Header */}
             <div className="flex flex-col space-y-2">
-                {/* <Button 
-                    variant="ghost" 
-                    onClick={() => navigate(-1)} 
+                {/* <Button
+                    variant="ghost"
+                    onClick={() => navigate(-1)}
                     className="w-fit -ml-2 text-slate-500 hover:text-slate-900"
                 >
                     <ArrowLeft className="h-4 w-4 mr-2" /> Back to List

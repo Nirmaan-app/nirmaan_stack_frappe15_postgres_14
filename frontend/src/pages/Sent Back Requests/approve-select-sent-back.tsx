@@ -1,5 +1,5 @@
 import React, { useCallback, useContext, useMemo } from "react";
-import { ColumnDef } from "@tanstack/react-table";
+import { ColumnDef, Row } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import {
   useFrappeGetDocList,
@@ -42,6 +42,8 @@ import {
   SB_SEARCHABLE_FIELDS,
 } from "./config/sentBackCategoryTables.config";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
 // --- Constants ---
 const DOCTYPE = "Sent Back Category";
@@ -50,6 +52,7 @@ const URL_SYNC_KEY = "sb_approve";
 // --- Component ---
 export const ApproveSelectSentBack: React.FC = () => {
   const { db } = useContext(FrappeContext) as FrappeConfig;
+  const { ceoHoldProjectIds } = useCEOHoldProjects();
 
   const projectsFetchOptions = getProjectListOptions();
 
@@ -369,6 +372,18 @@ export const ApproveSelectSentBack: React.FC = () => {
     [projectFacetOptions, isProjectFacetLoading]
   );
 
+  // --- CEO Hold Row Highlighting ---
+  const getRowClassName = useCallback(
+    (row: Row<SentBackCategory>) => {
+      const projectId = row.original.project;
+      if (projectId && ceoHoldProjectIds.has(projectId)) {
+        return CEO_HOLD_ROW_CLASSES;
+      }
+      return undefined;
+    },
+    [ceoHoldProjectIds]
+  );
+
   // --- Combined Loading State & Error Handling ---
   const isLoading = projectsLoading || userListLoading;
   const error = projectsError || userError || listError;
@@ -407,6 +422,7 @@ export const ApproveSelectSentBack: React.FC = () => {
           dateFilterColumns={dateColumns}
           showExportButton={true}
           onExport={"default"}
+          getRowClassName={getRowClassName}
           // toolbarActions={<Button size="sm">Bulk Actions...</Button>}
         />
       )}

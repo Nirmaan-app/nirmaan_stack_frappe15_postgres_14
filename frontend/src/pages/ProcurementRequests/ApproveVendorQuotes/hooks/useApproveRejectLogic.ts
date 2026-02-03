@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from "@/components/ui/use-toast";
+import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { ProcurementRequestItemDetail } from "@/types/NirmaanStack/ProcurementRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
@@ -51,9 +52,12 @@ export interface UseApproveRejectLogicReturn {
 export const useApproveRejectLogic = ({ prId, initialPrData, vendorList = [], usersList = [], prMutate }: UseApproveRejectLogicProps): UseApproveRejectLogicReturn => {
     const { toast } = useToast();
     const navigate = useNavigate();
-    const { approveSelection, sendBackSelection, rejectCustomPr, isLoading: isActionApiLoading } = useQuoteApprovalApi(prId);
+    const { approveSelection, sendBackSelection, rejectCustomPr, isLoading: isActionApiLoading } = useQuoteApprovalApi(prId, initialPrData?.project);
 
     const [orderData, setOrderData] = useState<ApproveQuotesPRDoc | undefined>(undefined);
+
+    // CEO Hold guard - use initialPrData.project since orderData might not be set yet
+    const { isCEOHold, showBlockedToast } = useCEOHoldGuard(initialPrData?.project);
     const [selectionMap, setSelectionMap] = useState<SelectionState>(new Map());
     const [isApproveDialogOpen, setApproveDialog] = useState<boolean>(false);
     const [isSendBackDialogOpen, setSendBackDialog] = useState<boolean>(false);
@@ -287,6 +291,11 @@ export const useApproveRejectLogic = ({ prId, initialPrData, vendorList = [], us
     const toggleSendBackDialog = useCallback(() => setSendBackDialog(prev => !prev), []);
 
     const handleApproveConfirm = useCallback(async () => {
+        if (isCEOHold) {
+            showBlockedToast();
+            return;
+        }
+
         if (!orderData || selectionMap.size === 0) {
             toast({ title: "No Selection", description: "Please select items to approve.", variant: "destructive" });
             return;
@@ -334,10 +343,15 @@ export const useApproveRejectLogic = ({ prId, initialPrData, vendorList = [], us
             toast({ title: "Approval Failed!", description: error?.message || "An error occurred.", variant: "destructive" });
         }
         
-    }, [orderData, selectionMap, approveSelection, prMutate, navigate, toggleApproveDialog, toast, dynamicPaymentTerms]); // ✨ ADD dependency
+    }, [orderData, selectionMap, approveSelection, prMutate, navigate, toggleApproveDialog, toast, dynamicPaymentTerms, isCEOHold, showBlockedToast]); // ✨ ADD dependency
 
     // ... (handleSendBackConfirm and isPrEditable are unchanged) ...
     const handleSendBackConfirm = useCallback(async () => {
+        if (isCEOHold) {
+            showBlockedToast();
+            return;
+        }
+
         if (!orderData) return;
         if (!orderData.work_package) {
             try {
@@ -376,7 +390,7 @@ export const useApproveRejectLogic = ({ prId, initialPrData, vendorList = [], us
             console.error("Error sending back selection:", error);
             toast({ title: "Send Back Failed!", description: error?.message || "An error occurred.", variant: "destructive" });
         }
-    }, [orderData, selectionMap, comment, sendBackSelection, rejectCustomPr, prMutate, navigate, toggleSendBackDialog, toast]);
+    }, [orderData, selectionMap, comment, sendBackSelection, rejectCustomPr, prMutate, navigate, toggleSendBackDialog, toast, isCEOHold, showBlockedToast]);
 
     const isPrEditable = useMemo(() => ["Vendor Selected", "Partially Approved"].includes(orderData?.workflow_state || ""), [orderData?.workflow_state]);
     const isLoadingHook = isActionApiLoading || targetRatesLoading;

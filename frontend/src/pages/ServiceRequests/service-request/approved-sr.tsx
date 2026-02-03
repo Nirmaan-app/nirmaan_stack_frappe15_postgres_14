@@ -175,8 +175,14 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
         setRevertFinalizeDialog(false);
     }, [service_request_mutate, refetchFinalizePermissions]);
 
-    const { finalize, isLoading: isFinalizingLoading } = useFinalizeSR(handleFinalizeSuccess);
-    const { revert, isLoading: isRevertingLoading } = useRevertFinalizeSR(handleRevertSuccess);
+    const { finalize, isLoading: isFinalizingLoading } = useFinalizeSR({
+        projectId: service_request?.project,
+        onSuccess: handleFinalizeSuccess
+    });
+    const { revert, isLoading: isRevertingLoading } = useRevertFinalizeSR({
+        projectId: service_request?.project,
+        onSuccess: handleRevertSuccess
+    });
 
     const handleFinalize = useCallback(() => {
         if (id) {

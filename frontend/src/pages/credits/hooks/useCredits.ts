@@ -36,6 +36,7 @@ import {
   CREDIT_FACET_FILTER_OPTIONS,
 } from "../credits.constant";
 import { useFacetValues } from "@/hooks/useFacetValues";
+import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 
 // --- Constants ---
 const DEBOUNCE_DELAY = 500;
@@ -101,6 +102,9 @@ export const useCredits = () => {
 
   // --- Payment Request Dialog State ---
   const [termToRequest, setTermToRequest] = useState<PoPaymentTermRow | null>(null);
+
+  // --- CEO Hold Guard ---
+  const { isCEOHold, showBlockedToast } = useCEOHoldGuard(termToRequest?.project);
 
   // --- API Calls ---
   const {
@@ -213,6 +217,11 @@ export const useCredits = () => {
   const handleConfirmRequestPayment = useCallback(async () => {
     if (!termToRequest) return;
 
+    if (isCEOHold) {
+      showBlockedToast();
+      return;
+    }
+
     try {
       const result = await requestPaymentApi({
         doctype: "Procurement Orders",
@@ -242,7 +251,7 @@ export const useCredits = () => {
     } finally {
       setTermToRequest(null);
     }
-  }, [termToRequest, requestPaymentApi]);
+  }, [termToRequest, requestPaymentApi, isCEOHold, showBlockedToast]);
 
   // --- Columns Definition ---
   const columns = useMemo(

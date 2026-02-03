@@ -124,7 +124,7 @@ export const useProcurementProgressLogic = ({
         handleSaveDraft: actionSaveDraft,
         isUpdatingDocument,
         isRedirecting,
-    } = useProcurementActions({ docId, docMutate: documentMutate });
+    } = useProcurementActions({ docId, docMutate: documentMutate, projectId: initialDocument?.project });
 
     // Real-time document updates & viewers
     const { viewers } = useFrappeDocumentEventListener(

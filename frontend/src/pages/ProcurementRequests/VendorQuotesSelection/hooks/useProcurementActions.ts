@@ -7,17 +7,23 @@ import { ProgressDocument, getItemListFromDocument, ProgressItem } from '../type
 import { parseNumber } from '@/utils/parseNumber';
 import { toast } from '@/components/ui/use-toast';
 import { queryKeys } from '@/config/queryKeys';
+import { useCEOHoldGuard } from '@/hooks/useCEOHoldGuard';
 
 interface UseProcurementActionsProps {
     docId: string;
     // The SWR mutate function for the specific document being updated
     docMutate: () => Promise<any>;
+    // Project ID for CEO Hold check
+    projectId?: string;
 }
 
-export const useProcurementActions = ({ docId, docMutate }: UseProcurementActionsProps) => {
+export const useProcurementActions = ({ docId, docMutate, projectId }: UseProcurementActionsProps) => {
     const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
     const { mutate: globalSWRMutate } = useSWRConfig(); // For mutating list keys
     const navigate = useNavigate();
+
+    // CEO Hold guard
+    const { isCEOHold, showBlockedToast } = useCEOHoldGuard(projectId);
 
     const [isRedirecting, setIsRedirecting] = useState<string>(""); // For UI feedback
 
@@ -27,6 +33,11 @@ export const useProcurementActions = ({ docId, docMutate }: UseProcurementAction
         workflowStateUpdate?: string,
         finalSelectedVendorQuotes?: Map<string, string> // Pass this for review/save
     ) => {
+        if (isCEOHold) {
+            showBlockedToast();
+            return false;
+        }
+
         setIsRedirecting(workflowStateUpdate === "Approved" ? "revert_save" : "save"); // Indicate action type
 
         // Prepare the updated item list based on final selections for saving
@@ -135,7 +146,7 @@ export const useProcurementActions = ({ docId, docMutate }: UseProcurementAction
         } finally {
             setIsRedirecting("");
         }
-    }, [docId, updateDoc, docMutate, globalSWRMutate, toast]);
+    }, [docId, updateDoc, docMutate, globalSWRMutate, toast, isCEOHold, showBlockedToast]);
 
 
 

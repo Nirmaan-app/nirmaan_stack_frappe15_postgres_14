@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { toast } from "@/components/ui/use-toast"
 import { useUserData } from "@/hooks/useUserData"
+import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard"
+import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner"
 import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList"
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments"
 import { ServiceItemType } from "@/types/NirmaanStack/ServiceRequests"
@@ -55,6 +57,9 @@ export const ApproveServiceRequest: React.FC = () => {
     const { createDoc: createDoc } = useFrappeCreateDoc()
     const { updateDoc: updateDoc } = useFrappeUpdateDoc()
 
+    // CEO Hold guard
+    const { isCEOHold, showBlockedToast } = useCEOHoldGuard(service_request?.project)
+
     // const getUserName = (id) => {
     //     if (usersList) {
     //         return usersList.find((user) => user?.name === id)?.full_name
@@ -88,6 +93,12 @@ export const ApproveServiceRequest: React.FC = () => {
     }, [service_request]);
 
     const handleApprove = async () => {
+        // CEO Hold guard
+        if (isCEOHold) {
+            showBlockedToast();
+            return;
+        }
+
         try {
             setIsLoading("approveSR")
             await updateDoc("Service Requests", id, {
@@ -115,6 +126,12 @@ export const ApproveServiceRequest: React.FC = () => {
     }
 
     const handleReject = async () => {
+        // CEO Hold guard
+        if (isCEOHold) {
+            showBlockedToast();
+            return;
+        }
+
         try {
             setIsLoading("rejectSR")
             await updateDoc("Service Requests", id, {
@@ -199,6 +216,8 @@ export const ApproveServiceRequest: React.FC = () => {
                 <h2 className="text-base pl-2 font-bold tracking-tight text-pageheader">Approve/Reject</h2>
                 <ProcurementActionsHeaderCard orderData={service_request} sr={true} />
             </div>
+
+            {isCEOHold && <CEOHoldBanner className="mb-4" />}
 
             {/* Vendor Info Card */}
             <Card className="border-primary/20 bg-primary/5">

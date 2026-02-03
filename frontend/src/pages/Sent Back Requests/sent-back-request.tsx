@@ -1,5 +1,5 @@
 import React, { useCallback, useContext, useMemo, useState } from "react";
-import { ColumnDef } from "@tanstack/react-table";
+import { ColumnDef, Row } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { useFrappeGetDocList, FrappeContext, FrappeConfig, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
 import { Trash2 } from "lucide-react";
@@ -40,6 +40,8 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { Badge } from "@/components/ui/badge";
 import { ProcurementRequestItemDetail } from "@/types/NirmaanStack/ProcurementRequests";
 import { UserContext } from "@/utils/auth/UserProvider";
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
 // --- Constants ---
 const DOCTYPE = 'Sent Back Category';
@@ -57,6 +59,7 @@ const SBDataTableWrapper: React.FC<{
     staticFilters: any[];
     facetFilterOptions: any;
     dateColumns: any;
+    getRowClassName?: (row: Row<SentBackCategory>) => string | undefined;
 }> = ({
     tab,
     columns,
@@ -64,7 +67,8 @@ const SBDataTableWrapper: React.FC<{
     sbSearchableFields,
     staticFilters,
     facetFilterOptions,
-    dateColumns
+    dateColumns,
+    getRowClassName
 }) => {
         // Generate urlSyncKey inside the wrapper
         const dynamicUrlSyncKey = `${URL_SYNC_KEY}_${tab.toLowerCase().replace(/\s+/g, '_')}`;
@@ -118,6 +122,7 @@ const SBDataTableWrapper: React.FC<{
                 dateFilterColumns={dateColumns}
                 showExportButton={true} // Optional
                 onExport={'default'}
+                getRowClassName={getRowClassName}
             />
         );
     };
@@ -127,6 +132,7 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
     const { role } = useUserData();
     const { db } = useContext(FrappeContext) as FrappeConfig;
     const { deleteDialog, toggleDeleteDialog } = useContext(UserContext);
+    const { ceoHoldProjectIds } = useCEOHoldProjects();
 
     const projectsFetchOptions = getProjectListOptions();
 
@@ -336,6 +342,18 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
         type: { title: "Type", options: typeOptions },
     }), [projectOptions]);
 
+    // --- CEO Hold Row Highlighting ---
+    const getRowClassName = useCallback(
+        (row: Row<SentBackCategory>) => {
+            const projectId = row.original.project;
+            if (projectId && ceoHoldProjectIds.has(projectId)) {
+                return CEO_HOLD_ROW_CLASSES;
+            }
+            return undefined;
+        },
+        [ceoHoldProjectIds]
+    );
+
     // --- Delete Handler ---
     const { handleDeleteSB, deleteLoading } = usePRorSBDelete();
 
@@ -369,6 +387,7 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
                     staticFilters={staticFilters}
                     facetFilterOptions={facetFilterOptions}
                     dateColumns={dateColumns}
+                    getRowClassName={getRowClassName}
                 />
             )}
             {/* Delete Confirmation Dialog */}

@@ -1,10 +1,28 @@
+import { useCallback } from "react";
+import { Row } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { useCredits } from "./hooks/useCredits";
 import { PoPaymentTermRow } from "@/types/NirmaanStack/POPaymentTerms";
 import { RequestPaymentDialog } from "@/components/dialogs/RequestPaymentDialog";
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
 const CreditsPage = () => {
+  const { ceoHoldProjectIds } = useCEOHoldProjects();
+
+  // CEO Hold row highlighting
+  const getRowClassName = useCallback(
+    (row: Row<PoPaymentTermRow>) => {
+      const projectId = row.original.project;
+      if (projectId && ceoHoldProjectIds.has(projectId)) {
+        return CEO_HOLD_ROW_CLASSES;
+      }
+      return undefined;
+    },
+    [ceoHoldProjectIds]
+  );
+
   // 1. Get all state, props, and handlers from our custom hook.
   const {
     table,
@@ -87,6 +105,7 @@ const CreditsPage = () => {
         showExportButton={true}
         onExport="default"
         exportFileName={`Credit_payment_terms_${currentStatus.toLowerCase()}`}
+        getRowClassName={getRowClassName}
       />
       {/* --- MODIFICATION: Render the dialog here --- */}
       <RequestPaymentDialog

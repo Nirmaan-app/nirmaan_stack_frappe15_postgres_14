@@ -3,10 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { useFrappeDeleteDoc, useFrappeUpdateDoc } from 'frappe-react-sdk';
 import { toast } from '@/components/ui/use-toast';
 import { ServiceRequests } from '@/types/NirmaanStack/ServiceRequests';
+import { useCEOHoldGuard } from '@/hooks/useCEOHoldGuard';
 
 interface UseSRWorkflowActionsProps {
     srId: string;
     srDoctype: "Service Requests"; // To make it explicit
+    projectId?: string; // For CEO Hold guard
     onActionSuccess?: (action: 'delete' | 'amend_setup') => void; // For post-action tasks like mutate
     navigateOnDeletePath?: string;
 }
@@ -14,6 +16,7 @@ interface UseSRWorkflowActionsProps {
 export const useSRWorkflowActions = ({
     srId,
     srDoctype,
+    projectId,
     onActionSuccess,
     navigateOnDeletePath = "/service-requests?tab=approved-sr", // Default
 }: UseSRWorkflowActionsProps) => {
@@ -22,7 +25,16 @@ export const useSRWorkflowActions = ({
     const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc(); // For amend status change
     const [isProcessing, setIsProcessing] = useState(false);
 
+    // CEO Hold guard
+    const { isCEOHold, showBlockedToast } = useCEOHoldGuard(projectId);
+
     const handleDeleteSR = useCallback(async () => {
+        // CEO Hold guard
+        if (isCEOHold) {
+            showBlockedToast();
+            return;
+        }
+
         setIsProcessing(true);
         try {
             await deleteDoc(srDoctype, srId);
@@ -34,9 +46,15 @@ export const useSRWorkflowActions = ({
         } finally {
             setIsProcessing(false);
         }
-    }, [srId, srDoctype, deleteDoc, navigate, navigateOnDeletePath, onActionSuccess, toast]);
+    }, [srId, srDoctype, deleteDoc, navigate, navigateOnDeletePath, onActionSuccess, isCEOHold, showBlockedToast]);
 
     const setupSRAmendment = useCallback(async (originalSRData: ServiceRequests) => {
+        // CEO Hold guard
+        if (isCEOHold) {
+            showBlockedToast();
+            return;
+        }
+
         // This usually involves creating a new SR in "Draft" or "Amendment" state,
         // linking it to the original, and possibly copying data.
         // For now, let's assume "Amend" just means changing status or opening an edit view.
@@ -60,7 +78,7 @@ export const useSRWorkflowActions = ({
         } finally {
             setIsProcessing(false);
         }
-    }, [srId, onActionSuccess, toast, navigate]);
+    }, [srId, onActionSuccess, navigate, isCEOHold, showBlockedToast]);
 
 
     return {
