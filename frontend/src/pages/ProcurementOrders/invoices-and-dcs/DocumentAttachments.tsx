@@ -351,6 +351,17 @@ export const DocumentAttachments = <T extends DocumentType>({
       return;
     }
 
+    if (!refNumber) {
+      toast({
+        title: "Required Field Missing",
+        description: `Please enter the ${
+          uploadDialog.type === "DC" ? "DC Number" : "MIR Number"
+        }`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (!documentData) {
       toast({
         title: "Error",
@@ -814,10 +825,15 @@ export const DocumentAttachments = <T extends DocumentType>({
             />
             <div className="space-y-2">
               <label className="text-sm font-medium">
-                {uploadDialog.type === "DC" ? "DC Number" : "MIR Number"}
+                {uploadDialog.type === "DC" ? "DC Number" : "MIR Number"}{" "}
+                <span className="text-red-500">*</span>
               </label>
               <Input
-                placeholder="Enter reference number (optional)"
+                placeholder={
+                  uploadDialog.type === "DC"
+                    ? "Enter DC number"
+                    : "Enter MIR number"
+                }
                 value={refNumber}
                 onChange={(e) => setRefNumber(e.target.value)}
               />
@@ -834,7 +850,10 @@ export const DocumentAttachments = <T extends DocumentType>({
                 <Button variant="outline" onClick={handleCloseUploadDialog}>
                   Cancel
                 </Button>
-                <Button onClick={handleUploadFile} disabled={!selectedFile}>
+                <Button
+                  onClick={handleUploadFile}
+                  disabled={!selectedFile || !refNumber}
+                >
                   Upload
                 </Button>
               </>
