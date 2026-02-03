@@ -334,60 +334,67 @@ export const TDSApprovalList: React.FC = () => {
                 </p>
             </div>
             
-            {/* Segmented Control Tabs */}
-            <div className="flex items-center">
-                <div className="inline-flex h-10 items-center justify-center rounded-lg bg-slate-100 p-1 text-slate-500">
-                    {canApprove && TAB_CONFIG.filter(t => t.key === "Pending Approval").map((tab) => (
-                        <button
-                            key={tab.key}
-                            onClick={() => handleTabChange(tab.key)}
-                            className={`
-                                inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-white transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50
-                                ${activeTab === tab.key 
-                                    ? "bg-red-600 text-white shadow-sm" 
-                                    : "hover:bg-red-50 hover:text-red-700 text-slate-600"
-                                }
-                            `}
-                        >
-                           <div className="flex items-center gap-2">
+            {/* Scrollable Tabs */}
+            <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">
+                <div className="flex gap-1.5 sm:flex-wrap pb-1 sm:pb-0 items-center">
+                    {/* Pending Tab (First Group) */}
+                    {canApprove && TAB_CONFIG.filter(t => t.key === "Pending Approval").map((tab) => {
+                        const isActive = activeTab === tab.key;
+                        return (
+                            <button
+                                key={tab.key}
+                                type="button"
+                                onClick={() => handleTabChange(tab.key)}
+                                className={`px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded
+                                    transition-colors flex items-center gap-1.5 whitespace-nowrap
+                                    ${isActive
+                                    ? "bg-red-600 text-white"
+                                    : "bg-gray-200 text-gray-700 hover:bg-red-600 hover:text-white"
+                                }`}
+                            >
                                 <span>{tab.label}</span>
                                 {tabCounts[tab.countKey] > 0 && (
                                     <span className={`
                                         flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full text-[10px] font-bold
-                                        ${activeTab === tab.key ? 'bg-white text-red-600' : 'bg-slate-200 text-slate-600 group-hover:bg-red-100 group-hover:text-red-700'}
+                                        ${isActive ? 'bg-white text-red-600' : 'bg-white text-slate-600'}
                                     `}>
                                         {tabCounts[tab.countKey]}
                                     </span>
                                 )}
-                           </div>
-                        </button>
-                    ))}
-                    
-                    {canApprove && <div className="mx-1 h-5 w-[1px] bg-slate-200" />}
+                            </button>
+                        );
+                    })}
 
-                    {TAB_CONFIG.filter(t => t.key !== "Pending Approval").map((tab) => (
-                         <button
-                            key={tab.key}
-                            onClick={() => handleTabChange(tab.key)}
-                            className={`
-                                inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-white transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 group
-                                ${activeTab === tab.key 
-                                    ? "bg-red-600 text-white shadow-sm" 
-                                    : "hover:bg-red-50 hover:text-red-700 text-slate-600"
-                                }
-                            `}
-                        >
-                            <div className="flex items-center gap-2">
+                    {/* Divider */}
+                    {canApprove && <div className="mx-1 h-5 w-[1px] bg-slate-300 shrink-0" />}
+
+                    {/* Other Tabs (Second Group) */}
+                    {TAB_CONFIG.filter(t => t.key !== "Pending Approval").map((tab) => {
+                        const isActive = activeTab === tab.key;
+                        return (
+                            <button
+                                key={tab.key}
+                                type="button"
+                                onClick={() => handleTabChange(tab.key)}
+                                className={`px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded
+                                    transition-colors flex items-center gap-1.5 whitespace-nowrap
+                                    ${isActive
+                                    ? "bg-red-600 text-white"
+                                   : "bg-gray-200 text-gray-700 hover:bg-red-600 hover:text-white"
+                                }`}
+                            >
                                 <span>{tab.label}</span>
-                                <span className={`
-                                    flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full text-[10px] font-bold
-                                    ${activeTab === tab.key ? 'bg-white text-red-600' : 'bg-slate-200 text-slate-500 group-hover:bg-red-100 group-hover:text-red-600'}
-                                `}>
-                                    {tabCounts[tab.countKey]}
-                                </span>
-                           </div>
-                        </button>
-                    ))}
+                                {tabCounts[tab.countKey] > 0 && (
+                                    <span className={`
+                                        flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full text-[10px] font-bold
+                                        ${isActive ? 'bg-white text-red-600' : 'bg-white text-slate-600'}
+                                    `}>
+                                        {tabCounts[tab.countKey]}
+                                    </span>
+                                )}
+                            </button>
+                        );
+                    })}
                 </div>
             </div>
 
