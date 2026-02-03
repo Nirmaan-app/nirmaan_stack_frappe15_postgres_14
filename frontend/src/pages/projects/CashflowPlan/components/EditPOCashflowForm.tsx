@@ -34,7 +34,7 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
     const [plannedDate, setPlannedDate] = useState<Date | undefined>(undefined);
     const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
     const [searchQuery, setSearchQuery] = useState("");
-    
+
     // New PO Specific
     const [manualItemsText, setManualItemsText] = useState("");
     const [vendor, setVendor] = useState<{ value: string, label: string } | null>(null);
@@ -88,14 +88,14 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                 // Populate Vendor (Common for New and Existing now)
                 if (plan.vendor || plan.vendor_name) {
                     if (!plan.vendor && plan.vendor_name) {
-                         setIsCustomVendor(true);
-                         setVendor({ value: "", label: plan.vendor_name });
+                        setIsCustomVendor(true);
+                        setVendor({ value: "", label: plan.vendor_name });
                     } else {
-                         setIsCustomVendor(false);
-                         setVendor({ 
-                             value: plan.vendor, 
-                             label: plan.vendor_name || plan.vendor
-                         });
+                        setIsCustomVendor(false);
+                        setVendor({
+                            value: plan.vendor,
+                            label: plan.vendor_name || plan.vendor
+                        });
                     }
                 }
             } else {
@@ -106,14 +106,14 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                 // Populate Vendor for Existing PO as well
                 if (plan.vendor || plan.vendor_name) {
                     if (!plan.vendor && plan.vendor_name) {
-                         setIsCustomVendor(true);
-                         setVendor({ value: "", label: plan.vendor_name });
+                        setIsCustomVendor(true);
+                        setVendor({ value: "", label: plan.vendor_name });
                     } else {
-                         setIsCustomVendor(false);
-                         setVendor({ 
-                             value: plan.vendor, 
-                             label: plan.vendor_name || plan.vendor
-                         });
+                        setIsCustomVendor(false);
+                        setVendor({
+                            value: plan.vendor,
+                            label: plan.vendor_name || plan.vendor
+                        });
                     }
                 }
             }
@@ -123,10 +123,10 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
     // Update vendor label when options load if needed
     useEffect(() => {
         if (vendors && plan?.vendor && !isCustomVendor) {
-             const found = vendors.find((v: any) => v.name === plan.vendor);
-             if (found) {
-                 setVendor({ value: found.name, label: found.vendor_name });
-             }
+            const found = vendors.find((v: any) => v.name === plan.vendor);
+            if (found) {
+                setVendor({ value: found.name, label: found.vendor_name });
+            }
         }
     }, [vendors, plan, isCustomVendor]);
 
@@ -138,7 +138,7 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
     // Filtered items for display
     const filteredItems = useMemo(() => {
         if (!searchQuery) return allPOItems;
-        return allPOItems.filter((item: any) => 
+        return allPOItems.filter((item: any) =>
             (item.item_name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
             (item.item_code || "").toLowerCase().includes(searchQuery.toLowerCase())
         );
@@ -189,7 +189,7 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
             return;
         }
 
-       
+
 
         let finalItemsList = [];
 
@@ -272,7 +272,7 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                             Edit PO Cashflow Plan-
                         </DialogTitle>
                         <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-sm font-normal">
-                             {plan?.name}
+                            {plan?.name}
                         </Badge>
                     </div>
                     {/* <div className="flex items-center gap-2">
@@ -285,14 +285,14 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                 {/* Sub-Header / Tags */}
                 <div className="px-6 py-3 bg-gray-50/50 border-b flex flex-wrap gap-2 text-xs">
                     {plan?.critical_po_task && (
-                         <span className="px-2 py-1 bg-red-50 text-red-700 border border-red-100 rounded">
+                        <span className="px-2 py-1 bg-red-50 text-red-700 border border-red-100 rounded">
                             {plan.critical_po_task}
-                         </span>
+                        </span>
                     )}
-                     {plan?.critical_po_category && (
-                         <span className="px-2 py-1 bg-red-50 text-red-700 border border-red-100 rounded">
+                    {plan?.critical_po_category && (
+                        <span className="px-2 py-1 bg-red-50 text-red-700 border border-red-100 rounded">
                             {plan.critical_po_category}
-                         </span>
+                        </span>
                     )}
                     <span className="px-2 py-1 bg-white border rounded text-gray-600">
                         PO ID: {plan?.id_link}
@@ -312,7 +312,7 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                                 </Label>
                                 <div className="relative">
                                     <span className="absolute left-3 top-2 text-gray-500">₹</span>
-                                    <Input 
+                                    <Input
                                         type="number"
                                         value={plannedAmount}
                                         onChange={(e) => {
@@ -337,7 +337,7 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                                     </Label>
                                     <div className="relative">
                                         <span className="absolute left-3 top-2 text-gray-500">₹</span>
-                                        <Input 
+                                        <Input
                                             type="number"
                                             value={estimatedPrice}
                                             onChange={(e) => {
@@ -355,75 +355,75 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                                     </div>
                                 </div>
                             )}
-                            
+
                             <div className="space-y-2">
                                 <Label className="text-sm font-bold text-gray-900 flex items-center gap-2">
                                     Vendor
                                 </Label>
-                                    {isCustomVendor ? (
-                                        <div className="space-y-2">
-                                            <Input
-                                                placeholder="Enter custom vendor name"
-                                                value={vendor?.label || ""}
-                                                onChange={(e) => setVendor({ value: "", label: e.target.value })}
-                                            />
-                                            <Button
-                                                type="button"
-                                                variant="ghost"
-                                                size="sm"
-                                                onClick={() => {
-                                                    setIsCustomVendor(false);
-                                                    setVendor(null);
-                                                }}
-                                                className="text-xs text-gray-500 hover:text-gray-700 h-6 px-2"
-                                            >
-                                                ← Back to Vendor list
-                                            </Button>
-                                        </div>
-                                    ) : (
-                                        <ReactSelect
-                                            options={vendorOptions}
-                                            value={vendor}
-                                            onChange={(option: any) => {
-                                                if (option?.value === "__others__") {
-                                                    setIsCustomVendor(true);
-                                                    setVendor({ value: "", label: "" });
-                                                } else {
-                                                    setVendor(option);
-                                                }
-                                            }}
-                                            placeholder="Select Vendor"
-                                            isLoading={isLoadingVendors}
-                                            filterOption={(option: any, inputValue: any) => {
-                                                 if (option.data.value === "__others__") return true;
-                                                 return option.label.toLowerCase().includes(inputValue.toLowerCase());
-                                            }}
-                                            styles={{
-                                                 control: (base: any) => ({ ...base, minHeight: '36px', height: '36px', fontSize: '0.875rem' }),
-                                                 option: (base: any, state: any) => ({
-                                                     ...base,
-                                                     ...(state.data.value === "__others__" ? {
-                                                         backgroundColor: state.isFocused ? '#dbeafe' : '#eff6ff',
-                                                         color: '#2563eb',
-                                                         fontWeight: 600,
-                                                         borderTop: '1px solid #e5e7eb',
-                                                         position: 'sticky',
-                                                         bottom: 0,
-                                                     } : {})
-                                                 }),
-                                                 menuList: (base: any) => ({ ...base, paddingBottom: 0 })
-                                            }}
-                                            formatOptionLabel={(option: any) => (
-                                                 option.value === "__others__" ? (
-                                                     <span className="flex items-center gap-1">
-                                                         <span>+ Others</span>
-                                                         <span className="text-xs text-blue-400">(type custom)</span>
-                                                     </span>
-                                                 ) : option.label
-                                            )}
+                                {isCustomVendor ? (
+                                    <div className="space-y-2">
+                                        <Input
+                                            placeholder="Enter custom vendor name"
+                                            value={vendor?.label || ""}
+                                            onChange={(e) => setVendor({ value: "", label: e.target.value })}
                                         />
-                                    )}
-                                </div>
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => {
+                                                setIsCustomVendor(false);
+                                                setVendor(null);
+                                            }}
+                                            className="text-xs text-gray-500 hover:text-gray-700 h-6 px-2"
+                                        >
+                                            ← Back to Vendor list
+                                        </Button>
+                                    </div>
+                                ) : (
+                                    <ReactSelect
+                                        options={vendorOptions}
+                                        value={vendor}
+                                        onChange={(option: any) => {
+                                            if (option?.value === "__others__") {
+                                                setIsCustomVendor(true);
+                                                setVendor({ value: "", label: "" });
+                                            } else {
+                                                setVendor(option);
+                                            }
+                                        }}
+                                        placeholder="Select Vendor"
+                                        isLoading={isLoadingVendors}
+                                        filterOption={(option: any, inputValue: any) => {
+                                            if (option.data.value === "__others__") return true;
+                                            return option.label.toLowerCase().includes(inputValue.toLowerCase());
+                                        }}
+                                        styles={{
+                                            control: (base: any) => ({ ...base, minHeight: '36px', height: '36px', fontSize: '0.875rem' }),
+                                            option: (base: any, state: any) => ({
+                                                ...base,
+                                                ...(state.data.value === "__others__" ? {
+                                                    backgroundColor: state.isFocused ? '#dbeafe' : '#eff6ff',
+                                                    color: '#2563eb',
+                                                    fontWeight: 600,
+                                                    borderTop: '1px solid #e5e7eb',
+                                                    position: 'sticky',
+                                                    bottom: 0,
+                                                } : {})
+                                            }),
+                                            menuList: (base: any) => ({ ...base, paddingBottom: 0 })
+                                        }}
+                                        formatOptionLabel={(option: any) => (
+                                            option.value === "__others__" ? (
+                                                <span className="flex items-center gap-1">
+                                                    <span>+ Others</span>
+                                                    <span className="text-xs text-blue-400">(type custom)</span>
+                                                </span>
+                                            ) : option.label
+                                        )}
+                                    />
+                                )}
+                            </div>
                         </div>
 
                         <div className="space-y-2">
@@ -491,21 +491,21 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                                 <div className="border rounded-lg overflow-hidden">
                                     <div className="max-h-[300px] overflow-y-auto divide-y">
                                         {isLoadingPO && <div className="p-4 text-center text-gray-500">Loading PO items...</div>}
-                                        
+
                                         {!isLoadingPO && filteredItems.length === 0 && (
                                             <div className="p-4 text-center text-gray-500">No items found matching your search.</div>
                                         )}
 
                                         {!isLoadingPO && filteredItems.map((item: any) => (
-                                            <div 
-                                                key={item.name} 
+                                            <div
+                                                key={item.name}
                                                 className={cn(
                                                     "flex items-center gap-3 p-3 hover:bg-gray-50 transition-colors cursor-pointer",
                                                     selectedItems.has(item.name) ? "bg-blue-50/30" : ""
                                                 )}
                                                 onClick={() => handleToggleItem(item.name)}
                                             >
-                                                <Checkbox 
+                                                <Checkbox
                                                     checked={selectedItems.has(item.name)}
                                                     onCheckedChange={() => handleToggleItem(item.name)}
                                                 />
@@ -528,8 +528,8 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                     <Button variant="outline" onClick={onClose} disabled={isUpdating}>
                         Cancel
                     </Button>
-                    <Button 
-                        onClick={handleSubmit} 
+                    <Button
+                        onClick={handleSubmit}
                         disabled={isUpdating}
                         className="bg-red-600 hover:bg-red-700 text-white"
                     >
