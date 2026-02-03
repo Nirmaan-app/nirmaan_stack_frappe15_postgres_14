@@ -15,6 +15,46 @@ import {
 } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 
+interface PlanDatePickerProps {
+    value: string | undefined;
+    onChange: (date: Date | undefined) => void;
+}
+
+const PlanDatePicker: React.FC<PlanDatePickerProps> = ({ value, onChange }) => {
+    const [open, setOpen] = useState(false);
+
+    return (
+        <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger asChild>
+                <Button
+                    variant="outline"
+                    className={cn(
+                        "w-full justify-start text-left font-normal",
+                        !value && "text-muted-foreground"
+                    )}
+                >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {value
+                        ? format(new Date(value), "PPP")
+                        : "Select delivery date"}
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                    mode="single"
+                    selected={value ? new Date(value) : undefined}
+                    onSelect={(date) => {
+                        onChange(date);
+                        setOpen(false);
+                    }}
+                    initialFocus
+                    disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
+                />
+            </PopoverContent>
+        </Popover>
+    );
+};
+
 interface POItem {
     name: string;
     item_name: string;
@@ -502,37 +542,10 @@ export const ReviewPlansPage: React.FC<ReviewPlansPageProps> = ({
                             {/* Delivery Date */}
                             <div className="space-y-2">
                                 <span className="text-sm font-medium">Delivery Date</span>
-                                <Popover>
-                                    <PopoverTrigger asChild>
-                                        <Button
-                                            variant="outline"
-                                            className={cn(
-                                                "w-full justify-start text-left font-normal",
-                                                !plan.deliveryDate && "text-muted-foreground"
-                                            )}
-                                        >
-                                            <CalendarIcon className="mr-2 h-4 w-4" />
-                                            {plan.deliveryDate
-                                                ? format(new Date(plan.deliveryDate), "PPP")
-                                                : "Select delivery date"}
-                                        </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0" align="start">
-                                        <Calendar
-                                            mode="single"
-                                            selected={
-                                                plan.deliveryDate
-                                                    ? new Date(plan.deliveryDate)
-                                                    : undefined
-                                            }
-                                            onSelect={(date) =>
-                                                updateDeliveryDate(planIndex, date)
-                                            }
-                                            initialFocus
-                                            disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))} // Disable past dates
-                                        />
-                                    </PopoverContent>
-                                </Popover>
+                                <PlanDatePicker
+                                    value={plan.deliveryDate}
+                                    onChange={(date) => updateDeliveryDate(planIndex, date)}
+                                />
                             </div>
                         </CardContent>
                     </Card>
