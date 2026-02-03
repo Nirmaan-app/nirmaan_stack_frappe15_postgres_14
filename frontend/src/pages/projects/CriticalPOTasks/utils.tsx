@@ -18,8 +18,6 @@ export const getCriticalPOStatusStyle = (status: string): string => {
             return "bg-purple-50 text-purple-700 border border-purple-200";
         case "Not Released":
             return "bg-red-50 text-red-700 border border-red-200";
-        case "Partially Released":
-            return "bg-yellow-50 text-yellow-700 border border-yellow-200";
         case "Released":
             return "bg-green-50 text-green-700 border border-green-200";
         case "Not Applicable":
@@ -38,8 +36,6 @@ export const getStatusBadgeVariant = (status: string): string => {
             return "bg-purple-100 text-purple-700";
         case "Not Released":
             return "bg-red-100 text-red-700";
-        case "Partially Released":
-            return "bg-yellow-100 text-yellow-700";
         case "Released":
             return "bg-green-100 text-green-700";
         case "Not Applicable":
@@ -134,7 +130,6 @@ export const calculateTaskStats = (tasks: CriticalPOTask[]) => {
 export const CRITICAL_PO_STATUS_OPTIONS = [
     { label: "PR Not Released", value: "PR Not Released" },
     { label: "Not Released", value: "Not Released" },
-    { label: "Partially Released", value: "Partially Released" },
     { label: "Released", value: "Released" },
     { label: "Not Applicable", value: "Not Applicable" },
 ];

@@ -160,7 +160,10 @@ export const CriticalPOTasksList: React.FC<CriticalPOTasksListProps> = ({
     const [searchTerm, setSearchTerm] = useState("");
     const [selectedSearchField, setSelectedSearchField] = useState("item_name");
     const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
-    const [sorting, setSorting] = useState<SortingState>([{ id: "po_release_date", desc: false }]);
+    const [sorting, setSorting] = useState<SortingState>([
+        { id: "critical_po_category", desc: false },
+        { id: "po_release_date", desc: false },
+    ]);
     const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 50 });
 
     // Edit task state (for controlled dialog from table row)

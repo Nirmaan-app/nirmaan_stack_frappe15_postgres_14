@@ -16,7 +16,6 @@ export interface ProjectWithCriticalPOStats {
 export interface StatusCounts {
   "PR Not Released"?: number;
   "Not Released"?: number;
-  "Partially Released"?: number;
   "Released"?: number;
 }
 
@@ -26,6 +25,5 @@ export interface StatusCounts {
 export type CriticalPOTaskStatus =
   | "PR Not Released"
   | "Not Released"
-  | "Partially Released"
   | "Released"
   | "Not Applicable";
