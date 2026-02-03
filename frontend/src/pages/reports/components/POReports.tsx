@@ -230,7 +230,7 @@ export default function POReports() {
         pageCount: newPageCount,
       }));
     }
-  }, [table, filteredRowCount]); // Rerun when the table instance or filtered data count changes
+  }, [filteredRowCount]); // Rerun when the table instance or filtered data count changes
   // =================================================================================
   // Supporting data for faceted filters (Projects & Vendors)
   const projectsFetchOptions = getProjectListOptions();

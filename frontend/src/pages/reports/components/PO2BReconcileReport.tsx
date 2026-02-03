@@ -189,7 +189,7 @@ export default function PO2BReconcileReport() {
                 pageCount: newPageCount,
             }));
         }
-    }, [table, filteredRowCount]);
+    }, [filteredRowCount]);
 
     // Supporting data for faceted filters
     const projectsFetchOptions = getProjectListOptions();

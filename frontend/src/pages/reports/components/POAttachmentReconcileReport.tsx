@@ -132,17 +132,12 @@ export default function POAttachmentReconcileReport() {
     // Toggle state for showing only mismatched rows
     const [showOnlyMismatched, setShowOnlyMismatched] = useState(false);
 
-    // Effect to apply/remove mismatch filter when toggle changes
-    useEffect(() => {
+    // Handler to toggle mismatch filter - updates both state and table filter
+    const handleToggleMismatchFilter = useCallback((checked: boolean) => {
+        setShowOnlyMismatched(checked);
         const mismatchColumn = table.getColumn("isMismatched");
-        if (mismatchColumn) {
-            if (showOnlyMismatched) {
-                mismatchColumn.setFilterValue(["yes"]);
-            } else {
-                mismatchColumn.setFilterValue(undefined);
-            }
-        }
-    }, [showOnlyMismatched, table]);
+        mismatchColumn?.setFilterValue(checked ? ["yes"] : undefined);
+    }, [table]);
 
     // Sync page count with filtered data
     useEffect(() => {
@@ -155,7 +150,7 @@ export default function POAttachmentReconcileReport() {
                 pageCount: newPageCount,
             }));
         }
-    }, [table, filteredRowCount]);
+    }, [filteredRowCount]);
 
     // Supporting data for faceted filters
     const projectsFetchOptions = getProjectListOptions();
@@ -313,7 +308,7 @@ export default function POAttachmentReconcileReport() {
                                     </span>
                                     {dynamicSummary.mismatchCount > 0 && (
                                         <button
-                                            onClick={() => setShowOnlyMismatched(!showOnlyMismatched)}
+                                            onClick={() => handleToggleMismatchFilter(!showOnlyMismatched)}
                                             className={cn(
                                                 "text-[10px] font-medium flex items-center gap-1 px-1.5 py-0.5 rounded-md transition-colors",
                                                 showOnlyMismatched
@@ -465,7 +460,7 @@ export default function POAttachmentReconcileReport() {
                                         <Switch
                                             id="mismatch-filter"
                                             checked={showOnlyMismatched}
-                                            onCheckedChange={setShowOnlyMismatched}
+                                            onCheckedChange={handleToggleMismatchFilter}
                                             className="data-[state=checked]:bg-red-500 h-4 w-7 [&>span]:h-3 [&>span]:w-3 [&>span]:data-[state=checked]:translate-x-3"
                                         />
                                     </div>

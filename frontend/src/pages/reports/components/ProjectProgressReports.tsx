@@ -903,7 +903,7 @@ cell: ({ row }) => {
             console.error("Export failed:", e);
             toast({ title: "Export Error", description: "Could not generate CSV file.", variant: "destructive" });
         }
-    }, [table, dynamicDateColumns]); 
+    }, [dynamicDateColumns]);
 
 
     const isLoadingOverall = isProjectsLoading || isReportsLoading   || isTableHookLoading;

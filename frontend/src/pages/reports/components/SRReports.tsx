@@ -165,7 +165,7 @@ export default function SRReports() {
         pageCount: newPageCount,
       }));
     }
-  }, [table, fullyFilteredData]); // Rerun when the table instance or filtered data count changes
+  }, [fullyFilteredData]); // Rerun when the table instance or filtered data count changes
   //
 
   // Supporting data for faceted filters
