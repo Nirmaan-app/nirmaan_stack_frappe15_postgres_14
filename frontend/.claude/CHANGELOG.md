@@ -4,6 +4,173 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-02-02: PR Editing Lock, Draft Persistence & Service Request Form Wizard
+
+### Summary
+Major session implementing concurrent editing prevention for PR approval flow, localStorage draft persistence for PR edits, and a new step-based wizard for Service Request (Work Order) creation with amendment support.
+
+### Commits
+- `9cd6831d` - feat: add backend API for PR editing lock
+- `d16819cb` - feat: add customizable title prop to DraftCancelDialog
+- `1fed460c` - feat: add New WO dialog trigger from service requests page
+- `294cc7b4` - feat: add step-based Service Request form wizard
+- `20492e84` - feat: add draft persistence and editing lock for Approve PR
+- `84656a59` - feat: improve Approve PR flow UI/UX and fix undo bug
+- `6762676b` - refactor: integrate new WO wizard route and clean up dialogs
+- `e0d43e1a` - feat: add FormResetWarningDialog for unsaved changes warning
+- `6aa5eb3e` - feat: add new Work Order creation wizard with step-based flow
+
+### Feature 1: PR Editing Lock System
+
+Prevents concurrent edits to the same Procurement Request by multiple users using Redis-based locking.
+
+**Backend (`nirmaan_stack/api/pr_editing_lock.py`):**
+- `acquire_lock(pr_name)` - Acquire editing lock (15-minute expiry)
+- `release_lock(pr_name)` - Release lock (idempotent)
+- `check_lock(pr_name)` - Check lock status without acquiring
+- `extend_lock(pr_name)` - Heartbeat to extend lock (called every 5 minutes)
+
+**Frontend (`src/pages/ProcurementRequests/ApproveNewPR/`):**
+- `hooks/useEditingLock.ts` - React hook managing lock lifecycle:
+  - Auto-acquire on mount, auto-release on unmount
+  - Heartbeat interval (5 min) to extend lock
+  - Socket.IO listeners for real-time lock status updates
+  - `navigator.sendBeacon()` for reliable unload release
+- `components/EditingLockIndicator.tsx` - UI showing who has the lock
+
+**Socket.IO Events:**
+- `pr:editing:started` - Emitted when user acquires lock
+- `pr:editing:stopped` - Emitted when user releases lock
+
+**Feature Flag:**
+- `localStorage.setItem('nirmaan-lock-disabled', 'true')` to disable lock system
+
+### Feature 2: Approve PR Draft Persistence
+
+Saves PR editing progress to localStorage, allowing users to resume work after accidental navigation or page refresh.
+
+**Store (`src/zustand/useApproveNewPRDraftStore.ts`):**
+- Zustand store with `persist` middleware for localStorage
+- Keys: `nirmaan-approve-pr-drafts` keyed by PR ID
+- 30-day expiration with auto-cleanup on rehydration
+- Tracks: orderList, categoryList, universalComment, undoStack
+
+**Draft Item Flags:**
+- `_isNew` - Item added by approver (not in original PR)
+- `_isDeleted` - Item marked for deletion
+- `_isModified` - Item quantity/comment changed
+- `_originalQuantity`, `_originalComment` - For change detection
+
+**Draft Manager Hook (`src/hooks/useApproveNewPRDraftManager.ts`):**
+- Auto-save with debounce
+- Resume/discard dialogs
+- `hasDraft()` - Check if meaningful changes exist
+
+### Feature 3: Service Request Form Wizard
+
+New step-based wizard for creating Service Requests (Work Orders) with vendor selection.
+
+**Directory Structure:**
+```
+src/pages/ServiceRequests/sr-form/
+├── index.tsx              # Main wizard orchestrator
+├── schema.ts              # Zod validation schema
+├── constants.ts           # Wizard step configuration
+├── hooks/
+│   ├── useSRFormData.ts   # Data fetching for categories, vendors
+│   └── useSRAmendData.ts  # Amendment-specific data
+├── steps/
+│   ├── ServiceItemsStep.tsx  # Step 1: Select items
+│   ├── VendorRatesStep.tsx   # Step 2: Select vendor, enter rates
+│   └── ReviewStep.tsx        # Step 3: Final review
+├── components/
+│   ├── ServiceItemsAccordion.tsx  # Grouped item display
+│   └── index.ts
+└── amend/
+    ├── SRAmendPage.tsx    # Full-page amendment
+    ├── SRAmendSheet.tsx   # Sheet/drawer amendment
+    ├── useSRAmendForm.ts  # Amendment form logic
+    ├── transformers.ts    # Data conversion utilities
+    └── index.ts
+```
+
+**Routes Added:**
+- `/service-requests/new/:projectId` - New SR creation
+- `/service-requests/:srId/amend` - SR amendment
+
+### Feature 4: FormResetWarningDialog Component
+
+**File:** `src/components/ui/form-reset-warning-dialog.tsx`
+
+New reusable dialog for warning users about unsaved changes when navigating away. Uses `useBlocker` from react-router-dom.
+
+**Usage:**
+```tsx
+<FormResetWarningDialog
+    show={showWarning}
+    onConfirmLeave={handleLeave}
+    onCancel={handleCancel}
+    title="Discard changes?"
+    description="You have unsaved changes that will be lost."
+/>
+```
+
+### Files Created
+- `src/zustand/useApproveNewPRDraftStore.ts` - PR draft persistence
+- `src/zustand/useServiceRequestDraftStore.ts` - SR draft persistence
+- `src/hooks/useApproveNewPRDraftManager.ts` - PR draft manager
+- `src/hooks/useServiceRequestDraftManager.ts` - SR draft manager
+- `src/pages/ProcurementRequests/ApproveNewPR/hooks/useEditingLock.ts` - Lock management
+- `src/pages/ProcurementRequests/ApproveNewPR/components/EditingLockIndicator.tsx` - Lock UI
+- `src/components/ui/form-reset-warning-dialog.tsx` - Navigation warning dialog
+- `src/pages/ServiceRequests/sr-form/**/*` - Entire SR form wizard module
+
+### Files Modified
+- `src/pages/ProcurementRequests/ApproveNewPR/ApprovePRView.tsx` - Integrated lock and draft
+- `src/pages/ProcurementRequests/ApproveNewPR/hooks/useApprovePRLogic.ts` - Major refactor for draft support
+- `src/pages/ServiceRequests/ServiceRequestsTabs.tsx` - Added New WO button
+- `src/pages/ServiceRequests/approved-sr/ApprovedSRView.tsx` - Integrated new amend sheet
+- `src/components/helpers/routesConfig.tsx` - Added SR form routes
+- `src/zustand/useDialogStore.ts` - Added new dialog types
+- `src/components/ui/draft-cancel-dialog.tsx` - Made title customizable
+
+### Key Patterns
+
+**Editing Lock with Graceful Degradation:**
+```typescript
+const acquireLock = async (): Promise<boolean> => {
+  try {
+    const result = await acquireLockApi({ pr_name: prName });
+    // ...
+  } catch (error) {
+    // Allow editing on API failure (graceful degradation)
+    return true;
+  }
+};
+```
+
+**Draft Item Change Tracking:**
+```typescript
+interface DraftItem {
+  _isNew?: boolean;      // Added by approver
+  _isDeleted?: boolean;  // Marked for deletion
+  _isModified?: boolean; // Quantity/comment changed
+  _originalQuantity?: number;
+  _originalComment?: string;
+}
+```
+
+**Socket.IO Lock Events:**
+```typescript
+socket.on('pr:editing:started', (data) => {
+  if (data.pr_name === prName && data.user !== currentUser) {
+    setShowLockWarning(true);
+  }
+});
+```
+
+---
+
 ## 2026-01-28: GST Terminology Rename & WO Options Card Revamp
 
 ### Summary

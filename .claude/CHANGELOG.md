@@ -4,6 +4,38 @@ Changes made by Claude Code sessions.
 
 ---
 
+### 2026-02-02: PR Editing Lock API
+
+**Summary:** Added Redis-based locking mechanism for Procurement Request editing to prevent concurrent edits by multiple users.
+
+**Backend Files Created:**
+- `nirmaan_stack/api/pr_editing_lock.py` - Lock management API with:
+  - `acquire_lock(pr_name)` - Acquire editing lock (15-min expiry, idempotent for same user)
+  - `release_lock(pr_name)` - Release lock (owner or admin only)
+  - `check_lock(pr_name)` - Check status without acquiring
+  - `extend_lock(pr_name)` - Heartbeat to extend expiry (called every 5 min by client)
+
+**Lock Configuration:**
+- Expiry: 15 minutes (auto-expire stale locks)
+- Heartbeat: 5 minutes (client calls `extend_lock`)
+- Cache key format: `pr_editing_lock:{pr_name}`
+
+**Socket.IO Events:**
+- `pr:editing:started` - Emitted when user acquires lock
+- `pr:editing:stopped` - Emitted when user releases lock
+
+**Key Behaviors:**
+- Same user can re-acquire (idempotent, extends TTL)
+- Admin can force-release any lock
+- `frappe.db.commit()` called before `publish_realtime()` to avoid race conditions
+
+**Frontend Integration:**
+- `useEditingLock` hook manages lifecycle (acquire on mount, release on unmount)
+- `navigator.sendBeacon()` for reliable release on page unload
+- Feature flag: `localStorage.setItem('nirmaan-lock-disabled', 'true')` to disable
+
+---
+
 ### 2026-01-27: Project Status Lifecycle Documentation
 
 **Summary:** Analyzed how project statuses affect the full application. Created `domain/projects.md` context file and updated `workflows.md` with project lifecycle section. Added index references.

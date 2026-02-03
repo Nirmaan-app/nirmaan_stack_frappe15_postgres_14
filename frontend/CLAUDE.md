@@ -119,6 +119,9 @@ Key route patterns:
 - `useDialogStore` - Modal/dialog state management
 - `useFrappeDataStore` - Cached Frappe document data
 - `useDocCountStore` - Document count badges for sidebar
+- `useProjectDraftStore` - Draft persistence for project creation wizard
+- `useApproveNewPRDraftStore` - Draft persistence for PR approval edits
+- `useServiceRequestDraftStore` - Draft persistence for SR/WO creation
 
 **Context Providers**:
 - `UserProvider` (`src/utils/auth/UserProvider.tsx`) - Current user, auth state, selected project
@@ -276,6 +279,22 @@ pages/[feature]/[form-name]/
 **Draft persistence** (optional):
 - Use Zustand store with `persist` middleware for localStorage
 - `useProjectDraftManager` hook pattern for auto-save with debounce
+- See also: `useApproveNewPRDraftStore` for PR approval drafts, `useServiceRequestDraftStore` for SR drafts
+
+**Editing Lock Pattern** (for concurrent edit prevention):
+For pages where only one user should edit at a time, use the Redis-based locking pattern:
+```typescript
+// Hook: src/pages/ProcurementRequests/ApproveNewPR/hooks/useEditingLock.ts
+const { lockInfo, isMyLock, canEdit, acquireLock, releaseLock } = useEditingLock({ prName, enabled: true });
+
+// Key features:
+// - Auto-acquire on mount, auto-release on unmount
+// - Heartbeat every 5 min to extend 15-min lock expiry
+// - Socket.IO events for real-time lock status (pr:editing:started, pr:editing:stopped)
+// - navigator.sendBeacon() for reliable release on page unload
+// - Graceful degradation: editing allowed if API fails
+// - Feature flag: localStorage.setItem('nirmaan-lock-disabled', 'true')
+```
 
 **Multi-select user assignment pattern:**
 When assigning multiple users to roles (e.g., project leads, managers):

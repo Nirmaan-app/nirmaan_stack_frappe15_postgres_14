@@ -44,6 +44,7 @@ frappe.publish_realtime(
 ### Event Types
 **Procurement Requests:**
 - `pr:new`, `pr:approved`, `pr:rejected`, `pr:vendorSelected`, `pr:delete`
+- `pr:editing:started`, `pr:editing:stopped` - Editing lock status (for concurrent edit prevention)
 
 **Purchase Orders:**
 - `po:amended`, `po:new`, `po:delete`
