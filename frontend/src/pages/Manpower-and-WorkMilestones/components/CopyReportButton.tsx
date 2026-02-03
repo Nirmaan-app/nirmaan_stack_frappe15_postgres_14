@@ -1240,7 +1240,7 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
                                 {/* Work Plan - Point Based */}
                                 <div className="mt-2 pt-2 border-t border-gray-100">
                                   <div className="flex items-center justify-between mb-1">
-                                    <span className="text-[10px] font-medium text-gray-500">Work Plan</span>
+                                     <span className="text-[10px] font-medium text-gray-500">Activities Planned for Today</span>
                                     <Button
                                       variant="ghost"
                                       size="sm"
