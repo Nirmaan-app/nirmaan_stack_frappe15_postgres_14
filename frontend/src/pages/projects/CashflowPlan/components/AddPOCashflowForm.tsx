@@ -523,19 +523,19 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
             return;
         }
 
-        if (!newPOAmount || parseFloat(newPOAmount) <= 0) {
+        if (!newPOAmount || parseFloat(newPOAmount) < 1) {
             toast({
                 title: "Missing Planned Amount",
-                description: "Review your fields! Planned Amount is mandatory and must be greater than 0.",
+                description: "Review your fields! Planned Amount is mandatory and must be at least 1.",
                 variant: "destructive"
             });
             return;
         }
 
-        if (!estimatedPrice || parseFloat(estimatedPrice) <= 0) {
+        if (!estimatedPrice || parseFloat(estimatedPrice) < 1) {
             toast({
                 title: "Incomplete Data",
-                description: "Review your fields! Estimated Price is mandatory and must be greater than 0.",
+                description: "Review your fields! Estimated Price is mandatory and must be at least 1.",
                 variant: "destructive"
             });
             return;
@@ -1062,7 +1062,15 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
                                             type="number" 
                                             className="pl-7" 
                                             value={estimatedPrice}
-                                            onChange={(e) => setEstimatedPrice(e.target.value)}
+                                            onChange={(e) => {
+                                                const val = e.target.value;
+                                                if (parseFloat(val) < 0) return;
+                                                setEstimatedPrice(val);
+                                            }}
+                                            onKeyDown={(e) => {
+                                                if (e.key === "-" || e.key === "e") e.preventDefault();
+                                            }}
+                                            min={0}
                                             placeholder="Enter Price"
                                          />
                                      </div>
@@ -1075,7 +1083,15 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
                                             type="number" 
                                             className="pl-7" 
                                             value={newPOAmount}
-                                            onChange={(e) => setNewPOAmount(e.target.value)}
+                                            onChange={(e) => {
+                                                const val = e.target.value;
+                                                if (parseFloat(val) < 0) return;
+                                                setNewPOAmount(val);
+                                            }}
+                                            onKeyDown={(e) => {
+                                                if (e.key === "-" || e.key === "e") e.preventDefault();
+                                            }}
+                                            min={0}
                                             placeholder="Enter Total Amount"
                                          />
                                      </div>

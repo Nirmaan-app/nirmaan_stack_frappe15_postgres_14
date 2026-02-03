@@ -46,6 +46,7 @@ interface SelectedPlanData {
     estimatedPrice?: string;
     vendor?: { value: string; label: string } | null;
     vendorName?: string;
+    isCustomVendor?: boolean;
 }
 
 export const FromMaterialPlanDialog = ({ isOpen, onClose, projectId, onSuccess }: FromMaterialPlanDialogProps) => {
@@ -56,6 +57,7 @@ export const FromMaterialPlanDialog = ({ isOpen, onClose, projectId, onSuccess }
     const [searchMode, setSearchMode] = useState<"po_id" | "items">("po_id");
     const [selectedPlanNames, setSelectedPlanNames] = useState<Set<string>>(new Set());
     const [reviewPlans, setReviewPlans] = useState<SelectedPlanData[]>([]);
+    const [portalContainer, setPortalContainer] = useState<HTMLDivElement | null>(null);
 
     const resetState = () => {
         setStep("selection");
@@ -79,7 +81,8 @@ export const FromMaterialPlanDialog = ({ isOpen, onClose, projectId, onSuccess }
     });
 
     const vendorOptions = useMemo(() => {
-        return vendors?.map(v => ({ value: v.name, label: v.vendor_name })) || [];
+        const ops = vendors?.map(v => ({ value: v.name, label: v.vendor_name })) || [];
+        return [...ops, { label: "Others", value: "__others__" }];
     }, [vendors]);
 
     // Filtered plans based on search
@@ -172,17 +175,19 @@ export const FromMaterialPlanDialog = ({ isOpen, onClose, projectId, onSuccess }
         // Validate
         const today = new Date().toISOString().split('T')[0];
         for (const plan of reviewPlans) {
-            if (!plan.plannedDate || !plan.plannedAmount || parseFloat(plan.plannedAmount) <= 0) {
-                toast({ title: "Incomplete Data", description: `Please fill date and amount for ${plan.po_link || plan.name}`, variant: "destructive" });
+            if (!plan.plannedDate || !plan.plannedAmount || parseFloat(plan.plannedAmount) < 1) {
+                toast({ title: "Invalid Amount", description: `Planned amount for ${plan.po_link || plan.name} must be at least 1.`, variant: "destructive" });
                 return;
             }
             if (plan.plannedDate < today) {
                 toast({ title: "Invalid Date", description: `Planned date for ${plan.po_link || plan.name} cannot be in the past.`, variant: "destructive" });
                 return;
             }
-            if (plan.po_type === "New PO" && (!plan.estimatedPrice || !plan.vendor)) {
-                toast({ title: "Incomplete Data", description: `Please fill price and vendor for New PO: ${plan.name}`, variant: "destructive" });
-                return;
+            if (plan.po_type === "New PO") {
+                 if (!plan.estimatedPrice || parseFloat(plan.estimatedPrice) < 1 || !plan.vendor) {
+                    toast({ title: "Incomplete Data", description: `Please ensure price is at least 1 and vendor is selected for New PO: ${plan.name}`, variant: "destructive" });
+                    return;
+                 }
             }
         }
 
@@ -196,6 +201,7 @@ export const FromMaterialPlanDialog = ({ isOpen, onClose, projectId, onSuccess }
                     planned_amount: parseFloat(plan.plannedAmount || "0"),
                     estimated_price: parseFloat(plan.estimatedPrice || "0"),
                     vendor: plan.vendor?.value,
+                    vendor_name: plan.vendor?.label,
                     critical_po_category: plan.critical_po_category,
                     critical_po_task: plan.critical_po_task,
                     items: JSON.stringify({ list: plan.items })
@@ -217,7 +223,8 @@ export const FromMaterialPlanDialog = ({ isOpen, onClose, projectId, onSuccess }
                 onClose();
             }
         }}>
-            <DialogContent className="max-w-5xl p-0 overflow-hidden bg-gray-50 flex flex-col h-[90vh]">
+            <DialogContent className="max-w-5xl p-0 bg-gray-50 flex flex-col h-[90vh]">
+                <div className="flex flex-col h-full w-full relative" ref={setPortalContainer}>
                 <DialogHeader className="p-6 pb-2 bg-white shrink-0">
                     <div className="flex justify-between items-center">
                         <div>
@@ -320,6 +327,7 @@ export const FromMaterialPlanDialog = ({ isOpen, onClose, projectId, onSuccess }
                                     plan={plan} 
                                     index={idx}
                                     vendorOptions={vendorOptions}
+                                    portalContainer={portalContainer}
                                     onUpdate={(updates) => updateReviewPlan(idx, updates)}
                                     onRemove={() => {
                                         const newPlans = reviewPlans.filter((_, i) => i !== idx);
@@ -353,12 +361,13 @@ export const FromMaterialPlanDialog = ({ isOpen, onClose, projectId, onSuccess }
                         </Button>
                     )}
                 </div>
+                </div>
             </DialogContent>
         </Dialog>
     );
 };
 
-const ReviewPlanCard = ({ plan, index, onUpdate, onRemove, vendorOptions }: { plan: SelectedPlanData, index: number, onUpdate: (updates: Partial<SelectedPlanData>) => void, onRemove: () => void, vendorOptions: any[] }) => {
+const ReviewPlanCard = ({ plan, index, onUpdate, onRemove, vendorOptions, portalContainer }: { plan: SelectedPlanData, index: number, onUpdate: (updates: Partial<SelectedPlanData>) => void, onRemove: () => void, vendorOptions: any[], portalContainer: HTMLElement | null }) => {
     
     // Fetch vendor for Existing PO if po_link is present
     const { data: poDoc } = useFrappeGetDoc("Procurement Orders", plan.po_link, (plan.po_type === "Existing PO" && !!plan.po_link) ? undefined : null);
@@ -423,19 +432,86 @@ const ReviewPlanCard = ({ plan, index, onUpdate, onRemove, vendorOptions }: { pl
                                     placeholder="Enter estimated price"
                                     className="bg-white"
                                     value={plan.estimatedPrice}
-                                    onChange={(e) => onUpdate({ estimatedPrice: e.target.value })}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        if (parseFloat(val) < 0) return;
+                                        onUpdate({ estimatedPrice: val });
+                                    }}
+                                    onKeyDown={(e) => {
+                                        if (e.key === "-" || e.key === "e") e.preventDefault();
+                                    }}
+                                    min={1}
                                 />
                             </div>
                             <div className="space-y-2">
                                 <Label className="text-xs font-semibold text-gray-700">Vendor <span className="text-red-500">*</span></Label>
-                                <ReactSelect
-                                    options={vendorOptions}
-                                    value={plan.vendor}
-                                    onChange={(val) => onUpdate({ vendor: val, vendorName: val?.label })}
-                                    placeholder="Select Vendor..."
-                                    className="text-sm"
-                                    isClearable
-                                />
+                                {plan.isCustomVendor ? (
+                                    <div className="space-y-2">
+                                        <Input
+                                            placeholder="Enter custom vendor name"
+                                            value={plan.vendor?.label || ""}
+                                            onChange={(e) => onUpdate({ vendor: { value: "", label: e.target.value }, vendorName: e.target.value })}
+                                            className="h-9 text-sm"
+                                        />
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => {
+                                                onUpdate({ isCustomVendor: false, vendor: null, vendorName: "" });
+                                            }}
+                                            className="text-xs text-gray-500 hover:text-gray-700 h-6 px-2"
+                                        >
+                                            ← Back to Vendor list
+                                        </Button>
+                                    </div>
+                                ) : (
+                                    <ReactSelect
+                                        options={vendorOptions}
+                                        value={plan.vendor}
+                                        onChange={(option: any) => {
+                                            if (option?.value === "__others__") {
+                                                onUpdate({ isCustomVendor: true, vendor: { value: "", label: "" }, vendorName: "" });
+                                            } else {
+                                                onUpdate({ vendor: option, vendorName: option?.label });
+                                            }
+                                        }}
+                                        placeholder="Select Vendor..."
+                                        className="text-sm"
+                                        isClearable
+                                        // menuPortalTarget={portalContainer}
+                                        // menuPosition="auto"
+                                        
+                                        filterOption={(option: any, inputValue: any) => {
+                                            if (option.data.value === "__others__") return true;
+                                            return option.label.toLowerCase().includes(inputValue.toLowerCase());
+                                        }}
+                                        styles={{
+                                            menuPortal: (base: any) => ({ ...base, zIndex: 9999 }),
+                                            control: (base: any) => ({ ...base, minHeight: '36px', height: '36px', fontSize: '0.875rem' }),
+                                            option: (base: any, state: any) => ({
+                                                ...base,
+                                                ...(state.data.value === "__others__" ? {
+                                                    backgroundColor: state.isFocused ? '#dbeafe' : '#eff6ff',
+                                                    color: '#2563eb',
+                                                    fontWeight: 600,
+                                                    borderTop: '1px solid #e5e7eb',
+                                                    position: 'sticky',
+                                                    bottom: 0,
+                                                } : {})
+                                            }),
+                                            menuList: (base: any) => ({ ...base, paddingBottom: 0 })
+                                        }}
+                                        formatOptionLabel={(option: any) => (
+                                            option.value === "__others__" ? (
+                                                <span className="flex items-center gap-1">
+                                                    <span>+ Others</span>
+                                                    <span className="text-xs text-blue-400">(type custom)</span>
+                                                </span>
+                                            ) : option.label
+                                        )}
+                                    />
+                                )}
                             </div>
                         </>
                     )}
@@ -452,7 +528,15 @@ const ReviewPlanCard = ({ plan, index, onUpdate, onRemove, vendorOptions }: { pl
                             placeholder="Enter amount"
                             className="bg-white"
                             value={plan.plannedAmount}
-                            onChange={(e) => onUpdate({ plannedAmount: e.target.value })}
+                            onChange={(e) => {
+                                const val = e.target.value;
+                                if (parseFloat(val) < 0) return;
+                                onUpdate({ plannedAmount: val });
+                            }}
+                            onKeyDown={(e) => {
+                                if (e.key === "-" || e.key === "e") e.preventDefault();
+                            }}
+                            min={1}
                         />
                     </div>
                     <div className="space-y-2">

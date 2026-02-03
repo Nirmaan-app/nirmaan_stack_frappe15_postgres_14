@@ -129,8 +129,8 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
     }, [vendors, plan, isCustomVendor]);
 
     const handleSubmit = async () => {
-        if (!plannedAmount || parseFloat(plannedAmount) <= 0) {
-            toast({ title: "Invalid Amount", description: "Amount must be > 0", variant: "destructive" });
+        if (!plannedAmount || parseFloat(plannedAmount) < 1) {
+            toast({ title: "Invalid Amount", description: "Amount must be at least 1", variant: "destructive" });
             return;
         }
 
@@ -155,8 +155,8 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                 toast({ title: "Missing Description", description: "Description is required", variant: "destructive" });
                 return;
             }
-             if (!estimatedValue || parseFloat(estimatedValue) <= 0) {
-                toast({ title: "Invalid Estimated Value", description: "Estimated Value must be > 0", variant: "destructive" });
+             if (!estimatedValue || parseFloat(estimatedValue) < 1) {
+                toast({ title: "Invalid Estimated Value", description: "Estimated Value must be at least 1", variant: "destructive" });
                 return;
             }
 
@@ -299,7 +299,15 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                                 <Input 
                                     type="number"
                                     value={plannedAmount}
-                                    onChange={(e) => setPlannedAmount(e.target.value)}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        if (parseFloat(val) < 0) return;
+                                        setPlannedAmount(val);
+                                    }}
+                                    onKeyDown={(e) => {
+                                        if (e.key === "-" || e.key === "e") e.preventDefault();
+                                    }}
+                                    min={1}
                                     className="pl-7"
                                     placeholder="Enter amount"
                                 />
@@ -316,7 +324,15 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                                     <Input 
                                         type="number"
                                         value={estimatedValue}
-                                        onChange={(e) => setEstimatedValue(e.target.value)}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            if (parseFloat(val) < 0) return;
+                                            setEstimatedValue(val);
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "-" || e.key === "e") e.preventDefault();
+                                        }}
+                                        min={1}
                                         className="pl-7"
                                         placeholder="Enter estimated value"
                                      

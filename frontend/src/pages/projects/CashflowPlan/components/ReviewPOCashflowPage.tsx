@@ -177,7 +177,7 @@ export const ReviewPOCashflowPage: React.FC<ReviewPOCashflowPageProps> = ({
     const isValid = useMemo(() => {
         const today = new Date().toISOString().split('T')[0];
         return plans.every(
-            (plan) => plan.selectedItems.size > 0 && plan.plannedDate && plan.plannedDate >= today && plan.plannedAmount && plan.plannedAmount > 0
+            (plan) => plan.selectedItems.size > 0 && plan.plannedDate && plan.plannedDate >= today && plan.plannedAmount && plan.plannedAmount >= 1
         );
     }, [plans]);
 
@@ -526,7 +526,15 @@ export const ReviewPOCashflowPage: React.FC<ReviewPOCashflowPageProps> = ({
                                             type="number"
                                             placeholder="Enter amount"
                                             value={plan.plannedAmount || ""}
-                                            onChange={(e) => updatePlannedAmount(planIndex, e.target.value)}
+                                            onChange={(e) => {
+                                                const val = e.target.value;
+                                                if (parseFloat(val) < 0) return;
+                                                updatePlannedAmount(planIndex, val);
+                                            }}
+                                            onKeyDown={(e) => {
+                                                if (e.key === "-" || e.key === "e") e.preventDefault();
+                                            }}
+                                            min={1}
                                         />
                                          {(() => {
                                              const po = availablePOs.find(p => p.name === plan.poId);
