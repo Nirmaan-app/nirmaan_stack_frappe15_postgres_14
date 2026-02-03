@@ -544,18 +544,35 @@ export const DocumentAttachments = <T extends DocumentType>({
 
       let targetUrl = "";
       if (action === "preview") {
-        // targetUrl = `/printview?${queryString}`;
         targetUrl = `/api/method/frappe.utils.print_format.download_pdf?${queryString}`;
-
+        window.open(targetUrl, "_blank");
+        setIsPrintDialogOpen(false);
       } else {
-        // download
-        // Using your custom download API if you have one, or the standard download_pdf
-        // For standard Frappe download_pdf:
-        targetUrl = `/api/method/frappe.utils.print_format.download_pdf?${queryString}`;
+        // download with custom filename
+        setIsGeneratingInvNo(true); // show loading state while downloading
+        try {
+          const downloadUrl = `/api/method/frappe.utils.print_format.download_pdf?${queryString}`;
+          const response = await fetch(downloadUrl);
+          if (!response.ok) throw new Error("Failed to generate PDF");
+          
+          const blob = await response.blob();
+          const fileName = `${invoiceDialogData.invoice_no}_${project?.project_name || "Project"}.pdf`;
+          
+          const url = window.URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.setAttribute('download', fileName);
+          document.body.appendChild(link);
+          link.click();
+          
+          link.remove();
+          window.URL.revokeObjectURL(url);
+          setIsPrintDialogOpen(false);
+        } catch (error) {
+          console.error("Download error:", error);
+          throw error; // Re-throw to be caught by the outer catch block
+        }
       }
-
-      window.open(targetUrl, "_blank");
-      setIsPrintDialogOpen(false);
     } catch (error: any) {
       console.error("Error saving invoice details or generating PDF:", error);
       toast({
