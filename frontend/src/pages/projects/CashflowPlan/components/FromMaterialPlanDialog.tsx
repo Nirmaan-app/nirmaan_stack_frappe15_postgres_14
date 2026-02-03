@@ -23,6 +23,7 @@ import {
 import ReactSelect from "react-select";
 import { useToast } from "@/components/ui/use-toast";
 import { safeFormatDate } from "@/lib/utils";
+import { CashflowDatePicker } from "./CashflowDatePicker";
 
 interface FromMaterialPlanDialogProps {
     isOpen: boolean;
@@ -416,7 +417,7 @@ const ReviewPlanCard = ({ plan, index, onUpdate, onRemove, vendorOptions }: { pl
                     {plan.po_type === "New PO" && (
                         <>
                             <div className="space-y-2">
-                                <Label className="text-xs font-semibold text-gray-700">Estimated Price <span className="text-red-500">*</span></Label>
+                                <Label className="text-xs font-semibold text-gray-700">Estimate PO Amount <span className="text-red-500">*</span></Label>
                                 <Input 
                                     type="number" 
                                     placeholder="Enter estimated price"
@@ -455,17 +456,15 @@ const ReviewPlanCard = ({ plan, index, onUpdate, onRemove, vendorOptions }: { pl
                         />
                     </div>
                     <div className="space-y-2">
-                        <Label className="text-xs font-semibold text-gray-700">Planned Date <span className="text-red-500">*</span></Label>
-                        <div className="relative">
-                            <Input 
-                                type="date" 
-                                className="bg-white"
-                                value={plan.plannedDate}
-                                min={new Date().toISOString().split('T')[0]}
-                                onChange={(e) => onUpdate({ plannedDate: e.target.value })}
-                                onClick={(e) => (e.target as HTMLInputElement).showPicker?.()}
-                            />
-                        </div>
+                        <CashflowDatePicker
+                            date={plan.plannedDate ? new Date(plan.plannedDate) : undefined}
+                            setDate={(date) => {
+                                const dateStr = date ? date.toISOString().split('T')[0] : "";
+                                onUpdate({ plannedDate: dateStr });
+                            }}
+                            label="Planned Date"
+                            required
+                        />
                     </div>
                 </div>
             </div>
