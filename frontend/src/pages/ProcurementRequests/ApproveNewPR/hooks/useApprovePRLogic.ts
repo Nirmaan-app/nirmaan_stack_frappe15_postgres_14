@@ -944,8 +944,32 @@ export const useApprovePRLogic = ({
 
         // --- DRAFT-FIRST APPROACH ---
         if (useDraftFirst && draftManager) {
-            // For Request items, we delete them (they don't go to undo stack since they were never approved)
+            // Get current lists BEFORE deletion (to avoid async state issues)
+            const currentCategoryList = (draftManager.categoryList && draftManager.categoryList.length > 0)
+                ? draftManager.categoryList
+                : orderData.category_list.list;
+            const currentOrderList = (draftManager.orderList && draftManager.orderList.length > 0)
+                ? draftManager.orderList.filter(i => !i._isDeleted)
+                : orderData.order_list;
+
+            // Delete the Request item (they don't go to undo stack since they were never approved)
             draftManager.deleteItem(itemToReject.name!);
+
+            // Compute remaining items manually (don't rely on async state update)
+            const remainingItems = currentOrderList.filter(item => item.name !== itemToReject.name);
+
+            // Check if other Request items exist in this category
+            const otherRequestsInCategory = remainingItems.some(
+                item => item.category === itemToReject.category && item.status === 'Request'
+            );
+
+            // If no other Request items in this category, remove the "Request" category entry
+            if (!otherRequestsInCategory) {
+                const updatedCategoryList = currentCategoryList.filter(
+                    cat => !(cat.name === itemToReject.category && cat.status === 'Request')
+                );
+                draftManager.updateCategoryList(updatedCategoryList as DraftCategory[]);
+            }
 
             toast({
                 title: "Request Rejected",
@@ -1137,6 +1161,15 @@ export const useApprovePRLogic = ({
 
             // --- DRAFT-FIRST APPROACH ---
             if (useDraftFirst && draftManager) {
+                // Get current lists BEFORE deletion (to avoid async state issues)
+                // CRITICAL: Empty array [] is truthy, so we must check length explicitly
+                const currentCategoryList = (draftManager.categoryList && draftManager.categoryList.length > 0)
+                    ? draftManager.categoryList
+                    : orderData.category_list.list;
+                const currentOrderListBeforeDelete = (draftManager.orderList && draftManager.orderList.length > 0)
+                    ? draftManager.orderList.filter(i => !i._isDeleted)
+                    : orderData.order_list;
+
                 // 1. Delete the original Request item
                 draftManager.deleteItem(requestItem.name);
 
@@ -1156,10 +1189,6 @@ export const useApprovePRLogic = ({
                 draftManager.addItem(newDraftItem);
 
                 // 3. Update category list
-                // CRITICAL: Empty array [] is truthy, so we must check length explicitly
-                const currentCategoryList = (draftManager.categoryList && draftManager.categoryList.length > 0)
-                    ? draftManager.categoryList
-                    : orderData.category_list.list;
                 let updatedCategoryList = [...currentCategoryList];
 
                 // Ensure the category for the new item exists with 'Pending' status
@@ -1177,9 +1206,12 @@ export const useApprovePRLogic = ({
                 }
 
                 // Check if the category of the original requested item is still needed
+                // Compute order list after deletion manually (don't rely on async state update)
                 const originalCategoryName = requestItem.category;
-                const updatedOrderListFromDraft = draftManager.orderList?.filter(i => !i._isDeleted) || [];
-                const otherItemsInOriginalCategory = updatedOrderListFromDraft.some(
+                const orderListAfterDelete = currentOrderListBeforeDelete.filter(
+                    item => item.name !== requestItem.name
+                );
+                const otherItemsInOriginalCategory = orderListAfterDelete.some(
                     item => item.category === originalCategoryName && item.status === 'Request'
                 );
 
@@ -1342,9 +1374,12 @@ export const useApprovePRLogic = ({
 
             // Check if the category of the original requested item is still needed
             const originalCategoryName = originalRequest.category;
-            // Get the updated list from draft manager (after delete + add)
-            const updatedOrderListFromDraft = draftManager.orderList?.filter(i => !i._isDeleted) || [];
-            const otherItemsInOriginalCategory = updatedOrderListFromDraft.some(
+            // Compute order list after deletion manually (don't rely on async state update)
+            // We already have currentOrderList from earlier - use it to compute remaining items
+            const orderListAfterDelete = currentOrderList.filter(
+                item => item.name !== originalRequest.name
+            );
+            const otherItemsInOriginalCategory = orderListAfterDelete.some(
                 item => item.category === originalCategoryName && item.status === 'Request'
             );
 
