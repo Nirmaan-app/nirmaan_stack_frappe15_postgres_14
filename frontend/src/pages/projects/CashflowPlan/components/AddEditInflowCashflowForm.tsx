@@ -63,10 +63,10 @@ export const AddEditInflowCashflowForm = ({ isOpen, projectId, initialData, onCl
             return;
         }
 
-        if (!plannedAmount || parseFloat(plannedAmount) <= 0) {
+        if (!plannedAmount || parseFloat(plannedAmount) < 1) {
              toast({
                 title: "Missing Planned Amount",
-                description: "Review your fields! Planned Amount is mandatory and must be greater than 0.",
+                description: "Review your fields! Planned Amount is mandatory and must be at least 1.",
                 variant: "destructive"
             });
             return;
@@ -134,7 +134,15 @@ export const AddEditInflowCashflowForm = ({ isOpen, projectId, initialData, onCl
                                     className="pl-7"
                                     placeholder=""
                                     value={plannedAmount}
-                                    onChange={(e) => setPlannedAmount(e.target.value)}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        if (parseFloat(val) < 0) return;
+                                        setPlannedAmount(val);
+                                    }}
+                                    onKeyDown={(e) => {
+                                        if (e.key === "-" || e.key === "e") e.preventDefault();
+                                    }}
+                                    min={1}
                                 />
                             </div>
                         </div>

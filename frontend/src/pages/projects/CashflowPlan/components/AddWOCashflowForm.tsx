@@ -90,7 +90,7 @@ export const AddWOCashflowForm = ({ projectId, onClose, onSuccess }: AddWOCashfl
 
     const handleSubmitExisting = async () => {
         // Validate
-        const validPlans = selectedPlans.filter(p => p.planned_amount && p.planned_date);
+        const validPlans = selectedPlans.filter(p => p.planned_amount && parseFloat(p.planned_amount) >= 1 && p.planned_date);
         if (validPlans.length === 0) {
             toast({ title: "Error", description: "Please fill in amount and date for at least one plan.", variant: "destructive" });
             return;
@@ -146,19 +146,19 @@ export const AddWOCashflowForm = ({ projectId, onClose, onSuccess }: AddWOCashfl
             return;
         }
 
-        if (!newPlan.estimated_value || parseFloat(newPlan.estimated_value) <= 0) {
+        if (!newPlan.estimated_value || parseFloat(newPlan.estimated_value) < 1) {
             toast({
                 title: "Incomplete Data",
-                description: "Review your fields! Estimated Value is mandatory and must be greater than 0.",
+                description: "Review your fields! Estimated Value is mandatory and must be at least 1.",
                 variant: "destructive"
             });
             return;
         }
 
-        if (!newPlan.planned_amount || parseFloat(newPlan.planned_amount) <= 0) {
+        if (!newPlan.planned_amount || parseFloat(newPlan.planned_amount) < 1) {
              toast({
                 title: "Missing Planned Amount",
-                description: "Review your fields! Planned Amount is mandatory and must be greater than 0.",
+                description: "Review your fields! Planned Amount is mandatory and must be at least 1.",
                 variant: "destructive"
             });
             return;
@@ -270,7 +270,15 @@ export const AddWOCashflowForm = ({ projectId, onClose, onSuccess }: AddWOCashfl
                                                             type="number" 
                                                             className="pl-7 bg-white" 
                                                             value={plan.planned_amount}
-                                                            onChange={(e) => updatePlanItem(plan.temp_id, "planned_amount", e.target.value)}
+                                                            onChange={(e) => {
+                                                                const val = e.target.value;
+                                                                if (parseFloat(val) < 0) return;
+                                                                updatePlanItem(plan.temp_id, "planned_amount", val);
+                                                            }}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === "-" || e.key === "e") e.preventDefault();
+                                                            }}
+                                                            min={1}
                                                          />
                                                      </div>
                                                  </div>
@@ -411,7 +419,15 @@ export const AddWOCashflowForm = ({ projectId, onClose, onSuccess }: AddWOCashfl
                                             type="number" 
                                             className="pl-7" 
                                             value={newPlan.estimated_value}
-                                            onChange={(e) => setNewPlan({...newPlan, estimated_value: e.target.value})}
+                                            onChange={(e) => {
+                                                const val = e.target.value;
+                                                if (parseFloat(val) < 0) return;
+                                                setNewPlan({...newPlan, estimated_value: val});
+                                            }}
+                                            onKeyDown={(e) => {
+                                                if (e.key === "-" || e.key === "e") e.preventDefault();
+                                            }}
+                                            min={1}
                                          />
                                      </div>
                                 </div>
@@ -423,7 +439,15 @@ export const AddWOCashflowForm = ({ projectId, onClose, onSuccess }: AddWOCashfl
                                             type="number" 
                                             className="pl-7" 
                                             value={newPlan.planned_amount}
-                                            onChange={(e) => setNewPlan({...newPlan, planned_amount: e.target.value})}
+                                            onChange={(e) => {
+                                                const val = e.target.value;
+                                                if (parseFloat(val) < 0) return;
+                                                setNewPlan({...newPlan, planned_amount: val});
+                                            }}
+                                            onKeyDown={(e) => {
+                                                if (e.key === "-" || e.key === "e") e.preventDefault();
+                                            }}
+                                            min={1}
                                          />
                                      </div>
                                 </div>

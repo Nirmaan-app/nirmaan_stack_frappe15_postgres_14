@@ -2,7 +2,7 @@ import React from "react";
 import { Badge } from "@/components/ui/badge";
 
 interface TaskStatusBadgeProps {
-  status: "PR Not Released" | "Not Released" | "Partially Released" | "Released" | "Not Applicable";
+  status: "PR Not Released" | "Not Released" | "Released" | "Not Applicable";
 }
 
 const statusConfig = {
@@ -13,10 +13,6 @@ const statusConfig = {
   "Not Released": {
     color: "bg-red-100 text-red-700 hover:bg-red-100",
     label: "Not Released",
-  },
-  "Partially Released": {
-    color: "bg-yellow-100 text-yellow-700 hover:bg-yellow-100",
-    label: "Partially Released",
   },
   Released: {
     color: "bg-green-100 text-green-700 hover:bg-green-100",

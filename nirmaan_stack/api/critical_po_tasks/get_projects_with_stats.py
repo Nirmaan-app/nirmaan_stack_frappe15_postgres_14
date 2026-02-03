@@ -76,7 +76,6 @@ def get_projects_with_critical_po_stats():
                 "released_tasks": 5,
                 "status_counts": {
                     "Not Released": 3,
-                    "Partially Released": 2,
                     "Released": 5
                 }
             },

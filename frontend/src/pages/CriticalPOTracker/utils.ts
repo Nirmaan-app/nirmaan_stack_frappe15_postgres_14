@@ -12,8 +12,6 @@ export const getStatusStyle = (status: CriticalPOTaskStatus | string): string =>
   switch (status) {
     case "Released":
       return "bg-green-50 text-green-700 border border-green-200";
-    case "Partially Released":
-      return "bg-blue-50 text-blue-700 border border-blue-200";
     case "Not Released":
       return "bg-red-50 text-red-700 border border-red-200";
     case "Not Applicable":
@@ -39,6 +37,5 @@ export const getProgressColor = (percentage: number): string => {
  */
 export const STATUS_DISPLAY_ORDER: CriticalPOTaskStatus[] = [
   "Not Released",
-  "Partially Released",
   "Released",
 ];

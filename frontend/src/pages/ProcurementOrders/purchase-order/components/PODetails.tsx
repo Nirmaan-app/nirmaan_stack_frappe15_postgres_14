@@ -213,6 +213,17 @@ export const PODetails: React.FC<PODetailsProps> = ({
       return;
     }
 
+    if (!refNumber) {
+      toast({
+        title: "Required Field Missing",
+        description: `Please enter the ${
+          uploadDialog.type === "DC" ? "DC Number" : "MIR Number"
+        }`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       // Step 1: Upload file to Frappe
       const uploadResult = await upload(selectedFile, {
@@ -1536,10 +1547,15 @@ export const PODetails: React.FC<PODetailsProps> = ({
             />
             <div className="space-y-2">
               <label className="text-sm font-medium">
-                {uploadDialog.type === "DC" ? "DC Number" : "MIR Number"}
+                {uploadDialog.type === "DC" ? "DC Number" : "MIR Number"}{" "}
+                <span className="text-red-500">*</span>
               </label>
               <Input
-                placeholder={uploadDialog.type === "DC" ? "Enter DC number (optional)" : "Enter MIR number (optional)"}
+                placeholder={
+                  uploadDialog.type === "DC"
+                    ? "Enter DC number"
+                    : "Enter MIR number"
+                }
                 value={refNumber}
                 onChange={(e) => setRefNumber(e.target.value)}
               />
@@ -1556,7 +1572,10 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 <Button variant="outline" onClick={handleCloseUploadDialog}>
                   Cancel
                 </Button>
-                <Button onClick={handleUploadFile} disabled={!selectedFile}>
+                <Button
+                  onClick={handleUploadFile}
+                  disabled={!selectedFile || !refNumber}
+                >
                   Upload
                 </Button>
               </>

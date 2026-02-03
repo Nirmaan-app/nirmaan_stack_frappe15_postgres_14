@@ -30,19 +30,16 @@ export const CriticalPOProjectCard: React.FC<CriticalPOProjectCardProps> = ({
   // Check completion status
   const isAllReleased = released_tasks === total_tasks && total_tasks > 0;
   const notReleasedCount = status_counts["Not Released"] || 0;
-  const partiallyReleasedCount = status_counts["Partially Released"] || 0;
-  const hasIncompleteWork = notReleasedCount > 0 || partiallyReleasedCount > 0;
+  const hasIncompleteWork = notReleasedCount > 0;
 
   // Get incomplete status entries for display (exclude "Released" since it's the primary metric)
   const incompleteStatusEntries = [
-    { status: "Partially Released" as const, count: partiallyReleasedCount },
     { status: "Not Released" as const, count: notReleasedCount },
   ].filter((entry) => entry.count > 0);
 
   // All status entries for data mismatch fallback
   const allStatusEntries = [
     { status: "Released" as const, count: status_counts["Released"] || 0 },
-    { status: "Partially Released" as const, count: partiallyReleasedCount },
     { status: "Not Released" as const, count: notReleasedCount },
   ].filter((entry) => entry.count > 0);
 

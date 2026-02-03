@@ -171,19 +171,19 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
     };
 
     const handleSubmit = async () => {
-        if (!plannedAmount || parseFloat(plannedAmount) <= 0) {
+        if (!plannedAmount || parseFloat(plannedAmount) < 1) {
             toast({
                 title: "Invalid Amount",
-                description: "Planned Amount must be greater than 0.",
+                description: "Planned Amount must be at least 1.",
                 variant: "destructive"
             });
             return;
         }
 
-        if (isNewPO && (!estimatedPrice || parseFloat(estimatedPrice) <= 0)) {
+        if (isNewPO && (!estimatedPrice || parseFloat(estimatedPrice) < 1)) {
             toast({
                 title: "Invalid Amount",
-                description: "Estimated PO Amount must be greater than 0.",
+                description: "Estimated PO Amount must be at least 1.",
                 variant: "destructive"
             });
             return;
@@ -235,7 +235,6 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
 
         try {
             await updateDoc("Cashflow Plan", plan.name, {
-                planned_amount: parseFloat(plannedAmount),
                 planned_amount: parseFloat(plannedAmount),
                 estimated_price: isNewPO ? parseFloat(estimatedPrice) : undefined,
                 planned_date: format(plannedDate, "yyyy-MM-dd"),
@@ -316,7 +315,15 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                                     <Input 
                                         type="number"
                                         value={plannedAmount}
-                                        onChange={(e) => setPlannedAmount(e.target.value)}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            if (parseFloat(val) < 0) return;
+                                            setPlannedAmount(val);
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "-" || e.key === "e") e.preventDefault();
+                                        }}
+                                        min={1}
                                         className="pl-7"
                                         placeholder="Enter amount"
                                     />
@@ -333,7 +340,15 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                                         <Input 
                                             type="number"
                                             value={estimatedPrice}
-                                            onChange={(e) => setEstimatedPrice(e.target.value)}
+                                            onChange={(e) => {
+                                                const val = e.target.value;
+                                                if (parseFloat(val) < 0) return;
+                                                setEstimatedPrice(val);
+                                            }}
+                                            onKeyDown={(e) => {
+                                                if (e.key === "-" || e.key === "e") e.preventDefault();
+                                            }}
+                                            min={1}
                                             className="pl-7"
                                             placeholder="Enter estimated amount"
                                         />
