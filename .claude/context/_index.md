@@ -13,3 +13,11 @@ Quick navigation to detailed documentation. Read only when working on related ta
 | [domain/service-requests.md](domain/service-requests.md) | Service Requests | Work Orders, finalization, SR remarks |
 | [domain/users.md](domain/users.md) | User Management | Nirmaan Users, permissions, authentication |
 | [domain/projects.md](domain/projects.md) | Projects | Project status lifecycle, status effects on features |
+
+### Frontend Context (in `frontend/.claude/context/`)
+
+| File | Domain | When to Read |
+|------|--------|--------------|
+| `domain/ceo-hold.md` | CEO Hold | Project hold status blocking, guard hooks, affected pages |
+| `domain/projects.md` | Projects | Frontend status behavior, ProjectSelect component |
+| `role-access.md` | Access Control | Role checks, sidebar visibility, page permissions |

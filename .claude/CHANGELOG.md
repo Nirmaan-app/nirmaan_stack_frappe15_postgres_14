@@ -4,6 +4,39 @@ Changes made by Claude Code sessions.
 
 ---
 
+### 2026-02-04: Context Sync - 2 Week Feature Analysis
+
+**Summary:** Analyzed commits from 2026-01-22 to 2026-02-04 to document new features and update context files.
+
+**Frontend Context Files Created:**
+- `frontend/.claude/context/domain/ceo-hold.md` - Comprehensive documentation of CEO Hold status feature
+
+**Frontend Context Files Updated:**
+- `frontend/.claude/context/_index.md` - Added CEO Hold domain reference
+- `frontend/.claude/context/domain/projects.md` - Added CEO Hold to status matrix
+- `frontend/CLAUDE.md` - Added CEO Hold note in Important Notes section
+
+**Key Features Documented:**
+
+1. **CEO Hold Status** (commit `7c691bff`, 2026-02-03)
+   - New project status blocking all procurement/payment/expense operations
+   - Uses `useCEOHoldGuard` and `useCEOHoldProjects` hooks
+   - ~40+ pages modified to implement guards
+   - Full documentation in `frontend/.claude/context/domain/ceo-hold.md`
+
+2. **Cashflow Plan System** (2026-01-27 - 2026-02-01)
+   - New `Cashflow Plan` doctype with PO, WO, Misc, Inflow types
+   - Frontend pages under `src/pages/projects/CashflowPlan/`
+   - Tracker pages under `src/pages/CashflowPlanTracker/`
+
+3. **Other Notable Backend Changes:**
+   - Material Plan enhancements with Critical PO workflow
+   - DC/MIR reference number field (`attachment_ref`)
+   - Vendor nickname field added
+   - TDS enhancements
+
+---
+
 ### 2026-02-02: PR Editing Lock API
 
 **Summary:** Added Redis-based locking mechanism for Procurement Request editing to prevent concurrent edits by multiple users.

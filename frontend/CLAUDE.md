@@ -551,3 +551,4 @@ const handleToggle = (checked: boolean) => {
 - **Role-Based Access**: User roles from Frappe control UI visibility and permissions (see Role-Based Access Control section above)
 - **Project Context**: Many operations are scoped to a selected project (stored in UserContext)
 - **Customer Required for Financials**: Projects without a customer cannot have invoices or inflow payments created - UI shows validation warnings and disables forms
+- **CEO Hold Status**: Projects with "CEO Hold" status block ALL procurement, payment, and expense operations. Use `useCEOHoldGuard` hook for single-project pages, `useCEOHoldProjects` for list pages. See `.claude/context/domain/ceo-hold.md` for full documentation.

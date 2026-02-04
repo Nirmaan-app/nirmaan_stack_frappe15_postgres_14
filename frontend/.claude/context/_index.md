@@ -15,6 +15,7 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | [domain/invoices.md](./domain/invoices.md) | Invoices | PO/SR invoices, 2B reconciliation, date filters |
 | [domain/milestones.md](./domain/milestones.md) | Milestones | Daily progress reports, zone tracking, work headers |
 | [domain/projects.md](./domain/projects.md) | Projects | Project status lifecycle, ProjectSelect component, status restrictions |
+| [domain/ceo-hold.md](./domain/ceo-hold.md) | CEO Hold | Project hold status, blocked operations, guard hooks |
 
 ### Module References (in-code)
 
@@ -73,7 +74,8 @@ const { role, user_id } = useUserData();
         ├── customers.md  # Customer management & financials
         ├── invoices.md   # Invoice management & 2B reconciliation
         ├── milestones.md # Daily progress reports & zone tracking
-        └── projects.md   # Project status lifecycle & frontend behavior
+        ├── projects.md   # Project status lifecycle & frontend behavior
+        └── ceo-hold.md   # CEO Hold status & blocked operations
 ```
 
 ---
