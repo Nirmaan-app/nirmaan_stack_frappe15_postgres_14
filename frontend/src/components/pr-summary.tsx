@@ -4,6 +4,7 @@ import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUs
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 import { Category, ProcurementRequest, ProcurementRequestItemDetail } from "@/types/NirmaanStack/ProcurementRequests";
 import { formatDate } from "@/utils/FormatDate";
+import { parseCategoryList } from "@/utils/safeJsonParse";
 import { Timeline } from "antd";
 import { FrappeDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig,useFrappePostCall } from "frappe-react-sdk";
 import { FileSliders, ListChecks, MessageCircleMore, Settings2, Trash2, Undo2 } from 'lucide-react';
@@ -258,22 +259,13 @@ useEffect(() => {
 
     const categories = useMemo(() => {
         const uniqueCategories = new Map<string, Category>();
-        // Assuming pr_data.category_list is still the source for displayable category names/info
-        // and is still in the old JSON format. If category_list also changes, this needs an update.
-        try {
-            const catListRaw = pr_data?.category_list;
-            const parsedList = (typeof catListRaw === 'string' ? JSON.parse(catListRaw || '{"list":[]}') : catListRaw)?.list || [];
-            
-            if (Array.isArray(parsedList)) {
-                parsedList.forEach((cat: any) => { // Use 'any' if structure is uncertain
-                    if (cat && cat.name && !uniqueCategories.has(cat.name)) {
-                        uniqueCategories.set(cat.name, cat as Category);
-                    }
-                });
+        const parsedList = parseCategoryList<Category>(pr_data?.category_list);
+
+        parsedList.forEach((cat) => {
+            if (cat && cat.name && !uniqueCategories.has(cat.name)) {
+                uniqueCategories.set(cat.name, cat);
             }
-        } catch (e) {
-            console.error("Error parsing category_list JSON for summary:", e);
-        }
+        });
         return Array.from(uniqueCategories.values());
     }, [pr_data?.category_list]);
 

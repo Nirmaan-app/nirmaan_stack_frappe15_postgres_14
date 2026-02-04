@@ -30,6 +30,7 @@ import { extractMakesFromChildTableForWP } from '../../NewPR/NewProcurementReque
 import { CategoryMakelist as CategoryMakelistType } from '@/types/NirmaanStack/CategoryMakelist'; // Import the type
 import { ProcurementRequestItemDetail } from '@/types/NirmaanStack/ProcurementRequests';
 import { DraftItem, DraftCategory } from '@/zustand/useApproveNewPRDraftStore';
+import { parseCategoryList } from '@/utils/safeJsonParse';
 
 /* ─────────────────────────────────────────────────────────────
    DRAFT MANAGER INTERFACE
@@ -357,14 +358,7 @@ export const useApprovePRLogic = ({
 
             // Initialize category_list based on items if not directly available or if it needs regeneration
             // For now, assuming prDoc.category_list (JSON) is still the source for initial makes display if available
-            let initialCategoryListForState: GlobalCategory[] = [];
-            if (prDoc.category_list && typeof prDoc.category_list === 'object' && prDoc.category_list.list) {
-                initialCategoryListForState = prDoc.category_list.list;
-            } else if (typeof prDoc.category_list === 'string') {
-                try {
-                    initialCategoryListForState = JSON.parse(prDoc.category_list)?.list || [];
-                } catch (e) { console.error("Error parsing initial category_list from prDoc", e); }
-            }
+            const initialCategoryListForState: GlobalCategory[] = parseCategoryList<GlobalCategory>(prDoc.category_list);
 
             setOrderData({
                 // Spread all other properties from prDoc

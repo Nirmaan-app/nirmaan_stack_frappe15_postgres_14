@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'; // Added useMemo
+import React, { useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useFrappeDocumentEventListener, useFrappeGetDoc } from 'frappe-react-sdk';
 
@@ -8,6 +8,7 @@ import { PRDocType } from './types';
 import { Projects as Project } from '@/types/NirmaanStack/Projects';
 import { Button } from '@/components/ui/button';
 import { queryKeys } from '@/config/queryKeys'; // Import centralized keys
+import { parseCategoryList } from '@/utils/safeJsonParse';
 
 // Import the new individual hooks
 import { useUsersList } from './hooks/useUsersList';
@@ -106,12 +107,15 @@ export const ApprovePRContainer: React.FC = () => {
         orderListLength: prDoc?.order_list?.length ?? 0,
     });
 
+    // Derive parsed category list during render (following rerender-derived-state-no-effect)
+    const parsedCategoryList = parseCategoryList(prDoc?.category_list);
+
     // IMPORTANT: Memoize serverData to prevent infinite re-renders
     // Without useMemo, a new object is created on every render, causing useEffect loops
     const serverDataForDraft = useMemo(() => {
         const data = {
             orderList: prDoc?.order_list || [],
-            categoryList: prDoc?.category_list?.list || [],
+            categoryList: parsedCategoryList,
             modifiedAt: prDoc?.modified || '',
         };
         log('serverDataForDraft memoized:', {
@@ -119,7 +123,7 @@ export const ApprovePRContainer: React.FC = () => {
             categoryListLength: data.categoryList.length,
         });
         return data;
-    }, [prDoc?.order_list, prDoc?.category_list?.list, prDoc?.modified]);
+    }, [prDoc?.order_list, parsedCategoryList, prDoc?.modified]);
 
     const draftManager = useApproveNewPRDraftManager({
         prId: prDoc?.name || '',
@@ -145,6 +149,45 @@ export const ApprovePRContainer: React.FC = () => {
 
     // --- 6. Instantiate the Logic Hook ---
     // Pass draft manager methods for draft-first editing approach
+
+    // Memoize to prevent new reference every render (rerender-dependencies)
+    const draftManagerProps = useMemo(() => {
+        if (!prDoc?.name || prDoc?.workflow_state !== 'Pending') return undefined;
+        return {
+            addItem: draftManager.addItem,
+            updateItem: draftManager.updateItem,
+            deleteItem: draftManager.deleteItem,
+            undoDelete: draftManager.undoDelete,
+            updateOrderList: draftManager.updateOrderList,
+            updateCategoryList: draftManager.updateCategoryList,
+            getDataForSubmission: draftManager.getDataForSubmission,
+            clearDraftAfterSubmit: draftManager.clearDraftAfterSubmit,
+            setUniversalComment: draftManager.setUniversalComment,
+            orderList: draftManager.orderList,
+            categoryList: draftManager.categoryList,
+            universalComment: draftManager.universalComment,
+            undoStack: draftManager.undoStack,
+            isInitialized: draftManager.isInitialized,
+        };
+    }, [
+        prDoc?.name,
+        prDoc?.workflow_state,
+        draftManager.addItem,
+        draftManager.updateItem,
+        draftManager.deleteItem,
+        draftManager.undoDelete,
+        draftManager.updateOrderList,
+        draftManager.updateCategoryList,
+        draftManager.getDataForSubmission,
+        draftManager.clearDraftAfterSubmit,
+        draftManager.setUniversalComment,
+        draftManager.orderList,
+        draftManager.categoryList,
+        draftManager.universalComment,
+        draftManager.undoStack,
+        draftManager.isInitialized,
+    ]);
+
     const logicProps = useApprovePRLogic({
         workPackage,
         // Pass data fetched above. Handle potential undefined values gracefully inside the hook or here.
@@ -163,22 +206,7 @@ export const ApprovePRContainer: React.FC = () => {
         categoryMakeListMutate,
         // Pass draft manager for draft-first editing approach
         // Only enable draft-first when PR is in Pending state and draft manager is initialized
-        draftManager: (!!prDoc?.name && prDoc?.workflow_state === 'Pending') ? {
-            addItem: draftManager.addItem,
-            updateItem: draftManager.updateItem,
-            deleteItem: draftManager.deleteItem,
-            undoDelete: draftManager.undoDelete,
-            updateOrderList: draftManager.updateOrderList,
-            updateCategoryList: draftManager.updateCategoryList,
-            getDataForSubmission: draftManager.getDataForSubmission,
-            clearDraftAfterSubmit: draftManager.clearDraftAfterSubmit,
-            setUniversalComment: draftManager.setUniversalComment,
-            orderList: draftManager.orderList,
-            categoryList: draftManager.categoryList,
-            universalComment: draftManager.universalComment,
-            undoStack: draftManager.undoStack,
-            isInitialized: draftManager.isInitialized,
-        } : undefined,
+        draftManager: draftManagerProps,
     });
 
     // --- Combined Loading State ---
@@ -188,10 +216,10 @@ export const ApprovePRContainer: React.FC = () => {
     const error = prError || projectError || usersError || categoriesError || itemsError || commentsError;
 
     // --- Handle cancel/back navigation ---
-    const handleCancelNavigation = () => {
+    const handleCancelNavigation = useCallback(() => {
         draftManager.discardDraft();
         navigate("/procurement-requests?tab=Approve PR");
-    };
+    }, [draftManager.discardDraft, navigate]);
 
     // --- Render Logic ---
 

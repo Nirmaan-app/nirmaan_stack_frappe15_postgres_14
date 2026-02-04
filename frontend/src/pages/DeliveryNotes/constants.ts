@@ -30,22 +30,8 @@ export const COMPANY_ADDRESS_BY_GST: { [key: string]: string } = {
   "default": "Company Address Not Configured for this GSTIN",
 };
 
-// Helper for safe JSON parsing
-export const safeJsonParse = <T>(jsonString: string | T | undefined, defaultValue: T): T => {
-  if (!jsonString) {
-    return defaultValue;
-  }
-  try {
-    if(typeof jsonString === "string") {
-      return JSON.parse(jsonString) as T;
-    } else {
-      return jsonString as T
-    }
-  } catch (error) {
-    console.error("Failed to parse JSON:", error, "String was:", jsonString);
-    return defaultValue;
-  }
-};
+// Re-export from shared utility for backwards compatibility
+export { safeJsonParse } from '@/utils/safeJsonParse';
 
 // Helper for ID manipulation (more descriptive)
 export const decodeFrappeId = (encodedId: string): string => encodedId.replaceAll("&=", "/");
