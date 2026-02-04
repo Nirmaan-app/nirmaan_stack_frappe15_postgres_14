@@ -5,8 +5,11 @@ import {
   useFrappeGetDocList,
   useFrappeDeleteDoc,
 } from "frappe-react-sdk";
+import { Row } from "@tanstack/react-table";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
 import { memoize } from "lodash";
 import {
@@ -58,6 +61,19 @@ export const AllProjectInvoices: React.FC<{
   const isAdmin =
     role === "Nirmaan Admin Profile" ||
     role === "Nirmaan PMO Executive Profile";
+  const { ceoHoldProjectIds } = useCEOHoldProjects();
+
+  // CEO Hold row highlighting
+  const getRowClassName = useCallback(
+    (row: Row<ProjectInvoice>) => {
+      const projId = row.original.project;
+      if (projId && ceoHoldProjectIds.has(projId)) {
+        return CEO_HOLD_ROW_CLASSES;
+      }
+      return undefined;
+    },
+    [ceoHoldProjectIds]
+  );
 
   const {
     setEditProjectInvoiceDialog, // Get the setter for edit dialog
@@ -323,6 +339,7 @@ export const AllProjectInvoices: React.FC<{
           onExport={"default"}
           exportFileName={DOCTYPE}
           showRowSelection={false}
+          getRowClassName={getRowClassName}
           summaryCard={
             <ProjectInvoiceSummaryCard
               aggregates={aggregates}

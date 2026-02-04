@@ -3,6 +3,8 @@ import { Row as TanRow } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { POAttachmentReconcileRowData, usePOAttachmentReconcileData } from "../hooks/usePOAttachmentReconcileData";
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 import { poAttachmentReconcileColumns } from "./columns/poAttachmentReconcileColumns";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
@@ -29,6 +31,8 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { ColumnDef } from "@tanstack/react-table";
 import { FileText, Truck, ClipboardCheck, Package, Receipt, IndianRupee, AlertTriangle } from "lucide-react";
+import { useProjectAssignees } from "@/hooks/useProjectAssignees";
+import { getAssigneesColumn } from "@/components/common/assigneesTableColumns";
 
 interface SelectOption {
     label: string;
@@ -36,6 +40,8 @@ interface SelectOption {
 }
 
 export default function POAttachmentReconcileReport() {
+    const { ceoHoldProjectIds } = useCEOHoldProjects();
+
     // Fetch attachment reconcile data
     const {
         reportData: allPOData,
@@ -43,8 +49,21 @@ export default function POAttachmentReconcileReport() {
         error: initialDataError,
     } = usePOAttachmentReconcileData();
 
+    // Fetch Assignees
+    const { assignmentsLookup, isLoading: isAssigneesLoading } = useProjectAssignees();
+
     // Use the column definitions
-    const tableColumnsToDisplay = useMemo(() => poAttachmentReconcileColumns, []);
+    const tableColumnsToDisplay = useMemo(() => {
+        const columns = [...poAttachmentReconcileColumns];
+        // Find index of Project column to insert after
+        const projectIndex = columns.findIndex(c => (c as any).id === "projectName" || (c as any).accessorKey === "projectName");
+        const insertIndex = projectIndex !== -1 ? projectIndex + 1 : 2; // Default to index 2
+
+        columns.splice(insertIndex, 0, getAssigneesColumn<POAttachmentReconcileRowData>("projectId", assignmentsLookup));
+        
+        console.log("POAttachmentReconcileReport Columns:", columns.map(c => c.id || (c as any).accessorKey));
+        return columns;
+    }, [assignmentsLookup]);
 
     // Initialize useServerDataTable in clientData mode
     const {
@@ -105,29 +124,30 @@ export default function POAttachmentReconcileReport() {
         };
     }, [fullyFilteredData]);
 
-    // Row highlighting callback - highlights rows where Invoice count ≠ DC count
+    // Row highlighting callback - CEO Hold takes priority, then Invoice/DC mismatch
     const getRowClassName = useCallback((row: TanRow<POAttachmentReconcileRowData>) => {
         const data = row.original;
+        // CEO Hold check first (priority)
+        const projectId = data.projectId;
+        if (projectId && ceoHoldProjectIds.has(projectId)) {
+            return CEO_HOLD_ROW_CLASSES;
+        }
+        // Existing mismatch logic as fallback
         if (data.invoiceCount !== data.dcCount) {
             return "bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 dark:hover:bg-amber-950/50";
         }
         return undefined;
-    }, []);
+    }, [ceoHoldProjectIds]);
 
     // Toggle state for showing only mismatched rows
     const [showOnlyMismatched, setShowOnlyMismatched] = useState(false);
 
-    // Effect to apply/remove mismatch filter when toggle changes
-    useEffect(() => {
+    // Handler to toggle mismatch filter - updates both state and table filter
+    const handleToggleMismatchFilter = useCallback((checked: boolean) => {
+        setShowOnlyMismatched(checked);
         const mismatchColumn = table.getColumn("isMismatched");
-        if (mismatchColumn) {
-            if (showOnlyMismatched) {
-                mismatchColumn.setFilterValue(["yes"]);
-            } else {
-                mismatchColumn.setFilterValue(undefined);
-            }
-        }
-    }, [showOnlyMismatched, table]);
+        mismatchColumn?.setFilterValue(checked ? ["yes"] : undefined);
+    }, [table]);
 
     // Sync page count with filtered data
     useEffect(() => {
@@ -140,7 +160,7 @@ export default function POAttachmentReconcileReport() {
                 pageCount: newPageCount,
             }));
         }
-    }, [table, filteredRowCount]);
+    }, [filteredRowCount]);
 
     // Supporting data for faceted filters
     const projectsFetchOptions = getProjectListOptions();
@@ -251,7 +271,8 @@ export default function POAttachmentReconcileReport() {
         isLoadingInitialData ||
         projectsUiLoading ||
         vendorsUiLoading ||
-        isTableHookLoading;
+        isTableHookLoading ||
+        isAssigneesLoading;
 
     const overallError =
         initialDataError || projectsUiError || vendorsUiError || tableHookError;
@@ -297,7 +318,7 @@ export default function POAttachmentReconcileReport() {
                                     </span>
                                     {dynamicSummary.mismatchCount > 0 && (
                                         <button
-                                            onClick={() => setShowOnlyMismatched(!showOnlyMismatched)}
+                                            onClick={() => handleToggleMismatchFilter(!showOnlyMismatched)}
                                             className={cn(
                                                 "text-[10px] font-medium flex items-center gap-1 px-1.5 py-0.5 rounded-md transition-colors",
                                                 showOnlyMismatched
@@ -449,7 +470,7 @@ export default function POAttachmentReconcileReport() {
                                         <Switch
                                             id="mismatch-filter"
                                             checked={showOnlyMismatched}
-                                            onCheckedChange={setShowOnlyMismatched}
+                                            onCheckedChange={handleToggleMismatchFilter}
                                             className="data-[state=checked]:bg-red-500 h-4 w-7 [&>span]:h-3 [&>span]:w-3 [&>span]:data-[state=checked]:translate-x-3"
                                         />
                                     </div>

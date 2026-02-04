@@ -1,12 +1,13 @@
 // src/pages/ProjectExpenses/ProjectExpensesList.tsx
 
 import React, { useMemo, useState, useCallback } from "react";
-import { ColumnDef } from "@tanstack/react-table";
+import { ColumnDef, Row } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { useFrappeDeleteDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useUserData } from "@/hooks/useUserData";
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import {
   useServerDataTable,
   AggregationConfig,
@@ -20,6 +21,7 @@ import {
 } from "@/utils/FormatPrice";
 import memoize from "lodash/memoize";
 import { cn } from "@/lib/utils";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
 // Types
 import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
@@ -87,6 +89,19 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
   const { toast } = useToast();
   const { role } = useUserData();
   const { deleteDoc, loading: deleteLoading } = useFrappeDeleteDoc();
+  const { ceoHoldProjectIds } = useCEOHoldProjects();
+
+  // CEO Hold row highlighting
+  const getRowClassName = useCallback(
+    (row: Row<ProjectExpenses>) => {
+      const projId = row.original.projects;
+      if (projId && ceoHoldProjectIds.has(projId)) {
+        return CEO_HOLD_ROW_CLASSES;
+      }
+      return undefined;
+    },
+    [ceoHoldProjectIds]
+  );
 
   const [expenseToEdit, setExpenseToEdit] = useState<ProjectExpenses | null>(
     null
@@ -511,6 +526,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
         showExportButton={true}
         onExport="default"
         exportFileName={`Project_Expenses_${projectId || "All"}`}
+        getRowClassName={getRowClassName}
         toolbarActions={
           (role === "Nirmaan Admin Profile" ||
             role === "Nirmaan PMO Executive Profile" ||

@@ -25,6 +25,8 @@ interface DraftCancelDialogProps {
   open: boolean;
   /** Callback when dialog open state changes */
   onOpenChange: (open: boolean) => void;
+  /** Dialog title - defaults to "Cancel Project Setup?" */
+  title?: string;
   /** Callback when user chooses to save draft and exit */
   onSaveDraft: () => void;
   /** Callback when user chooses to discard and exit */
@@ -42,6 +44,7 @@ interface DraftCancelDialogProps {
 export const DraftCancelDialog: React.FC<DraftCancelDialogProps> = ({
   open,
   onOpenChange,
+  title = "Cancel Project Setup?",
   onSaveDraft,
   onDiscard,
   onCancel,
@@ -63,7 +66,7 @@ export const DraftCancelDialog: React.FC<DraftCancelDialogProps> = ({
 
           <div className="space-y-2">
             <AlertDialogTitle className="text-lg font-semibold">
-              Cancel Project Setup?
+              {title}
             </AlertDialogTitle>
 
             <AlertDialogDescription asChild>

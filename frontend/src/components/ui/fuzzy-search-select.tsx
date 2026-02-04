@@ -140,9 +140,11 @@ import ReactSelect, {
     MultiValue,
     InputActionMeta,
     components,
-    MenuListProps
+    MenuListProps,
+    StylesConfig
 } from 'react-select';
 import { debounce } from 'lodash';
+import { getSelectStyles, mergeSelectStyles } from "@/config/selectTheme";
 
 // Generic Option type for ReactSelect
 export interface FuzzyOptionType {
@@ -317,6 +319,8 @@ interface FuzzySearchSelectProps<T extends FuzzyOptionType, IsMulti extends bool
     onSearchInputChange?: (inputValue: string) => void;
     customMenuListComponent?: React.ComponentType<MenuListProps<T, IsMulti>>;
     customMenuListProps?: Record<string, any>;
+    /** Custom styles to override or extend default theme */
+    styles?: StylesConfig<T, IsMulti>;
 }
 
 // Custom Option component to show match quality
@@ -355,6 +359,8 @@ export function FuzzySearchSelect<T extends FuzzyOptionType, IsMulti extends boo
     customMenuListComponent,
     customMenuListProps,
     value,
+    styles: customStyles,
+    tokenSearchConfig: userSearchConfig,
     ...restSelectProps
 }: FuzzySearchSelectProps<T, IsMulti>) {
 
@@ -362,17 +368,25 @@ export function FuzzySearchSelect<T extends FuzzyOptionType, IsMulti extends boo
     const [debouncedInputValue, setDebouncedInputValue] = useState('');
     const [filteredOptions, setFilteredOptions] = useState<T[]>(allOptions);
 
-    // Merge user config with defaults
+    // Merge default theme with custom styles
+    const mergedStyles = useMemo(() => {
+        const defaultStyles = getSelectStyles<T, IsMulti>();
+        if (!customStyles) return defaultStyles;
+        return mergeSelectStyles(defaultStyles, customStyles);
+    }, [customStyles]);
+
+    // Merge user config with defaults (use passed config or fall back to default)
+    const effectiveSearchConfig = userSearchConfig || tokenSearchConfig;
     const config: Required<TokenSearchConfig> = useMemo(() => ({
-        searchFields: tokenSearchConfig.searchFields,
-        minSearchLength: tokenSearchConfig.minSearchLength ?? 1,
-        caseSensitive: tokenSearchConfig.caseSensitive ?? false,
-        partialMatch: tokenSearchConfig.partialMatch ?? true,
-        minTokenLength: tokenSearchConfig.minTokenLength ?? 1,
-        tokenSeparator: tokenSearchConfig.tokenSeparator ?? /\s+/,
-        fieldWeights: tokenSearchConfig.fieldWeights ?? {},
-        minTokenMatches: tokenSearchConfig.minTokenMatches ?? 1
-    }), [tokenSearchConfig]);
+        searchFields: effectiveSearchConfig.searchFields,
+        minSearchLength: effectiveSearchConfig.minSearchLength ?? 1,
+        caseSensitive: effectiveSearchConfig.caseSensitive ?? false,
+        partialMatch: effectiveSearchConfig.partialMatch ?? true,
+        minTokenLength: effectiveSearchConfig.minTokenLength ?? 1,
+        tokenSeparator: effectiveSearchConfig.tokenSeparator ?? /\s+/,
+        fieldWeights: effectiveSearchConfig.fieldWeights ?? {},
+        minTokenMatches: effectiveSearchConfig.minTokenMatches ?? 1
+    }), [effectiveSearchConfig]);
 
     const debouncedSetSearch = useCallback(
         debounce((term: string) => {
@@ -484,13 +498,12 @@ export function FuzzySearchSelect<T extends FuzzyOptionType, IsMulti extends boo
         <ReactSelect<T, IsMulti>
             value={value}
             options={filteredOptions}
-            tokenSearchConfig={tokenSearchConfig}
             onInputChange={handleInputChange}
             onChange={handleSelectChange}
             filterOption={null}
-            components={{ 
+            styles={mergedStyles}
+            components={{
                 MenuList: MappedCustomMenuList,
-                // Option: CustomOption
             }}
             {...restSelectProps}
         />

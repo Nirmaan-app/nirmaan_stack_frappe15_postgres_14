@@ -1,5 +1,5 @@
 import React, { Suspense, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { ColumnDef } from "@tanstack/react-table";
+import { ColumnDef, Row } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { useFrappeGetDocList, FrappeContext, FrappeConfig, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
 import { Radio } from "antd";
@@ -28,6 +28,8 @@ import { formatDate } from "@/utils/FormatDate";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { usePRorSBDelete } from "@/hooks/usePRorSBDelete";
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
 // --- Types ---
 import { ProcurementRequest, Category } from "@/types/NirmaanStack/ProcurementRequests";
@@ -72,6 +74,20 @@ const PRDataTableWrapper: React.FC<{
         // Generate urlSyncKey inside the wrapper
         const dynamicUrlSyncKey = `${URL_SYNC_KEY_BASE}_${tab.toLowerCase().replace(/\s+/g, '_')}`;
         const eventIdForNotif = tab === "New PR Request" ? "pr:approved" : ""; // Example
+
+        // --- CEO Hold Row Highlighting ---
+        const { ceoHoldProjectIds } = useCEOHoldProjects();
+
+        const getRowClassName = useCallback(
+            (row: Row<ProcurementRequest>) => {
+                const projectId = row.original.project;
+                if (projectId && ceoHoldProjectIds.has(projectId)) {
+                    return CEO_HOLD_ROW_CLASSES;
+                }
+                return undefined;
+            },
+            [ceoHoldProjectIds]
+        );
 
         const {
             table,
@@ -156,6 +172,7 @@ const PRDataTableWrapper: React.FC<{
                 showExportButton={true}
                 onExport={'default'}
                 isNewRow={(row) => notifications.find(n => n.docname === row.original.name && n.seen === "false" && n.event_id === eventIdForNotif) !== undefined}
+                getRowClassName={getRowClassName}
             />
         );
     };

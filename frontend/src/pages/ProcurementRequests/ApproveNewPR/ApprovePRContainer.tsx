@@ -4,6 +4,7 @@ import { useFrappeDocumentEventListener, useFrappeGetDoc } from 'frappe-react-sd
 
 import { ApprovePRView } from './ApprovePRView';
 import { useApprovePRLogic } from './hooks/useApprovePRLogic';
+import { PRDocType } from './types';
 import { Projects as Project } from '@/types/NirmaanStack/Projects';
 import { Button } from '@/components/ui/button';
 import { queryKeys } from '@/config/queryKeys'; // Import centralized keys
@@ -16,29 +17,46 @@ import { usePRComments } from './hooks/usePRComments';
 import { useRelatedPRData } from './hooks/useRelatedPRData';
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { toast } from '@/components/ui/use-toast';
-import { useProcurementRequest } from '@/hooks/useProcurementRequest';
+
+// Import draft manager and editing lock hooks
+import { useApproveNewPRDraftManager } from '@/hooks/useApproveNewPRDraftManager';
+import { useEditingLock } from './hooks/useEditingLock';
+
+// Import draft dialogs
+import { DraftResumeDialog } from '@/components/ui/draft-resume-dialog';
+import { DraftCancelDialog } from '@/components/ui/draft-cancel-dialog';
+
+/* ─────────────────────────────────────────────────────────────
+   LOGGING
+   ───────────────────────────────────────────────────────────── */
+
+const LOG_PREFIX = '[PRDraft:Container]';
+const LOG_ENABLED = true;
+
+const log = (...args: any[]) => {
+    if (LOG_ENABLED) console.log(LOG_PREFIX, ...args);
+};
+
+// Track render count
+let containerRenderCount = 0;
 
 export const ApprovePRContainer: React.FC = () => {
+    containerRenderCount++;
+    log('Component render #', containerRenderCount);
     const { prId } = useParams<{ prId: string }>();
     const navigate = useNavigate();
 
-    // Ensure prId exists early
-    if (!prId) {
-        return <div className="flex items-center justify-center h-[90vh]">Error: PR ID is missing.</div>;
-    }
-
     // --- 1. Fetch Main PR Document ---
-    const prQueryKey = queryKeys.procurementRequests.doc(prId);
-
-    // const { data: prDoc, isLoading: prLoading, error: prError, mutate: prMutate } = useProcurementRequest(prId)
+    // Note: prId might be undefined, but we still need to call hooks unconditionally
+    const prQueryKey = prId ? queryKeys.procurementRequests.doc(prId) : null;
 
     const { data: prDoc, isLoading: prLoading, error: prError, mutate: prMutate } = useFrappeGetDoc<PRDocType>(
         "Procurement Requests",
-        prId,
+        prId || '', // Provide empty string fallback to avoid hook issues
         prQueryKey
     );
 
-    useFrappeDocumentEventListener("Procurement Requests", prId, (event) => {
+    useFrappeDocumentEventListener("Procurement Requests", prId || '', (event) => {
           console.log("Procurement Requests document updated (real-time):", event?.name);
           toast({
               title: "Document Updated",
@@ -47,7 +65,7 @@ export const ApprovePRContainer: React.FC = () => {
           prMutate(); // Re-fetch this specific document
         },
         true // emitOpenCloseEventsOnMount (default)
-        )
+        );
 
     const { make_list, makeListMutate, allMakeOptions, categoryMakelist, categoryMakeListMutate } = useRelatedPRData({ prDoc });
 
@@ -55,7 +73,7 @@ export const ApprovePRContainer: React.FC = () => {
     const projectQueryKey = prDoc?.project ? queryKeys.projects.doc(prDoc.project) : null;
     const { data: projectDoc, isLoading: projectLoading, error: projectError } = useFrappeGetDoc<Project>(
         "Projects",
-        prDoc?.project, // Docname to fetch
+        prDoc?.project || '', // Docname to fetch
         projectQueryKey
     );
 
@@ -78,7 +96,55 @@ export const ApprovePRContainer: React.FC = () => {
     // Fetch Comments (depends on prName)
     const { data: universalComments, isLoading: commentsLoading, error: commentsError } = usePRComments({ prName });
 
-    // --- 4. Instantiate the Logic Hook (Unconditionally) ---
+    // --- 4. Initialize Draft Manager Hook ---
+    // Converts server data to draft format and manages local edits with auto-save
+    const draftManagerEnabled = !!prDoc?.name && prDoc?.workflow_state === 'Pending';
+
+    log('Draft manager setup:', {
+        prId: prDoc?.name,
+        enabled: draftManagerEnabled,
+        orderListLength: prDoc?.order_list?.length ?? 0,
+    });
+
+    // IMPORTANT: Memoize serverData to prevent infinite re-renders
+    // Without useMemo, a new object is created on every render, causing useEffect loops
+    const serverDataForDraft = useMemo(() => {
+        const data = {
+            orderList: prDoc?.order_list || [],
+            categoryList: prDoc?.category_list?.list || [],
+            modifiedAt: prDoc?.modified || '',
+        };
+        log('serverDataForDraft memoized:', {
+            orderListLength: data.orderList.length,
+            categoryListLength: data.categoryList.length,
+        });
+        return data;
+    }, [prDoc?.order_list, prDoc?.category_list?.list, prDoc?.modified]);
+
+    const draftManager = useApproveNewPRDraftManager({
+        prId: prDoc?.name || '',
+        projectId: prDoc?.project || '',
+        workPackage: prDoc?.work_package || '',
+        serverData: serverDataForDraft,
+        enabled: draftManagerEnabled,
+    });
+
+    log('Draft manager state:', {
+        hasDraft: draftManager.hasDraft,
+        isSaving: draftManager.isSaving,
+        isInitialized: draftManager.isInitialized,
+        showResumeDialog: draftManager.showResumeDialog,
+    });
+
+    // --- 5. Initialize Editing Lock Hook ---
+    // Handles optimistic locking to prevent concurrent edits
+    const editingLock = useEditingLock({
+        prName: prDoc?.name || '',
+        enabled: !!prDoc?.name && prDoc?.workflow_state === 'Pending',
+    });
+
+    // --- 6. Instantiate the Logic Hook ---
+    // Pass draft manager methods for draft-first editing approach
     const logicProps = useApprovePRLogic({
         workPackage,
         // Pass data fetched above. Handle potential undefined values gracefully inside the hook or here.
@@ -94,7 +160,25 @@ export const ApprovePRContainer: React.FC = () => {
         makeList: make_list,
         makeListMutate,
         categoryMakelist: categoryMakelist,
-        categoryMakeListMutate
+        categoryMakeListMutate,
+        // Pass draft manager for draft-first editing approach
+        // Only enable draft-first when PR is in Pending state and draft manager is initialized
+        draftManager: (!!prDoc?.name && prDoc?.workflow_state === 'Pending') ? {
+            addItem: draftManager.addItem,
+            updateItem: draftManager.updateItem,
+            deleteItem: draftManager.deleteItem,
+            undoDelete: draftManager.undoDelete,
+            updateOrderList: draftManager.updateOrderList,
+            updateCategoryList: draftManager.updateCategoryList,
+            getDataForSubmission: draftManager.getDataForSubmission,
+            clearDraftAfterSubmit: draftManager.clearDraftAfterSubmit,
+            setUniversalComment: draftManager.setUniversalComment,
+            orderList: draftManager.orderList,
+            categoryList: draftManager.categoryList,
+            universalComment: draftManager.universalComment,
+            undoStack: draftManager.undoStack,
+            isInitialized: draftManager.isInitialized,
+        } : undefined,
     });
 
     // --- Combined Loading State ---
@@ -103,7 +187,18 @@ export const ApprovePRContainer: React.FC = () => {
     // --- Combined Error State ---
     const error = prError || projectError || usersError || categoriesError || itemsError || commentsError;
 
+    // --- Handle cancel/back navigation ---
+    const handleCancelNavigation = () => {
+        draftManager.discardDraft();
+        navigate("/procurement-requests?tab=Approve PR");
+    };
+
     // --- Render Logic ---
+
+    // Missing prId check
+    if (!prId) {
+        return <div className="flex items-center justify-center h-[90vh]">Error: PR ID is missing.</div>;
+    }
 
     // Initial Data Loading State (Focus on PR doc first)
     if (prLoading && !prDoc) {
@@ -172,11 +267,50 @@ export const ApprovePRContainer: React.FC = () => {
     // --- Render View ---
     // All necessary data should be loaded by this point
     return (
-        <ApprovePRView
-            {...logicProps} // Spread all state and handlers from the logic hook
-            projectDoc={projectDoc}
-            categoryList={categoryList}
-        />
+        <>
+            {/* Draft Resume Dialog - shown when user returns with an existing draft */}
+            <DraftResumeDialog
+                open={draftManager.showResumeDialog}
+                onOpenChange={draftManager.setShowResumeDialog}
+                onResume={draftManager.resumeDraft}
+                onStartFresh={draftManager.discardDraft}
+                draftDate={null} // Draft manager uses lastSavedText (already formatted)
+                workPackage={prDoc?.work_package}
+                prId={prDoc?.name}
+                createdBy={logicProps.getFullName(prDoc?.owner) || prDoc?.owner}
+            />
+
+            {/* Draft Cancel Dialog - shown when user attempts to leave with unsaved changes */}
+            <DraftCancelDialog
+                open={draftManager.showCancelDialog}
+                onOpenChange={draftManager.setShowCancelDialog}
+                onSaveDraft={() => {
+                    draftManager.saveDraftNow();
+                    navigate("/procurement-requests?tab=Approve PR");
+                }}
+                onDiscard={handleCancelNavigation}
+                onCancel={() => draftManager.setShowCancelDialog(false)}
+                isSaving={draftManager.isSaving}
+            />
+
+            <ApprovePRView
+                {...logicProps} // Spread all state and handlers from the logic hook
+                projectDoc={projectDoc}
+                categoryList={categoryList}
+                // Draft-related props
+                hasDraft={draftManager.hasDraft}
+                lastSavedText={draftManager.lastSavedText}
+                isSaving={draftManager.isSaving}
+                onCancel={() => draftManager.setShowCancelDialog(true)}
+                onBack={() => navigate("/procurement-requests?tab=Approve PR")}
+                // Lock-related props
+                showLockWarning={editingLock.showLockWarning}
+                lockInfo={editingLock.lockInfo}
+                onRefreshLock={editingLock.acquireLock}
+                onEditAnyway={editingLock.forceAcquireLock}
+                isRefreshingLock={editingLock.isAcquiring}
+            />
+        </>
     );
 };
 

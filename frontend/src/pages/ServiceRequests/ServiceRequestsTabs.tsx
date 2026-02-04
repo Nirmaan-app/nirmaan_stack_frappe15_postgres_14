@@ -11,6 +11,7 @@ import {
     SR_ADMIN_ROLES,
     SRTabOption,
 } from "./config/srTabs.constants";
+import { NewWODialog } from "./components/NewWODialog";
 
 const ApproveSelectSR = React.lazy(() => import("./service-request/approve-service-request-list"));
 const ApproveSelectAmendSR = React.lazy(() => import("./service-request/approve-amend-sr-list"));
@@ -111,6 +112,9 @@ export const ServiceRequestsTabs: React.FC = () => {
                 {tab === SR_TABS.APPROVED && <ApprovedSRList />}
                 {tab === SR_TABS.FINALIZED && <FinalizedSRList />}
             </Suspense>
+
+            {/* New Work Order Dialog */}
+            <NewWODialog />
         </div>
     );
 };

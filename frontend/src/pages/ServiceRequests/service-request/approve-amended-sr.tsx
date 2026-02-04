@@ -26,7 +26,7 @@ import { useEffect, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 
-const ApproveAmendSO = () => {
+const ApproveAmendSR = () => {
 
     const { srId } = useParams<{ srId: string }>()
 
@@ -196,7 +196,7 @@ const ApproveAmendSOPage = ({ so_data, versionsData, usersList }: ApproveAmendPO
                         reference_name: so_data.name,
                         comment_by: userData?.user_id,
                         content: comment,
-                        subject: "approving so(amendment)"
+                        subject: "approving sr(amendment)"
                     })
                 }
             } else {
@@ -213,7 +213,7 @@ const ApproveAmendSOPage = ({ so_data, versionsData, usersList }: ApproveAmendPO
                         reference_name: so_data.name,
                         comment_by: userData?.user_id,
                         content: comment,
-                        subject: "reverting so(amendment)"
+                        subject: "reverting sr(amendment)"
                     })
                 }
             }
@@ -400,6 +400,6 @@ const ApproveAmendSOPage = ({ so_data, versionsData, usersList }: ApproveAmendPO
     );
 };
 
-export default ApproveAmendSO;
+export default ApproveAmendSR;
 
-export const Component = ApproveAmendSO;
+export const Component = ApproveAmendSR;

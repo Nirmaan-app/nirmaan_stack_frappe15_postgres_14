@@ -479,10 +479,14 @@ export const dispatchedDateColumn: ColumnDef<POReportRowData> = {
 
 
 
+import { getAssigneesColumn } from "@/components/common/assigneesTableColumns";
+import { ProjectAssignee } from "@/hooks/useProjectAssignees";
+
 // Function to get columns based on report type
 export const getPOReportColumns = (
   reportType?: ReportType,
-  role?: string
+  role?: string,
+  assignmentsLookup: Record<string, ProjectAssignee[]> = {}
 ): ColumnDef<POReportRowData>[] => {
   let columnsToDisplay: ColumnDef<POReportRowData>[] =
     role === "Nirmaan Project Manager Profile"
@@ -499,6 +503,19 @@ export const getPOReportColumns = (
     // Insert the 'dispatchedDateColumn' at the second position (index 1)
     columnsToDisplay.splice(1, 0, dispatchedDateColumn);
   }
+  
+  if (reportType !== "2B Reconcile Report") {
+      // Insert after Project column (id="project_name" in basePOColumns or "project" in basePOColumnsForPM)
+      // We want it BETWEEN Project and Vendor.
+      // Filter for Project Index
+      const projectIndex = columnsToDisplay.findIndex(c => (c as any).id === "project_name" || (c as any).id === "project");
+      
+      const insertIndex = projectIndex !== -1 ? projectIndex + 1 : 4; // Default to index 4 if not found
+
+      // Add Reusable Assignees Column
+      columnsToDisplay.splice(insertIndex, 0, getAssigneesColumn<POReportRowData>("project", assignmentsLookup));
+  }
+
   // You could add more conditional columns here for other report types if needed
   return columnsToDisplay;
 };

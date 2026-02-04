@@ -1,5 +1,5 @@
 // frontend/src/components/ui/StandaloneDateFilter.tsx
-import React, { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { CalendarIcon } from 'lucide-react';
 import { DateRange } from 'react-day-picker';
 import { cn } from '@/lib/utils';
@@ -24,11 +24,12 @@ export function StandaloneDateFilter({ value, onChange, onClear, className }: St
   const [tempDate, setTempDate] = useState<DateRange | undefined>(value);
 
   // Sync temp state when the popover opens
-  useEffect(() => {
-    if (isOpen) {
+  const handleOpenChange = (open: boolean) => {
+    if (open) {
       setTempDate(value);
     }
-  }, [isOpen, value]);
+    setIsOpen(open);
+  };
 
   const selectedPresetLabel = useMemo(() => {
     // If value is undefined, check if it matches the "ALL" preset (which returns undefined)
@@ -86,7 +87,7 @@ export function StandaloneDateFilter({ value, onChange, onClear, className }: St
   return (
     <div className='flex flex-col sm:flex-row sm:items-center gap-2'>
       <div className="whitespace-nowrap text-sm font-medium">Selected Date Range:</div>
-      <Popover open={isOpen} onOpenChange={setIsOpen}>
+      <Popover open={isOpen} onOpenChange={handleOpenChange}>
         <PopoverTrigger asChild>
           <Button
             variant="outline"

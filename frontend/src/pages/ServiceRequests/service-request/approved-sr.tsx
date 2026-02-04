@@ -46,7 +46,7 @@ import { useDialogStore } from "@/zustand/useDialogStore";
 import { debounce } from "lodash";
 import { TailSpin } from "react-loader-spinner";
 import { v4 as uuidv4 } from 'uuid'; // Import uuid for unique IDs
-import { SelectServiceVendorPage } from "./select-service-vendor";
+import { SRAmendSheet } from "../sr-form/amend";
 import { useUserData } from "@/hooks/useUserData";
 import { SRDeleteConfirmationDialog } from "../components/SRDeleteConfirmationDialog";
 import { SRFinalizeDialog, SRRevertFinalizeDialog } from "../components/SRFinalizeDialog";
@@ -175,8 +175,14 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
         setRevertFinalizeDialog(false);
     }, [service_request_mutate, refetchFinalizePermissions]);
 
-    const { finalize, isLoading: isFinalizingLoading } = useFinalizeSR(handleFinalizeSuccess);
-    const { revert, isLoading: isRevertingLoading } = useRevertFinalizeSR(handleRevertSuccess);
+    const { finalize, isLoading: isFinalizingLoading } = useFinalizeSR({
+        projectId: service_request?.project,
+        onSuccess: handleFinalizeSuccess
+    });
+    const { revert, isLoading: isRevertingLoading } = useRevertFinalizeSR({
+        projectId: service_request?.project,
+        onSuccess: handleRevertSuccess
+    });
 
     const handleFinalize = useCallback(() => {
         if (id) {
@@ -505,6 +511,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 onFinalize={() => setFinalizeDialog(true)}
                 onRevertFinalize={() => setRevertFinalizeDialog(true)}
                 isProcessingFinalize={isFinalizingLoading || isRevertingLoading}
+                missingGst={!orderData?.project_gst}
             />
 
             {/* Delete Confirmation Dialog */}
@@ -536,14 +543,12 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
             />
 
             {/* Amend Sheet */}
-            <Sheet open={amendDialog} onOpenChange={toggleAmendDialog}>
-                <SheetContent className="overflow-auto">
-                    <SheetHeader>
-                        <SheetTitle className="text-center mb-6">Amend WO!</SheetTitle>
-                    </SheetHeader>
-                    <SelectServiceVendorPage sr_data={service_request} sr_data_mutate={service_request_mutate} amend={true} />
-                </SheetContent>
-            </Sheet>
+            <SRAmendSheet
+                srId={id}
+                isOpen={amendDialog}
+                onOpenChange={toggleAmendDialog}
+                onSuccess={() => service_request_mutate()}
+            />
 
             {/* Hide Transaction Details and WO Options for restricted roles (PM, Estimates Executive) */}
             {!isRestrictedRole && (

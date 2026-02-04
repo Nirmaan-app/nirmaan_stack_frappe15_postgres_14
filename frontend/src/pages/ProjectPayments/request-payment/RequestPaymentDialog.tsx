@@ -13,6 +13,7 @@ import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useRequestPayment } from "../hooks/useRequestPayment";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 
 interface Props {
   totalIncGST : number;
@@ -28,6 +29,9 @@ interface Props {
 }
 export default function RequestPaymentDialog(p:Props){
   const { requestPaymentDialog:open, toggleRequestPaymentDialog:toggle } = useDialogStore();
+
+  /* CEO Hold guard */
+  const { isCEOHold, showBlockedToast } = useCEOHoldGuard(p.project);
 
   /* local state */
   const [mode,setMode] = useState<"custom"|"percentage"|"full"|"exGST"|"due">("custom");
@@ -55,6 +59,10 @@ export default function RequestPaymentDialog(p:Props){
   const { trigger, isMutating, error } = useRequestPayment();
 
   const submit = async ()=>{
+    if (isCEOHold) {
+      showBlockedToast();
+      return;
+    }
     try{
       await trigger({doctype:p.docType, docname:p.docName, amount});
       toggle(); setCustom(""); setPerc("");

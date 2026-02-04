@@ -55,7 +55,7 @@ import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 
 // Zod Schema
 const editTaskFormSchema = z.object({
-  status: z.enum(["PR Not Released", "Not Released", "Partially Released", "Released", "Not Applicable"]),
+  status: z.enum(["PR Not Released", "Not Released", "Released", "Not Applicable"]),
   revised_date: z.string().optional(),
   remarks: z.string().optional(),
 });
@@ -479,7 +479,6 @@ export const EditTaskDialog: React.FC<EditTaskDialogProps> = ({
                     <SelectContent>
                       <SelectItem value="PR Not Released">PR Not Released</SelectItem>
                       <SelectItem value="Not Released">Not Released</SelectItem>
-                      <SelectItem value="Partially Released">Partially Released</SelectItem>
                       <SelectItem value="Released">Released</SelectItem>
                       <SelectItem value="Not Applicable">Not Applicable</SelectItem>
                     </SelectContent>

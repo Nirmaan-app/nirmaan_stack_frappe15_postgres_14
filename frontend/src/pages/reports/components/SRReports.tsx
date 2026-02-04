@@ -1,7 +1,10 @@
 import { useMemo, useCallback, useEffect } from "react";
+import { Row } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
 import { DataTable } from "@/components/data-table/new-data-table"; // Use new-data-table
 import { SRReportRowData, useSRReportsData } from "../hooks/useSRReportsData"; // Your existing data hook
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 import { srColumns } from "./columns/srColumns"; // Column definitions
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { SROption, useReportStore } from "../store/useReportStore";
@@ -35,6 +38,8 @@ interface SelectOption {
 }
 
 export default function SRReports() {
+  const { ceoHoldProjectIds } = useCEOHoldProjects();
+
   // 1. Fetch the superset of SR data.
   // `useSRReportsData` should return SRReportRowData[] with pre-calculated fields.
   const {
@@ -42,6 +47,18 @@ export default function SRReports() {
     isLoading: isLoadingInitialData,
     error: initialDataError,
   } = useSRReportsData();
+
+  // CEO Hold row highlighting
+  const getRowClassName = useCallback(
+    (row: Row<SRReportRowData>) => {
+      const projectId = row.original.project;
+      if (projectId && ceoHoldProjectIds.has(projectId)) {
+        return CEO_HOLD_ROW_CLASSES;
+      }
+      return undefined;
+    },
+    [ceoHoldProjectIds]
+  );
 
   const selectedReportType = useReportStore(
     (state) => state.selectedReportType as SROption | null
@@ -165,7 +182,7 @@ export default function SRReports() {
         pageCount: newPageCount,
       }));
     }
-  }, [table, fullyFilteredData]); // Rerun when the table instance or filtered data count changes
+  }, [fullyFilteredData]); // Rerun when the table instance or filtered data count changes
   //
 
   // Supporting data for faceted filters
@@ -322,6 +339,7 @@ export default function SRReports() {
           exportFileName={exportFileName}
           showRowSelection={false}
           summaryCard={summaryCardNode}
+          getRowClassName={getRowClassName}
         />
       )}
     </div>

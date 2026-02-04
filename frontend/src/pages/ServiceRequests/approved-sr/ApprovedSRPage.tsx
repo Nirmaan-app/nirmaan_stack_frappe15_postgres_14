@@ -10,6 +10,7 @@ import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
 import { useDialogStore } from '@/zustand/useDialogStore'; // For global dialogs like AddInvoice
 import { useUserData } from '@/hooks/useUserData';
+import { useCEOHoldGuard } from '@/hooks/useCEOHoldGuard';
 
 interface ApprovedSRPageProps {
     summaryPage?: boolean;
@@ -47,6 +48,7 @@ export const ApprovedSRPage: React.FC<ApprovedSRPageProps> = ({ summaryPage, acc
     const workflowActionProps = useSRWorkflowActions({
         srId: actualSrId,
         srDoctype: "Service Requests",
+        projectId: dataProps.serviceRequest?.project,
         onActionSuccess: (action) => {
             if (action === 'delete') {
                 // Navigation is handled within the hook
@@ -56,6 +58,9 @@ export const ApprovedSRPage: React.FC<ApprovedSRPageProps> = ({ summaryPage, acc
             if (action === 'amend_setup') setIsAmendSheetOpen(false);
         }
     });
+
+    // CEO Hold check for visual banner
+    const { isCEOHold } = useCEOHoldGuard(dataProps.serviceRequest?.project);
 
     // Toggles for page-level dialogs/sheets
     const toggleEditTermsDialog = useCallback(() => setIsEditTermsDialogOpen(p => !p), []);
@@ -104,6 +109,7 @@ export const ApprovedSRPage: React.FC<ApprovedSRPageProps> = ({ summaryPage, acc
             currentUserRole={currentUserRole}
             summaryPage={summaryPage}
             accountsPage={accountsPage}
+            isCEOHold={isCEOHold}
         />
     );
 };

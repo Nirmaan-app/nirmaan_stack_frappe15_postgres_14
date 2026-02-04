@@ -2,7 +2,7 @@
 
 ## Project Status Display
 
-**File:** `src/pages/projects/project.tsx:97-111`
+**File:** `src/pages/projects/project.tsx:98-118`
 
 | Status | Color | Icon | Badge Variant |
 |--------|-------|------|---------------|
@@ -10,6 +10,9 @@
 | WIP | `text-yellow-500` | HardHat | `secondary` |
 | Completed | `text-green-500` | CircleCheckBig | `default` (green) |
 | Halted | `text-red-500` | OctagonMinus | `destructive` (red) |
+| **CEO Hold** | `text-amber-600` | Hand | amber theme |
+
+> **Note:** CEO Hold has extensive blocking behavior. See `domain/ceo-hold.md` for full documentation.
 
 ---
 
@@ -18,7 +21,7 @@
 **File:** `src/pages/projects/project.tsx:1085-1119, 1215-1258`
 
 - **Who can change:** Admin (`Nirmaan Admin Profile`) and PMO Executive (`Nirmaan PMO Executive Profile`) only
-- **Available targets:** WIP, Completed, Halted (cannot revert to "Created")
+- **Available targets:** WIP, Completed, Halted, CEO Hold (cannot revert to "Created")
 - **Flow:** Popover dropdown → select status → confirmation AlertDialog → `updateDoc()` call
 - **Feedback:** Success/error toast notification
 
@@ -79,16 +82,20 @@ PR and SR creation is **not blocked** for Halted/Completed projects — there is
 
 ## Complete Status Impact Matrix
 
-| Feature | Created | WIP | Halted | Completed |
-|---------|---------|-----|--------|-----------|
-| Visible in project list | Yes | Yes | Yes | Yes |
-| Change status (Admin/PMO) | To WIP/Halted/Completed | To Halted/Completed | To WIP/Completed | To WIP/Halted |
-| Filter PRs/SRs/DNs by project | Yes | Yes | Hidden from dropdown | Hidden from dropdown |
-| Create new PR | Allowed | Allowed | Allowed (no guard) | Allowed (no guard) |
-| Create new SR/WO | Allowed | Allowed | Allowed (no guard) | Allowed (no guard) |
-| New Project Expense | Yes | Yes | Blocked (not in dropdown) | Blocked (not in dropdown) |
-| Edit Project Invoice | Yes | Yes | Blocked (not in dropdown) | Blocked (not in dropdown) |
-| New Project Invoice | Yes | Yes | Allowed (`all=true`) | Allowed (`all=true`) |
-| New Inflow Payment | Yes | Yes | Allowed (`all=true`) | Allowed (`all=true`) |
-| Design Tracker (backend) | Yes | Yes | Blocked | Blocked |
-| Progress Reports (backend) | Included | Included | Included | Excluded |
+| Feature | Created | WIP | Halted | Completed | CEO Hold |
+|---------|---------|-----|--------|-----------|----------|
+| Visible in project list | Yes | Yes | Yes | Yes | Yes |
+| Change status (Admin/PMO) | To WIP/Halted/Completed/CEO Hold | All others | All others | All others | All others |
+| Filter PRs/SRs/DNs by project | Yes | Yes | Hidden | Hidden | Yes |
+| Create new PR | Allowed | Allowed | Allowed | Allowed | **Blocked** |
+| Create new SR/WO | Allowed | Allowed | Allowed | Allowed | **Blocked** |
+| Approve PR/SR | Allowed | Allowed | Allowed | Allowed | **Blocked** |
+| Payments | Allowed | Allowed | Allowed | Allowed | **Blocked** |
+| New Project Expense | Yes | Yes | Hidden | Hidden | **Blocked** |
+| Edit Project Invoice | Yes | Yes | Hidden | Hidden | **Blocked** |
+| New Project Invoice | Yes | Yes | Yes | Yes | **Blocked** |
+| New Inflow Payment | Yes | Yes | Yes | Yes | **Blocked** |
+| Design Tracker (backend) | Yes | Yes | Blocked | Blocked | Banner only |
+| Progress Reports (backend) | Included | Included | Included | Excluded | Included |
+
+> **CEO Hold Blocking:** Uses `useCEOHoldGuard` hook which shows toast and prevents action. See `domain/ceo-hold.md`.

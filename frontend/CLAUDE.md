@@ -119,6 +119,9 @@ Key route patterns:
 - `useDialogStore` - Modal/dialog state management
 - `useFrappeDataStore` - Cached Frappe document data
 - `useDocCountStore` - Document count badges for sidebar
+- `useProjectDraftStore` - Draft persistence for project creation wizard
+- `useApproveNewPRDraftStore` - Draft persistence for PR approval edits
+- `useServiceRequestDraftStore` - Draft persistence for SR/WO creation
 
 **Context Providers**:
 - `UserProvider` (`src/utils/auth/UserProvider.tsx`) - Current user, auth state, selected project
@@ -276,6 +279,22 @@ pages/[feature]/[form-name]/
 **Draft persistence** (optional):
 - Use Zustand store with `persist` middleware for localStorage
 - `useProjectDraftManager` hook pattern for auto-save with debounce
+- See also: `useApproveNewPRDraftStore` for PR approval drafts, `useServiceRequestDraftStore` for SR drafts
+
+**Editing Lock Pattern** (for concurrent edit prevention):
+For pages where only one user should edit at a time, use the Redis-based locking pattern:
+```typescript
+// Hook: src/pages/ProcurementRequests/ApproveNewPR/hooks/useEditingLock.ts
+const { lockInfo, isMyLock, canEdit, acquireLock, releaseLock } = useEditingLock({ prName, enabled: true });
+
+// Key features:
+// - Auto-acquire on mount, auto-release on unmount
+// - Heartbeat every 5 min to extend 15-min lock expiry
+// - Socket.IO events for real-time lock status (pr:editing:started, pr:editing:stopped)
+// - navigator.sendBeacon() for reliable release on page unload
+// - Graceful degradation: editing allowed if API fails
+// - Feature flag: localStorage.setItem('nirmaan-lock-disabled', 'true')
+```
 
 **Multi-select user assignment pattern:**
 When assigning multiple users to roles (e.g., project leads, managers):
@@ -395,6 +414,131 @@ const searchConfig: TokenSearchConfig = {
 
 When reviewing or creating react-select components, check if FuzzySearchSelect would improve the UX.
 
+### React-Select in Radix UI Dialogs (AlertDialog/Dialog)
+
+**Problem:** When using react-select inside Radix UI AlertDialog or Dialog, the dropdown menu becomes unclickable and unscrollable. Users can type and use keyboard navigation, but mouse interaction is blocked.
+
+**Root Cause:** Radix UI dialogs set `pointer-events: none` on the `<body>` when modal to implement focus trapping. When react-select portals its menu to `document.body` via `menuPortalTarget`, those elements inherit `pointer-events: none` and become uninteractable.
+
+**Solution:** The centralized theme in `src/config/selectTheme.ts` includes `pointerEvents: 'auto'` on menu, menuPortal, menuList, and option styles to override this behavior.
+
+**Usage with ProjectSelect:**
+```tsx
+// Inside a dialog, use the usePortal prop
+<ProjectSelect
+    onChange={handleChange}
+    universal={false}
+    usePortal  // Enables menuPortalTarget={document.body} with proper pointer-events
+/>
+```
+
+**If creating a new select component:**
+```tsx
+import { getSelectStyles } from "@/config/selectTheme";
+
+// The default styles already include the pointer-events fix
+<ReactSelect
+    styles={getSelectStyles()}
+    menuPortalTarget={document.body}
+    menuPosition="fixed"
+    // ...other props
+/>
+```
+
+**Key files:**
+- `src/config/selectTheme.ts` - Centralized theme with pointer-events fix
+- `src/components/ui/fuzzy-search-select.tsx` - Applies theme automatically
+- `src/components/custom-select/project-select.tsx` - Has `usePortal` prop
+
+**References:**
+- [Radix UI Issue #2122](https://github.com/radix-ui/primitives/issues/2122) - DialogContent disables pointer events
+- [Radix UI Issue #3141](https://github.com/radix-ui/primitives/issues/3141) - Dialog and Dropdown Menu conflict
+
+---
+
+## React Effect Anti-Patterns (Vercel Best Practices)
+
+These rules prevent infinite re-render loops. Reference: `~/.claude/skills/vercel-react-best-practices/`
+
+### 1. Narrow Effect Dependencies (`rerender-dependencies`)
+
+Use primitives in dependencies, not objects.
+
+```typescript
+// ❌ BAD: Object changes every render
+useEffect(() => { ... }, [dateRange]);
+useEffect(() => { ... }, [user]);
+useEffect(() => { ... }, [table]);
+
+// ✅ GOOD: Primitives only change when values change
+useEffect(() => { ... }, [dateRange?.from?.getTime(), dateRange?.to?.getTime()]);
+useEffect(() => { ... }, [user.id]);
+useEffect(() => { ... }, [filteredRowCount]);  // derived primitive
+```
+
+### 2. Don't Sync Props to State via Effect (`rerender-derived-state-no-effect`)
+
+If syncing external value to internal state, use event handlers.
+
+```typescript
+// ❌ BAD: Effect runs on every prop change
+useEffect(() => {
+  setLocalState(prop);
+}, [prop]);
+
+// ✅ GOOD: Sync in event handler
+const handleOpen = () => {
+  setLocalState(prop);  // Sync only when action happens
+  setIsOpen(true);
+};
+```
+
+### 3. User Actions Go in Event Handlers (`rerender-move-effect-to-event`)
+
+If a side effect is triggered by user action, put it in the handler.
+
+```typescript
+// ❌ BAD: Effect + state pattern
+const [didClick, setDidClick] = useState(false);
+useEffect(() => {
+  if (didClick) doSomething();
+}, [didClick]);
+
+// ✅ GOOD: Direct in handler
+const handleClick = () => {
+  doSomething();
+};
+```
+
+### 4. Never Use TanStack Table as Dependency
+
+The `table` object from `useReactTable()` changes reference every render.
+
+```typescript
+// ❌ NEVER DO THIS
+useEffect(() => { ... }, [table]);
+useEffect(() => { ... }, [table, someValue]);
+
+// ✅ Extract derived values outside, depend on primitives
+const filteredRowCount = table.getFilteredRowModel().rows.length;
+useEffect(() => { ... }, [filteredRowCount]);
+
+// ✅ For user actions, use event handlers
+const handleToggle = (checked: boolean) => {
+  table.getColumn("status")?.setFilterValue(checked ? ["active"] : undefined);
+};
+```
+
+### Quick Checklist Before Writing useEffect
+
+| Question | If YES → |
+|----------|----------|
+| Am I syncing child state from props? | Use event handler, not effect |
+| Am I responding to a user action? | Move logic to event handler |
+| Is my dependency an object/array? | Use primitive: `obj.id` not `obj` |
+| Does my effect call `setState` that affects a dependency? | You have a loop - redesign |
+| Is `table` (TanStack) in my dependency array? | Remove it, use derived primitives |
+
 ---
 
 ## Important Notes
@@ -407,3 +551,4 @@ When reviewing or creating react-select components, check if FuzzySearchSelect w
 - **Role-Based Access**: User roles from Frappe control UI visibility and permissions (see Role-Based Access Control section above)
 - **Project Context**: Many operations are scoped to a selected project (stored in UserContext)
 - **Customer Required for Financials**: Projects without a customer cannot have invoices or inflow payments created - UI shows validation warnings and disables forms
+- **CEO Hold Status**: Projects with "CEO Hold" status block ALL procurement, payment, and expense operations. Use `useCEOHoldGuard` hook for single-project pages, `useCEOHoldProjects` for list pages. See `.claude/context/domain/ceo-hold.md` for full documentation.

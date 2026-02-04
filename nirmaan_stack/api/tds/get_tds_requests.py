@@ -68,7 +68,9 @@ def get_tds_request_list(
     page_length=50,
     tab="Pending Approval",
     search_term=None,
-    user_id=None
+    user_id=None,
+    project=None,      # NEW
+    created_by=None    # NEW
 ):
     """
     Fetches grouped TDS Requests from 'Project TDS Item List'.
@@ -102,8 +104,23 @@ def get_tds_request_list(
         values['allowed_projects'] = allowed_projects
     # ------------------------
 
+    # --- 1. Facet Filters (Server-Side) ---
+    if project:
+        if isinstance(project, str):
+            project = [project] # Handle single value
+        # Ensure it's a list/tuple for IN clause
+        conditions.append("tdsi_project_name IN %(project)s")
+        values['project'] = tuple(project)
+
+    if created_by:
+        if isinstance(created_by, str):
+            created_by = [created_by]
+        
+        conditions.append("owner IN %(created_by)s") 
+        values['created_by'] = tuple(created_by)
+    # --------------------------------------
     
-    # 1. Search Filter
+    # 2. Search Filter
     if search_term:
         conditions.append("""
             (tds_request_id LIKE %(search)s OR 

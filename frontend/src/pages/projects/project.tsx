@@ -51,6 +51,7 @@ import {
   ChevronsUpDown,
   CircleCheckBig,
   FilePenLine,
+  Hand,
   HardHat,
   OctagonMinus
 } from "lucide-react";
@@ -107,6 +108,12 @@ const projectStatuses = [
     label: "Halted",
     color: "text-red-500",
     icon: OctagonMinus,
+  },
+  {
+    value: "CEO Hold",
+    label: "CEO Hold",
+    color: "text-amber-600",
+    icon: Hand,
   },
 ];
 
@@ -1241,7 +1248,9 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                   <Command>
                     <CommandList>
                       <CommandGroup>
-                        {projectStatuses.map((s) => (
+                        {projectStatuses
+                          .filter((s) => s.value !== "CEO Hold" || role === "Nirmaan Admin Profile")
+                          .map((s) => (
                           <CommandItem
                             key={s.value}
                             value={s.value}

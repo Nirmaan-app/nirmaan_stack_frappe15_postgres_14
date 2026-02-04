@@ -1,5 +1,6 @@
 import { usePOValidation } from "@/hooks/usePOValidation";
 import { useUserData } from "@/hooks/useUserData";
+import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import DeliveryHistoryTable from "@/pages/DeliveryNotes/components/DeliveryHistory";
 import { DeliveryNoteItemsDisplay } from "@/pages/DeliveryNotes/components/deliveryNoteItemsDisplay";
 import { ProcurementOrder, DeliveryDataType } from "@/types/NirmaanStack/ProcurementOrders";
@@ -137,6 +138,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
   const { role } = useUserData();
   const isProjectManager = role === "Nirmaan Project Manager Profile";
   const { errors, isValid, hasVendorIssues } = usePOValidation(po);
+  const { isCEOHold, showBlockedToast } = useCEOHoldGuard(po?.project);
 
   const { updateDoc, loading: update_loading } = useFrappeUpdateDoc();
   const { call: deleteCustomPOCall, loading: deleteCustomPOCallLoading } =
@@ -204,10 +206,25 @@ export const PODetails: React.FC<PODetailsProps> = ({
   }, []);
 
   const handleUploadFile = useCallback(async () => {
+    if (isCEOHold) {
+      showBlockedToast();
+      return;
+    }
     if (!selectedFile || !uploadDialog.type || !po?.name) {
       toast({
         title: "No File Selected",
         description: "Please select a file to upload",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!refNumber) {
+      toast({
+        title: "Required Field Missing",
+        description: `Please enter the ${
+          uploadDialog.type === "DC" ? "DC Number" : "MIR Number"
+        }`,
         variant: "destructive",
       });
       return;
@@ -326,6 +343,10 @@ export const PODetails: React.FC<PODetailsProps> = ({
   }, []);
 
   const handleDispatchPO = async (linkCriticalTasks: boolean = false) => {
+    if (isCEOHold) {
+      showBlockedToast();
+      return;
+    }
     try {
       // If linking to critical tasks, do that first (now supports multiple)
       if (linkCriticalTasks && criticalPOLinking.selectedTasks.length > 0) {
@@ -390,6 +411,10 @@ export const PODetails: React.FC<PODetailsProps> = ({
   }, []);
 
   const handleRevertPO = async () => {
+    if (isCEOHold) {
+      showBlockedToast();
+      return;
+    }
     try {
       await updateDoc("Procurement Orders", po.name, {
         status: "PO Approved",
@@ -418,6 +443,10 @@ export const PODetails: React.FC<PODetailsProps> = ({
   };
 
   const handleDeleteCustomPO = async () => {
+    if (isCEOHold) {
+      showBlockedToast();
+      return;
+    }
     try {
       const response = await deleteCustomPOCall({
         po_id: po.name,
@@ -1536,10 +1565,15 @@ export const PODetails: React.FC<PODetailsProps> = ({
             />
             <div className="space-y-2">
               <label className="text-sm font-medium">
-                {uploadDialog.type === "DC" ? "DC Number" : "MIR Number"}
+                {uploadDialog.type === "DC" ? "DC Number" : "MIR Number"}{" "}
+                <span className="text-red-500">*</span>
               </label>
               <Input
-                placeholder={uploadDialog.type === "DC" ? "Enter DC number (optional)" : "Enter MIR number (optional)"}
+                placeholder={
+                  uploadDialog.type === "DC"
+                    ? "Enter DC number"
+                    : "Enter MIR number"
+                }
                 value={refNumber}
                 onChange={(e) => setRefNumber(e.target.value)}
               />
@@ -1556,7 +1590,10 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 <Button variant="outline" onClick={handleCloseUploadDialog}>
                   Cancel
                 </Button>
-                <Button onClick={handleUploadFile} disabled={!selectedFile}>
+                <Button
+                  onClick={handleUploadFile}
+                  disabled={!selectedFile || !refNumber}
+                >
                   Upload
                 </Button>
               </>

@@ -15,6 +15,7 @@
   "tds_item_id",
   "tds_item_name",
   "tds_make",
+  "tds_boq_line_item",
   "tds_description",
   "tds_attachment",
   "tds_status",
@@ -92,12 +93,17 @@
    "fieldname": "tds_rejection_reason",
    "fieldtype": "Data",
    "label": "TDS Rejection Reason"
+  },
+  {
+   "fieldname": "tds_boq_line_item",
+   "fieldtype": "Text",
+   "label": "TDS BOQ Line Item"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-17 12:21:36.965727",
+ "modified": "2026-01-30 19:03:44.702716",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project TDS Item List",

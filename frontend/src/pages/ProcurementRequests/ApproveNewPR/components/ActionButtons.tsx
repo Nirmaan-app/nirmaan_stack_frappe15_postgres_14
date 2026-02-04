@@ -8,7 +8,8 @@ interface ActionButtonsProps {
     canApprove: boolean; // Determined by logic hook (no requested items & list not empty)
     canReject: boolean; // Determined by logic hook (list not empty)
     isLoading: boolean; // Loading state for backend actions
-    handleOpenDeletePRDialog: () => void
+    handleOpenDeletePRDialog: () => void;
+    canDelete?: boolean; // Optional - defaults to true if not provided
 }
 
 export const ActionButtons: React.FC<ActionButtonsProps> = ({
@@ -17,34 +18,48 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({
     handleOpenDeletePRDialog,
     canApprove,
     canReject,
-    isLoading
+    isLoading,
+    canDelete = true,
 }) => {
 
     return (
-        <div className="flex max-sm:flex-col gap-2 justify-end items-center">
-            <Button variant="outline" className='border-primary text-primary hover:text-red-400 mr-4' size="sm" onClick={handleOpenDeletePRDialog}>
-                 <Trash2 className="h-4 w-4 mr-1" /> Delete PR
-             </Button>
+        <div className="flex items-center gap-2">
+            {/* Delete button */}
+            <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleOpenDeletePRDialog}
+                disabled={!canDelete || isLoading}
+                title="Delete PR"
+            >
+                <Trash2 className="h-4 w-4 mr-2" /> Delete
+            </Button>
+
+            {/* Reject button */}
             <Button
                 variant="outline"
-                className='border-primary text-primary hover:text-red-400'
+                size="sm"
                 onClick={onPrepareReject}
-                disabled={!canReject || isLoading} // Can reject if items exist
+                disabled={!canReject || isLoading}
+                className="text-amber-600 border-amber-300 hover:bg-amber-50 hover:text-amber-700"
+                title="Reject PR"
             >
-                <ListX className="h-4 w-4 mr-1" />
-                Reject PR
+                <ListX className="h-4 w-4 mr-2" /> Reject
             </Button>
+
+            {/* Approve button */}
             <Button
+                size="sm"
                 onClick={onPrepareApprove}
-                disabled={!canApprove || isLoading} // Can only approve if conditions met
-                title={!canApprove ? "Resolve requested items or add items first" : "Approve PR"} // Tooltip
+                disabled={!canApprove || isLoading}
+                title={!canApprove ? "Resolve requested items or add items first" : "Approve PR"}
             >
-                 {isLoading ? (
-                     "Processing..."
-                 ) : (
-                     <>
-                         <ListChecks className="h-4 w-4 mr-1" /> Approve PR
-                     </>
+                {isLoading ? (
+                    "Processing..."
+                ) : (
+                    <>
+                        <ListChecks className="h-4 w-4 mr-2" /> Approve
+                    </>
                 )}
             </Button>
         </div>

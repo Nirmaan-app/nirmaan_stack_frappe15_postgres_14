@@ -3,6 +3,8 @@ import { Link, useNavigate } from "react-router-dom";
 import { ColumnDef, Row } from "@tanstack/react-table";
 import { FrappeConfig, FrappeContext, FrappeDoc, GetDocListArgs, useFrappeGetDocList } from "frappe-react-sdk";
 import { Info, Trash2 } from "lucide-react";
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
 // --- UI Components ---
 import { DataTable, SearchFieldOption } from '@/components/data-table/new-data-table';
@@ -61,6 +63,9 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     const { toast } = useToast();
     const { db } = useContext(FrappeContext) as FrappeConfig;
 
+    // --- CEO Hold Highlighting ---
+    const { ceoHoldProjectIds } = useCEOHoldProjects();
+
     const { getAmount: getTotalAmountPaidForPO } = useOrderPayments()
     const { getTotalAmount } = useOrderTotals()
 
@@ -114,6 +119,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     const openDialog = (p: ProjectPayments, m: "fulfil" | "delete") => {
         setCurrent({
             name: p.name,
+            project: p.project,  // Project ID for CEO Hold check
             project_label: projectOptions.find(o => o.value === p.project)?.label ?? p.project,
             vendor_label: (vendorOptions.find(o => o.value === p.vendor)?.label ?? p.vendor)!,
             document_name: p.document_name,
@@ -273,6 +279,18 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         return false; // By default, other tabs might not have selectable rows
     }, [vendors, tab]);
 
+    // --- CEO Hold Row Highlighting ---
+    const getRowClassName = useCallback(
+        (row: Row<ProjectPayments>) => {
+            const projectId = row.original.project;
+            if (projectId && ceoHoldProjectIds.has(projectId)) {
+                return CEO_HOLD_ROW_CLASSES;
+            }
+            return undefined;
+        },
+        [ceoHoldProjectIds]
+    );
+
     // --- useServerDataTable Hook Instantiation (moved up for columnFilters access) ---
     const {
         table, data, totalCount, isLoading: listIsLoading, error: listError,
@@ -429,6 +447,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                     showExportButton={true}
                     onExport={tab === "New Payments" ? handlePrepareExport : 'default'}
                     showRowSelection={isRowSelectionActive}
+                    getRowClassName={getRowClassName}
                 />
             )}
 

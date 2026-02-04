@@ -1,7 +1,10 @@
 import { useMemo, useCallback, useEffect } from "react";
+import { Row } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { POReportRowData, usePOReportsData } from "../hooks/usePOReportsData";
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 import { getPOReportColumns } from "./columns/poColumns";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { POReportOption, useReportStore } from "../store/useReportStore";
@@ -41,13 +44,28 @@ interface SelectOption {
 
 export default function POReports() {
   const { role } = useUserData();
+  const { ceoHoldProjectIds } = useCEOHoldProjects();
+
   // 1. Fetch the superset of data. `usePOReportsData` should return POReportRowData[]
   // which already contains calculated totalAmount, invoiceAmount, amountPaid, and originalDoc.
   const {
     reportData: allPOsForReports, // This is POReportRowData[] | null
     isLoading: isLoadingInitialData,
     error: initialDataError,
+    assignmentsLookup,
   } = usePOReportsData();
+
+  // CEO Hold row highlighting
+  const getRowClassName = useCallback(
+    (row: Row<POReportRowData>) => {
+      const projectId = row.original.project;
+      if (projectId && ceoHoldProjectIds.has(projectId)) {
+        return CEO_HOLD_ROW_CLASSES;
+      }
+      return undefined;
+    },
+    [ceoHoldProjectIds]
+  );
 
   const selectedReportType = useReportStore(
     (state) => state.selectedReportType as POReportOption | null
@@ -55,8 +73,8 @@ export default function POReports() {
 
   // 2. Dynamically determine columns based on selectedReportType
   const tableColumnsToDisplay = useMemo(
-    () => getPOReportColumns(selectedReportType, role),
-    [selectedReportType]
+    () => getPOReportColumns(selectedReportType, role, assignmentsLookup),
+    [selectedReportType, role, assignmentsLookup]
   );
   const payment_delta = 100;
   const invoice_delta = 100;
@@ -229,7 +247,7 @@ export default function POReports() {
         pageCount: newPageCount,
       }));
     }
-  }, [table, filteredRowCount]); // Rerun when the table instance or filtered data count changes
+  }, [filteredRowCount]); // Rerun when the table instance or filtered data count changes
   // =================================================================================
   // Supporting data for faceted filters (Projects & Vendors)
   const projectsFetchOptions = getProjectListOptions();
@@ -402,6 +420,7 @@ export default function POReports() {
           onExport={handleCustomExport}
           exportFileName={exportFileName}
           showRowSelection={false}
+          getRowClassName={getRowClassName}
         />
       )}
     </div>

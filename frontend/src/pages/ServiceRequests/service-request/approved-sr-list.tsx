@@ -1,6 +1,8 @@
 import React, { useCallback, useContext, useMemo } from "react";
 import { cn } from "@/lib/utils";
-import { ColumnDef } from "@tanstack/react-table";
+import { ColumnDef, Row } from "@tanstack/react-table";
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 import { Link } from "react-router-dom";
 import {
   useFrappeGetDocList,
@@ -82,6 +84,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
   const { toast } = useToast();
   const { db } = useContext(FrappeContext) as FrappeConfig;
   const { getTotalAmount } = useOrderTotals();
+  const { ceoHoldProjectIds } = useCEOHoldProjects();
 
   // Unique URL key for this instance of the table
   const urlSyncKey = useMemo(
@@ -618,6 +621,18 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
     projectPaymentsError ||
     listError;
 
+  // --- CEO Hold Row Highlighting ---
+  const getRowClassName = useCallback(
+    (row: Row<ServiceRequests>) => {
+      const projectId = row.original.project;
+      if (projectId && ceoHoldProjectIds.has(projectId)) {
+        return CEO_HOLD_ROW_CLASSES;
+      }
+      return undefined;
+    },
+    [ceoHoldProjectIds]
+  );
+
   if (combinedError) {
     return <AlertDestructive error={combinedError} />;
   }
@@ -660,6 +675,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
           dateFilterColumns={dateColumns}
           showExportButton={true}
           onExport={"default"}
+          getRowClassName={getRowClassName}
         />
       )}
     </div>

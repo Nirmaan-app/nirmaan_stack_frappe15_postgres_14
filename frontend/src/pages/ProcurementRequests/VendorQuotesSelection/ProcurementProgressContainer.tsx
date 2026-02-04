@@ -10,6 +10,8 @@ import { ProgressDocument } from './types';
 import { useVendorsList } from './hooks/useVendorsList';
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { SentBackCategory } from '@/types/NirmaanStack/SentBackCategory';
+import { useCEOHoldGuard } from '@/hooks/useCEOHoldGuard';
+import { CEOHoldBanner } from '@/components/ui/ceo-hold-banner';
 
 export const ProcurementProgressContainer: React.FC = () => {
     const { prId: prIdFromParams } = useParams<{ prId?: string }>();
@@ -20,13 +22,6 @@ export const ProcurementProgressContainer: React.FC = () => {
     const documentType = prIdFromParams ? "Procurement Requests" : "Sent Back Category";
     const docId = prIdFromParams || sbIdFromParams;
 
-
-
-    if (!docId) {
-        return <div className="flex items-center justify-center h-[90vh]">Error: Document ID is missing.</div>;
-    }
-
-
     // --- Data Fetching ---
     // Fetch the main document (PR or SBC)
     const {
@@ -34,14 +29,20 @@ export const ProcurementProgressContainer: React.FC = () => {
         isLoading: docLoading,
         error: docError,
         mutate: docMutate
-    } = useProcurementDocument(documentType, docId);
-
+    } = useProcurementDocument(documentType, docId || "");
 
     const {
-        vendorOptionsForSelect, // Use the formatted options
+        vendorOptionsForSelect,
         isLoading: vendorsLoading,
         error: vendorsError
     } = useVendorsList();
+
+    // CEO Hold check - must be called unconditionally before any early returns
+    const { isCEOHold } = useCEOHoldGuard(initialDoc?.project);
+
+    if (!docId) {
+        return <div className="flex items-center justify-center h-[90vh]">Error: Document ID is missing.</div>;
+    }
 
 
     // --- Instantiate Logic Hook ---
@@ -135,7 +136,12 @@ export const ProcurementProgressContainer: React.FC = () => {
         );
     }
     
-    return <ProcurementProgressView {...logicProps} />;
+    return (
+        <>
+            {isCEOHold && <CEOHoldBanner className="mb-4" />}
+            <ProcurementProgressView {...logicProps} />
+        </>
+    );
 };
 
 // For file-based routing

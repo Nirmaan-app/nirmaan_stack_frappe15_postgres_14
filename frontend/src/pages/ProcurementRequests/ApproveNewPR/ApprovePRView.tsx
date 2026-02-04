@@ -16,6 +16,8 @@ import { RequestItemDialog } from './components/RequestItemDialog';
 import { ConfirmationDialog } from './components/ConfirmationDialog'; // Reusable Confirmation
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'; // For Delete PR
 import { PRCommentsSection } from './components/PRCommentsSection';
+import { EditingLockIndicator } from './components/EditingLockIndicator';
+import { CEOHoldBanner } from '@/components/ui/ceo-hold-banner';
 
 
 // Import types
@@ -32,6 +34,23 @@ interface ApprovePRViewProps extends ReturnType<typeof useApprovePRLogic> {
     // Add any additional props needed specifically for rendering that are NOT in the logic hook
     projectDoc?: Project; // Pass project details if needed
     categoryList?: MasterCategory[]; // Pass category list if needed
+    // Draft props
+    hasDraft?: boolean;
+    lastSavedText?: string | null;
+    isSaving?: boolean;
+    onCancel?: () => void;
+    onBack?: () => void;
+    // Lock props
+    showLockWarning?: boolean;
+    lockInfo?: {
+        isLocked: boolean;
+        lockedBy: string | null;
+        lockedByName: string | null;
+        lockedAt: string | null;
+    };
+    onRefreshLock?: () => void;
+    onEditAnyway?: () => void;
+    isRefreshingLock?: boolean;
 }
 
 export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
@@ -114,7 +133,24 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
         categoryMakeListMutate,
         makeListMutate,
         handleLocalCategoryMakesUpdate,
-        itemFuseOptions
+        itemFuseOptions,
+
+        // Draft props
+        hasDraft = false,
+        lastSavedText = null,
+        isSaving = false,
+        onCancel,
+        onBack,
+
+        // Lock props
+        showLockWarning = false,
+        lockInfo,
+        onRefreshLock,
+        onEditAnyway,
+        isRefreshingLock = false,
+
+        // CEO Hold
+        isCEOHold = false,
     } = props;
 
     // // *** Add console log HERE to verify ***
@@ -167,21 +203,45 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
     }
 
 
+    // Default back handler if not provided
+    const handleBack = onBack || (() => window.history.back());
+
     return (
         <>
             <div className="flex-1 space-y-4"> {/* Add padding */}
                 <div className='space-y-4'>
-                    {/* Header Section */}
-                    <div className="flex justify-between items-center">
-                        <h2 className="text-lg font-bold tracking-tight text-pageheader">
-                            Approve/Reject/Delete PR
-                        </h2>
+                    {/* Header Section with new layout */}
+                    <ApprovePRHeader
+                        prName={orderData.name}
+                        projectName={projectDoc?.project_name || orderData.project || ''}
+                        workPackage={orderData.work_package || ''}
+                        status={orderData.workflow_state || 'Pending'}
+                        createdDate={orderData.creation || ''}
+                        createdBy={getFullName(orderData.owner) || orderData.owner || ''}
+                        onBack={handleBack}
+                        onCancel={onCancel}
+                        hasDraft={hasDraft}
+                        lastSavedText={lastSavedText}
+                        isSaving={isSaving}
+                    />
+
+                    {/* Editing Lock Warning */}
+                    {showLockWarning && lockInfo?.lockedByName && lockInfo?.lockedAt && (
+                        <EditingLockIndicator
+                            lockedByName={lockInfo.lockedByName}
+                            lockedAt={lockInfo.lockedAt}
+                            onRefresh={onRefreshLock || (() => {})}
+                            onEditAnyway={onEditAnyway || (() => {})}
+                            isRefreshing={isRefreshingLock}
+                        />
+                    )}
+
+                    {/* CEO Hold Banner */}
+                    {isCEOHold && <CEOHoldBanner className="mb-4" />}
+
+                    {/* Action Buttons Row */}
+                    <div className="flex justify-end items-center">
                         <AlertDialog open={isDeletePRDialogOpen} onOpenChange={setIsDeletePRDialogOpen}>
-                            {/* <AlertDialogTrigger asChild>
-                                     <Button variant="destructive" size="sm" onClick={handleOpenDeletePRDialog}>
-                                         <Trash2 className="h-4 w-4 mr-1" /> Delete PR
-                                     </Button>
-                                 </AlertDialogTrigger> */}
                             <AlertDialogContent>
                                 <AlertDialogHeader>
                                     <AlertDialogTitle>Delete Procurement Request?</AlertDialogTitle>
@@ -198,7 +258,6 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                             </AlertDialogContent>
                         </AlertDialog>
 
-
                         <ActionButtons
                             handleOpenDeletePRDialog={handleOpenDeletePRDialog}
                             onPrepareReject={() => handlePrepareAction('reject')}
@@ -208,9 +267,6 @@ export const ApprovePRView: React.FC<ApprovePRViewProps> = (props) => {
                             isLoading={isLoading}
                         />
                     </div>
-
-                    {/* PR Details Header Card */}
-                    <ApprovePRHeader orderData={orderData} projectDoc={projectDoc} />
 
                     {/* Requested Items Section */}
                     {requestedItems.length > 0 && (

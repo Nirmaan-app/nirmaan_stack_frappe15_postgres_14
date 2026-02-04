@@ -30,6 +30,8 @@ import { formatDeadlineShort, getExistingTaskNames, getUnifiedStatusStyle } from
 import { TaskEditModal } from './components/TaskEditModal';
 import { RenameZoneDialog } from './components/RenameZoneDialog';
 import { useUserData } from "@/hooks/useUserData";
+import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
+import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 
 // DataTable imports
 import { DataTable } from "@/components/data-table/new-data-table";
@@ -716,6 +718,20 @@ interface ProjectDesignTrackerDetailProps {
 export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailProps> = ({ trackerId: propTrackerId }) => {
     const { role, user_id } = useUserData();
     const navigate = useNavigate();
+
+    // Get trackerId early to fetch tracker data
+    const { id: paramTrackerId } = useParams<{ id: string }>();
+    const trackerId = propTrackerId || paramTrackerId;
+
+    const {
+        trackerDoc, categoryData, isLoading, error, handleTaskSave, editingTask, setEditingTask, usersList, handleParentDocSave, statusOptions,
+        subStatusOptions,
+        handleNewTaskCreation
+    } = useDesignTrackerLogic({ trackerId: trackerId! });
+
+    // CEO Hold guard - use project ID from tracker document
+    const { isCEOHold } = useCEOHoldGuard(trackerDoc?.project);
+
     const isDesignExecutive = role === "Nirmaan Design Executive Profile";
     const isProjectManager = role === "Nirmaan Project Manager Profile";
     const hasEditStructureAccess = role === "Nirmaan Design Lead Profile" || role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator";
@@ -741,15 +757,6 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
         }
         return designers.some(d => d.userId === user_id);
     }, [user_id]);
-
-    const { id: paramTrackerId } = useParams<{ id: string }>();
-    const trackerId = propTrackerId || paramTrackerId;
-
-    const {
-        trackerDoc, categoryData, isLoading, error, handleTaskSave, editingTask, setEditingTask, usersList, handleParentDocSave, statusOptions,
-        subStatusOptions,
-        handleNewTaskCreation
-    } = useDesignTrackerLogic({ trackerId: trackerId! });
 
     const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState(false);
     const [isAddCategoryModalOpen, setIsAddCategoryModalOpen] = useState(false);
@@ -1133,6 +1140,7 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
 
     return (
         <div className="flex-1 md:p-4">
+            {isCEOHold && <CEOHoldBanner className="mb-4 mx-4 md:mx-0" />}
             {/* ═══════════════════════════════════════════════════════════════
                 HEADER / SUMMARY SECTION - Mobile Collapsible + Desktop Static
             ═══════════════════════════════════════════════════════════════ */}

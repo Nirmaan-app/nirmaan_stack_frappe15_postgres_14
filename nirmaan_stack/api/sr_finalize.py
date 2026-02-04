@@ -96,6 +96,10 @@ def finalize_sr(sr_id: str) -> dict:
     if sr_doc.status != "Approved":
         frappe.throw(_("Only approved Work Orders can be finalized"))
 
+    # Check if project_gst is set (required for finalization)
+    if not sr_doc.project_gst:
+        frappe.throw(_("Please select Nirmaan GST for Billing before finalizing this Work Order"))
+
     # Permission check: Admin roles OR owner can finalize
     current_user = frappe.session.user
     is_admin = is_admin_role(current_user)

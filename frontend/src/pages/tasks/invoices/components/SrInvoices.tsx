@@ -1,6 +1,8 @@
-import React, { useMemo } from "react";
-import { ColumnDef } from "@tanstack/react-table";
+import React, { useMemo, useCallback } from "react";
+import { ColumnDef, Row } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 import memoize from "lodash/memoize";
 import { Info, Calendar, Edit2, FileText, CheckCircle2, FileCheck2, CircleDashed, CircleCheck } from "lucide-react";
@@ -91,6 +93,21 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId }) => {
     // --- User Role Check ---
     const { role } = useUserData();
     const canUpdateReconciliation = ["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan PMO Executive Profile"].includes(role || "");
+
+    // --- CEO Hold Projects ---
+    const { ceoHoldProjectIds } = useCEOHoldProjects();
+
+    // CEO Hold row highlighting
+    const getRowClassName = useCallback(
+        (row: Row<SrInvoiceItem>) => {
+            const projectId = row.original.project;
+            if (projectId && ceoHoldProjectIds.has(projectId)) {
+                return CEO_HOLD_ROW_CLASSES;
+            }
+            return undefined;
+        },
+        [ceoHoldProjectIds]
+    );
 
     // --- API Call for ALL SR Invoices ---
     const { data: invoicesData, isLoading: invoicesDataLoading, mutate: mutateInvoices } = useFrappeGetCall<AllSrInvoicesDataCallResponse>(
@@ -869,6 +886,7 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId }) => {
                 onExport="default"
                 exportFileName="sr_invoices"
                 summaryCard={summaryCard}
+                getRowClassName={getRowClassName}
             />
 
             {/* Reconciliation Dialog */}

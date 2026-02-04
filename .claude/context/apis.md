@@ -7,6 +7,7 @@ Backend API endpoints in `nirmaan_stack/api/`.
 | File | Methods | Purpose |
 |------|---------|---------|
 | `custom_pr_api.py` | `new_custom_pr()`, `resolve_custom_pr()` | Custom PR creation and resolution |
+| `pr_editing_lock.py` | `acquire_lock()`, `release_lock()`, `check_lock()`, `extend_lock()` | Redis-based concurrent edit prevention |
 | `approve_vendor_quotes.py` | `generate_pos_from_selection()` | PO generation from selected quotes |
 | `send_vendor_quotes.py` | - | RFQ distribution to vendors |
 | `approve_reject_sb_vendor_quotes.py` | - | Sent-back quote handling |

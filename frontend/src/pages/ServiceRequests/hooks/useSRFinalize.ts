@@ -1,6 +1,7 @@
 import { useFrappeGetCall, useFrappePostCall } from 'frappe-react-sdk';
 import { useCallback, useMemo } from 'react';
 import { toast } from '@/components/ui/use-toast';
+import { useCEOHoldGuard } from '@/hooks/useCEOHoldGuard';
 
 // API response types
 interface FinalizePermissionsResponse {
@@ -61,6 +62,16 @@ interface UseRevertFinalizeSRReturn {
     isLoading: boolean;
 }
 
+interface UseFinalizeSROptions {
+    projectId?: string;
+    onSuccess?: () => void;
+}
+
+interface UseRevertFinalizeSROptions {
+    projectId?: string;
+    onSuccess?: () => void;
+}
+
 /**
  * Hook to check finalization permissions for a Service Request.
  * Fetches permission data from the backend.
@@ -101,12 +112,25 @@ export function useSRFinalizePermissions(srId: string | undefined): UseSRFinaliz
  * Hook to finalize a Service Request.
  * Returns a function to trigger finalization.
  */
-export function useFinalizeSR(onSuccess?: () => void): UseFinalizeSRReturn {
+export function useFinalizeSR(options?: UseFinalizeSROptions | (() => void)): UseFinalizeSRReturn {
+    // Support both old signature (onSuccess callback) and new signature (options object)
+    const { projectId, onSuccess } = typeof options === 'function'
+        ? { projectId: undefined, onSuccess: options }
+        : (options || {});
+
+    const { isCEOHold, showBlockedToast } = useCEOHoldGuard(projectId);
+
     const { call, loading: isLoading } = useFrappePostCall<FinalizeActionResponse>(
         'nirmaan_stack.api.sr_finalize.finalize_sr'
     );
 
     const finalize = useCallback(async (srId: string): Promise<boolean> => {
+        // CEO Hold guard
+        if (isCEOHold) {
+            showBlockedToast();
+            return false;
+        }
+
         if (!srId) {
             toast({
                 title: 'Error',
@@ -134,7 +158,7 @@ export function useFinalizeSR(onSuccess?: () => void): UseFinalizeSRReturn {
             });
             return false;
         }
-    }, [call, onSuccess]);
+    }, [call, onSuccess, isCEOHold, showBlockedToast]);
 
     return {
         finalize,
@@ -146,12 +170,25 @@ export function useFinalizeSR(onSuccess?: () => void): UseFinalizeSRReturn {
  * Hook to revert finalization of a Service Request.
  * Returns a function to trigger revert.
  */
-export function useRevertFinalizeSR(onSuccess?: () => void): UseRevertFinalizeSRReturn {
+export function useRevertFinalizeSR(options?: UseRevertFinalizeSROptions | (() => void)): UseRevertFinalizeSRReturn {
+    // Support both old signature (onSuccess callback) and new signature (options object)
+    const { projectId, onSuccess } = typeof options === 'function'
+        ? { projectId: undefined, onSuccess: options }
+        : (options || {});
+
+    const { isCEOHold, showBlockedToast } = useCEOHoldGuard(projectId);
+
     const { call, loading: isLoading } = useFrappePostCall<FinalizeActionResponse>(
         'nirmaan_stack.api.sr_finalize.revert_finalize_sr'
     );
 
     const revert = useCallback(async (srId: string): Promise<boolean> => {
+        // CEO Hold guard
+        if (isCEOHold) {
+            showBlockedToast();
+            return false;
+        }
+
         if (!srId) {
             toast({
                 title: 'Error',
@@ -179,7 +216,7 @@ export function useRevertFinalizeSR(onSuccess?: () => void): UseRevertFinalizeSR
             });
             return false;
         }
-    }, [call, onSuccess]);
+    }, [call, onSuccess, isCEOHold, showBlockedToast]);
 
     return {
         revert,

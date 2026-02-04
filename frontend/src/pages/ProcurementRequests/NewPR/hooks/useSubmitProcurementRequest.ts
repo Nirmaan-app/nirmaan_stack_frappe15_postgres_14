@@ -5,6 +5,7 @@ import { useFrappeCreateDoc, useFrappeUpdateDoc, useSWRConfig } from 'frappe-rea
 import { useProcurementRequestStore } from '../store/useProcurementRequestStore';
 import { useToast } from '@/components/ui/use-toast';
 import { useUserData } from '@/hooks/useUserData';
+import { useCEOHoldGuard } from '@/hooks/useCEOHoldGuard';
 import {
     addWorkflowBreadcrumb,
     captureWorkflowError,
@@ -50,6 +51,9 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
     const mode = useProcurementRequestStore(state => state.mode);
     const prId = useProcurementRequestStore(state => state.prId);
     const projectId = useProcurementRequestStore(state => state.projectId);
+
+    // CEO Hold guard
+    const { isCEOHold, showBlockedToast } = useCEOHoldGuard(projectId);
     const selectedWP = useProcurementRequestStore(state => state.selectedWP);
     const procList = useProcurementRequestStore(state => state.procList);
     const selectedCategories = useProcurementRequestStore(state => state.selectedCategories);
@@ -129,6 +133,11 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
     // --- Submission Functions ---
 
     const submitNewPR = useCallback(async (finalCommentFromDialog: string) => {
+        if (isCEOHold) {
+            showBlockedToast();
+            return;
+        }
+
         if (!projectId || !selectedWP || procList.length === 0) {
             toast({ title: "Missing Information", description: "Project, Work Package, and items are required.", variant: "destructive" });
             return;
@@ -180,10 +189,17 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
         handleSuccess,
         toast,
         mode,
+        isCEOHold,
+        showBlockedToast,
     ]);
 
 
     const resolveOrUpdatePR = useCallback(async (finalCommentFromDialog: string) => {
+        if (isCEOHold) {
+            showBlockedToast();
+            return;
+        }
+
         if (!prId || procList.length === 0) {
             toast({ title: "Missing Information", description: "Cannot update without PR ID or items.", variant: "destructive" });
             return;
@@ -237,6 +253,8 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
         handleSuccess,
         toast,
         projectId,
+        isCEOHold,
+        showBlockedToast,
     ]);
 
 

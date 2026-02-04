@@ -5,6 +5,7 @@ import {
   VisibilityState,
   flexRender,
   Table as TanstackTable,
+  Row,
   getCoreRowModel,
   getFacetedRowModel,
   getFacetedUniqueValues,
@@ -13,6 +14,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
+import { cn } from "@/lib/utils";
 
 import {
   Table,
@@ -60,6 +62,8 @@ interface DataTableProps<TData, TValue> {
   itemSearch?: boolean;
   sortColumn?: string;
   onExport?: () => void; // Callback to handle export logic
+  /* row-level styling callback */
+  getRowClassName?: (row: Row<TData>) => string | undefined;
 }
 
 export function DataTable<TData, TValue>({
@@ -80,7 +84,8 @@ export function DataTable<TData, TValue>({
   projectStatusOptions = undefined,
   customerOptions = undefined,
   sortColumn = undefined,
-  onExport
+  onExport,
+  getRowClassName,
 }: DataTableProps<TData, TValue>) {
 
   const [sorting, setSorting] = React.useState<SortingState>([]);
@@ -447,6 +452,7 @@ export function DataTable<TData, TValue>({
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
+                  className={cn(getRowClassName?.(row))}
                 >
                   <TableCell />
                   {row.getVisibleCells().map((cell) => (

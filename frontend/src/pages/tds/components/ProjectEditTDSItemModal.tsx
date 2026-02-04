@@ -38,6 +38,7 @@ interface TDSItem {
     tds_attachment?: string;
     tds_status: string;
     tds_item_id?: string;
+    tds_boq_line_item?: string;
 }
 
 interface TDSRepositoryDoc {
@@ -70,6 +71,7 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
     const [selectedItemName, setSelectedItemName] = useState<string | null>(null);
     const [selectedMake, setSelectedMake] = useState<string | null>(null);
     const [description, setDescription] = useState("");
+    const [boqRef, setBoqRef] = useState("");
 
     // Dialog State for Validation
     const [showConfirmDialog, setShowConfirmDialog] = useState(false);
@@ -102,6 +104,7 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
             setSelectedItemName(item.tds_item_name || "");
             setSelectedMake(item.tds_make || "");
             setDescription(item.tds_description || "");
+            setBoqRef(item.tds_boq_line_item || "");
             prevMakeRef.current = item.tds_make || "";
         }
     }, [item, open]);
@@ -176,6 +179,15 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
             return;
         }
 
+        if (boqRef.length > 300) {
+            toast({
+                title: "Validation Error",
+                description: "BOQ Line Item cannot exceed 300 characters",
+                variant: "destructive"
+            });
+            return;
+        }
+
         // Project Duplicate Check for "Rejected" entries
         // Since active ones are filtered out of options, we only need to check for Rejected duplicates
         const duplicate = existingProjectItems?.find(i => 
@@ -198,7 +210,8 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
             tds_make: selectedMake!,
             tds_item_id: selectedRepoEntry.tds_item_id,
             tds_attachment: selectedRepoEntry.tds_attachment,
-            tds_description: description
+            tds_description: description,
+            tds_boq_line_item: boqRef
         };
 
         onSave(item.name, updates);
@@ -213,7 +226,8 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
                 tds_make: selectedMake!,
                 tds_item_id: selectedRepoEntry.tds_item_id,
                 tds_attachment: selectedRepoEntry.tds_attachment,
-                tds_description: description
+                tds_description: description,
+                tds_boq_line_item: boqRef
             };
             onSave(item.name, updates, [duplicateDocName]);
             setShowConfirmDialog(false);
@@ -226,7 +240,7 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
     return (
         <>
             <Dialog open={open} onOpenChange={onOpenChange}>
-                <DialogContent className="sm:max-w-[500px]">
+                <DialogContent className="sm:max-w-[500px] max-h-[85vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>Edit TDS Item</DialogTitle>
                         <DialogDescription>
@@ -275,6 +289,21 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
                                 placeholder="Auto-populated"
                                 styles={{ control: (base) => ({ ...base, backgroundColor: '#f9fafb' }) }}
                             />
+                        </div>
+
+                        <div className="grid gap-2">
+                            <Label htmlFor="boq_ref">BOQ Line Item (Optional)</Label>
+                            <Textarea
+                                id="boq_ref"
+                                value={boqRef}
+                                onChange={(e) => setBoqRef(e.target.value)}
+                                placeholder="Edit BOQ Ref"
+                                rows={4}
+                                maxLength={500}
+                            />
+                            <div className="text-xs text-right text-gray-500 mt-1">
+                                {(boqRef || '').length}/500
+                            </div>
                         </div>
 
                         <div className="grid gap-2">

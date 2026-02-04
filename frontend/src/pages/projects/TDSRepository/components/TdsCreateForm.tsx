@@ -2,9 +2,15 @@ import React, { useState, useMemo } from 'react';
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import ReactSelect from "react-select"; // Assuming react-select is used based on other files
-import { Trash2, FileText } from 'lucide-react';
+import { Trash2, FileText, MessageSquare } from 'lucide-react';
 import { useFrappeGetDocList, useFrappeCreateDoc, useFrappeDeleteDoc } from "frappe-react-sdk";
 import { toast } from "@/components/ui/use-toast";
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
     Table,
     TableBody,
@@ -24,6 +30,7 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 
 interface TdsCreateFormProps {
     projectId: string;
@@ -39,6 +46,7 @@ interface TDSRepositoryDoc {
     category: string;
     description: string;
     tds_attachment?: string;
+    tds_boq_line_item?: string;
 }
 
 interface CartItem extends TDSRepositoryDoc {
@@ -51,6 +59,7 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
     const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
     const [selectedItemName, setSelectedItemName] = useState<string | null>(null); // Storing Item Name (tds_item_name) for semantic selection
     const [selectedMake, setSelectedMake] = useState<string | null>(null);
+    const [selectedBoqLineItem, setSelectedBoqLineItem] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const { createDoc } = useFrappeCreateDoc();
@@ -212,7 +221,14 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                 });
                 return;
             }
-
+if (selectedBoqLineItem.length > 300) {
+            toast({
+                title: "Validation Error",
+                description: "BOQ Line Item cannot exceed 300 characters",
+                variant: "destructive"
+            });
+            return;
+        }
             // Check if it exists as Rejected
             const rejectedEntry = existingProjectItems?.find((i: any) => 
                 i.tds_item_id === selectedDoc.tds_item_id && 
@@ -227,11 +243,12 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                 return;
             }
 
-            setCartItems([...cartItems, selectedDoc]);
+            setCartItems([...cartItems, { ...selectedDoc, tds_boq_line_item: selectedBoqLineItem }]);
             setSelectedItemName(null);
             setSelectedMake(null);
             setSelectedWorkPackage(null)
             setSelectedCategory(null)
+            setSelectedBoqLineItem("")
               
         }
     };
@@ -260,6 +277,7 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
         setSelectedCategory(null);
         setSelectedItemName(null);
         setSelectedMake(null);
+        setSelectedBoqLineItem("");
     };
 
     const handleLogSubmit = async () => {
@@ -306,7 +324,8 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                     tds_work_package: item.work_package,
                     tds_category: item.category,
                     tds_status: "Pending",
-                    tds_attachment: item.tds_attachment // Snapshot attachment if needed?
+                    tds_attachment: item.tds_attachment, // Snapshot attachment if needed?
+                    tds_boq_line_item: item.tds_boq_line_item
                 })
             ));
 
@@ -410,6 +429,21 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                     </div>
                 </div>
 
+                {/* BOQ Line Item Field (Optional) */}
+                <div className="space-y-2 mb-6">
+                    <Label className="text-sm font-semibold text-gray-700">BOQ Line Item <span className="text-gray-400 font-normal">(Optional)</span></Label>
+                    <Textarea 
+                        value={selectedBoqLineItem}
+                        onChange={(e) => setSelectedBoqLineItem(e.target.value)}
+                        placeholder="Enter BOQ Line Item Ref"
+                        rows={3}
+                        maxLength={500}
+                    />
+                     <div className="text-xs text-right text-gray-500 mt-1">
+                        {selectedBoqLineItem.length}/500
+                    </div>
+                </div>
+
                 {/* Description (Hidden per request)
                 <div className="space-y-2 mb-6">
                     <Label className="text-sm font-semibold text-gray-700">Description <span className="text-red-500">*</span></Label>
@@ -445,6 +479,7 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                                 <TableHead className="font-semibold text-gray-700">Item Name</TableHead>
                                 <TableHead className="font-semibold text-gray-700 w-1/3">Description</TableHead>
                                 <TableHead className="font-semibold text-gray-700">Make</TableHead>
+                                <TableHead className="font-semibold text-gray-700 text-center">BOQ Ref</TableHead>
                                 <TableHead className="font-semibold text-gray-700 text-center">Doc.</TableHead>
                                 <TableHead className="font-semibold text-gray-700 text-right">Actions</TableHead>
                             </TableRow>
@@ -464,6 +499,24 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                                         <span className="inline-flex px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800 border border-gray-200">
                                             {item.make}
                                         </span>
+                                    </TableCell>
+                                    <TableCell className="text-center">
+                                        {item.tds_boq_line_item ? (
+                                            <TooltipProvider>
+                                                <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                        <div className="flex justify-center items-center cursor-pointer">
+                                                            <MessageSquare className="h-4 w-4 text-blue-500 hover:text-blue-700" />
+                                                        </div>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent className="max-w-[300px] whitespace-normal break-words">
+                                                        <p>{item.tds_boq_line_item}</p>
+                                                    </TooltipContent>
+                                                </Tooltip>
+                                            </TooltipProvider>
+                                        ) : (
+                                            <span className="text-gray-300">-</span>
+                                        )}
                                     </TableCell>
                                     <TableCell className="text-center">
                                         {item.tds_attachment ? (

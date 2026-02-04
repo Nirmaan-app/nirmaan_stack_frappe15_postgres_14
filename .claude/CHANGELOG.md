@@ -4,6 +4,71 @@ Changes made by Claude Code sessions.
 
 ---
 
+### 2026-02-04: Context Sync - 2 Week Feature Analysis
+
+**Summary:** Analyzed commits from 2026-01-22 to 2026-02-04 to document new features and update context files.
+
+**Frontend Context Files Created:**
+- `frontend/.claude/context/domain/ceo-hold.md` - Comprehensive documentation of CEO Hold status feature
+
+**Frontend Context Files Updated:**
+- `frontend/.claude/context/_index.md` - Added CEO Hold domain reference
+- `frontend/.claude/context/domain/projects.md` - Added CEO Hold to status matrix
+- `frontend/CLAUDE.md` - Added CEO Hold note in Important Notes section
+
+**Key Features Documented:**
+
+1. **CEO Hold Status** (commit `7c691bff`, 2026-02-03)
+   - New project status blocking all procurement/payment/expense operations
+   - Uses `useCEOHoldGuard` and `useCEOHoldProjects` hooks
+   - ~40+ pages modified to implement guards
+   - Full documentation in `frontend/.claude/context/domain/ceo-hold.md`
+
+2. **Cashflow Plan System** (2026-01-27 - 2026-02-01)
+   - New `Cashflow Plan` doctype with PO, WO, Misc, Inflow types
+   - Frontend pages under `src/pages/projects/CashflowPlan/`
+   - Tracker pages under `src/pages/CashflowPlanTracker/`
+
+3. **Other Notable Backend Changes:**
+   - Material Plan enhancements with Critical PO workflow
+   - DC/MIR reference number field (`attachment_ref`)
+   - Vendor nickname field added
+   - TDS enhancements
+
+---
+
+### 2026-02-02: PR Editing Lock API
+
+**Summary:** Added Redis-based locking mechanism for Procurement Request editing to prevent concurrent edits by multiple users.
+
+**Backend Files Created:**
+- `nirmaan_stack/api/pr_editing_lock.py` - Lock management API with:
+  - `acquire_lock(pr_name)` - Acquire editing lock (15-min expiry, idempotent for same user)
+  - `release_lock(pr_name)` - Release lock (owner or admin only)
+  - `check_lock(pr_name)` - Check status without acquiring
+  - `extend_lock(pr_name)` - Heartbeat to extend expiry (called every 5 min by client)
+
+**Lock Configuration:**
+- Expiry: 15 minutes (auto-expire stale locks)
+- Heartbeat: 5 minutes (client calls `extend_lock`)
+- Cache key format: `pr_editing_lock:{pr_name}`
+
+**Socket.IO Events:**
+- `pr:editing:started` - Emitted when user acquires lock
+- `pr:editing:stopped` - Emitted when user releases lock
+
+**Key Behaviors:**
+- Same user can re-acquire (idempotent, extends TTL)
+- Admin can force-release any lock
+- `frappe.db.commit()` called before `publish_realtime()` to avoid race conditions
+
+**Frontend Integration:**
+- `useEditingLock` hook manages lifecycle (acquire on mount, release on unmount)
+- `navigator.sendBeacon()` for reliable release on page unload
+- Feature flag: `localStorage.setItem('nirmaan-lock-disabled', 'true')` to disable
+
+---
+
 ### 2026-01-27: Project Status Lifecycle Documentation
 
 **Summary:** Analyzed how project statuses affect the full application. Created `domain/projects.md` context file and updated `workflows.md` with project lifecycle section. Added index references.

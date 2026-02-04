@@ -9,10 +9,12 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { getPOTotal } from "@/utils/getAmounts";
+// import { getPOTotal } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
-import { ColumnDef } from "@tanstack/react-table";
+import { ColumnDef, Row } from "@tanstack/react-table";
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 import { Radio } from "antd";
 import { FrappeDoc, useFrappeGetDocList, GetDocListArgs } from "frappe-react-sdk";
 import memoize from 'lodash/memoize';
@@ -100,6 +102,20 @@ const PODataTableWrapper: React.FC<{
             vendor: { ...facetFilterOptions.vendor, options: vendorFacetOptions, isLoading: isVendorFacetLoading },
         }), [facetFilterOptions, projectFacetOptions, isProjectFacetLoading, vendorFacetOptions, isVendorFacetLoading]);
 
+        // --- CEO Hold Row Highlighting ---
+        const { ceoHoldProjectIds } = useCEOHoldProjects();
+
+        const getRowClassName = useCallback(
+            (row: Row<ProcurementOrdersType>) => {
+                const projectId = row.original.project;
+                if (projectId && ceoHoldProjectIds.has(projectId)) {
+                    return CEO_HOLD_ROW_CLASSES;
+                }
+                return undefined;
+            },
+            [ceoHoldProjectIds]
+        );
+
         return (
             <DataTable<ProcurementOrdersType>
                 table={serverDataTable.table}
@@ -116,6 +132,7 @@ const PODataTableWrapper: React.FC<{
                 dateFilterColumns={dateColumns}
                 showExportButton={true}
                 onExport={'default'}
+                getRowClassName={getRowClassName}
             />
         );
     };
@@ -222,12 +239,12 @@ export const ReleasePOSelect: React.FC = () => {
 
     const projectOptions = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects])
 
-    const getAmountPaid = useMemo(() => memoize((id: string) => {
-        const payments = projectPayments?.filter((payment) => payment?.document_name === id && payment?.status === "Paid") || [];
-        const total = payments.reduce((acc, payment) => acc + parseNumber(payment?.amount), 0);
-        // console.log("getAmountPaid", id, payments, total)
-        return total;
-    }, (id: string) => id), [projectPayments])
+    // const getAmountPaid = useMemo(() => memoize((id: string) => {
+    //     const payments = projectPayments?.filter((payment) => payment?.document_name === id && payment?.status === "Paid") || [];
+    //     const total = payments.reduce((acc, payment) => acc + parseNumber(payment?.amount), 0);
+    //     // console.log("getAmountPaid", id, payments, total)
+    //     return total;
+    // }, (id: string) => id), [projectPayments])
 
     // --- Memoized Calculation Functions ---
     // Define these outside the main component body or ensure dependencies are stable
@@ -675,7 +692,8 @@ export const ReleasePOSelect: React.FC = () => {
                 enableColumnFilter: true
             } as ColumnDef<ProcurementOrdersType>
         ] : []),
-    ], [tab, userList, getAmountPaid, vendorsList, projects, getPOTotal, posMap, invoiceTotalsMap]);
+    ],[tab, userList, vendorsList, projects, posMap, invoiceTotalsMap]); 
+    // [tab, userList, getAmountPaid, vendorsList, projects, getPOTotal, posMap, invoiceTotalsMap]);
 
     const facetFilterOptions = useMemo(() => ({
         // Use the 'accessorKey' or 'id' of the column

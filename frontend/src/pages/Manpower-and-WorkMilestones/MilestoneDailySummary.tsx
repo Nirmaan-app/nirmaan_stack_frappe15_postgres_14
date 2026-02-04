@@ -6,6 +6,8 @@ import { formatDate } from '@/utils/FormatDate';
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { Card, CardContent } from "@/components/ui/card";
+import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
+import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -46,6 +48,9 @@ export const MilestoneDailySummary: React.FC = () => {
 
   // User role for permissions
   const { role, user_id } = useUserData();
+
+  // CEO Hold guard
+  const { isCEOHold } = useCEOHoldGuard(initialProjectId);
 
   // Local state
   const [selectedZone, setSelectedZone] = useState<string | null>(initialZone);
@@ -148,6 +153,7 @@ export const MilestoneDailySummary: React.FC = () => {
   return (
     <>
       <div className="flex-1 space-y-4 min-h-[50vh]">
+        {isCEOHold && <CEOHoldBanner className="mb-4" />}
         <div className="mx-0 px-0 pt-4">
           {/* Control Bar with zones, date, report type toggle, and delete button */}
           <ReportControlBar

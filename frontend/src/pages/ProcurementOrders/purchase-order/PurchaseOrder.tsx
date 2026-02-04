@@ -78,10 +78,10 @@ import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import {
-  getPOTotal,
-  getTotalAmountPaid,
+  // getPOTotal,
+  // getTotalAmountPaid,
   getTotalVendorInvoiceAmount,
-  getPreviewTotal,
+  // getPreviewTotal,
 } from "@/utils/getAmounts";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { Tree } from "antd";
@@ -529,16 +529,16 @@ export const PurchaseOrder = ({
     }
   }, [mergeSheet]);
 
-  const getTotal = useMemo(() => {
-    return getPOTotal(PO);
-  }, [PO]);
+  // const getTotal = useMemo(() => {
+  //   return getPOTotal(PO);
+  // }, [PO]);
   // --- NEW: Helper function to calculate merged terms ---
   // --- REPLACE with this corrected function ---
   // PurchaseOrder.tsx
 
-  const previewTotal = useMemo<POTotals>(() => {
-    return getPreviewTotal(orderData);
-  }, [orderData, setOrderData, PO])
+  // const previewTotal = useMemo<POTotals>(() => {
+  //   return getPreviewTotal(orderData);
+  // }, [orderData, setOrderData, PO])
   // --- REPLACE with this corrected function ---
   const calculateMergedTerms = useCallback((basePO: ProcurementOrder, additionalPOs: ProcurementOrder[]) => {
     const allPOs = [basePO, ...additionalPOs];
@@ -1084,23 +1084,23 @@ export const PurchaseOrder = ({
     ];
   }, [PO]);
 
-  const amountPaid = useMemo(
-    () =>
-      getTotalAmountPaid(
-        (poPayments || []).filter((i) => i?.status === "Paid")
-      ),
-    [poPayments]
-  );
+  // const amountPaid = useMemo(
+  //   () =>
+  //     getTotalAmountPaid(
+  //       (poPayments || []).filter((i) => i?.status === "Paid")
+  //     ),
+  //   [poPayments]
+  // );
 
-  const amountPending = useMemo(
-    () =>
-      getTotalAmountPaid(
-        (poPayments || []).filter((i) =>
-          ["Requested", "Approved"].includes(i?.status)
-        )
-      ),
-    [poPayments]
-  );
+  // const amountPending = useMemo(
+  //   () =>
+  //     getTotalAmountPaid(
+  //       (poPayments || []).filter((i) =>
+  //         ["Requested", "Approved"].includes(i?.status)
+  //       )
+  //     ),
+  //   [poPayments]
+  // );
 
   const getUserName = useMemo(
     () => (id: string | undefined) => {
@@ -1549,7 +1549,7 @@ export const PurchaseOrder = ({
         togglePoPdfSheet={togglePoPdfSheet}
         // getTotal={getTotal}
         totalInvoice={totalInvoiceAmount}
-        amountPaid={amountPaid}
+        amountPaid={PO?.amount_paid}
         poMutate={poMutate}
       />
       {/* Payment Details - hidden for Project Manager */}
@@ -1576,8 +1576,8 @@ export const PurchaseOrder = ({
                     estimatesViewing={estimatesViewing}
                     summaryPage={summaryPage}
                     PO={PO}
-                    getTotal={getTotal}
-                    amountPaid={amountPaid}
+                    getTotal={PO?.total_amount}
+                    amountPaid={PO?.amount_paid}
                     poPayments={poPayments}
                     poPaymentsMutate={poPaymentsMutate}
                     AllPoPaymentsListMutate={AllPoPaymentsListMutate}
@@ -1588,7 +1588,7 @@ export const PurchaseOrder = ({
                     estimatesViewing={estimatesViewing}
                     summaryPage={summaryPage}
                     PO={PO}
-                    getTotal={getTotal}
+                    getTotal={PO?.total_amount}
                     poMutate={poMutate}
                     projectPaymentsMutate={poPaymentsMutate}
 
@@ -2475,7 +2475,7 @@ export const PurchaseOrder = ({
         includeComments={includeComments}
         paymentTerms={mergedPaymentTerms} // make set term state
         // getTotal={getTotal}
-        POTotals={previewTotal}
+        // POTotals={previewTotal}
         advance={advance}
         materialReadiness={materialReadiness}
         afterDelivery={afterDelivery}
@@ -2484,10 +2484,10 @@ export const PurchaseOrder = ({
       />
       {/* Render RequestPaymentDialog here, outside the Accordion */}
       <RequestPaymentDialog
-        totalIncGST={getTotal?.totalAmt || 0}
-        totalExGST={getTotal?.total || 0}
-        paid={amountPaid}
-        pending={amountPending}
+        totalIncGST={PO?.total_amount || 0}
+        totalExGST={PO?.amount || 0}
+        paid={PO?.amount_paid}
+        pending={PO?.total_amount -PO?.amount_paid}
         gst={true}
         docType="Procurement Orders"
         docName={PO?.name || "Unknown"}

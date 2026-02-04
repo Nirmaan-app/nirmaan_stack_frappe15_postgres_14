@@ -4,6 +4,263 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-02-04: Context Sync - 2 Week Feature Analysis
+
+### Summary
+Analysis of commits from 2026-01-22 to 2026-02-04. Major features identified: CEO Hold status, Cashflow Plan system, multiple UI/UX improvements.
+
+### Major Feature: CEO Hold Status (2026-02-03)
+
+**Commit:** `7c691bff` - feat: CEO Hold status for projects and subsequent changes
+
+Added a new project status "CEO Hold" that **blocks all procurement, payment, and expense operations** for a project. This is a hard block unlike "Halted" which only hides projects from dropdowns.
+
+**Core Architecture:**
+- `src/hooks/useCEOHoldGuard.ts` - Single-project guard (detail pages)
+- `src/hooks/useCEOHoldProjects.ts` - Multi-project batch lookup (list pages)
+- `src/components/ui/ceo-hold-banner.tsx` - Visual banner (full & compact)
+- `src/utils/ceoHoldRowStyles.ts` - Row styling for data tables
+
+**Blocked Operations (~40+ pages modified):**
+- PR creation, approval, vendor selection
+- PO release, amendments, deliveries
+- SR/WO creation, approval, finalization
+- All payments (request, approve, update)
+- Project expenses (create, edit)
+- TDS approvals
+
+**Visual Indicators:**
+- Amber/orange theme throughout
+- Banner on detail pages
+- Row highlighting on list pages
+- Toast notification when action blocked
+
+**Documentation:** See `.claude/context/domain/ceo-hold.md` for complete reference.
+
+### Major Feature: Cashflow Plan System (2026-01-27 - 2026-02-01)
+
+New financial planning feature for tracking expected cash outflows and inflows.
+
+**Doctype:** `Cashflow Plan` with fields:
+- `project`, `vendor`, `vendor_name`
+- `id_link`, `planned_date`, `planned_amount`
+- `type` (PO, WO, Misc, Inflow, New PO, New WO)
+- `items`, `estimated_price`, `remarks`
+- `critical_po_category`, `critical_po_task`
+
+**Frontend Pages:**
+- `src/pages/projects/CashflowPlan/` - Main cashflow planning tabs
+- `src/pages/CashflowPlanTracker/` - Tracker detail pages
+- Tabs: PO, WO, Miscellaneous, Inflow cashflows
+- CRUD forms for each type
+
+**Key Commits:**
+- `936f2d48` - Initial tab structure and doctype
+- `339c0867` - PO Cashflow management
+- `00c38b84` - Inflow and misc cashflow
+- `4c684182` - WO cashflow planning
+- `37190ef3` - Edit forms for PO/WO cashflows
+- `9bf28dfd` - Cashflow Plan Tracker routes
+
+### Other Notable Changes (2 weeks)
+
+**Infinite Re-render Fixes (2026-02-03):**
+- `56e76156` - Fixed loops in date filter and report components
+- Added React Effect Anti-Patterns section to CLAUDE.md
+
+**Material Plan Enhancements:**
+- `fa079481` - Critical PO workflow with item selection
+- `462a4d17` - Material Plan Tracker with delivery status
+
+**DC/MIR Reference Numbers:**
+- `0069d8ac` - Attachment ref field for DC/MIR numbers
+- `904b0f56` - Required DC/MIR number for document uploads
+
+**Vendor Nickname:**
+- `276b1848` - Added `vendor_nickname` field to Vendors doctype
+- Display in forms, lists, and detail pages
+
+**TDS Enhancements:**
+- `942ffb80` - Simplified attachments, Others make option
+- `adc59cc8` - Work Package and Category filters
+
+**Reports:**
+- `daf40111` - Reusable Project Assignees column architecture
+- `907e2439` - Use PO `amount_paid` field directly
+
+**Service Requests:**
+- `8c7dbf3a` - Finalized WO tab added
+- SR form wizard completed with draft persistence
+
+---
+
+## 2026-02-02: PR Editing Lock, Draft Persistence & Service Request Form Wizard
+
+### Summary
+Major session implementing concurrent editing prevention for PR approval flow, localStorage draft persistence for PR edits, and a new step-based wizard for Service Request (Work Order) creation with amendment support.
+
+### Commits
+- `9cd6831d` - feat: add backend API for PR editing lock
+- `d16819cb` - feat: add customizable title prop to DraftCancelDialog
+- `1fed460c` - feat: add New WO dialog trigger from service requests page
+- `294cc7b4` - feat: add step-based Service Request form wizard
+- `20492e84` - feat: add draft persistence and editing lock for Approve PR
+- `84656a59` - feat: improve Approve PR flow UI/UX and fix undo bug
+- `6762676b` - refactor: integrate new WO wizard route and clean up dialogs
+- `e0d43e1a` - feat: add FormResetWarningDialog for unsaved changes warning
+- `6aa5eb3e` - feat: add new Work Order creation wizard with step-based flow
+
+### Feature 1: PR Editing Lock System
+
+Prevents concurrent edits to the same Procurement Request by multiple users using Redis-based locking.
+
+**Backend (`nirmaan_stack/api/pr_editing_lock.py`):**
+- `acquire_lock(pr_name)` - Acquire editing lock (15-minute expiry)
+- `release_lock(pr_name)` - Release lock (idempotent)
+- `check_lock(pr_name)` - Check lock status without acquiring
+- `extend_lock(pr_name)` - Heartbeat to extend lock (called every 5 minutes)
+
+**Frontend (`src/pages/ProcurementRequests/ApproveNewPR/`):**
+- `hooks/useEditingLock.ts` - React hook managing lock lifecycle:
+  - Auto-acquire on mount, auto-release on unmount
+  - Heartbeat interval (5 min) to extend lock
+  - Socket.IO listeners for real-time lock status updates
+  - `navigator.sendBeacon()` for reliable unload release
+- `components/EditingLockIndicator.tsx` - UI showing who has the lock
+
+**Socket.IO Events:**
+- `pr:editing:started` - Emitted when user acquires lock
+- `pr:editing:stopped` - Emitted when user releases lock
+
+**Feature Flag:**
+- `localStorage.setItem('nirmaan-lock-disabled', 'true')` to disable lock system
+
+### Feature 2: Approve PR Draft Persistence
+
+Saves PR editing progress to localStorage, allowing users to resume work after accidental navigation or page refresh.
+
+**Store (`src/zustand/useApproveNewPRDraftStore.ts`):**
+- Zustand store with `persist` middleware for localStorage
+- Keys: `nirmaan-approve-pr-drafts` keyed by PR ID
+- 30-day expiration with auto-cleanup on rehydration
+- Tracks: orderList, categoryList, universalComment, undoStack
+
+**Draft Item Flags:**
+- `_isNew` - Item added by approver (not in original PR)
+- `_isDeleted` - Item marked for deletion
+- `_isModified` - Item quantity/comment changed
+- `_originalQuantity`, `_originalComment` - For change detection
+
+**Draft Manager Hook (`src/hooks/useApproveNewPRDraftManager.ts`):**
+- Auto-save with debounce
+- Resume/discard dialogs
+- `hasDraft()` - Check if meaningful changes exist
+
+### Feature 3: Service Request Form Wizard
+
+New step-based wizard for creating Service Requests (Work Orders) with vendor selection.
+
+**Directory Structure:**
+```
+src/pages/ServiceRequests/sr-form/
+├── index.tsx              # Main wizard orchestrator
+├── schema.ts              # Zod validation schema
+├── constants.ts           # Wizard step configuration
+├── hooks/
+│   ├── useSRFormData.ts   # Data fetching for categories, vendors
+│   └── useSRAmendData.ts  # Amendment-specific data
+├── steps/
+│   ├── ServiceItemsStep.tsx  # Step 1: Select items
+│   ├── VendorRatesStep.tsx   # Step 2: Select vendor, enter rates
+│   └── ReviewStep.tsx        # Step 3: Final review
+├── components/
+│   ├── ServiceItemsAccordion.tsx  # Grouped item display
+│   └── index.ts
+└── amend/
+    ├── SRAmendPage.tsx    # Full-page amendment
+    ├── SRAmendSheet.tsx   # Sheet/drawer amendment
+    ├── useSRAmendForm.ts  # Amendment form logic
+    ├── transformers.ts    # Data conversion utilities
+    └── index.ts
+```
+
+**Routes Added:**
+- `/service-requests/new/:projectId` - New SR creation
+- `/service-requests/:srId/amend` - SR amendment
+
+### Feature 4: FormResetWarningDialog Component
+
+**File:** `src/components/ui/form-reset-warning-dialog.tsx`
+
+New reusable dialog for warning users about unsaved changes when navigating away. Uses `useBlocker` from react-router-dom.
+
+**Usage:**
+```tsx
+<FormResetWarningDialog
+    show={showWarning}
+    onConfirmLeave={handleLeave}
+    onCancel={handleCancel}
+    title="Discard changes?"
+    description="You have unsaved changes that will be lost."
+/>
+```
+
+### Files Created
+- `src/zustand/useApproveNewPRDraftStore.ts` - PR draft persistence
+- `src/zustand/useServiceRequestDraftStore.ts` - SR draft persistence
+- `src/hooks/useApproveNewPRDraftManager.ts` - PR draft manager
+- `src/hooks/useServiceRequestDraftManager.ts` - SR draft manager
+- `src/pages/ProcurementRequests/ApproveNewPR/hooks/useEditingLock.ts` - Lock management
+- `src/pages/ProcurementRequests/ApproveNewPR/components/EditingLockIndicator.tsx` - Lock UI
+- `src/components/ui/form-reset-warning-dialog.tsx` - Navigation warning dialog
+- `src/pages/ServiceRequests/sr-form/**/*` - Entire SR form wizard module
+
+### Files Modified
+- `src/pages/ProcurementRequests/ApproveNewPR/ApprovePRView.tsx` - Integrated lock and draft
+- `src/pages/ProcurementRequests/ApproveNewPR/hooks/useApprovePRLogic.ts` - Major refactor for draft support
+- `src/pages/ServiceRequests/ServiceRequestsTabs.tsx` - Added New WO button
+- `src/pages/ServiceRequests/approved-sr/ApprovedSRView.tsx` - Integrated new amend sheet
+- `src/components/helpers/routesConfig.tsx` - Added SR form routes
+- `src/zustand/useDialogStore.ts` - Added new dialog types
+- `src/components/ui/draft-cancel-dialog.tsx` - Made title customizable
+
+### Key Patterns
+
+**Editing Lock with Graceful Degradation:**
+```typescript
+const acquireLock = async (): Promise<boolean> => {
+  try {
+    const result = await acquireLockApi({ pr_name: prName });
+    // ...
+  } catch (error) {
+    // Allow editing on API failure (graceful degradation)
+    return true;
+  }
+};
+```
+
+**Draft Item Change Tracking:**
+```typescript
+interface DraftItem {
+  _isNew?: boolean;      // Added by approver
+  _isDeleted?: boolean;  // Marked for deletion
+  _isModified?: boolean; // Quantity/comment changed
+  _originalQuantity?: number;
+  _originalComment?: string;
+}
+```
+
+**Socket.IO Lock Events:**
+```typescript
+socket.on('pr:editing:started', (data) => {
+  if (data.pr_name === prName && data.user !== currentUser) {
+    setShowLockWarning(true);
+  }
+});
+```
+
+---
+
 ## 2026-01-28: GST Terminology Rename & WO Options Card Revamp
 
 ### Summary

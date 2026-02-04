@@ -1,5 +1,8 @@
+import { Row } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogHeader } from "@/components/ui/alert-dialog";
@@ -51,6 +54,9 @@ export const projectPaymentsQueryKeys = {
 export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: string }> = ({ projectId, customerId }) => {
 
     const { createDoc, loading: createLoading } = useFrappeCreateDoc()
+
+    // --- CEO Hold Highlighting ---
+    const { ceoHoldProjectIds } = useCEOHoldProjects();
 
     const projectFilters = useMemo(() => {
         const filters: ProjectFilter[] = []
@@ -503,6 +509,19 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
         [notifications, purchaseOrders, serviceOrders, projectValues, vendorValues, projectPayments, projectId, getTotalAmount, customerId, invoiceTotalsMap]
     );
 
+    // --- CEO Hold Row Highlighting ---
+    // combinedData row type has 'project' field from ProcurementOrder/ServiceRequests
+    const getRowClassName = useCallback(
+        (row: Row<(typeof combinedData)[number]>) => {
+            const projectId = row.original.project;
+            if (projectId && ceoHoldProjectIds.has(projectId)) {
+                return CEO_HOLD_ROW_CLASSES;
+            }
+            return undefined;
+        },
+        [ceoHoldProjectIds]
+    );
+
     if (poError || srError || projectsError || vendorsError) {
         toast({
             title: "Error!",
@@ -642,7 +661,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                 (poLoading || srLoading || projectsLoading || vendorsLoading || projectPaymentsLoading || vendorInvoicesLoading) ? (
                     <TableSkeleton />
                 ) : (
-                    <DataTable columns={columns} data={combinedData} project_values={!projectId ? projectValues : undefined} approvedQuotesVendors={vendorValues}  />
+                    <DataTable columns={columns} data={combinedData} project_values={!projectId ? projectValues : undefined} approvedQuotesVendors={vendorValues} getRowClassName={getRowClassName} />
                 )
             }
         </div>

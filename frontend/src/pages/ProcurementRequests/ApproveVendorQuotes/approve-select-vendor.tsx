@@ -1,5 +1,5 @@
 import React, { useCallback, useContext, useMemo } from "react";
-import { ColumnDef } from "@tanstack/react-table";
+import { ColumnDef, Row } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
 import { Link } from "react-router-dom";
 import {
@@ -52,6 +52,8 @@ import {
   PR_DATE_COLUMNS,
   PR_SEARCHABLE_FIELDS,
 } from "../config/prTable.config";
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
 // --- Constants ---
 const DOCTYPE = "Procurement Requests";
@@ -60,6 +62,20 @@ const URL_SYNC_KEY = "pr_approve"; // Unique key for this specific table instanc
 // --- Component ---
 export const ApproveSelectVendor: React.FC = () => {
   const { db } = useContext(FrappeContext) as FrappeConfig;
+
+  // --- CEO Hold Row Highlighting ---
+  const { ceoHoldProjectIds } = useCEOHoldProjects();
+
+  const getRowClassName = useCallback(
+    (row: Row<ProcurementRequest>) => {
+      const projectId = row.original.project;
+      if (projectId && ceoHoldProjectIds.has(projectId)) {
+        return CEO_HOLD_ROW_CLASSES;
+      }
+      return undefined;
+    },
+    [ceoHoldProjectIds]
+  );
 
   const projectsFetchOptions = getProjectListOptions();
 
@@ -462,6 +478,7 @@ export const ApproveSelectVendor: React.FC = () => {
           showExportButton={true} // Disable export if not needed
           onExport={"default"}
           showRowSelection={isRowSelectionActive}
+          getRowClassName={getRowClassName}
         />
       )}
     </div>

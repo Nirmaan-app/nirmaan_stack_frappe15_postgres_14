@@ -15,6 +15,7 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | [domain/invoices.md](./domain/invoices.md) | Invoices | PO/SR invoices, 2B reconciliation, date filters |
 | [domain/milestones.md](./domain/milestones.md) | Milestones | Daily progress reports, zone tracking, work headers |
 | [domain/projects.md](./domain/projects.md) | Projects | Project status lifecycle, ProjectSelect component, status restrictions |
+| [domain/ceo-hold.md](./domain/ceo-hold.md) | CEO Hold | Project hold status, blocked operations, guard hooks |
 
 ### Module References (in-code)
 
@@ -27,6 +28,8 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | Invoices | `src/pages/tasks/invoices/` | `config/*.config.ts` for table config |
 | Milestones | `src/pages/Manpower-and-WorkMilestones/` | `hooks/useMilestoneReportData.ts`, `utils/milestoneHelpers.ts` |
 | PO Remarks | `src/pages/purchase-order/` | `hooks/usePORemarks.ts`, `components/PORemarks.tsx` |
+| PR Approve/Edit | `src/pages/ProcurementRequests/ApproveNewPR/` | `hooks/useEditingLock.ts`, `hooks/useApprovePRLogic.ts`, `useApproveNewPRDraftStore.ts` |
+| SR Form Wizard | `src/pages/ServiceRequests/sr-form/` | Step-based wizard: `schema.ts`, `constants.ts`, `steps/`, `amend/` |
 | SR Remarks | `src/pages/ServiceRequests/approved-sr/` | `hooks/useSRRemarks.ts`, `components/SRRemarks.tsx` |
 | Reports | `src/pages/reports/` | `hooks/usePO*.ts` for data, `components/columns/*.tsx` for columns, `config/*.config.ts` for table config |
 | Work Headers | `src/components/` | `workHeaderMilestones.tsx` (config component) |
@@ -71,7 +74,8 @@ const { role, user_id } = useUserData();
         ├── customers.md  # Customer management & financials
         ├── invoices.md   # Invoice management & 2B reconciliation
         ├── milestones.md # Daily progress reports & zone tracking
-        └── projects.md   # Project status lifecycle & frontend behavior
+        ├── projects.md   # Project status lifecycle & frontend behavior
+        └── ceo-hold.md   # CEO Hold status & blocked operations
 ```
 
 ---

@@ -32,6 +32,7 @@ import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { queryKeys, getProjectExpenseTypeListOptions } from "@/config/queryKeys";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 
 interface EditProjectExpenseDialogProps {
     expenseToEdit: ProjectExpenses;
@@ -56,6 +57,9 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
     const { toast } = useToast();
     const [formState, setFormState] = useState<FormState>({ type: "", vendor: "", description: "", comment: "", amount: "", payment_date: "", payment_by: "" });
     const [formErrors, setFormErrors] = useState<Partial<FormState>>({});
+
+    // CEO Hold guard - get project from the expense being edited
+    const { isCEOHold, showBlockedToast } = useCEOHoldGuard(expenseToEdit?.projects);
 
     const [expenseTypePopoverOpen, setExpenseTypePopoverOpen] = useState(false);
     const commandListRef = useRef<HTMLDivElement>(null);
@@ -118,6 +122,10 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
     }, [formState]);
 
     const handleSubmit = async () => {
+        if (isCEOHold) {
+            showBlockedToast();
+            return;
+        }
         if (!validateForm()) {
             toast({ title: "Validation Error", description: "Please fill all required fields correctly.", variant: "destructive" });
             return;
