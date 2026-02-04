@@ -33,11 +33,14 @@ export const SevenDayPlanningTabs = ({
       user_id === "Administrator" ||
       allowedRolesForRestrictedTabs.includes(role);
 
+    if (role === "Nirmaan Procurement Executive Profile") {
+      return [PLANNING_TABS.MATERIAL_PLAN];
+    }
+
     return [
       PLANNING_TABS.WORK_PLAN,
-      ...(canViewRestrictedTabs
-        ? [PLANNING_TABS.MATERIAL_PLAN, PLANNING_TABS.Cashflow_Plan]
-        : []),
+      PLANNING_TABS.MATERIAL_PLAN,
+      ...(canViewRestrictedTabs ? [PLANNING_TABS.Cashflow_Plan] : []),
     ];
   }, [role, user_id]);
 
