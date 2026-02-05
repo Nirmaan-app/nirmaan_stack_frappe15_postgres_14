@@ -87,3 +87,62 @@ export interface RawCategoryData {
     category_name: string;
     tasks: TaskTemplate[];
 }
+
+// ==================== Team Summary Types ====================
+
+// Status count map type
+export type StatusCountMap = {
+    'Not Started': number;
+    'Drawings Awaiting from Client': number;
+    'In Progress': number;
+    'Submitted': number;
+    'Revision Pending': number;
+    'Clarification Awaiting': number;
+    'Approved': number;
+    total: number;
+};
+
+// Project-level breakdown
+export interface ProjectTaskSummary {
+    project_id: string;
+    project_name: string;
+    tracker_id: string;
+    counts: StatusCountMap;
+}
+
+// User-level summary with project breakdown
+export interface UserTaskSummary {
+    user_id: string;
+    user_name: string;
+    user_email?: string;
+    totals: StatusCountMap;
+    projects: ProjectTaskSummary[];
+}
+
+// API response type
+export interface TeamSummaryResponse {
+    summary: UserTaskSummary[];
+}
+
+// Task preview filter state
+export interface TaskPreviewFilter {
+    user_id: string;
+    user_name: string;
+    status: string;
+    project_id?: string;
+    project_name?: string;
+}
+
+// Task preview item (for dialog)
+export interface TaskPreviewItem {
+    name: string;
+    task_name: string;
+    project_name: string;
+    project_id: string;
+    tracker_id: string;
+    design_category: string;
+    deadline?: string;
+    task_status: string;
+    task_sub_status?: string;
+    assigned_designers?: string; // JSON string containing designer IDs
+}

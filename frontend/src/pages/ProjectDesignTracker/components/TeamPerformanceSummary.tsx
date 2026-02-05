@@ -1,0 +1,387 @@
+// frontend/src/pages/ProjectDesignTracker/components/TeamPerformanceSummary.tsx
+
+import React, { useCallback, useState } from 'react';
+import { ChevronDown, ChevronRight, Users } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import { useTeamSummary, useFilteredTasks } from '../hooks/useTeamSummary';
+import { TaskListDialog } from './TaskListDialog';
+import { getUnifiedStatusStyle } from '../utils';
+import {
+    TaskPreviewFilter,
+    StatusCountMap,
+    UserTaskSummary,
+    ProjectTaskSummary,
+} from '../types';
+
+// ==================== Types ====================
+
+interface TeamPerformanceSummaryProps {
+    hasAccess: boolean;
+}
+
+// Status columns configuration
+type StatusColumn = {
+    key: keyof StatusCountMap;
+    header: string;
+    abbrev: string;
+};
+
+const STATUS_COLUMNS: StatusColumn[] = [
+    { key: 'Not Started', header: 'Not Started', abbrev: 'Not Started' },
+    { key: 'Drawings Awaiting from Client', header: 'Drawings Awaiting from Client', abbrev: 'Drawings Awaiting' },
+    { key: 'In Progress', header: 'In Progress', abbrev: 'In Prog' },
+    { key: 'Submitted', header: 'Submitted', abbrev: 'Submitted' },
+    { key: 'Revision Pending', header: 'Revision Pending', abbrev: 'Revision' },
+    { key: 'Clarification Awaiting', header: 'Clarification Awaiting', abbrev: 'Clarif.' },
+    { key: 'Approved', header: 'Approved', abbrev: 'Approved' },
+];
+
+// ==================== CountCell Component ====================
+
+interface CountCellProps {
+    count: number;
+    status: string;
+    userName: string;
+    onClick: () => void;
+    isTotal?: boolean;
+}
+
+const CountCell = React.memo<CountCellProps>(
+    ({ count, status, userName, onClick, isTotal = false }) => {
+        if (count === 0) {
+            return (
+                <td
+                    className="py-1 px-2 text-center text-muted-foreground"
+                    style={{ fontVariantNumeric: 'tabular-nums' }}
+                >
+                    -
+                </td>
+            );
+        }
+
+        const statusStyle = isTotal
+            ? 'bg-gray-100 text-gray-800 border border-gray-300'
+            : getUnifiedStatusStyle(status);
+
+        return (
+            <td
+                className="py-1 px-2 text-center"
+                style={{ fontVariantNumeric: 'tabular-nums' }}
+            >
+                <button
+                    type="button"
+                    onClick={onClick}
+                    className={`inline-flex items-center justify-center min-w-[28px] px-1.5 py-0.5 text-xs font-medium rounded transition-all hover:ring-2 hover:ring-offset-1 hover:ring-gray-300 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-blue-500 ${statusStyle}`}
+                    aria-label={`View ${count} ${status} task${count !== 1 ? 's' : ''} for ${userName}`}
+                >
+                    {count}
+                </button>
+            </td>
+        );
+    }
+);
+CountCell.displayName = 'CountCell';
+
+// ==================== ProjectRow Component ====================
+
+interface ProjectRowProps {
+    project: ProjectTaskSummary;
+    user: UserTaskSummary;
+    isLast: boolean;
+    onCountClick: (filter: TaskPreviewFilter) => void;
+}
+
+const ProjectRow = React.memo<ProjectRowProps>(
+    ({ project, user, isLast, onCountClick }) => {
+        const treePrefix = isLast ? '\u2514\u2500' : '\u251C\u2500'; // └─ or ├─
+
+        return (
+            <tr className="bg-gray-50/50" style={{ height: '32px' }}>
+                <td className="py-1 px-3 text-gray-600 text-sm">
+                    <span className="flex items-center gap-1">
+                        <span
+                            aria-hidden="true"
+                            className="text-gray-400 font-mono text-xs w-5 inline-block"
+                        >
+                            {treePrefix}
+                        </span>
+                        <span className="truncate max-w-[150px]" title={project.project_name}>
+                            {project.project_name}
+                        </span>
+                    </span>
+                </td>
+                {STATUS_COLUMNS.map((col) => (
+                    <CountCell
+                        key={col.key}
+                        count={project.counts[col.key]}
+                        status={col.header}
+                        userName={user.user_name}
+                        isTotal={col.key === 'total'}
+                        onClick={() =>
+                            onCountClick({
+                                user_id: user.user_id,
+                                user_name: user.user_name,
+                                status: col.header,
+                                project_id: project.project_id,
+                                project_name: project.project_name,
+                            })
+                        }
+                    />
+                ))}
+            </tr>
+        );
+    }
+);
+ProjectRow.displayName = 'ProjectRow';
+
+// ==================== UserRow Component ====================
+
+interface UserRowProps {
+    user: UserTaskSummary;
+    isExpanded: boolean;
+    onToggleExpand: () => void;
+    onCountClick: (filter: TaskPreviewFilter) => void;
+}
+
+const UserRow = React.memo<UserRowProps>(
+    ({ user, isExpanded, onToggleExpand, onCountClick }) => {
+        const hasProjects = user.projects.length > 1;
+        const projectsId = `user-projects-${user.user_id}`;
+
+        return (
+            <>
+                <tr className="hover:bg-gray-50 transition-colors" style={{ height: '32px' }}>
+                    <td className="py-1 px-3 text-gray-900 text-sm font-medium">
+                        <span className="flex items-center gap-1">
+                            {hasProjects ? (
+                                <button
+                                    type="button"
+                                    onClick={onToggleExpand}
+                                    className="inline-flex items-center justify-center w-5 h-5 rounded hover:bg-gray-200 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    aria-expanded={isExpanded}
+                                    aria-controls={projectsId}
+                                    aria-label={`${isExpanded ? 'Collapse' : 'Expand'} project breakdown for ${user.user_name}`}
+                                >
+                                    {isExpanded ? (
+                                        <ChevronDown className="h-3.5 w-3.5 text-gray-500" />
+                                    ) : (
+                                        <ChevronRight className="h-3.5 w-3.5 text-gray-500" />
+                                    )}
+                                </button>
+                            ) : (
+                                <span className="w-5" />
+                            )}
+                            <span className="truncate max-w-[150px]" title={user.user_name}>
+                                {user.user_name}
+                            </span>
+                        </span>
+                    </td>
+                    {STATUS_COLUMNS.map((col) => (
+                        <CountCell
+                            key={col.key}
+                            count={user.totals[col.key]}
+                            status={col.header}
+                            userName={user.user_name}
+                            isTotal={col.key === 'total'}
+                            onClick={() =>
+                                onCountClick({
+                                    user_id: user.user_id,
+                                    user_name: user.user_name,
+                                    status: col.header,
+                                })
+                            }
+                        />
+                    ))}
+                </tr>
+                {isExpanded &&
+                    hasProjects &&
+                    user.projects.map((project, idx) => (
+                        <ProjectRow
+                            key={project.project_id}
+                            project={project}
+                            user={user}
+                            isLast={idx === user.projects.length - 1}
+                            onCountClick={onCountClick}
+                        />
+                    ))}
+            </>
+        );
+    }
+);
+UserRow.displayName = 'UserRow';
+
+// ==================== Main Component ====================
+
+export const TeamPerformanceSummary: React.FC<TeamPerformanceSummaryProps> = ({
+    hasAccess,
+}) => {
+    // Don't render if user doesn't have access
+    if (!hasAccess) {
+        return null;
+    }
+
+    const { summaryData, isLoading, error } = useTeamSummary();
+
+    // Section collapse state
+    const [isExpanded, setIsExpanded] = useState(true);
+
+    // Expanded user rows state
+    const [expandedUsers, setExpandedUsers] = useState<Set<string>>(new Set());
+
+    // Task dialog filter state
+    const [taskFilter, setTaskFilter] = useState<TaskPreviewFilter | null>(null);
+
+    // Fetch filtered tasks when dialog is open
+    const { tasks, isLoading: isLoadingTasks } = useFilteredTasks(taskFilter);
+
+    // Handlers
+    const toggleUserExpand = useCallback((userId: string) => {
+        setExpandedUsers((prev) => {
+            const next = new Set(prev);
+            if (next.has(userId)) {
+                next.delete(userId);
+            } else {
+                next.add(userId);
+            }
+            return next;
+        });
+    }, []);
+
+    const handleCountClick = useCallback((filter: TaskPreviewFilter) => {
+        // Don't open dialog for "Total" column
+        if (filter.status === 'Total') return;
+        setTaskFilter(filter);
+    }, []);
+
+    const handleCloseDialog = useCallback(() => {
+        setTaskFilter(null);
+    }, []);
+
+    // Derived data
+    const teamMembers = summaryData?.summary || [];
+    const memberCount = teamMembers.length;
+
+    // Content rendering based on state
+    const renderContent = () => {
+        if (isLoading) {
+            return (
+                <div className="p-4 space-y-2">
+                    <Skeleton className="h-8 w-full" />
+                    <Skeleton className="h-8 w-full" />
+                    <Skeleton className="h-8 w-full" />
+                </div>
+            );
+        }
+
+        if (error) {
+            return (
+                <div className="p-4 text-sm text-red-600">
+                    Failed to load team summary. Please try again later.
+                </div>
+            );
+        }
+
+        if (memberCount === 0) {
+            return (
+                <div className="p-4 text-sm text-muted-foreground text-center">
+                    No task assignments found
+                </div>
+            );
+        }
+
+        return (
+            <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                        <tr>
+                            <th
+                                scope="col"
+                                className="text-left py-2 px-3 font-medium text-gray-600 text-xs uppercase tracking-wider min-w-[180px]"
+                            >
+                                Team Member
+                            </th>
+                            {STATUS_COLUMNS.map((col) => (
+                                <th
+                                    key={col.key}
+                                    scope="col"
+                                    className="text-center py-2 px-2 font-medium text-gray-600 text-xs uppercase tracking-wider whitespace-nowrap"
+                                    title={col.header}
+                                >
+                                    {col.abbrev}
+                                </th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                        {teamMembers.map((user) => (
+                            <UserRow
+                                key={user.user_id}
+                                user={user}
+                                isExpanded={expandedUsers.has(user.user_id)}
+                                onToggleExpand={() => toggleUserExpand(user.user_id)}
+                                onCountClick={handleCountClick}
+                            />
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        );
+    };
+
+    const sectionId = 'team-performance-content';
+
+    return (
+        <>
+            <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
+                <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
+                    <CollapsibleTrigger asChild>
+                        <button
+                            type="button"
+                            className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 rounded-t-lg"
+                            aria-expanded={isExpanded}
+                            aria-controls={sectionId}
+                        >
+                            <span className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                                <Users className="h-4 w-4 text-gray-500" />
+                                Team Performance Summary
+                            </span>
+                            <span className="flex items-center gap-2">
+                                {!isLoading && memberCount > 0 && (
+                                    <Badge
+                                        variant="secondary"
+                                        className="bg-gray-100 text-gray-700 border border-gray-200 text-xs"
+                                    >
+                                        {memberCount} member{memberCount !== 1 ? 's' : ''}
+                                    </Badge>
+                                )}
+                                {isExpanded ? (
+                                    <ChevronDown className="h-4 w-4 text-gray-500" />
+                                ) : (
+                                    <ChevronRight className="h-4 w-4 text-gray-500" />
+                                )}
+                            </span>
+                        </button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent id={sectionId}>
+                        <div className="border-t border-gray-200">{renderContent()}</div>
+                    </CollapsibleContent>
+                </Collapsible>
+            </div>
+
+            {/* Task List Dialog */}
+            <TaskListDialog
+                isOpen={taskFilter !== null}
+                onClose={handleCloseDialog}
+                filter={taskFilter}
+                tasks={tasks}
+                isLoading={isLoadingTasks}
+            />
+        </>
+    );
+};

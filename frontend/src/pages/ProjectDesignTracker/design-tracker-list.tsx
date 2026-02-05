@@ -45,6 +45,7 @@ import { DesignPackagesMaster } from "./components/DesignPackagesmaster";
 import { ProjectWiseCard } from "./components/ProjectWiseCard";
 import {useUserData} from "@/hooks/useUserData";
 import { NewTrackerModal } from "./components/NewTrackerModal";
+import { TeamPerformanceSummary } from "./components/TeamPerformanceSummary";
 
 const DOCTYPE = 'Project Design Tracker';
 const FE_TASK_STATUS_OPTIONS = ["Todo", "In Progress", "Done", "Blocked", "On Hold", "Submitted"];
@@ -845,6 +846,9 @@ export const DesignTrackerList: React.FC = () => {
 
             {activeTab === DESIGN_TABS.TASK_WISE && (
                 <div className="space-y-5 px-4 md:px-6">
+                    {/* Team Performance Summary - Admin/Lead Only */}
+                    <TeamPerformanceSummary hasAccess={hasEditStructureAccess} />
+
                     {/* Status Filter Tabs - Enhanced Design */}
                     <div className="bg-gray-50/70 rounded-lg p-3 border border-gray-200">
                         <div className="flex items-center gap-2 mb-2">
