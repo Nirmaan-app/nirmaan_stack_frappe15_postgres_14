@@ -519,6 +519,15 @@ export const SevendaysWorkPlan = ({
     const { role } = useUserData();
     const isProjectManager = role === "Nirmaan Project Manager Profile";
 
+    const canViewEmptyZones = useMemo(() => {
+        const allowedRoles = [
+            "Nirmaan Admin Profile",
+            "Nirmaan PMO Executive Profile",
+            "Nirmaan Project Lead Profile"
+        ];
+        return allowedRoles.includes(role || "");
+    }, [role]);
+
     // --- Date/Duration State (Local) ---
     const activeDurationParam = useUrlParam("planningDuration");
     
@@ -1019,30 +1028,28 @@ export const SevendaysWorkPlan = ({
                             <h3 className="text-lg sm:text-xl font-bold text-gray-900">Work Plan</h3>
                         </div>
                         {/* GLOBAL EXPORT BUTTONS (ALL ZONES) */}
-                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pb-1 sm:pb-0">
+                        <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-2 pb-1 lg:pb-0">
                             <Button
                                 variant="outline"
-                                size="sm"
-                                className="justify-center gap-1.5 sm:gap-2 h-8 sm:h-8 text-xs border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-300 border bg-white whitespace-nowrap"
+                                className="justify-center gap-2 h-9 text-sm border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-300 border bg-white whitespace-nowrap"
                                 onClick={(e) => openBufferDialog(e, undefined)}
                                 disabled={isDownloading}
                                 title="Client Export Buffered plan for ALL zones"
                             >
-                                <Download className="h-3.5 w-3.5" />
+                                <Download className="h-4 w-4" />
                                 <span>Client Download (All)</span>
                             </Button>
                             <Button
                                 variant="outline"
-                                size="sm"
-                                className="justify-center gap-1.5 sm:gap-2 h-8 sm:h-8 text-xs border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-300 border bg-white whitespace-nowrap"
+                                className="justify-center gap-2 h-9 text-sm border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-300 border bg-white whitespace-nowrap"
                                 onClick={handleDownloadAll}
                                 disabled={isDownloading}
                                 title="Internal Export plan for ALL zones"
                             >
                                 {isDownloading ? (
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    <Loader2 className="h-4 w-4 animate-spin" />
                                 ) : (
-                                    <Download className="h-3.5 w-3.5" />
+                                    <Download className="h-4 w-4" />
                                 )}
                                 <span>Internal Download (All)</span>
                             </Button>
@@ -1061,7 +1068,7 @@ export const SevendaysWorkPlan = ({
                         {/* Horizontal scroll container on mobile */}
                         <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">
                             <div className="flex gap-1.5 sm:flex-wrap pb-1 sm:pb-0">
-                                {zones.filter(zone => (zoneCounts[zone] || 0) > 0).map((zone) => (
+                                {zones.filter(zone => (zoneCounts[zone] || 0) >= (canViewEmptyZones ? 0 : 1)).map((zone) => (
                                     <button
                                         key={zone}
                                         type="button"
@@ -1076,7 +1083,7 @@ export const SevendaysWorkPlan = ({
                                             ? "bg-white text-sky-600"
                                             : "bg-white text-gray-600"
                                             }`}>
-                                            {zoneCounts[zone]}
+                                            {zoneCounts[zone] || 0}
                                         </span>
                                     </button>
                                 ))}
@@ -1085,30 +1092,28 @@ export const SevendaysWorkPlan = ({
                     </div>
 
                     {/* Zone-specific Export Buttons */}
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center sm:justify-end gap-2 px-3 sm:px-4 py-2 bg-gray-50/50 rounded-b">
+                    <div className="flex flex-col lg:flex-row items-stretch lg:items-center lg:justify-end gap-2 px-3 lg:px-4 py-2 bg-gray-50/50 rounded-b">
                         <Button
                             variant="outline"
-                            size="sm"
-                            className="justify-center h-8 text-xs text-gray-600 gap-1.5 px-3 border-gray-300"
+                            className="justify-center h-9 text-[10px] sm:text-xs lg:text-sm text-gray-600 gap-2 px-3 border-gray-300"
                             onClick={(e) => openBufferDialog(e, activeZone)}
                             disabled={isDownloading}
                             title={`Client Buffer Export ${activeZone}`}
                         >
-                            <Download className="h-3.5 w-3.5" />
+                            <Download className="h-4 w-4" />
                             <span>Client Download <span className="text-red-600 font-medium">{activeZone}</span></span>
                         </Button>
                         <Button
                             variant="outline"
-                            size="sm"
-                            className="justify-center h-8 text-xs text-gray-600 hover:text-blue-600 gap-1.5 px-3"
+                            className="justify-center h-9 text-[10px] sm:text-xs lg:text-sm text-gray-600 hover:text-blue-600 gap-2 px-3"
                             onClick={handleDownloadZone}
                             disabled={isDownloading}
                             title={`Internal Export ${activeZone} data`}
                         >
                             {isDownloading ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
+                                <Loader2 className="h-4 w-4 animate-spin" />
                             ) : (
-                                <Download className="h-3 w-3" />
+                                <Download className="h-4 w-4" />
                             )}
                             <span>Internal Download <span className="text-red-600 font-medium">{activeZone}</span></span>
                         </Button>
