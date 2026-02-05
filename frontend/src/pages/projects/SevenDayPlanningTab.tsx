@@ -4,6 +4,7 @@ import { SevenDaysMaterialPlan } from "./components/planning/SevenDaysMaterialPl
 import { SevendaysWorkPlan } from "./components/planning/SevendaysWorkPlan";
 import { useUrlParam } from "@/hooks/useUrlParam";
 import { urlStateManager } from "@/utils/urlStateManager";
+import { useUserData } from "@/hooks/useUserData"; // Added import
 import { SevenDayPlanningTabs, PLANNING_TABS, PlanningTabValue } from "./components/planning/SevenDayPlanningTabs";
 import { cn } from "@/lib/utils";
 import { CashflowPlan } from "./CashflowPlan/CashflowPlan";
@@ -14,10 +15,16 @@ export const SevenDayPlanningTab = ({ isOverview, projectName }: { isOverview?: 
   // --- URL State Management ---
 
   // 1. Active Tab
+  const { role } = useUserData() // Added user data hook logic inline or imported
+  const isProcurementExecutive = role === "Nirmaan Procurement Executive Profile";
+
   const activeTabParam = useUrlParam("planningTab");
+  
+  const defaultTab = isProcurementExecutive ? PLANNING_TABS.MATERIAL_PLAN : PLANNING_TABS.WORK_PLAN;
+
   const activeTab = (Object.values(PLANNING_TABS).includes(activeTabParam as PlanningTabValue) 
       ? activeTabParam 
-      : PLANNING_TABS.WORK_PLAN) as PlanningTabValue;
+      : defaultTab) as PlanningTabValue;
 
   const setActiveTab = (tab: PlanningTabValue) => {
       urlStateManager.updateParam("planningTab", tab);
@@ -65,7 +72,7 @@ export const SevenDayPlanningTab = ({ isOverview, projectName }: { isOverview?: 
           />
         )}
         {activeTab === PLANNING_TABS.Cashflow_Plan && (
-          <CashflowPlan projectId={projectId}  isOverview={isOverview}  projectName={projectName}/>
+          <CashflowPlan projectId={projectId || ""}  isOverview={isOverview} />
         )}
       </div>
     </div>

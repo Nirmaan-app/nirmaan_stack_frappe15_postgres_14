@@ -26,6 +26,14 @@ import { useEffect, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
 
+// Safely parse JSON - handles both string and already-parsed object
+const safeJsonParse = <T,>(value: string | T): T => {
+    if (typeof value === 'string') {
+        return JSON.parse(value);
+    }
+    return value as T;
+};
+
 const ApproveAmendSR = () => {
 
     const { srId } = useParams<{ srId: string }>()
@@ -136,8 +144,8 @@ const ApproveAmendSOPage = ({ so_data, versionsData, usersList }: ApproveAmendPO
             const orderChange = versionsData[0];
 
             if (orderChange) {
-                // Parse the 'data' field from the orderChange object
-                const parsedData = JSON.parse(orderChange.data);
+                // Parse the 'data' field from the orderChange object (may already be parsed)
+                const parsedData = safeJsonParse<{ changed: any[] }>(orderChange.data);
                 const { changed } = parsedData;
 
                 // Find the change related to 'order_list'
@@ -202,7 +210,7 @@ const ApproveAmendSOPage = ({ so_data, versionsData, usersList }: ApproveAmendPO
             } else {
                 await updateDoc("Service Requests", so_data.name, {
                     status: "Approved",
-                    service_category_list: previousCategoryList?.length ? {list : previousCategoryList} : JSON.parse(so_data?.service_category_list),
+                    service_category_list: previousCategoryList?.length ? {list : previousCategoryList} : safeJsonParse(so_data?.service_category_list),
                     service_order_list: { list: previousOrderList },
                     vendor: previousVendor ? previousVendor : so_data.vendor
                 })

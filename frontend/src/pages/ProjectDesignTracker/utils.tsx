@@ -14,8 +14,13 @@ export const getUnifiedStatusStyle = (status: string) => {
 
     const lowerStatus = status.toLowerCase();
 
-    // 1. Approved/Done/Submitted -> Green (completed states)
-    if (lowerStatus.includes('approved') || lowerStatus.includes('done') || lowerStatus.includes('submitted')) {
+    // 1a. Approved -> Dark Green with white text (final completion state)
+    if (lowerStatus.includes('approved')) {
+        return 'bg-green-700 text-white border border-green-800';
+    }
+
+    // 1b. Done/Submitted -> Light Green (completed but not final)
+    if (lowerStatus.includes('done') || lowerStatus.includes('submitted')) {
         return 'bg-green-50 text-green-700 border border-green-200';
     }
 
@@ -77,51 +82,53 @@ export const formatDeadlineShort = (dateString: string) => {
 };
 
 
+export const parseDesignersFromField = (designerField: unknown): AssignedDesignerDetail[] => {
+    if (!designerField) return [];
+
+    // Already an object with list property (from useDesignTrackerLogic state)
+    if (typeof designerField === 'object' && designerField !== null && 'list' in designerField) {
+        const obj = designerField as { list: AssignedDesignerDetail[] };
+        if (Array.isArray(obj.list)) return obj.list;
+    }
+
+    // Already an array
+    if (Array.isArray(designerField)) return designerField;
+
+    // JSON string
+    if (typeof designerField === 'string' && designerField.trim() !== '') {
+        try {
+            const parsed = JSON.parse(designerField);
+            if (parsed?.list && Array.isArray(parsed.list)) return parsed.list;
+            if (Array.isArray(parsed)) return parsed;
+        } catch { /* silent fail */ }
+    }
+
+    return [];
+};
+
 export const getAssignedNameForDisplay = (task: DesignTrackerTask): React.ReactNode => {
-        const designerField = task.assigned_designers as unknown;
-        let designers: AssignedDesignerDetail[] = [];
+    const designers = parseDesignersFromField(task.assigned_designers);
 
-        if (designerField) {
-            // Check if already an object with list property (from useDesignTrackerLogic state)
-            if (typeof designerField === 'object' && designerField !== null && 'list' in designerField) {
-                const obj = designerField as { list: AssignedDesignerDetail[] };
-                if (Array.isArray(obj.list)) {
-                    designers = obj.list;
-                }
-            } else if (Array.isArray(designerField)) {
-                designers = designerField;
-            } else if (typeof designerField === 'string' && designerField.trim() !== '') {
-                try {
-                    const parsed = JSON.parse(designerField);
-                    if (parsed && typeof parsed === 'object' && Array.isArray(parsed.list)) {
-                        designers = parsed.list;
-                    } else if (Array.isArray(parsed)) {
-                        designers = parsed;
-                    }
-                } catch (e) { /* silent fail */ }
-            }
-        }
-
-        if (designers.length > 0) {
-            return (
-                <div className="flex flex-wrap gap-1 justify-start">
-                    {designers.map((d, index) => (
-                        <Badge
-                            key={index}
-                            variant="secondary"
-                            className="px-1.5 py-0 text-[9px] font-medium bg-blue-50 text-blue-700 border border-blue-200 rounded-full whitespace-nowrap"
-                        >
-                            {d.userName || d.userId}
-                        </Badge>
-                    ))}
-                </div>
-            );
-        } else {
-            return (
-                <span className="text-gray-400 text-xs">--</span>
-            );
-        }
-    };
+    if (designers.length > 0) {
+        return (
+            <div className="flex flex-wrap gap-1 justify-start">
+                {designers.map((d, index) => (
+                    <Badge
+                        key={index}
+                        variant="secondary"
+                        className="px-1.5 py-0 text-[9px] font-medium bg-blue-50 text-blue-700 border border-blue-200 rounded-full whitespace-nowrap"
+                    >
+                        {d.userName || d.userId}
+                    </Badge>
+                ))}
+            </div>
+        );
+    } else {
+        return (
+            <span className="text-gray-400 text-xs">--</span>
+        );
+    }
+};
 
 
     

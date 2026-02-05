@@ -396,6 +396,7 @@ const latestCompletedReportDateIsToday =
   const [isUpdateManpowerDialogOpen, setIsUpdateManpowerDialogOpen] = useState(false);
   const [isLocalSaving, setIsLocalSaving] = useState(false);
   const [summaryManpowerRoles, setSummaryManpowerRoles] = useState<ManpowerRole[]>([]);
+  const [summaryManpowerRemarks, setSummaryManpowerRemarks] = useState<string>("");
   const [reportsLoading, setReportsLoading] = useState(false);
   const [localDailyReport, setLocalDailyReport] = useState<ProjectProgressReportData | null>(null);
 
@@ -1018,6 +1019,7 @@ const [milestoneForSaveAsIs, setMilestoneForSaveAsIs] = useState<LocalMilestoneD
 
       setSummaryManpowerRoles(combinedRoles);
       setDialogRemarks(localDailyReport.manpower_remarks || "");
+      setSummaryManpowerRemarks(localDailyReport.manpower_remarks || "");
       setDialogManpowerRoles(combinedRoles.map(item => ({
         id: `dialog_${item.label}`,
         label: item.label,
@@ -1026,6 +1028,7 @@ const [milestoneForSaveAsIs, setMilestoneForSaveAsIs] = useState<LocalMilestoneD
     } else if (activeTabValue === "Work force") {
       setSummaryManpowerRoles(getManpowerRolesDefault());
       setDialogRemarks("");
+      setSummaryManpowerRemarks("");
       setDialogManpowerRoles(getManpowerRolesDefault());
     }
   }, [localDailyReport, summaryWorkDate, activeTabValue]);
@@ -2140,6 +2143,13 @@ console.log(user)
                           ))
                         )}
                       </div>
+                      
+                      {summaryManpowerRemarks && (
+                        <div className="mt-4 p-3 bg-gray-50 rounded-md border text-sm text-gray-700">
+                          <span className="font-semibold block mb-1 text-gray-900">Remarks:</span>
+                          {summaryManpowerRemarks}
+                        </div>
+                      )}
                     </CardContent>
                   {/* <div className="flex items-center justify-between mt-4 gap-20"> 
     <Button
@@ -2570,6 +2580,11 @@ console.log(user)
           />
         </CardHeader>
         <CardContent className="pt-0">
+           {localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').length < 4 && (
+             <div className="bg-blue-50 text-blue-700 px-4 py-2 rounded-md mb-4 text-sm font-medium border border-blue-200 w-full text-center">
+               ℹ️ At least 4 photos are required for the final submission.
+            </div>
+           )}
           {localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').length > 0 ? (
             <div className="space-y-4">
               {localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').map((photo) => (

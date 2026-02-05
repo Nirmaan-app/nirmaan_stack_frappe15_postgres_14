@@ -99,6 +99,9 @@ import CashflowPlanTrackerDetail from "@/pages/CashflowPlanTracker/cashflow-plan
 import TDSApprovalList from "@/pages/tds/TDSApprovalList";
 import TDSApprovalDetail from "@/pages/tds/TDSApprovalDetail";
 
+//Help Repository
+import HelpRepositoryPage from "@/pages/help-repository/HelpRepositoryPage";
+
 export const appRoutes: RouteObject[] = [
   // --- Public Routes ---
   { path: "/login", element: <Login /> },
@@ -600,6 +603,7 @@ export const appRoutes: RouteObject[] = [
           { path: "design-packages", element: <DesignPackages /> },
           { path: "critical-po-categories", element: <CriticalPOCategories /> },
           { path: "tds-repository", element: <TDSRepositoryMaster /> },
+          { path: "help-repository", element: <HelpRepositoryPage /> },
 
           { path: "pdf", element: <PDF /> }, // Should PDF rendering be a route? Or triggered differently?
           { path: "milestone-update", element: <NewMilestones /> },

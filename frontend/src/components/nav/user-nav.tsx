@@ -13,20 +13,21 @@ import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { useUserData } from "@/hooks/useUserData";
 import { useContext } from "react";
 import { UserContext } from "@/utils/auth/UserProvider";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
 } from "../ui/sidebar";
-import { BadgeCheck, Bell, ChevronsUpDown, LogOut } from "lucide-react";
+import { BadgeCheck, Bell, ChevronsUpDown, HelpCircle, LogOut } from "lucide-react";
 import { Notifications } from "./notifications";
 
 export function UserNav({ isMobileMain = false }) {
   const userData = useUserData();
   const { logout } = useContext(UserContext);
   const navigate = useNavigate();
+  const location = useLocation();
 
   const { isMobile, state, toggleSidebar } = useSidebar();
 
@@ -51,6 +52,22 @@ export function UserNav({ isMobileMain = false }) {
 
   return (
     <SidebarMenu>
+      <SidebarMenuItem>
+        <SidebarMenuButton
+          size="lg"
+          className={`${location.pathname === "/help-repository" ? "bg-[#FFD3CC]" : ""}`}
+          onClick={() => {
+            if (isMobile && !isMobileMain) toggleSidebar();
+            navigate("/help-repository");
+          }}
+          tooltip="Help"
+        >
+          <div className="flex gap-4 ml-1 items-center">
+            <HelpCircle className="relative max-md:w-5 max-md:h-5" />
+            <span className="font-medium">Help</span>
+          </div>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
       <SidebarMenuItem>{!isMobileMain && <Notifications />}</SidebarMenuItem>
       <SidebarMenuItem>
         <DropdownMenu>

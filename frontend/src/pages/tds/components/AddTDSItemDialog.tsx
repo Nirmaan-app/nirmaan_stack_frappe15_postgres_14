@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,7 +14,7 @@ import {
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { PlusCircle } from "lucide-react";
+import { PlusCircle, Search, Plus } from "lucide-react";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { useFrappeCreateDoc, useFrappeFileUpload, useFrappeUpdateDoc } from "frappe-react-sdk";
 import RSelect from "react-select";
@@ -26,6 +26,150 @@ interface AddTDSItemDialogProps {
     onSuccess: () => void;
 }
 
+// Custom Item Dialog Component
+interface CustomItemDialogProps {
+    open: boolean;
+    onClose: () => void;
+    onSelect: (item: { id: string; name: string; category: string; workPackage: string; isNew: boolean }) => void;
+    allCustomItems: Array<{ id: string; name: string; wp: string; cat: string }>;
+    standardItems: Array<{ label: string; value: string; category?: string; categoryName?: string }>;
+    catList: any[];
+}
+
+const CustomItemDialog: React.FC<CustomItemDialogProps> = ({ 
+    open, onClose, onSelect, allCustomItems, standardItems, catList 
+}) => {
+    const [searchQuery, setSearchQuery] = useState("");
+
+    // Reset search when opened
+    useEffect(() => {
+        if (open) setSearchQuery("");
+    }, [open]);
+
+    // Filter custom items by search
+    const matchingCustom = useMemo(() => {
+        if (!searchQuery.trim()) return allCustomItems.slice(0, 5);
+        return allCustomItems.filter(item => 
+            item.name.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+    }, [allCustomItems, searchQuery]);
+
+    // Filter standard items by search
+    const matchingStandard = useMemo(() => {
+        if (!searchQuery.trim()) return standardItems.slice(0, 5);
+        return standardItems.filter(item => 
+            item.label.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+    }, [standardItems, searchQuery]);
+
+    const handleSelectCustom = (item: typeof allCustomItems[0]) => {
+        onSelect({
+            id: item.id,
+            name: item.name,
+            category: item.cat,
+            workPackage: item.wp,
+            isNew: false
+        });
+    };
+
+    const handleSelectStandard = (item: typeof standardItems[0]) => {
+        const category = catList?.find(c => c.name === item.category);
+        onSelect({
+            id: item.value,
+            name: item.label,
+            category: item.category || "",
+            workPackage: category?.work_package || "",
+            isNew: false
+        });
+    };
+
+    const handleCreateNew = () => {
+        onSelect({
+            id: "",
+            name: searchQuery,
+            category: "",
+            workPackage: "",
+            isNew: true
+        });
+    };
+
+    return (
+        <Dialog open={open} onOpenChange={() => { onClose(); setSearchQuery(""); }}>
+            <DialogContent className="sm:max-w-[450px] p-0 rounded-xl">
+                <DialogHeader className="p-4 pb-2">
+                    <DialogTitle className="text-lg font-bold">Custom Item</DialogTitle>
+                </DialogHeader>
+                <div className="px-4 pb-4 space-y-4">
+                    <div className="relative">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                        <Input
+                            placeholder="Type item name..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="pl-9"
+                            autoFocus
+                        />
+                    </div>
+
+                    <div className="max-h-[250px] overflow-y-auto space-y-3">
+                        {/* Matching Custom Items */}
+                        {matchingCustom.length > 0 && (
+                            <div>
+                                <p className="text-xs font-semibold text-gray-500 mb-1">── Matching Custom ──</p>
+                                {matchingCustom.map(item => (
+                                    <button
+                                        key={item.id}
+                                        onClick={() => handleSelectCustom(item)}
+                                        className="w-full text-left p-3 bg-yellow-50 border border-yellow-200 hover:bg-yellow-100 rounded-md text-sm flex items-center justify-between transition-colors mb-2"
+                                    >
+                                        <div className="flex flex-col">
+                                            <span className="font-semibold text-yellow-800">[{item.id}] {item.name}</span>
+                                            <span className="text-xs text-yellow-600 mt-1">{item.wp} → {item.cat}</span>
+                                        </div>
+                                        <PlusCircle className="h-5 w-5 text-red-500 drop-shadow-sm hover:text-red-600 transition-transform hover:scale-105" />
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Matching Standard Items */}
+                        {matchingStandard.length > 0 && (
+                            <div>
+                                <p className="text-xs font-semibold text-gray-500 mb-1">── Matching Standard ──</p>
+                                {matchingStandard.map(item => (
+                                    <button
+                                        key={item.value}
+                                        onClick={() => handleSelectStandard(item)}
+                                        className="w-full text-left p-3 bg-green-50 border border-green-200 hover:bg-green-100 rounded-md text-sm flex items-center justify-between transition-colors mb-2"
+                                    >
+                                        <div className="flex flex-col">
+                                            <span className="font-semibold text-green-800">{item.label}</span>
+                                            <span className="text-xs text-green-600 mt-1">({item.categoryName})</span>
+                                        </div>
+                                        <PlusCircle className="h-5 w-5 text-red-500 drop-shadow-sm hover:text-red-600 transition-transform hover:scale-105" />
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-2 border-t">
+                        <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+                        <Button 
+                            size="sm" 
+                            onClick={handleCreateNew}
+                            disabled={!searchQuery.trim()}
+                            className="bg-blue-600 hover:bg-blue-700"
+                        >
+                            + Create New Custom
+                        </Button>
+                    </div>
+                </div>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
 
 
 export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess }) => {
@@ -33,6 +177,10 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [isCustomMake, setIsCustomMake] = useState(false);
     const [customMake, setCustomMake] = useState("");
+    const [customItemDialogOpen, setCustomItemDialogOpen] = useState(false);
+    const [isCustomItem, setIsCustomItem] = useState(false);
+    const [customItemName, setCustomItemName] = useState("");
+    
     const { createDoc, loading: creating } = useFrappeCreateDoc();
     const { upload: uploadFile, loading: uploading } = useFrappeFileUpload();
     const { updateDoc } = useFrappeUpdateDoc();
@@ -43,53 +191,61 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
             work_package: "",
             category: "",
             tds_item_id: "",
+            tds_item_name: "",
+            is_custom_item: false,
             item_description: "",
             make: "",
         },
     });
 
-    // Reactively fetch existing entries for the selected category to filter items and options
     const selectedCategory = form.watch("category");
     const watchedTdsItemId = form.watch("tds_item_id");
     const selectedWP = form.watch("work_package");
 
-    // Use shared hook for options and filtering logic
     const { 
         wpOptions, 
         catOptions, 
-        itemOptions, 
-        makeOptions 
+        itemOptionsForWP,
+        makeOptions,
+        allCustomItems,
+        getCategoryForItem,
+        catList
     } = useTDSItemOptions({
         selectedWP,
         selectedCategory,
         watchedTdsItemId
     });
 
-    // Track previous values to detect changes reliably
+    // Build item options with "+ Custom Item" at the end
+    const itemOptionsWithCustom = useMemo(() => {
+        const standardItems = itemOptionsForWP.map(item => ({
+            label: item.label,
+            value: item.value,
+            category: item.category,
+            categoryName: item.categoryName
+        }));
+
+        return [...standardItems, { label: "+ Custom Item", value: "__custom__", category: "", categoryName: "" }];
+    }, [itemOptionsForWP]);
+
+    // Track previous values
     const prevWPRef = useRef(selectedWP);
-    const prevCatRef = useRef(selectedCategory);
     const prevItemRef = useRef(watchedTdsItemId);
 
     // Reset downstream fields when Work Package changes
     useEffect(() => {
         if (selectedWP !== prevWPRef.current) {
-            form.setValue("category", "");
             form.setValue("tds_item_id", "");
+            form.setValue("category", "");
             form.setValue("make", "");
             form.setValue("item_description", "");
+            form.setValue("tds_item_name", "");
+            form.setValue("is_custom_item", false);
+            setIsCustomItem(false);
+            setCustomItemName("");
             prevWPRef.current = selectedWP;
         }
     }, [selectedWP, form]);
-
-    // Reset downstream fields when Category changes
-    useEffect(() => {
-        if (selectedCategory !== prevCatRef.current) {
-            form.setValue("tds_item_id", "");
-            form.setValue("make", "");
-            form.setValue("item_description", "");
-            prevCatRef.current = selectedCategory;
-        }
-    }, [selectedCategory, form]);
 
     // Reset Make when Item changes
     useEffect(() => {
@@ -100,18 +256,6 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
         }
     }, [watchedTdsItemId, form]);
     
-    // Track previous Make to detect changes
-    const prevMakeRef = useRef(form.watch("make"));
-    const watchedMake = form.watch("make");
-
-    // Reset Description when Make changes
-    useEffect(() => {
-        if (watchedMake !== prevMakeRef.current) {
-             form.setValue("item_description", "");
-             prevMakeRef.current = watchedMake;
-        }
-    }, [watchedMake, form]);
-    
     // Reset form when dialog closes
     useEffect(() => {
         if (!open) {
@@ -119,19 +263,89 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
             setSelectedFile(null);
             setIsCustomMake(false);
             setCustomMake("");
+            setIsCustomItem(false);
+            setCustomItemName("");
         }
     }, [open, form]);
 
+    // Handle item selection
+    const handleItemChange = (opt: any) => {
+        if (opt?.value === "__custom__") {
+            setCustomItemDialogOpen(true);
+        }
+         else {
+            // Standard or Existing Custom Item selected
+            const isCustom = opt?.value?.startsWith("CUS-");
+            const itemInfo = getCategoryForItem(opt?.value);
+            
+            if (itemInfo) {
+                form.setValue("category", itemInfo.category);
+                if (itemInfo.workPackage && itemInfo.workPackage !== form.getValues("work_package")) {
+                     prevWPRef.current = itemInfo.workPackage;
+                     form.setValue("work_package", itemInfo.workPackage);
+                }
+            }
+            
+            form.setValue("tds_item_id", opt?.value);
+            form.setValue("tds_item_name", opt?.label || "");
+            
+            setIsCustomItem(isCustom);
+            setCustomItemName(isCustom ? (opt?.label || "") : "");
+            form.setValue("is_custom_item", isCustom);
+        }
+    };
+
+    // Handle custom item dialog selection
+    const handleCustomItemSelect = (item: { id: string; name: string; category: string; workPackage: string; isNew: boolean }) => {
+        setCustomItemDialogOpen(false);
+        
+        if (item.isNew) {
+            // Creating new custom item
+            setIsCustomItem(true);
+            setCustomItemName(item.name);
+            form.setValue("tds_item_id", "");
+            form.setValue("tds_item_name", item.name);
+            form.setValue("is_custom_item", true);
+            // User needs to select category manually
+        } else {
+            // Selected existing custom or standard item
+            setIsCustomItem(item.id.startsWith("CUS-"));
+            setCustomItemName(item.name);
+            form.setValue("tds_item_id", item.id);
+            form.setValue("tds_item_name", item.name);
+            form.setValue("is_custom_item", item.id.startsWith("CUS-"));
+            form.setValue("category", item.category);
+            
+            if (item.workPackage) {
+                // Determine if WP is changing
+                const currentWP = form.getValues("work_package");
+                if (item.workPackage !== currentWP) {
+                    // Update ref to prevent useEffect from resetting fields
+                    prevWPRef.current = item.workPackage;
+                }
+                form.setValue("work_package", item.workPackage);
+            }
+        }
+    };
+
     const onSubmit = async (values: TDSItemValues) => {
         try {
-            // 1. Create the Doc
-            const newDoc = await createDoc("TDS Repository", {
+            const docData: any = {
                 work_package: values.work_package,
                 category: values.category,
-                tds_item_id: values.tds_item_id,
                 description: values.item_description,
                 make: values.make,
-            });
+            };
+
+            // If custom item, send tds_item_name (backend will generate ID)
+            if (values.is_custom_item && !values.tds_item_id) {
+                docData.tds_item_name = values.tds_item_name;
+            } else {
+                docData.tds_item_id = values.tds_item_id;
+                docData.tds_item_name = values.tds_item_name; // Always send item name for display
+            }
+
+            const newDoc = await createDoc("TDS Repository", docData);
 
             if (newDoc && newDoc.name && selectedFile) {
                 const uploadResp = await uploadFile(selectedFile, {
@@ -141,7 +355,6 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                     isPrivate: true
                 });
 
-                // Explicitly update the doc with the file URL if it wasn't attached automatically
                 const responseData = uploadResp as any;
                 const fileUrl = responseData?.message?.file_url || responseData?.file_url;
                 if (fileUrl) {
@@ -154,11 +367,30 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
             form.reset();
             setSelectedFile(null);
             setOpen(false);
+            toast({ title: "Success", description: "TDS Item created successfully" });
             onSuccess();
-        } catch (e) {
+        } catch (e: any) {
             console.error("Error creating TDS Item:", e);
-            toast({ title: "Error", description: "Failed to create TDS Item", variant: "destructive" });
+            toast({ title: "Error", description: e?.message || "Failed to create TDS Item", variant: "destructive" });
         }
+    };
+
+    // Get display value for item field
+    const getItemDisplayValue = () => {
+        // If a custom item is selected (either new or existing CUS-*)
+        if (isCustomItem && customItemName) {
+            // Return the custom item with its actual ID (or placeholder for new items)
+            return { 
+                label: customItemName, 
+                value: watchedTdsItemId || "__new_custom__" 
+            };
+        }
+        // Standard item - find in options
+        if (watchedTdsItemId) {
+            const option = itemOptionsWithCustom.find(opt => opt.value === watchedTdsItemId);
+            return option || null;
+        }
+        return null;
     };
 
     return (
@@ -202,31 +434,7 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                                 )}
                             />
 
-                            {/* Category */}
-                            <FormField
-                                control={form.control}
-                                name="category"
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel className="text-sm font-semibold flex items-center">
-                                            Category<span className="text-red-500 ml-0.5">*</span>
-                                        </FormLabel>
-                                        <FormControl>
-                                            <RSelect
-                                                options={catOptions}
-                                                value={catOptions.find(opt => opt.value === field.value) || null}
-                                                onChange={(opt) => field.onChange(opt?.value)}
-                                                placeholder="Select product category"
-                                                className="react-select-container"
-                                                classNamePrefix="react-select"
-                                            />
-                                        </FormControl>
-                                        <FormMessage className="text-xs" />
-                                    </FormItem>
-                                )}
-                            />
-
-                            {/* Item Name */}
+                            {/* Item Name (NEW ORDER: after WP, before Category) */}
                             <FormField
                                 control={form.control}
                                 name="tds_item_id"
@@ -236,13 +444,69 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                                             Item Name<span className="text-red-500 ml-0.5">*</span>
                                         </FormLabel>
                                         <FormControl>
+                                            {isCustomItem ? (
+                                                <div className="flex items-center justify-between p-2 border rounded-md bg-yellow-50 border-yellow-200">
+                                                    <div className="flex flex-col">
+                                                        <span className="text-sm font-semibold text-yellow-800">
+                                                            {customItemName}
+                                                        </span>
+                                                        <span className="text-xs text-yellow-600">
+                                                            ID: {field.value}
+                                                        </span>
+                                                    </div>
+                                                    <Button
+                                                        type="button"
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="text-yellow-700 hover:text-yellow-900 hover:bg-yellow-100 h-8 px-2 text-xs"
+                                                        onClick={() => setCustomItemDialogOpen(true)}
+                                                    >
+                                                        Edit / Change
+                                                    </Button>
+                                                </div>
+                                            ) : (
+                                                <RSelect
+                                                    options={itemOptionsWithCustom}
+                                                    value={getItemDisplayValue()}
+                                                    onChange={handleItemChange}
+                                                    placeholder="Select Item"
+                                                    className="react-select-container"
+                                                    classNamePrefix="react-select"
+                                                    isDisabled={!selectedWP}
+                                                    formatOptionLabel={(option) => (
+                                                        option.value === "__custom__" ? (
+                                                            <span className="text-blue-600 font-medium">+ Custom Item</span>
+                                                        ) : option.label
+                                                    )}
+                                                />
+                                            )}
+                                        </FormControl>
+                                        <FormMessage className="text-xs" />
+                                    </FormItem>
+                                )}
+                            />
+
+                            {/* Category (AUTO-FILLED when item selected) */}
+                            <FormField
+                                control={form.control}
+                                name="category"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel className="text-sm font-semibold flex items-center">
+                                            Category<span className="text-red-500 ml-0.5">*</span>
+                                            {!isCustomItem && selectedCategory && (
+                                                <span className="text-xs text-gray-400 ml-2">(auto-filled)</span>
+                                            )}
+                                        </FormLabel>
+                                        <FormControl>
                                             <RSelect
-                                                options={itemOptions}
-                                                value={itemOptions.find(opt => opt.value === field.value) || null}
+                                                options={catOptions}
+                                                value={catOptions.find(opt => opt.value === field.value) || null}
                                                 onChange={(opt) => field.onChange(opt?.value)}
-                                                placeholder="Select Item"
+                                                placeholder={isCustomItem ? "Select Category" : "Auto-filled from item"}
                                                 className="react-select-container"
                                                 classNamePrefix="react-select"
+                                                isDisabled={!isCustomItem && !!selectedCategory}
                                             />
                                         </FormControl>
                                         <FormMessage className="text-xs" />
@@ -301,10 +565,9 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                                                     placeholder="Select Make"
                                                     className="react-select-container"
                                                     classNamePrefix="react-select"
+                                                    isDisabled={!selectedCategory}
                                                     filterOption={(option, inputValue) => {
-                                                        // Always show "Others" option
                                                         if (option.data.value === "__others__") return true;
-                                                        // Default filter for other options
                                                         return option.label.toLowerCase().includes(inputValue.toLowerCase());
                                                     }}
                                                     styles={{
@@ -315,14 +578,8 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                                                                 color: '#2563eb',
                                                                 fontWeight: 600,
                                                                 borderTop: '1px solid #e5e7eb',
-                                                                position: 'sticky',
-                                                                bottom: 0,
                                                             } : {})
                                                         }),
-                                                        menuList: (base) => ({
-                                                            ...base,
-                                                            paddingBottom: 0,
-                                                        })
                                                     }}
                                                     formatOptionLabel={(option) => (
                                                         option.value === "__others__" ? (
@@ -349,8 +606,6 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                                         <FormLabel className="text-sm font-semibold flex items-center">
                                             Item Description <span className="text-gray-400 font-normal ml-1">(Optional)</span>
                                         </FormLabel>
-
-
                                         <FormControl>
                                             <Textarea placeholder="Type Description" {...field} className="bg-white border-gray-200 focus:ring-1 focus:ring-gray-300 min-h-[100px]" />
                                         </FormControl>
@@ -358,8 +613,6 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                                     </FormItem>
                                 )}
                             />
-
-                            
 
                             {/* Attach Document */}
                             <div className="space-y-1.5">
@@ -388,6 +641,16 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                     </Form>
                 </div>
             </DialogContent>
+
+            {/* Custom Item Dialog */}
+            <CustomItemDialog
+                open={customItemDialogOpen}
+                onClose={() => setCustomItemDialogOpen(false)}
+                onSelect={handleCustomItemSelect}
+                allCustomItems={allCustomItems}
+                standardItems={itemOptionsForWP}
+                catList={catList || []}
+            />
         </Dialog>
     );
 };

@@ -376,6 +376,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.SR_SUMMARY,
     PROJECT_PAGE_TABS.MATERIAL_USAGE,
     PROJECT_PAGE_TABS.PROJECT_EXPENSES,
+    PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
   ]), []);
 
   // Allowed tabs for Estimates Executive
@@ -439,6 +440,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         {
           label: "Critical POs",
           key: PROJECT_PAGE_TABS.CRITICAL_POS,
+        },
+         {
+          label: "Planning",
+          key: PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
         },
         {
           label: "WO Summary",

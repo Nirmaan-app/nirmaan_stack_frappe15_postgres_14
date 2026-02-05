@@ -550,7 +550,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile","Nirmaan Procurement Executive Profile"].includes(role)
       ? [
         {
           key: '/material-plan-tracker',
@@ -559,7 +559,7 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile"].includes(role)
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
       ? [
         {
           key: '/cashflow-plan-tracker',
@@ -625,7 +625,8 @@ export function NewSidebar() {
     'work-plan-tracker',
     'material-plan-tracker',
     'cashflow-plan-tracker',
-    'tds-approval'
+    'tds-approval',
+    'help-repository'
 
   ]), [])
 
@@ -659,7 +660,8 @@ export function NewSidebar() {
     '/work-plan-tracker': ['work-plan-tracker'],
     '/material-plan-tracker': ['material-plan-tracker'],
     '/cashflow-plan-tracker': ['cashflow-plan-tracker'],
-    '/tds-approval': ['tds-approval']
+    '/tds-approval': ['tds-approval'],
+    '/help-repository': ['help-repository']
   }), []);
 
   const openKey = useMemo(() => {
