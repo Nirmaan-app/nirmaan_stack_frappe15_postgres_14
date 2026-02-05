@@ -133,6 +133,15 @@ export interface TaskPreviewFilter {
     project_name?: string;
 }
 
+// Inline task expansion state (for TeamPerformanceSummary inline display)
+export interface InlineTaskExpansion {
+    userId: string;
+    userName: string;
+    status: string;
+    projectId?: string;
+    projectName?: string;
+}
+
 // Task preview item (for dialog)
 export interface TaskPreviewItem {
     name: string;
@@ -141,6 +150,7 @@ export interface TaskPreviewItem {
     project_id: string;
     tracker_id: string;
     design_category: string;
+    task_zone?: string;
     deadline?: string;
     task_status: string;
     task_sub_status?: string;

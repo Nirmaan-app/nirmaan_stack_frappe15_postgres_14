@@ -1,5 +1,14 @@
 // frontend/src/pages/ProjectDesignTracker/components/TaskListDialog.tsx
 
+/**
+ * @deprecated This component has been replaced by InlineTaskList for TeamPerformanceSummary.
+ * The inline approach provides a better UX by showing tasks directly in the table without
+ * opening a modal. This file is kept for reference but should not be used in new code.
+ *
+ * Migration: Use InlineTaskList component instead.
+ * See: TeamPerformanceSummary.tsx for usage example.
+ */
+
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { ExternalLink, Loader2 } from 'lucide-react';
