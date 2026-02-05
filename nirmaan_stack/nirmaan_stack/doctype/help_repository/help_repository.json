@@ -1,0 +1,107 @@
+{
+ "actions": [],
+ "allow_import": 1,
+ "creation": "2026-02-06 10:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "title",
+  "description",
+  "video_link"
+ ],
+ "fields": [
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Title",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "fieldname": "video_link",
+   "fieldtype": "Data",
+   "label": "Video Link",
+   "reqd": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-02-06 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Help Repository",
+ "naming_rule": "By fieldname",
+ "autoname": "field:title",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "export": 1,
+   "read": 1,
+   "role": "Nirmaan Admin Profile",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "export": 1,
+   "read": 1,
+   "role": "Nirmaan PMO Executive",
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Nirmaan Project Lead"
+  },
+  {
+   "read": 1,
+   "role": "Nirmaan Project Manager"
+  },
+  {
+   "read": 1,
+   "role": "Nirmaan Procurement Executive"
+  },
+  {
+   "read": 1,
+   "role": "Nirmaan Accountant"
+  },
+  {
+   "read": 1,
+   "role": "Nirmaan Estimates Executive"
+  },
+  {
+   "read": 1,
+   "role": "Nirmaan Design Lead"
+  },
+  {
+   "read": 1,
+   "role": "Nirmaan Design Executive"
+  },
+  {
+   "read": 1,
+   "role": "Nirmaan HR Executive"
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
