@@ -10,7 +10,7 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { Button } from '@/components/ui/button';
-import { Edit, Download, Plus, Check, Info, X, ChevronDown, EyeOff, CheckCircle2, User as UserIcon } from 'lucide-react';
+import { Edit, Download, Plus, Check, Info, X, ChevronDown, EyeOff, CheckCircle2, User as UserIcon, Users } from 'lucide-react';
 import { ProgressCircle } from '@/components/ui/ProgressCircle';
 import {
     Collapsible,
@@ -26,8 +26,9 @@ import { useDesignTrackerLogic } from './hooks/useDesignTrackerLogic';
 import { TailSpin } from 'react-loader-spinner';
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { formatDeadlineShort, getExistingTaskNames, getUnifiedStatusStyle } from './utils';
+import { formatDeadlineShort, getExistingTaskNames, getUnifiedStatusStyle, parseDesignersFromField } from './utils';
 import { TaskEditModal } from './components/TaskEditModal';
+import { BulkAssignDialog } from './components/BulkAssignDialog';
 import { RenameZoneDialog } from './components/RenameZoneDialog';
 import { useUserData } from "@/hooks/useUserData";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
@@ -46,6 +47,7 @@ import {
     ColumnFiltersState,
     SortingState,
     PaginationState,
+    RowSelectionState,
 } from "@tanstack/react-table";
 import { getTaskTableColumns, TASK_DATE_COLUMNS } from './config/taskTableColumns';
 
@@ -737,24 +739,7 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
     const hasEditStructureAccess = role === "Nirmaan Design Lead Profile" || role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator";
 
     const checkIfUserAssigned = useCallback((task: DesignTrackerTask) => {
-        const designerField = task.assigned_designers;
-        if (!designerField) return false;
-
-        let designers: AssignedDesignerDetail[] = [];
-        if (designerField && typeof designerField === 'object' && Array.isArray((designerField as any).list)) {
-            designers = (designerField as any).list;
-        } else if (Array.isArray(designerField)) {
-            designers = designerField as any;
-        } else if (typeof designerField === 'string' && designerField.trim() !== '') {
-            try {
-                const parsed = JSON.parse(designerField);
-                if (parsed && typeof parsed === 'object' && Array.isArray(parsed.list)) {
-                    designers = parsed.list;
-                } else if (Array.isArray(parsed)) {
-                    designers = parsed;
-                }
-            } catch (e) { }
-        }
+        const designers = parseDesignersFromField(task.assigned_designers);
         return designers.some(d => d.userId === user_id);
     }, [user_id]);
 
@@ -782,6 +767,9 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
     const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
     const [sorting, setSorting] = useState<SortingState>([{ id: 'deadline', desc: false }]);
     const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 50 });
+    const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+    const [isBulkAssignOpen, setIsBulkAssignOpen] = useState(false);
+    const selectedCount = Object.keys(rowSelection).length;
 
     // Extract Unique Zones from Tracker Doc
     const uniqueZones = useMemo(() => {
@@ -940,7 +928,17 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
             title: "Sub-Status",
             options: subStatusOptions || [],
         },
-    }), [activeCategoriesInTracker, statusOptions, subStatusOptions]);
+        // Only add assigned designer filter for non-Design Executives (they can't see the column)
+        ...(isDesignExecutive ? {} : {
+            assigned_designers: {
+                title: "Assigned",
+                options: (usersList || []).map(u => ({
+                    label: u.full_name || u.name,
+                    value: u.name
+                })),
+            },
+        }),
+    }), [activeCategoriesInTracker, statusOptions, subStatusOptions, isDesignExecutive, usersList]);
 
     // Search field options
     const searchFieldOptions = [
@@ -963,11 +961,14 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
             sorting,
             pagination,
             globalFilter: searchTerm,
+            rowSelection,
         },
         onColumnFiltersChange: setColumnFilters,
         onSortingChange: setSorting,
         onPaginationChange: setPagination,
         onGlobalFilterChange: setSearchTerm,
+        onRowSelectionChange: setRowSelection,
+        enableRowSelection: hasEditStructureAccess || role === "Nirmaan Design Lead Profile",
         getCoreRowModel: getCoreRowModel(),
         getFilteredRowModel: getFilteredRowModel(),
         getSortedRowModel: getSortedRowModel(),
@@ -1115,6 +1116,31 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
 
         await handleTaskSave(editingTask.name, fieldsToSend);
     };
+
+    // --- Bulk Assign Handler ---
+    const handleBulkAssign = async (taskUpdates: Map<string, AssignedDesignerDetail[]>) => {
+        if (!trackerDoc) return;
+
+        const updatedTasks = JSON.parse(JSON.stringify(trackerDoc.design_tracker_task));
+
+        for (const [taskName, newDesignerList] of taskUpdates) {
+            const idx = updatedTasks.findIndex((t: DesignTrackerTask) => t.name === taskName);
+            if (idx !== -1) {
+                updatedTasks[idx].assigned_designers = JSON.stringify({ list: newDesignerList });
+            }
+        }
+
+        await handleParentDocSave({ design_tracker_task: updatedTasks });
+        setRowSelection({});
+        toast({ title: "Success", description: `Designers assigned to ${taskUpdates.size} task(s).`, variant: "success" });
+    };
+
+    // Derive selected task objects for BulkAssignDialog
+    const selectedTaskObjects = useMemo(() => {
+        return Object.keys(rowSelection)
+            .map(idx => flattenedTasks[parseInt(idx)])
+            .filter(Boolean);
+    }, [rowSelection, flattenedTasks]);
 
     if (isLoading) return <LoadingFallback />;
     if (error || !trackerDoc) return <AlertDestructive error={error} />;
@@ -1596,6 +1622,21 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                     exportFileName={`${trackerDoc.project_name.replace(/[^a-zA-Z0-9]/g, '_')}_${activeTab || 'All'}_Tasks`}
                     onExport="default"
                     tableHeight="60vh"
+                    showRowSelection={hasEditStructureAccess || role === "Nirmaan Design Lead Profile"}
+                    toolbarActions={
+                        selectedCount > 0 && (hasEditStructureAccess || role === "Nirmaan Design Lead Profile") ? (
+                            <Button
+                                size="sm"
+                                variant="default"
+                                className="bg-blue-600 hover:bg-blue-700"
+                                onClick={() => setIsBulkAssignOpen(true)}
+                                disabled={isCEOHold}
+                            >
+                                <Users className="h-3.5 w-3.5 mr-1.5" />
+                                Bulk Assign ({selectedCount})
+                            </Button>
+                        ) : null
+                    }
                 />
             </div>
 
@@ -1659,6 +1700,14 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                     onSave={handleParentDocSave}
                 />
             )}
+
+            <BulkAssignDialog
+                isOpen={isBulkAssignOpen}
+                onOpenChange={setIsBulkAssignOpen}
+                selectedTasks={selectedTaskObjects}
+                usersList={usersList || []}
+                onBulkAssign={handleBulkAssign}
+            />
         </div>
     );
 };

@@ -11,7 +11,8 @@ import {
     getUnifiedStatusStyle,
     getTaskSubStatusStyle,
     formatDeadlineShort,
-    getAssignedNameForDisplay
+    getAssignedNameForDisplay,
+    parseDesignersFromField
 } from "../utils";
 
 // Column IDs that support date filtering
@@ -22,6 +23,15 @@ const facetedFilterFn = (row: any, columnId: string, filterValue: string[]) => {
     if (!filterValue || filterValue.length === 0) return true;
     const cellValue = row.getValue(columnId);
     return filterValue.includes(cellValue);
+};
+
+// Custom filter function for assigned_designers (multi-select by userId)
+const assignedDesignersFilterFn = (row: any, _columnId: string, filterValue: string[]) => {
+    if (!filterValue || filterValue.length === 0) return true;
+    const designerField = row.original.assigned_designers;
+    const designers = parseDesignersFromField(designerField);
+    const designerIds = designers.map(d => d.userId);
+    return filterValue.some(id => designerIds.includes(id));
 };
 
 // Helper to get date range for timespan values
@@ -203,6 +213,8 @@ export const getTaskTableColumns = (
                     {getAssignedNameForDisplay(row.original)}
                 </div>
             ),
+            enableColumnFilter: true,
+            filterFn: assignedDesignersFilterFn,
             size: 140,
             minSize: 120,
             maxSize: 180,
