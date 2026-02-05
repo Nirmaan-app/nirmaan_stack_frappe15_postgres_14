@@ -53,6 +53,11 @@ export const InlineTaskList: React.FC<InlineTaskListProps> = ({
     // Extract colors from the status style for the container
     const containerColors = useMemo(() => {
         // Map status styles to container border/background colors
+        // Check for dark green (Approved) first - has bg-green-700
+        if (statusStyle.includes('bg-green-700')) {
+            return { border: 'border-l-green-700', bg: 'bg-green-100/60', badgeBg: 'bg-green-700', badgeText: 'text-white', badgeBorder: 'border-green-800' };
+        }
+        // Light green (Submitted, Done)
         if (statusStyle.includes('green')) {
             return { border: 'border-l-green-400', bg: 'bg-green-50/40', badgeBg: 'bg-green-100', badgeText: 'text-green-700', badgeBorder: 'border-green-200' };
         }

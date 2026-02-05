@@ -14,8 +14,13 @@ export const getUnifiedStatusStyle = (status: string) => {
 
     const lowerStatus = status.toLowerCase();
 
-    // 1. Approved/Done/Submitted -> Green (completed states)
-    if (lowerStatus.includes('approved') || lowerStatus.includes('done') || lowerStatus.includes('submitted')) {
+    // 1a. Approved -> Dark Green with white text (final completion state)
+    if (lowerStatus.includes('approved')) {
+        return 'bg-green-700 text-white border border-green-800';
+    }
+
+    // 1b. Done/Submitted -> Light Green (completed but not final)
+    if (lowerStatus.includes('done') || lowerStatus.includes('submitted')) {
         return 'bg-green-50 text-green-700 border border-green-200';
     }
 
