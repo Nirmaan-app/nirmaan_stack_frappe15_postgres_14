@@ -124,13 +124,17 @@ export interface TeamSummaryResponse {
     summary: UserTaskSummary[];
 }
 
-// Task preview filter state
+// Task preview filter state (extended with deadline context from summary filters)
 export interface TaskPreviewFilter {
     user_id: string;
     user_name: string;
     status: string;
     project_id?: string;
     project_name?: string;
+    // Inherit filters from summary to ensure inline tasks match summary counts
+    projectIds?: string[];     // Multiple projects from filter bar (when no specific project clicked)
+    deadlineFrom?: string;
+    deadlineTo?: string;
 }
 
 // Inline task expansion state (for TeamPerformanceSummary inline display)
@@ -140,6 +144,19 @@ export interface InlineTaskExpansion {
     status: string;
     projectId?: string;
     projectName?: string;
+}
+
+// Project filter option (for multi-select)
+export interface ProjectFilterOption {
+    value: string;  // Project ID (e.g., "PROJ-001")
+    label: string;  // Project display name
+}
+
+// Team Summary filter state
+export interface TeamSummaryFilters {
+    projects?: ProjectFilterOption[];  // Array of selected projects (multi-select)
+    deadlineFrom?: string;             // ISO date string (YYYY-MM-DD)
+    deadlineTo?: string;               // ISO date string (YYYY-MM-DD)
 }
 
 // Task preview item (for dialog)

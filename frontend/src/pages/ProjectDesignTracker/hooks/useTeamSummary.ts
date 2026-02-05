@@ -1,9 +1,11 @@
 // frontend/src/pages/ProjectDesignTracker/hooks/useTeamSummary.ts
 
+import { useMemo } from "react";
 import { useFrappeGetCall } from "frappe-react-sdk";
 import {
     TaskPreviewFilter,
     TaskPreviewItem,
+    TeamSummaryFilters,
     TeamSummaryResponse,
 } from "../types";
 
@@ -17,11 +19,35 @@ interface UseTeamSummaryReturn {
     refetch: () => void;
 }
 
-export const useTeamSummary = (): UseTeamSummaryReturn => {
+export const useTeamSummary = (filters?: TeamSummaryFilters): UseTeamSummaryReturn => {
+    // Extract primitive values for cache key (React best practice - avoid object references)
+    const projectIds = filters?.projects?.map(p => p.value).sort().join(',') || '';
+
+    // Build primitive cache key
+    const cacheKey = useMemo(() => {
+        const parts = ['team-summary'];
+        if (projectIds) parts.push(`projects:${projectIds}`);
+        if (filters?.deadlineFrom) parts.push(`from:${filters.deadlineFrom}`);
+        if (filters?.deadlineTo) parts.push(`to:${filters.deadlineTo}`);
+        return parts.join('|');
+    }, [projectIds, filters?.deadlineFrom, filters?.deadlineTo]);
+
+    // Build params object for API call
+    const params = useMemo(() => {
+        const p: Record<string, string> = {};
+        // Send projects as JSON array
+        if (filters?.projects && filters.projects.length > 0) {
+            p.projects = JSON.stringify(filters.projects.map(proj => proj.value));
+        }
+        if (filters?.deadlineFrom) p.deadline_from = filters.deadlineFrom;
+        if (filters?.deadlineTo) p.deadline_to = filters.deadlineTo;
+        return p;
+    }, [projectIds, filters?.deadlineFrom, filters?.deadlineTo]);
+
     const { data, isLoading, error, mutate } = useFrappeGetCall<{ message: TeamSummaryResponse }>(
         "nirmaan_stack.api.design_tracker.get_team_summary.get_team_summary",
-        {},
-        "team-summary-data" // SWR cache key
+        params,
+        cacheKey
     );
 
     return {
@@ -50,8 +76,10 @@ interface UseFilteredTasksReturn {
 
 export const useFilteredTasks = (filter: TaskPreviewFilter | null): UseFilteredTasksReturn => {
     // Derive primitive key for SWR deduplication (prevents re-renders from object reference changes)
+    // Include all filter params to ensure cache key changes when filters change
+    const projectsKey = filter?.projectIds?.sort().join(',') || '';
     const cacheKey = filter
-        ? `task-preview-${filter.user_id}-${filter.status}-${filter.project_id || 'all'}`
+        ? `task-preview-${filter.user_id}-${filter.status}-${filter.project_id || projectsKey || 'all'}-${filter.deadlineFrom || ''}-${filter.deadlineTo || ''}`
         : null;
 
     // Build filters array for the API
@@ -59,8 +87,16 @@ export const useFilteredTasks = (filter: TaskPreviewFilter | null): UseFilteredT
     const filters = filter
         ? [
             ["task_status", "=", filter.status],
-            // Project filter is applied if project_id is provided
-            ...(filter.project_id ? [["project", "=", filter.project_id]] : []),
+            // Project filter: single project (from project-row click) OR multi-project (from filter bar)
+            ...(filter.project_id
+                ? [["project", "=", filter.project_id]]
+                : filter.projectIds?.length
+                    ? [["project", "in", filter.projectIds]]
+                    : []),
+            // Add deadline range filter if provided (matches summary filter behavior)
+            ...(filter.deadlineFrom && filter.deadlineTo
+                ? [["deadline", "between", [filter.deadlineFrom, filter.deadlineTo]]]
+                : []),
         ]
         : null;
 

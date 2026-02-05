@@ -1,6 +1,6 @@
 // frontend/src/pages/ProjectDesignTracker/components/TeamPerformanceSummary.tsx
 
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Users } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -12,13 +12,16 @@ import {
 import { useTeamSummary, useFilteredTasks } from '../hooks/useTeamSummary';
 import { useDesignMasters } from '../hooks/useDesignMasters';
 import { InlineTaskList } from './InlineTaskList';
+import { TeamSummaryFilterBar } from './TeamSummaryFilterBar';
 import { getUnifiedStatusStyle } from '../utils';
+import { formatDate } from '@/utils/FormatDate';
 import {
     TaskPreviewFilter,
     InlineTaskExpansion,
     StatusCountMap,
     UserTaskSummary,
     ProjectTaskSummary,
+    TeamSummaryFilters,
 } from '../types';
 
 // ==================== Types ====================
@@ -43,6 +46,14 @@ const STATUS_COLUMNS: StatusColumn[] = [
     { key: 'Clarification Awaiting', header: 'Clarification Awaiting', abbrev: 'Clarif.' },
     { key: 'Approved', header: 'Approved', abbrev: 'Approved' },
 ];
+
+// Helper function for formatting date range display
+function formatDateRange(from?: string, to?: string): string {
+    if (from && to) return `${formatDate(from)} - ${formatDate(to)}`;
+    if (from) return `From ${formatDate(from)}`;
+    if (to) return `Until ${formatDate(to)}`;
+    return '';
+}
 
 // ==================== CountCell Component ====================
 
@@ -171,7 +182,7 @@ interface UserRowProps {
 
 const UserRow = React.memo<UserRowProps>(
     ({ user, isExpanded, onToggleExpand, onCountClick, isDesignLead, inlineExpansion }) => {
-        const hasProjects = user.projects.length > 1;
+        const hasProjects = user.projects.length > 0;
         const projectsId = `user-projects-${user.user_id}`;
         const expansionIdBase = `expansion-${user.user_id}`;
 
@@ -250,7 +261,10 @@ export const TeamPerformanceSummary: React.FC<TeamPerformanceSummaryProps> = ({
         return null;
     }
 
-    const { summaryData, isLoading, error, refetch } = useTeamSummary();
+    // Filter state for team summary
+    const [filters, setFilters] = useState<TeamSummaryFilters>({});
+
+    const { summaryData, isLoading, error, refetch } = useTeamSummary(filters);
     const { usersList, statusOptions, subStatusOptions } = useDesignMasters();
 
     // Create a lookup map for user roles
@@ -269,13 +283,29 @@ export const TeamPerformanceSummary: React.FC<TeamPerformanceSummaryProps> = ({
     // Inline task expansion state (replaces dialog)
     const [inlineExpansion, setInlineExpansion] = useState<InlineTaskExpansion | null>(null);
 
+    // Extract primitive for dependency tracking (avoid object reference issues)
+    const projectsKey = filters.projects?.map(p => p.value).join(',') || '';
+
+    // Close inline expansion when filters change
+    useEffect(() => {
+        setInlineExpansion(null);
+    }, [projectsKey, filters.deadlineFrom, filters.deadlineTo]);
+
     // Create filter for the hook (converts InlineTaskExpansion to TaskPreviewFilter)
+    // Include filters from summary to ensure inline tasks match summary counts
     const taskFilter: TaskPreviewFilter | null = inlineExpansion ? {
         user_id: inlineExpansion.userId,
         user_name: inlineExpansion.userName,
         status: inlineExpansion.status,
         project_id: inlineExpansion.projectId,
         project_name: inlineExpansion.projectName,
+        // Inherit project filter from summary when clicking user-level row (no specific project)
+        projectIds: !inlineExpansion.projectId && filters.projects?.length
+            ? filters.projects.map(p => p.value)
+            : undefined,
+        // Inherit deadline filters from summary filters
+        deadlineFrom: filters.deadlineFrom,
+        deadlineTo: filters.deadlineTo,
     } : null;
 
     // Fetch filtered tasks when inline expansion is open
@@ -385,7 +415,7 @@ export const TeamPerformanceSummary: React.FC<TeamPerformanceSummaryProps> = ({
                                     inlineExpansion={inlineExpansion}
                                 />
                                 {/* Render project rows if user is expanded */}
-                                {expandedUsers.has(user.user_id) && user.projects.length > 1 && (
+                                {expandedUsers.has(user.user_id) && user.projects.length > 0 && (
                                     <>
                                         {user.projects.map((project, idx) => (
                                             <React.Fragment key={project.project_id}>
@@ -471,7 +501,47 @@ export const TeamPerformanceSummary: React.FC<TeamPerformanceSummaryProps> = ({
                     </button>
                 </CollapsibleTrigger>
                 <CollapsibleContent id={sectionId}>
-                    <div className="border-t border-gray-200">{renderContent()}</div>
+                    <div className="border-t border-gray-200">
+                        {/* Filter Bar */}
+                        <div className="px-4 pt-3 pb-2">
+                            <TeamSummaryFilterBar
+                                filters={filters}
+                                onFiltersChange={setFilters}
+                                onClearFilters={() => setFilters({})}
+                            />
+                            {/* Active Filter Badges */}
+                            {((filters.projects && filters.projects.length > 0) || filters.deadlineFrom || filters.deadlineTo) && (
+                                <div className="flex items-center gap-2 mt-2 text-xs flex-wrap">
+                                    <span className="text-gray-500">Showing:</span>
+                                    {filters.projects && filters.projects.length > 0 && (
+                                        filters.projects.length <= 2 ? (
+                                            // Show individual badges for 1-2 projects
+                                            filters.projects.map((proj) => (
+                                                <Badge
+                                                    key={proj.value}
+                                                    variant="outline"
+                                                    className="bg-blue-50 text-blue-700 border-blue-200"
+                                                >
+                                                    {proj.label}
+                                                </Badge>
+                                            ))
+                                        ) : (
+                                            // Show count badge for 3+ projects
+                                            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                                                {filters.projects.length} projects
+                                            </Badge>
+                                        )
+                                    )}
+                                    {(filters.deadlineFrom || filters.deadlineTo) && (
+                                        <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">
+                                            {formatDateRange(filters.deadlineFrom, filters.deadlineTo)}
+                                        </Badge>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                        {renderContent()}
+                    </div>
                 </CollapsibleContent>
             </Collapsible>
         </div>

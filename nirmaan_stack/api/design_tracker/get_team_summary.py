@@ -1,5 +1,6 @@
 import frappe
 from frappe import _
+from frappe.utils import getdate
 import json
 
 
@@ -64,9 +65,14 @@ def _parse_assigned_designers(assigned_designers_raw):
 
 
 @frappe.whitelist()
-def get_team_summary():
+def get_team_summary(projects=None, deadline_from=None, deadline_to=None):
     """
     Get a summary of design tasks grouped by user, then by project.
+
+    Args:
+        projects: Optional JSON array of project IDs to filter trackers (e.g., '["PROJ-001", "PROJ-002"]')
+        deadline_from: Optional start date (inclusive) to filter tasks by deadline
+        deadline_to: Optional end date (inclusive) to filter tasks by deadline
 
     Returns aggregated counts by: User -> Project -> Status
 
@@ -111,10 +117,29 @@ def get_team_summary():
     # Data structure: {user_id: {project_tracker_name: {"project_id": ..., "counts": {...}}}}
     user_data = {}
 
+    # Parse projects filter (JSON array or single value)
+    project_filter_set = None
+    if projects:
+        try:
+            parsed_projects = json.loads(projects) if isinstance(projects, str) else projects
+            if isinstance(parsed_projects, list) and len(parsed_projects) > 0:
+                project_filter_set = set(parsed_projects)
+        except (json.JSONDecodeError, TypeError):
+            # If not valid JSON, treat as single project ID
+            project_filter_set = {projects}
+
+    # Parse date filters once
+    parsed_deadline_from = getdate(deadline_from) if deadline_from else None
+    parsed_deadline_to = getdate(deadline_to) if deadline_to else None
+
     # 2. Iterate through trackers and their tasks
     for tracker in trackers:
         # Skip hidden trackers
         if tracker.get("hide_design_tracker"):
+            continue
+
+        # Filter by projects if specified (multi-select)
+        if project_filter_set and tracker.get("project") not in project_filter_set:
             continue
 
         try:
@@ -133,6 +158,20 @@ def get_team_summary():
                 # Skip if status is not in our known list
                 if task_status not in TASK_STATUSES:
                     continue
+
+                # Filter by deadline if date filters are specified
+                if parsed_deadline_from or parsed_deadline_to:
+                    task_deadline = task.get("deadline")
+                    # Skip tasks without a deadline when filtering by date
+                    if not task_deadline:
+                        continue
+                    parsed_task_deadline = getdate(task_deadline)
+                    # Skip tasks with deadline before deadline_from
+                    if parsed_deadline_from and parsed_task_deadline < parsed_deadline_from:
+                        continue
+                    # Skip tasks with deadline after deadline_to
+                    if parsed_deadline_to and parsed_task_deadline > parsed_deadline_to:
+                        continue
 
                 # Parse assigned designers
                 designers = _parse_assigned_designers(task.get("assigned_designers"))
