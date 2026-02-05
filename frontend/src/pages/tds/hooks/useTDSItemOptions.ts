@@ -12,23 +12,46 @@ interface UseTDSItemOptionsProps {
 export const useTDSItemOptions = ({ selectedWP, selectedCategory, watchedTdsItemId, currentItem }: UseTDSItemOptionsProps) => {
     
     // Fetch Data
-    // Using limit: 0 (or large generic limit in some versions of SDK, assuming 0 means all or standard ample limit)
-    // The user code used limit:0, I will stick to that to preserve behavior.
     const { data: wpList } = useFrappeGetDocList("Work Packages", { fields: ["name", "work_package_name"], limit: 0 });
     const { data: catList } = useFrappeGetDocList("Category", { fields: ["name", "category_name", "work_package"], limit: 0 });
     const { data: itemList } = useFrappeGetDocList("Items", { fields: ["name", "item_name", "category"], limit: 0 });
     const { data: makeList } = useFrappeGetDocList("Makelist", { fields: ["name", "make_name"], limit: 0 });
     const { data: catMakeList } = useFrappeGetDocList("Category Makelist", { fields: ["category", "make"], limit: 0 });
 
-    // Fetch existing TDS entries for validation
+    // Fetch ALL TDS Repository entries for validation and custom items
+    const { data: allTdsEntries } = useFrappeGetDocList("TDS Repository", {
+        fields: ["name", "tds_item_id", "tds_item_name", "work_package", "category", "make"],
+        limit: 0
+    });
+
+    // Fetch entries for current category (for make filtering)
     const { data: categoryEntries } = useFrappeGetDocList("TDS Repository", {
         filters: selectedCategory ? [["category", "=", selectedCategory]] : undefined,
         fields: ["tds_item_id", "make"],
         limit: 0
     }, selectedCategory ? undefined : null);
 
-
-    // Compute Options
+    // Get all custom items (CUS-*) for suggestions
+    const allCustomItems = useMemo(() => {
+        if (!allTdsEntries) return [];
+        
+        // Get unique custom items
+        const customMap = new Map<string, { id: string; name: string; wp: string; cat: string }>();
+        allTdsEntries
+            .filter(d => d.tds_item_id?.startsWith("CUS-"))
+            .forEach(d => {
+                if (!customMap.has(d.tds_item_id)) {
+                    customMap.set(d.tds_item_id, {
+                        id: d.tds_item_id,
+                        name: d.tds_item_name || d.tds_item_id,
+                        wp: d.work_package,
+                        cat: d.category
+                    });
+                }
+            });
+        
+        return Array.from(customMap.values());
+    }, [allTdsEntries]);
 
     // 1. Work Package Options
     const wpOptions = useMemo(() => wpList?.map(d => ({ label: d.work_package_name, value: d.name })) || [], [wpList]);
@@ -41,18 +64,39 @@ export const useTDSItemOptions = ({ selectedWP, selectedCategory, watchedTdsItem
             .map(d => ({ label: d.category_name, value: d.name })) || [];
     }, [catList, selectedWP]);
 
-    // 3. Item Options (With "Saturation" check - hide fully booked items)
+    // 3. Standard Item Options filtered by WP (NEW: for the new flow)
+    const itemOptionsForWP = useMemo(() => {
+        if (!selectedWP || !itemList || !catList) return [];
+        
+        // Get categories for this WP
+        const wpCategories = new Set(
+            catList.filter(c => c.work_package === selectedWP).map(c => c.name)
+        );
+        
+        // Get items belonging to those categories
+        return itemList
+            .filter(d => wpCategories.has(d.category))
+            .map(d => {
+                const category = catList.find(c => c.name === d.category);
+                return { 
+                    label: d.item_name, 
+                    value: d.name,
+                    category: d.category,
+                    categoryName: category?.category_name || d.category
+                };
+            });
+    }, [itemList, catList, selectedWP]);
+
+    // 4. Item Options filtered by Category (OLD: for backwards compatibility)
     const itemOptions = useMemo(() => {
         if (!selectedCategory) return [];
         
-        // Get valid makes for the category from CategoryMakelist
         const validMakesForCategory = new Set(
             catMakeList
                 ?.filter(cm => cm.category === selectedCategory)
                 .map(cm => cm.make) || []
         );
 
-        // Map of ItemID -> Set of TakenMakes from TDS Repository
         const itemTakenMakes = new Map<string, Set<string>>();
         if (categoryEntries) {
             categoryEntries.forEach(d => {
@@ -66,48 +110,33 @@ export const useTDSItemOptions = ({ selectedWP, selectedCategory, watchedTdsItem
         return itemList
             ?.filter(d => d.category === selectedCategory)
             .filter(d => {
-                // PRESERVATION LOGIC: If we are editing this specific item, keeping it visible is critical
                 if (currentItem && d.name === currentItem.tds_item_id) return true;
-
-                // Saturation Logic:
-                // If no specific makes are restricted, we assume infinite makes? 
-                // Previous logic says: "If validMakesForCategory size is 0, return true."
                 if (validMakesForCategory.size === 0) return true;
-
                 const taken = itemTakenMakes.get(d.name);
-                if (!taken) return true; // No makes taken yet
-
+                if (!taken) return true;
                 let takenCount = 0;
                 validMakesForCategory.forEach(vm => {
                     if (taken.has(vm)) takenCount++;
                 });
-
-                // If number of Taken Valid Makes < Total Valid Makes, then there is space.
                 return takenCount < validMakesForCategory.size;
             })
             .map(d => ({ label: d.item_name, value: d.name })) || [];
     }, [itemList, selectedCategory, categoryEntries, catMakeList, currentItem]);
 
-    // 4. Make Options (With duplicate prevention)
+    // 5. Make Options (With duplicate prevention)
     const makeOptions = useMemo(() => {
         if (!selectedCategory || !catMakeList || !makeList) return [];
         
-        // Allowed Makes for this Category
         const validMakesForCategory = new Set(
             catMakeList
                 .filter(cm => cm.category === selectedCategory)
                 .map(cm => cm.make)
         );
 
-        // Already Taken Makes for this Item
         const takenMakes = new Set(
             categoryEntries
                 ?.filter(d => d.tds_item_id === watchedTdsItemId)
                 ?.filter(entry => {
-                    // PRESERVATION LOGIC:
-                    // If we are editing the item (watched ID == current item ID), 
-                    // AND the entry matches the current item's original make,
-                    // DO NOT count it as taken (so it shows in dropdown).
                     const currentItemOriginalMake = currentItem?.make;
                     if (currentItem && watchedTdsItemId === currentItem.tds_item_id && entry.make === currentItemOriginalMake) {
                         return false;
@@ -118,28 +147,48 @@ export const useTDSItemOptions = ({ selectedWP, selectedCategory, watchedTdsItem
         );
 
         let availableMakes = makeList;
-
-        // Apply Allowed List Filter
         if (validMakesForCategory.size > 0) {
             availableMakes = availableMakes.filter(m => validMakesForCategory.has(m.name));
         }
 
-        // Apply Taken Filter
         const filteredMakes = availableMakes
             .filter(d => !takenMakes.has(d.name))
             .map(d => ({ label: d.make_name, value: d.name }));
         
-        // Add "Others" option at the end for custom entry
         return [...filteredMakes, { label: "Others", value: "__others__" }];
             
     }, [makeList, catMakeList, selectedCategory, categoryEntries, watchedTdsItemId, currentItem]);
+
+    // Helper: Get category info from item ID
+    const getCategoryForItem = (itemId: string) => {
+        // Check if it's a custom item
+        const customItem = allCustomItems.find(c => c.id === itemId);
+        if (customItem) {
+            return { category: customItem.cat, workPackage: customItem.wp };
+        }
+        // Check standard items
+        const item = itemList?.find(i => i.name === itemId);
+        if (item) {
+            const category = catList?.find(c => c.name === item.category);
+            return { 
+                category: item.category, 
+                workPackage: category?.work_package || "" 
+            };
+        }
+        return null;
+    };
 
     return {
         wpOptions,
         catOptions,
         itemOptions,
+        itemOptionsForWP,
         makeOptions,
-        // Expose raw data if strictly needed (currently options cover most needs)
-        categoryEntries 
+        allCustomItems,
+        categoryEntries,
+        getCategoryForItem,
+        catList,
+        itemList
     };
 };
+

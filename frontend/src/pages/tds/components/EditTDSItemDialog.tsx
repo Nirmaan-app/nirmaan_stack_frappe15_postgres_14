@@ -26,15 +26,18 @@ interface EditTDSItemDialogProps {
     onSuccess: () => void;
 }
 
-
-
 export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOpenChange, item, onSuccess }) => {
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [isCustomMake, setIsCustomMake] = useState(false);
     const [customMake, setCustomMake] = useState("");
+    const [customItemName, setCustomItemName] = useState("");
+    const [showItemDropdown, setShowItemDropdown] = useState(false); // Toggle between custom input and dropdown
     
     const { updateDoc, loading: updating } = useFrappeUpdateDoc();
     const { upload: uploadFile, loading: uploading } = useFrappeFileUpload();
+
+    // Check if this is a custom item (original item has CUS- prefix)
+    const isOriginalCustomItem = item?.tds_item_id?.startsWith("CUS-") || false;
 
     const form = useForm<TDSItemValues>({
         resolver: zodResolver(tdsItemSchema),
@@ -42,17 +45,17 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
             work_package: "",
             category: "",
             tds_item_id: "",
+            tds_item_name: "",
+            is_custom_item: false,
             item_description: "",
             make: "",
         },
     });
 
-    // Reactively fetch existing entries for the selected category to filter items and options
     const selectedCategory = form.watch("category");
     const watchedTdsItemId = form.watch("tds_item_id");
     const selectedWP = form.watch("work_package");
 
-    // Use shared hook for options and filtering logic
     const { 
         wpOptions, 
         catOptions, 
@@ -65,38 +68,36 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
         currentItem: item
     });
 
-    // Use a ref to track the previous item ID to detect actual changes
     const previousItemIdRef = useRef<string | null>(null);
 
     // Reset form when item changes OR when dialog opens
-    // We must reset when 'open' becomes true to ensure any previous dirty state is discarded
     useEffect(() => {
         if (open && item) {
             form.reset({
                 work_package: item.work_package,
                 category: item.category,
                 tds_item_id: item.tds_item_id || "", 
+                tds_item_name: item.tds_item_name || "",
+                is_custom_item: item.tds_item_id?.startsWith("CUS-") || false,
                 item_description: item.description,
                 make: item.make,
             });
             setSelectedFile(null);
-            
-            // Sync the ref with the freshly loaded item ID so we don't trigger a "change"
+            setCustomItemName(item.tds_item_name || "");
+            setShowItemDropdown(false); // Reset to custom input mode for custom items
             previousItemIdRef.current = item.tds_item_id || "";
         }
     }, [open, item, form]);
     
-    // Detect if the item's make is a custom value (not in the options list)
+    // Detect if the item's make is a custom value
     useEffect(() => {
         if (open && item && makeOptions.length > 0) {
             const itemMake = item.make;
-            // Check if item's make exists in makeOptions (excluding __others__)
             const makeExistsInOptions = makeOptions.some(
                 opt => opt.value !== "__others__" && opt.value === itemMake
             );
             
             if (itemMake && !makeExistsInOptions) {
-                // It's a custom make - show the custom input
                 setIsCustomMake(true);
                 setCustomMake(itemMake);
             } else {
@@ -108,42 +109,25 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
 
     // Reset make when item changes
     useEffect(() => {
-        // Compare current watched ID with the ref
-        // If they differ, it means the user changed the selection (or the form reset happened, but we handled that above)
-        // Wait: The form.reset above runs. react-hook-form updates the watched value. This effect fires.
-        // We need to ensure we don't clear 'make' immediately after reset.
-        
-        // The issue: form.reset updates the value.
-        // If we set ref.current in the SAME render cycle (or strictly ordered effect), we should be fine?
-        // Actually, the above effect runs FIRST (it has `open` dep which changes true).
-        // Then Ref is set.
-        // Then this effect runs (watchedTdsItemId changes).
-        // checking ref.current vs watchedTdsItemId: They should be EQUAL if it was just reset.
-        // So we ONLY clear if they are NOT equal.
-        
         const currentId = watchedTdsItemId || "";
         const prevId = previousItemIdRef.current || "";
 
         if (currentId !== prevId) {
-            // It's a real change (not the initial reset)
             form.setValue("make", "");
             form.setValue("item_description", "");
             previousItemIdRef.current = currentId;
         }
     }, [watchedTdsItemId, form.setValue]);
 
-    // Track previous Make to detect changes
     const prevMakeRef = useRef<string | null>(null);
     const watchedMake = form.watch("make");
 
-    // Initialize prevMakeRef when item loads
     useEffect(() => {
         if (open && item) {
             prevMakeRef.current = item.make;
         }
     }, [open, item]);
 
-    // Reset Description when Make changes
     useEffect(() => {
         const currentMake = watchedMake || "";
         const prevMake = prevMakeRef.current || "";
@@ -167,9 +151,19 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                 make: values.make,
             };
 
+            // Always update tds_item_name for display
+            // If originally custom item BUT user switched to dropdown -> use selected item's label
+            if (isOriginalCustomItem && !showItemDropdown) {
+                // User is editing custom item name
+                updatePayload.tds_item_name = customItemName || values.tds_item_name;
+            } else {
+                // Standard items OR user switched from custom to standard
+                const selectedItem = itemOptions.find(opt => opt.value === values.tds_item_id);
+                updatePayload.tds_item_name = selectedItem?.label || values.tds_item_name;
+            }
+
             await updateDoc("TDS Repository", item.name, updatePayload);
 
-            // If a new file is selected, upload it
             if (selectedFile) {
                 const uploadResp = await uploadFile(selectedFile, {
                     doctype: "TDS Repository",
@@ -190,9 +184,9 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
             toast({ title: "Success", description: "TDS Item updated successfully", variant: "success" });
             onOpenChange(false);
             onSuccess();
-        } catch (e) {
+        } catch (e: any) {
             console.error("Error updating TDS Item:", e);
-            toast({ title: "Error", description: "Failed to update TDS Item", variant: "destructive" });
+            toast({ title: "Error", description: e?.message || "Failed to update TDS Item", variant: "destructive" });
         }
     };
 
@@ -203,10 +197,11 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                 <DialogHeader className="p-6 pb-0 flex flex-row items-center justify-between">
                     <div>
                         <DialogTitle className="text-xl font-bold">Edit TDS Item</DialogTitle>
+                        {isOriginalCustomItem && (
+                            <p className="text-sm text-blue-600 mt-1">Custom Item: {item?.tds_item_id}</p>
+                        )}
                     </div>
                 </DialogHeader>
-
-
 
                 <div className="p-6 overflow-y-auto">
                     <Form {...form}>
@@ -236,7 +231,79 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                 )}
                             />
 
-                            {/* Category */}
+                            {/* Item Name - Different UI for custom vs standard */}
+                            <FormField
+                                control={form.control}
+                                name="tds_item_id"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel className="text-sm font-semibold flex items-center">
+                                            Item Name<span className="text-red-500 ml-0.5">*</span>
+                                        </FormLabel>
+                                        <FormControl>
+                                            {isOriginalCustomItem && !showItemDropdown ? (
+                                                // Custom item: Show text input to edit name
+                                                <div className="space-y-2">
+                                                    <Input
+                                                        value={customItemName}
+                                                        onChange={(e) => {
+                                                            setCustomItemName(e.target.value);
+                                                            form.setValue("tds_item_name", e.target.value);
+                                                        }}
+                                                        placeholder="Enter custom item name"
+                                                        className="bg-white border-gray-200"
+                                                    />
+                                                    <input type="hidden" {...field} />
+                                                    <Button
+                                                        type="button"
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        onClick={() => setShowItemDropdown(true)}
+                                                        className="text-xs text-gray-500 hover:text-gray-700 h-6 px-2"
+                                                    >
+                                                        ← Back to Items list
+                                                    </Button>
+                                                </div>
+                                            ) : (
+                                                // Standard item or switched to dropdown: Show dropdown
+                                                <div className="space-y-2">
+                                                    <RSelect
+                                                        options={itemOptions}
+                                                        value={itemOptions.find(opt => opt.value === field.value) || null}
+                                                        onChange={(opt) => {
+                                                            field.onChange(opt?.value);
+                                                            form.setValue("tds_item_name", opt?.label || "");
+                                                        }}
+                                                        placeholder="Select Item"
+                                                        className="react-select-container"
+                                                        classNamePrefix="react-select"
+                                                    />
+                                                    {isOriginalCustomItem && showItemDropdown && (
+                                                        <Button
+                                                            type="button"
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={() => {
+                                                                setShowItemDropdown(false);
+                                                                // Restore original custom item values
+                                                                form.setValue("tds_item_id", item?.tds_item_id || "");
+                                                                form.setValue("tds_item_name", item?.tds_item_name || "");
+                                                                setCustomItemName(item?.tds_item_name || "");
+                                                            }}
+                                                            className="text-xs text-blue-600 hover:text-blue-700 h-6 px-2"
+                                                        >
+                                                            ← Back to Custom item
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </FormControl>
+                                        <FormMessage className="text-xs" />
+                                    </FormItem>
+                                )}
+                            />
+
+                            {/* Category - Editable for custom items */}
                             <FormField
                                 control={form.control}
                                 name="category"
@@ -253,39 +320,13 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                                 placeholder="Select product category"
                                                 className="react-select-container"
                                                 classNamePrefix="react-select"
-                                                isDisabled={true}
+                                                isDisabled={!isOriginalCustomItem}
                                             />
                                         </FormControl>
                                         <FormMessage className="text-xs" />
                                     </FormItem>
                                 )}
                             />
-
-                            {/* Item Name */}
-                            <FormField
-                                control={form.control}
-                                name="tds_item_id"
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel className="text-sm font-semibold flex items-center">
-                                            Item Name<span className="text-red-500 ml-0.5">*</span>
-                                        </FormLabel>
-                                        <FormControl>
-                                            <RSelect
-                                                options={itemOptions}
-                                                value={itemOptions.find(opt => opt.value === field.value) || null}
-                                                onChange={(opt) => field.onChange(opt?.value)}
-                                                placeholder="Select Item"
-                                                className="react-select-container"
-                                                classNamePrefix="react-select"
-                                            />
-                                        </FormControl>
-                                        <FormMessage className="text-xs" />
-                                    </FormItem>
-                                )}
-                            />
-
-                           
 
                             {/* Make */}
                             <FormField
@@ -339,9 +380,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                                     className="react-select-container"
                                                     classNamePrefix="react-select"
                                                     filterOption={(option, inputValue) => {
-                                                        // Always show "Others" option
                                                         if (option.data.value === "__others__") return true;
-                                                        // Default filter for other options
                                                         return option.label.toLowerCase().includes(inputValue.toLowerCase());
                                                     }}
                                                     styles={{
@@ -352,14 +391,8 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                                                 color: '#2563eb',
                                                                 fontWeight: 600,
                                                                 borderTop: '1px solid #e5e7eb',
-                                                                position: 'sticky',
-                                                                bottom: 0,
                                                             } : {})
                                                         }),
-                                                        menuList: (base) => ({
-                                                            ...base,
-                                                            paddingBottom: 0,
-                                                        })
                                                     }}
                                                     formatOptionLabel={(option) => (
                                                         option.value === "__others__" ? (
@@ -377,7 +410,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                 )}
                             />
 
- {/* Item Description */}
+                            {/* Item Description */}
                             <FormField
                                 control={form.control}
                                 name="item_description"
@@ -393,6 +426,7 @@ export const EditTDSItemDialog: React.FC<EditTDSItemDialogProps> = ({ open, onOp
                                     </FormItem>
                                 )}
                             />
+
                             {/* Attach Document */}
                             <div className="space-y-1.5">
                                 <label className="text-sm font-semibold">
