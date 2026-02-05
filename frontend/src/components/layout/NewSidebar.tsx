@@ -625,7 +625,8 @@ export function NewSidebar() {
     'work-plan-tracker',
     'material-plan-tracker',
     'cashflow-plan-tracker',
-    'tds-approval'
+    'tds-approval',
+    'help-repository'
 
   ]), [])
 
@@ -659,7 +660,8 @@ export function NewSidebar() {
     '/work-plan-tracker': ['work-plan-tracker'],
     '/material-plan-tracker': ['material-plan-tracker'],
     '/cashflow-plan-tracker': ['cashflow-plan-tracker'],
-    '/tds-approval': ['tds-approval']
+    '/tds-approval': ['tds-approval'],
+    '/help-repository': ['help-repository']
   }), []);
 
   const openKey = useMemo(() => {
