@@ -155,4 +155,5 @@ export interface TaskPreviewItem {
     task_status: string;
     task_sub_status?: string;
     assigned_designers?: string; // JSON string containing designer IDs
+    file_link?: string; // Design file URL (Figma, etc.)
 }

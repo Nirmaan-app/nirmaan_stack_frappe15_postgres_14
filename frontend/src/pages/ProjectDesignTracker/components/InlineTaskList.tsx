@@ -1,7 +1,7 @@
 // frontend/src/pages/ProjectDesignTracker/components/InlineTaskList.tsx
 
 import React, { useMemo, useState } from 'react';
-import { X, Pencil } from 'lucide-react';
+import { X, Pencil, ExternalLink } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useFrappeUpdateDoc } from 'frappe-react-sdk';
@@ -192,6 +192,9 @@ export const InlineTaskList: React.FC<InlineTaskListProps> = ({
                                             Deadline
                                         </th>
                                         <th className="w-12 py-2 px-3 text-center font-medium text-gray-600 text-xs uppercase tracking-wider">
+                                            File
+                                        </th>
+                                        <th className="w-12 py-2 px-3 text-center font-medium text-gray-600 text-xs uppercase tracking-wider">
                                             Edit
                                         </th>
                                     </tr>
@@ -234,6 +237,22 @@ export const InlineTaskList: React.FC<InlineTaskListProps> = ({
                                                 style={{ fontVariantNumeric: 'tabular-nums' }}
                                             >
                                                 {formatDeadlineShort(task.deadline || '')}
+                                            </td>
+                                            <td className="py-1.5 px-3 text-center">
+                                                {task.file_link ? (
+                                                    <a
+                                                        href={task.file_link}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        aria-label="Open design file"
+                                                        className="inline-flex items-center justify-center w-6 h-6 rounded hover:bg-blue-100 transition-colors text-blue-600"
+                                                        title={task.file_link}
+                                                    >
+                                                        <ExternalLink className="h-3.5 w-3.5" />
+                                                    </a>
+                                                ) : (
+                                                    <span className="text-gray-300">--</span>
+                                                )}
                                             </td>
                                             <td className="py-1.5 px-3 text-center">
                                                 <button
