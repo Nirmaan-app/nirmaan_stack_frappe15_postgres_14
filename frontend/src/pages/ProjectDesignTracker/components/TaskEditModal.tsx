@@ -270,6 +270,7 @@
 
 import React, { useCallback, useMemo, useState } from 'react';
 import { DesignTrackerTask, User, AssignedDesignerDetail } from '../types';
+import { parseDesignersFromField } from '../utils';
 import { toast } from '@/components/ui/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -365,31 +366,11 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
 
 
     const getInitialDesigners = useCallback((designerField: AssignedDesignerDetail[] | string | any): DesignerOption[] => {
-        let designerDetails: AssignedDesignerDetail[] = [];
-        
-        if (designerField && typeof designerField === 'object' && Array.isArray(designerField.list)) {
-            designerDetails = designerField.list;
-        } 
-        else if (Array.isArray(designerField)) {
-            designerDetails = designerField;
-        } 
-        else if (typeof designerField === 'string' && designerField.trim() !== '') {
-            try { 
-                const parsed = JSON.parse(designerField); 
-                if (parsed && typeof parsed === 'object' && Array.isArray(parsed.list)) {
-                    designerDetails = parsed.list;
-                } 
-                else if (Array.isArray(parsed)) {
-                    designerDetails = parsed; 
-                }
-            } catch (e) { }
-        }
-        
-        if (!Array.isArray(designerDetails)) designerDetails = [];
+        const designerDetails = parseDesignersFromField(designerField);
 
-        return designerDetails.map(stored => 
-            designerOptions.find(opt => opt.value === stored.userId) || 
-            { label: stored.userName, value: stored.userId, email: stored.userEmail || '' } 
+        return designerDetails.map(stored =>
+            designerOptions.find(opt => opt.value === stored.userId) ||
+            { label: stored.userName, value: stored.userId, email: stored.userEmail || '' }
         ).filter((d): d is DesignerOption => !!d);
 
     }, [designerOptions]);
