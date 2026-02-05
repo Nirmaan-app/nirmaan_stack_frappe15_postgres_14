@@ -218,7 +218,7 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
     const { data: existingPlans, isLoading: isLoadingPlans, mutate: refreshPlans } = useFrappeGetDocList("Material Delivery Plan", {
         fields: ["name", "po_link", "package_name", "critical_po_category", "critical_po_task", "delivery_date", "mp_items", "creation", "po_type"],
         filters: docListFilters,
-        orderBy: { field: "creation", order: "asc" },
+        orderBy: { field: "creation", order: "desc" },
         limit:0
     });
 

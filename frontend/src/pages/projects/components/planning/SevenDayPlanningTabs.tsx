@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { cn } from "@/lib/utils";
+import { useUserData } from "@/hooks/useUserData";
 
 // Make sure these match the parent's usage or export them from a shared types file
 export const PLANNING_TABS = {
@@ -19,13 +20,33 @@ export const SevenDayPlanningTabs = ({
   activeTab,
   setActiveTab,
 }: SevenDayPlanningTabsProps) => {
+  const { role, user_id } = useUserData();
+
+  const tabs = useMemo(() => {
+    const allowedRolesForRestrictedTabs = [
+      "Nirmaan Admin Profile",
+      "Nirmaan PMO Executive Profile",
+      "Nirmaan Project Lead Profile",
+    ];
+
+    const canViewRestrictedTabs =
+      user_id === "Administrator" ||
+      allowedRolesForRestrictedTabs.includes(role);
+
+    if (role === "Nirmaan Procurement Executive Profile") {
+      return [PLANNING_TABS.MATERIAL_PLAN];
+    }
+
+    return [
+      PLANNING_TABS.WORK_PLAN,
+      PLANNING_TABS.MATERIAL_PLAN,
+      ...(canViewRestrictedTabs ? [PLANNING_TABS.Cashflow_Plan] : []),
+    ];
+  }, [role, user_id]);
+
   return (
     <div className="flex border rounded-md w-fit overflow-hidden border-[#D7D7EC]">
-      {[
-        PLANNING_TABS.WORK_PLAN, 
-        PLANNING_TABS.MATERIAL_PLAN, 
-        PLANNING_TABS.Cashflow_Plan
-      ].map((tab) => (
+      {tabs.map((tab) => (
 
         <button
           key={tab}

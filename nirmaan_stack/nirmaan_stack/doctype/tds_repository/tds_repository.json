@@ -62,7 +62,7 @@
   },
   {
    "fieldname": "tds_item_id",
-   "fieldtype": "Link",
+   "fieldtype": "Data",
    "label": "TDS Item ID",
    "options": "Items"
   }
@@ -70,7 +70,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-23 15:44:29.016727",
+ "modified": "2026-02-05 16:02:42.047523",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "TDS Repository",
