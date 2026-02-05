@@ -14,7 +14,7 @@ import {
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { PlusCircle, Search } from "lucide-react";
+import { PlusCircle, Search, Plus } from "lucide-react";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { useFrappeCreateDoc, useFrappeFileUpload, useFrappeUpdateDoc } from "frappe-react-sdk";
 import RSelect from "react-select";
@@ -120,10 +120,13 @@ const CustomItemDialog: React.FC<CustomItemDialogProps> = ({
                                     <button
                                         key={item.id}
                                         onClick={() => handleSelectCustom(item)}
-                                        className="w-full text-left p-2 hover:bg-gray-50 rounded text-sm flex flex-col"
+                                        className="w-full text-left p-3 bg-yellow-50 border border-yellow-200 hover:bg-yellow-100 rounded-md text-sm flex items-center justify-between transition-colors mb-2"
                                     >
-                                        <span className="font-medium text-blue-600">[{item.id}] {item.name}</span>
-                                        <span className="text-xs text-gray-500">{item.wp} → {item.cat}</span>
+                                        <div className="flex flex-col">
+                                            <span className="font-semibold text-yellow-800">[{item.id}] {item.name}</span>
+                                            <span className="text-xs text-yellow-600 mt-1">{item.wp} → {item.cat}</span>
+                                        </div>
+                                        <PlusCircle className="h-5 w-5 text-red-500 drop-shadow-sm hover:text-red-600 transition-transform hover:scale-105" />
                                     </button>
                                 ))}
                             </div>
@@ -137,10 +140,13 @@ const CustomItemDialog: React.FC<CustomItemDialogProps> = ({
                                     <button
                                         key={item.value}
                                         onClick={() => handleSelectStandard(item)}
-                                        className="w-full text-left p-2 hover:bg-gray-50 rounded text-sm"
+                                        className="w-full text-left p-3 bg-green-50 border border-green-200 hover:bg-green-100 rounded-md text-sm flex items-center justify-between transition-colors mb-2"
                                     >
-                                        <span className="font-medium">{item.label}</span>
-                                        <span className="text-xs text-gray-500 ml-2">({item.categoryName})</span>
+                                        <div className="flex flex-col">
+                                            <span className="font-semibold text-green-800">{item.label}</span>
+                                            <span className="text-xs text-green-600 mt-1">({item.categoryName})</span>
+                                        </div>
+                                        <PlusCircle className="h-5 w-5 text-red-500 drop-shadow-sm hover:text-red-600 transition-transform hover:scale-105" />
                                     </button>
                                 ))}
                             </div>
@@ -219,18 +225,8 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
             categoryName: item.categoryName
         }));
 
-        // Include existing custom items, filtered by selected WP if applicable
-        const customItems = allCustomItems
-            .filter(item => !selectedWP || item.wp === selectedWP)
-            .map(item => ({
-                label: `[${item.id}] ${item.name}`,
-                value: item.id,
-                category: item.cat,
-                categoryName: item.cat
-            }));
-
-        return [...standardItems, ...customItems, { label: "+ Custom Item", value: "__custom__", category: "", categoryName: "" }];
-    }, [itemOptionsForWP, allCustomItems, selectedWP]);
+        return [...standardItems, { label: "+ Custom Item", value: "__custom__", category: "", categoryName: "" }];
+    }, [itemOptionsForWP]);
 
     // Track previous values
     const prevWPRef = useRef(selectedWP);
@@ -276,17 +272,26 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
     const handleItemChange = (opt: any) => {
         if (opt?.value === "__custom__") {
             setCustomItemDialogOpen(true);
-        } else {
-            // Standard item selected - auto-fill category and set item name
+        }
+         else {
+            // Standard or Existing Custom Item selected
+            const isCustom = opt?.value?.startsWith("CUS-");
             const itemInfo = getCategoryForItem(opt?.value);
+            
             if (itemInfo) {
                 form.setValue("category", itemInfo.category);
+                if (itemInfo.workPackage && itemInfo.workPackage !== form.getValues("work_package")) {
+                     prevWPRef.current = itemInfo.workPackage;
+                     form.setValue("work_package", itemInfo.workPackage);
+                }
             }
+            
             form.setValue("tds_item_id", opt?.value);
-            form.setValue("tds_item_name", opt?.label || ""); // Set item name for display
-            setIsCustomItem(false);
-            setCustomItemName("");
-            form.setValue("is_custom_item", false);
+            form.setValue("tds_item_name", opt?.label || "");
+            
+            setIsCustomItem(isCustom);
+            setCustomItemName(isCustom ? (opt?.label || "") : "");
+            form.setValue("is_custom_item", isCustom);
         }
     };
 
@@ -438,24 +443,43 @@ export const AddTDSItemDialog: React.FC<AddTDSItemDialogProps> = ({ onSuccess })
                                         <FormLabel className="text-sm font-semibold flex items-center">
                                             Item Name<span className="text-red-500 ml-0.5">*</span>
                                         </FormLabel>
-                                        {isCustomItem && (
-                                            <p className="text-xs text-blue-600 mb-1">Custom: {customItemName}</p>
-                                        )}
                                         <FormControl>
-                                            <RSelect
-                                                options={itemOptionsWithCustom}
-                                                value={getItemDisplayValue()}
-                                                onChange={handleItemChange}
-                                                placeholder="Select Item"
-                                                className="react-select-container"
-                                                classNamePrefix="react-select"
-                                                isDisabled={!selectedWP}
-                                                formatOptionLabel={(option) => (
-                                                    option.value === "__custom__" ? (
-                                                        <span className="text-blue-600 font-medium">+ Custom Item</span>
-                                                    ) : option.label
-                                                )}
-                                            />
+                                            {isCustomItem ? (
+                                                <div className="flex items-center justify-between p-2 border rounded-md bg-yellow-50 border-yellow-200">
+                                                    <div className="flex flex-col">
+                                                        <span className="text-sm font-semibold text-yellow-800">
+                                                            {customItemName}
+                                                        </span>
+                                                        <span className="text-xs text-yellow-600">
+                                                            ID: {field.value}
+                                                        </span>
+                                                    </div>
+                                                    <Button
+                                                        type="button"
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="text-yellow-700 hover:text-yellow-900 hover:bg-yellow-100 h-8 px-2 text-xs"
+                                                        onClick={() => setCustomItemDialogOpen(true)}
+                                                    >
+                                                        Edit / Change
+                                                    </Button>
+                                                </div>
+                                            ) : (
+                                                <RSelect
+                                                    options={itemOptionsWithCustom}
+                                                    value={getItemDisplayValue()}
+                                                    onChange={handleItemChange}
+                                                    placeholder="Select Item"
+                                                    className="react-select-container"
+                                                    classNamePrefix="react-select"
+                                                    isDisabled={!selectedWP}
+                                                    formatOptionLabel={(option) => (
+                                                        option.value === "__custom__" ? (
+                                                            <span className="text-blue-600 font-medium">+ Custom Item</span>
+                                                        ) : option.label
+                                                    )}
+                                                />
+                                            )}
                                         </FormControl>
                                         <FormMessage className="text-xs" />
                                     </FormItem>
