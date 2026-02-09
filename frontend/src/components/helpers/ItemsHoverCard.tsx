@@ -16,6 +16,7 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { BookOpen, Loader2, X } from "lucide-react"; // Added Loader2 and X
 import { useFrappeGetDoc, FrappeDoc } from "frappe-react-sdk"; // Import useFrappeGetDoc
 import { Button } from "@/components/ui/button";
+import { useUserData } from "@/hooks/useUserData";
 
 interface ItemsHoverCardProps {
   parentDoc: FrappeDoc<any>; // e.g., PR-00001
@@ -37,6 +38,7 @@ export const ItemsHoverCard: React.FC<ItemsHoverCardProps> = ({
   isPR = false, // Keep these if they affect column rendering/data access
   isSB = false,
 }) => {
+  const { role } = useUserData();
   const [isOpen, setIsOpen] = useState(false);
 
   // Fetch the parent document when the card is open
@@ -152,7 +154,9 @@ export const ItemsHoverCard: React.FC<ItemsHoverCardProps> = ({
                       )}
                       <TableHead className="w-[70px]">Unit</TableHead>
                       <TableHead className="w-[60px]">Qty</TableHead>
-                      <TableHead className="w-[80px]">Rate</TableHead>
+                      {role !== "Nirmaan Project Manager Profile" && (
+                        <TableHead className="w-[80px]">Rate</TableHead>
+                      )}
                       {/* Add Make column back if needed, data should be in fetched child items */}
                       {!isSR && (isPR || isSB) && (
                         <TableHead className="min-w-[100px]">Make</TableHead>
@@ -178,9 +182,13 @@ export const ItemsHoverCard: React.FC<ItemsHoverCardProps> = ({
                         <TableCell className="text-sm text-center">
                           {item.quantity}
                         </TableCell>
-                        <TableCell className="text-sm">
-                          {formatToIndianRupee(isSR ? item?.rate : item?.quote)}
-                        </TableCell>
+                        {role !== "Nirmaan Project Manager Profile" && (
+                          <TableCell className="text-sm">
+                            {formatToIndianRupee(
+                              isSR ? item?.rate : item?.quote
+                            )}
+                          </TableCell>
+                        )}
                         {!isSR && (isPR || isSB) && (
                           <TableCell className="text-sm">
                             {item?.make || "--"}
