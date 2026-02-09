@@ -23,7 +23,7 @@ const VendorBankDetailsCard = React.lazy(() => import("./components/VendorBankDe
 const VendorMaterialOrdersTable = React.lazy(() => import("./components/VendorMaterialOrdersTable"));
 const VendorPaymentsTable = React.lazy(() => import("./components/VendorPaymentsTable"));
 const VendorApprovedQuotesTable = React.lazy(() => import("./components/VendorApprovedQuotesTable"));
-const ApprovedSRList = React.lazy(() => import("../ServiceRequests/service-request/approved-sr-list"));
+const FinalizedSRList = React.lazy(() => import("../ServiceRequests/service-request/finalized-sr-list"));
 const POVendorLedger = React.lazy(() => import("./components/POVendorLedger"));
 const PoInvoices = React.lazy(() => import("../tasks/invoices/components/PoInvoices").then(m => ({ default: m.PoInvoices })));
 const SrInvoices = React.lazy(() => import("../tasks/invoices/components/SrInvoices").then(m => ({ default: m.SrInvoices })));
@@ -130,7 +130,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                     procurementRequests={procurementRequests}
                 />;
             case "serviceOrders":
-                return <ApprovedSRList for_vendor={vendorId} />; // Use your existing component
+                return <FinalizedSRList for_vendor={vendorId} />; // Use your existing component
             case "vendorPayments":
                 return <VendorPaymentsTable
                     vendorId={vendorId}
