@@ -8,6 +8,7 @@ import ReactSelect from "react-select";
 import { Label } from "@/components/ui/label";
 import { Loader2, Blocks } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
+import { Textarea } from "@/components/ui/textarea";
 
 interface ProjectManagerEditWorkPlanDialogProps {
     isOpen: boolean;
@@ -22,6 +23,7 @@ interface ProjectManagerEditWorkPlanDialogProps {
         wp_description: string;
         wp_progress?: number;
         wp_estimate_completion_date?: string;
+        wp_remarks?: string;
     };
 }
 
@@ -38,10 +40,12 @@ export const ProjectManagerEditWorkPlanDialog = ({
         wp_status: string;
         wp_progress: number | string;
         wp_estimate_completion_date: string;
+        wp_remarks: string;
     }>({
         wp_status: "Not Started",
         wp_progress: 0,
         wp_estimate_completion_date: "",
+        wp_remarks: "",
     });
 
     useEffect(() => {
@@ -50,6 +54,7 @@ export const ProjectManagerEditWorkPlanDialog = ({
                 wp_status: initialData.wp_status || "Not Started",
                 wp_progress: initialData.wp_progress !== undefined ? initialData.wp_progress : 0,
                 wp_estimate_completion_date: initialData.wp_estimate_completion_date || "",
+                wp_remarks: initialData.wp_remarks || "",
             });
         }
     }, [initialData]);
@@ -77,6 +82,7 @@ export const ProjectManagerEditWorkPlanDialog = ({
         wp_status: z.enum(["Not Started", "Pending", "In Progress", "Completed", "On Hold"]),
         wp_progress: z.union([z.number(), z.string()]).optional(),
         wp_estimate_completion_date: z.string().optional(),
+        wp_remarks: z.string().optional(),
     }).superRefine((data, ctx) => {
         if (data.wp_status === "In Progress") {
             // Validate Estimated Completion Date is required
@@ -109,6 +115,16 @@ export const ProjectManagerEditWorkPlanDialog = ({
                 }
             }
         }
+
+         if (data.wp_status === "On Hold") {
+             if (!data.wp_remarks || data.wp_remarks.trim() === "") {
+                 ctx.addIssue({
+                     code: z.ZodIssueCode.custom,
+                     message: "Remarks are required when placing a task On Hold",
+                     path: ["wp_remarks"],
+                 });
+             }
+         }
     });
 
     const handleSubmit = async () => {
@@ -134,6 +150,13 @@ export const ProjectManagerEditWorkPlanDialog = ({
         const dataToUpdate: any = {
             wp_status: formData.wp_status,
         };
+        
+        // Critical: Clear remarks if status is NOT On Hold
+        if (formData.wp_status === "On Hold") {
+             dataToUpdate.wp_remarks = formData.wp_remarks;
+        } else {
+             dataToUpdate.wp_remarks = ""; 
+        }
 
         if (formData.wp_status === "Completed") {
             dataToUpdate.wp_progress = 100;
@@ -146,7 +169,6 @@ export const ProjectManagerEditWorkPlanDialog = ({
             dataToUpdate.wp_progress = formData.wp_progress;
             dataToUpdate.wp_estimate_completion_date = formData.wp_estimate_completion_date;
         }
-
 
         try {
             await updateDoc("Work Plan", docName, dataToUpdate);
@@ -180,6 +202,7 @@ export const ProjectManagerEditWorkPlanDialog = ({
     };
 
     const shouldShowFields = formData.wp_status === "In Progress";
+    const shouldShowRemarks = formData.wp_status === "On Hold";
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
@@ -247,6 +270,21 @@ export const ProjectManagerEditWorkPlanDialog = ({
                                 />
                             </div>
                         </>
+                    )}
+                    
+                    {shouldShowRemarks && (
+                        <div className="grid gap-2">
+                            <Label htmlFor="wp_remarks">
+                                Remarks <span className="text-red-500">*</span>
+                            </Label>
+                            <Textarea
+                                id="wp_remarks"
+                                placeholder="Enter reason for putting on hold..."
+                                value={formData.wp_remarks}
+                                onChange={(e) => handleChange("wp_remarks", e.target.value)}
+                                className="min-h-[80px]"
+                            />
+                        </div>
                     )}
                      
                     {formData.wp_status === "Completed" && (
