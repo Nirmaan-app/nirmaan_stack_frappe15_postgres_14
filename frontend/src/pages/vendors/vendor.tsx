@@ -23,7 +23,9 @@ const VendorBankDetailsCard = React.lazy(() => import("./components/VendorBankDe
 const VendorMaterialOrdersTable = React.lazy(() => import("./components/VendorMaterialOrdersTable"));
 const VendorPaymentsTable = React.lazy(() => import("./components/VendorPaymentsTable"));
 const VendorApprovedQuotesTable = React.lazy(() => import("./components/VendorApprovedQuotesTable"));
+const ApprovedSRList = React.lazy(() => import("../ServiceRequests/service-request/approved-sr-list"));
 const FinalizedSRList = React.lazy(() => import("../ServiceRequests/service-request/finalized-sr-list"));
+import { cn } from "@/lib/utils";
 const POVendorLedger = React.lazy(() => import("./components/POVendorLedger"));
 const PoInvoices = React.lazy(() => import("../tasks/invoices/components/PoInvoices").then(m => ({ default: m.PoInvoices })));
 const SrInvoices = React.lazy(() => import("../tasks/invoices/components/SrInvoices").then(m => ({ default: m.SrInvoices })));
@@ -44,6 +46,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
     const [currentTab, setCurrentTab] = useState(initialTab);
     const [editSheetOpen, setEditSheetOpen] = useState(false);
     const toggleEditSheet = useCallback(() => setEditSheetOpen(prev => !prev), []);
+    const [serviceOrderTab, setServiceOrderTab] = useState<"approved" | "finalized">("approved");
 
     // Effect to sync tab state TO URL
     useEffect(() => {
@@ -102,6 +105,21 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
 
     ].filter(Boolean) as MenuItem[], [vendor?.vendor_type]);
 
+    // --- SR Counts Data ---
+    const { data: approvedSRs } = useFrappeGetDocList("Service Requests", {
+        filters: [["status", "=", "Approved"], ["is_finalized", "=", 0], ["vendor", "=", vendorId]],
+        fields: ["name"],
+        limit: 1000 // Upper limit for count
+    });
+    const { data: finalizedSRs } = useFrappeGetDocList("Service Requests", {
+        filters: [["status", "=", "Approved"], ["is_finalized", "=", 1], ["vendor", "=", vendorId]],
+        fields: ["name"],
+        limit: 1000
+    });
+
+    const approvedCount = approvedSRs?.length || 0;
+    const finalizedCount = finalizedSRs?.length || 0;
+
     const handleMenuClick: MenuProps["onClick"] = useCallback(e => setCurrentTab(e.key), []);
 
 
@@ -130,7 +148,43 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                     procurementRequests={procurementRequests}
                 />;
             case "serviceOrders":
-                return <FinalizedSRList for_vendor={vendorId} />; // Use your existing component
+                return (
+                    <div className="space-y-4">
+                        {/* Tab Navigation - Custom Tailwind buttons */}
+                        <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">
+                            <div className="flex gap-1.5 sm:flex-wrap pb-1 sm:pb-0">
+                                {[
+                                    { label: "Approved WO", value: "approved", count: approvedCount },
+                                    { label: "Finalized WO", value: "finalized", count: finalizedCount }
+                                ].map((tab) => {
+                                    const isActive = serviceOrderTab === tab.value;
+                                    return (
+                                        <button
+                                            key={tab.value}
+                                            type="button"
+                                            onClick={() => setServiceOrderTab(tab.value as "approved" | "finalized")}
+                                            className={cn(
+                                                "px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded transition-colors flex items-center gap-1.5 whitespace-nowrap",
+                                                isActive
+                                                    ? "bg-sky-500 text-white"
+                                                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                            )}
+                                        >
+                                            {tab.label}
+                                            <span className={cn("text-xs font-bold", isActive ? "opacity-90" : "opacity-70")}>
+                                                {tab.count}
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* Tab Content */}
+                        {serviceOrderTab === "approved" && <ApprovedSRList for_vendor={vendorId} />}
+                        {serviceOrderTab === "finalized" && <FinalizedSRList for_vendor={vendorId} />}
+                    </div>
+                );
             case "vendorPayments":
                 return <VendorPaymentsTable
                     vendorId={vendorId}
