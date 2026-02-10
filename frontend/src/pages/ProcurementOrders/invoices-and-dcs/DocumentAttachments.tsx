@@ -619,7 +619,7 @@ export const DocumentAttachments = <T extends DocumentType>({
               </Badge>
             </div>
             <div className="flex gap-2 items-center">
-              {docType === "Service Requests" &&
+              {docType === "Service Requests" && !isEstimatesExecutive&&
                 (documentData as ServiceRequests)?.gst !== "true" && (
                   <Button
                     disabled={!documentData?.project_gst} // Keep your existing disabled logic
