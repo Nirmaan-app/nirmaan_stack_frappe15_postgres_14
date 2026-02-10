@@ -42,6 +42,9 @@ import { OutflowReportTable } from "./outflowReportTable";
 import { NonProjectExpensesPage } from "@/pages/NonProjectExpenses/NonProjectExpensesPage";
 import { ProjectProgressReports } from "./ProjectProgressReports";
 
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
+
 import { StandaloneDateFilter } from "@/components/ui/StandaloneDateFilter";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { parse, formatISO, startOfDay, endOfDay, format } from "date-fns";
@@ -87,6 +90,19 @@ function CashSheetReport() {
       startDate: dateRange?.from,
       endDate: dateRange?.to,
     });
+
+  const { ceoHoldProjectIds } = useCEOHoldProjects();
+
+  const getRowClassName = useCallback(
+    (row: any) => {
+      const projectId = row.original.name;
+      if (projectId && ceoHoldProjectIds.has(projectId)) {
+        return CEO_HOLD_ROW_CLASSES;
+      }
+      return undefined;
+    },
+    [ceoHoldProjectIds]
+  );
 
   // --- NEW: Client-side Table Logic ---
 
@@ -414,6 +430,7 @@ function CashSheetReport() {
         onExport={handleCustomExport}
         exportFileName={exportFileName}
         showRowSelection={false}
+        getRowClassName={getRowClassName}
         tableHeight="40vh"
         summaryCard={
           <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-50 to-white dark:from-slate-900 dark:to-slate-800">

@@ -24,11 +24,25 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { useOrderTotals } from "@/hooks/useOrderTotals";
 import { useOrderPayments } from "@/hooks/useOrderPayments";
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
 const URL_SYNC_KEY = "inv_history";
 
 export const TaskHistoryTable: React.FC = () => {
     const { role, user_id } = useUserData();
+    const { ceoHoldProjectIds } = useCEOHoldProjects();
+
+    const getRowClassName = useCallback(
+        (row: any) => {
+            const projectId = row.original.project;
+            if (projectId && ceoHoldProjectIds.has(projectId)) {
+                return CEO_HOLD_ROW_CLASSES;
+            }
+            return undefined;
+        },
+        [ceoHoldProjectIds]
+    );
 
     const { data: usersList } = useUsersList();
 
@@ -221,6 +235,7 @@ export const TaskHistoryTable: React.FC = () => {
                     showExportButton={true}
                     onExport={"default"}
                     exportFileName="Vendor_Invoices_History"
+                    getRowClassName={getRowClassName}
                 />
             )}
         </div>

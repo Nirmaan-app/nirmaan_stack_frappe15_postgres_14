@@ -20,6 +20,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { Customers } from "@/types/NirmaanStack/Customers";
@@ -1332,6 +1333,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         </div>
       </div>
 
+      {data?.status === "CEO Hold" && <CEOHoldBanner className="mb-4" />}
 
       <div className="w-full">
         <ConfigProvider

@@ -64,9 +64,9 @@ export function CEOHoldBanner({ className, compact = false }: CEOHoldBannerProps
             Project on CEO Hold
           </h3>
           <p className="mt-1 text-sm text-amber-700 leading-relaxed">
-            All procurement, payment, and expense operations are suspended.
+            Some procurement, payment, and expense operations are restricted.
             <span className="block mt-1 text-amber-600 font-medium">
-              Contact Admin to resume operations.
+              Contact Admin to resume full operations.
             </span>
           </p>
         </div>

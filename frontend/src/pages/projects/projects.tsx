@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
@@ -30,6 +30,8 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { useFacetValues } from "@/hooks/useFacetValues";
 import { useUserData } from "@/hooks/useUserData";
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToApproxLakhs } from "@/utils/FormatPrice";
 import {
@@ -111,6 +113,19 @@ export const Projects: React.FC<ProjectsProps> = ({
   const { role, user_id } = useUserData();
   const canViewFinancials = FINANCIAL_COLUMNS_ROLES.includes(role);
   const canViewSummaryCard = user_id === "Administrator" || SUMMARY_CARD_ROLES.includes(role);
+
+  const { ceoHoldProjectIds } = useCEOHoldProjects();
+
+  const getRowClassName = useCallback(
+    (row: any) => {
+      const projectId = row.original.name;
+      if (projectId && ceoHoldProjectIds.has(projectId)) {
+        return CEO_HOLD_ROW_CLASSES;
+      }
+      return undefined;
+    },
+    [ceoHoldProjectIds]
+  );
 
   const urlSyncKey = useMemo(
     () =>
@@ -864,6 +879,7 @@ export const Projects: React.FC<ProjectsProps> = ({
             showExportButton={true}
             onExport={"default"}
             exportFileName="Projects_Report"
+            getRowClassName={getRowClassName}
           />
         )}
       </div>

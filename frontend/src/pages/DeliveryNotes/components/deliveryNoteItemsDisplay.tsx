@@ -15,7 +15,6 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/components/ui/use-toast';
 import { useUserData } from '@/hooks/useUserData';
-import { useCEOHoldGuard } from '@/hooks/useCEOHoldGuard';
 import { DeliveryDataType, ProcurementOrder, PurchaseOrderItem } from '@/types/NirmaanStack/ProcurementOrders';
 import { parseNumber } from '@/utils/parseNumber';
 import { useFrappeFileUpload, useFrappePostCall, useSWRConfig, FrappeDoc } from 'frappe-react-sdk';
@@ -43,7 +42,6 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
   const userData = useUserData();
   const { toast } = useToast();
   const { mutate } = useSWRConfig();
-  const { isCEOHold, showBlockedToast } = useCEOHoldGuard(data?.project);
 
   // console.log("updateDN Data", data,data?.items?.length)
   // console.log("updateDN Data",JSON.parse(data?.deliveryDate))
@@ -256,10 +254,6 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
 
   // --- (Indicator) MODIFIED SUBMISSION LOGIC: Calculates the new total before sending to backend ---
   const handleUpdateDeliveryNote = useCallback(async () => {
-    if (isCEOHold) {
-      showBlockedToast();
-      return;
-    }
     const modifiedItemsPayload: { [itemId: string]: number } = {};
     let hasInvalidEntry = false;
 
@@ -320,7 +314,7 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
       console.error("Error updating delivery note:", error);
       toast({ title: "Update Failed", description: "Failed to update delivery note", variant: "destructive" });
     }
-  }, [data, originalOrder, newlyDeliveredQuantities, DNUpdateCall, poMutate, toggleDeliveryNoteSheet, toast, transformChangesToDeliveryData, uploadAttachment, selectedAttachment, mutate, isCEOHold, showBlockedToast]);
+  }, [data, originalOrder, newlyDeliveredQuantities, DNUpdateCall, poMutate, toggleDeliveryNoteSheet, toast, transformChangesToDeliveryData, uploadAttachment, selectedAttachment, mutate]);
 
   // Render helpers
   // const renderReceivedCell = (item: PurchaseOrderItem) => {

@@ -269,7 +269,7 @@ export const TDSApprovalDetail: React.FC = () => {
 
     // CEO Hold guard - use project ID from first TDS item
     const projectId = allItems?.[0]?.tdsi_project_id;
-    const { isCEOHold, showBlockedToast } = useCEOHoldGuard(projectId);
+    const { isCEOHold } = useCEOHoldGuard(projectId);
 
     // Split items by status
     const pendingItems = useMemo(() => 
@@ -685,11 +685,6 @@ export const TDSApprovalDetail: React.FC = () => {
     ], []);
 
     const handleApprove = async () => {
-        if (isCEOHold) {
-            showBlockedToast();
-            return;
-        }
-
         const selectedItems = pendingItems.filter((_, index) => rowSelection[index.toString()]);
 
         if (selectedItems.length === 0) {
@@ -721,11 +716,6 @@ export const TDSApprovalDetail: React.FC = () => {
     };
 
     const handleReject = (remarks: string) => {
-        if (isCEOHold) {
-            showBlockedToast();
-            return;
-        }
-
         const selectedItems = pendingItems.filter((_, index) => rowSelection[index.toString()]);
 
         if (selectedItems.length === 0) return;
@@ -765,11 +755,6 @@ export const TDSApprovalDetail: React.FC = () => {
     };
 
     const handleEditSave = async (itemName: string, updates: Partial<TDSItem>, itemsToDelete?: string[]) => {
-        if (isCEOHold) {
-            showBlockedToast();
-            return;
-        }
-
         setProcessing(true);
         try {
             // Check if there are items to delete (resubmission logic)

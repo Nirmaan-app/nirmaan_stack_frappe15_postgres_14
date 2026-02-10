@@ -1,6 +1,6 @@
 /**
  * Tailwind classes for CEO Hold row highlighting in data tables.
- * Matches the amber theme of CEOHoldBanner component.
+ * Uses light red to clearly indicate blocked/held status.
  *
  * Used with DataTable's getRowClassName prop:
  * ```tsx
@@ -13,4 +13,4 @@
  * ```
  */
 export const CEO_HOLD_ROW_CLASSES =
-  "bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 dark:hover:bg-amber-950/50";
+  "bg-red-50 hover:bg-red-100 dark:bg-red-950/30 dark:hover:bg-red-950/50";

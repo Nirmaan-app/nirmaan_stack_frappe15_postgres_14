@@ -21,7 +21,7 @@ import { useFrappeFileUpload } from "frappe-react-sdk";
 import { DOC_TYPES } from "../approve-payments/constants";
 import { useOrderPayments } from "@/hooks/useOrderPayments";
 import { useOrderTotals } from "@/hooks/useOrderTotals";
-import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
+
 
 /* ---------- tiny sub-component for label/value rows --------------- */
 const Row = ({ label, val, labelClass, valClass }: { label: string; val: string | number, labelClass?: string, valClass?: string }) => (
@@ -56,9 +56,6 @@ export default function UpdatePaymentRequestDialog({
   const { getAmount: getTotalAmountPaidForPO } = useOrderPayments()
   const { getTotalAmount } = useOrderTotals()
 
-  /* CEO Hold guard */
-  const { isCEOHold, showBlockedToast } = useCEOHoldGuard(payment.project);
-
   /* global dialog open/close from zustand */
   const { paymentDialog: open, togglePaymentDialog: toggle } =
     useDialogStore();
@@ -76,10 +73,6 @@ export default function UpdatePaymentRequestDialog({
   const reset = () => { setUtr(""); setTds(""); setPD(""); setFile(null); };
 
   const doFulfil = async () => {
-    if (isCEOHold) {
-      showBlockedToast();
-      return;
-    }
     try {
 
       let uploadedFile;
@@ -125,10 +118,6 @@ export default function UpdatePaymentRequestDialog({
   };
 
   const doDelete = async () => {
-    if (isCEOHold) {
-      showBlockedToast();
-      return;
-    }
     try {
       await trigger({ action: "delete", name: payment.name });
       toast({ title: "Deleted", variant: "success" });

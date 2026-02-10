@@ -24,7 +24,6 @@ import {
   useFrappeGetDoc,
   useFrappePostCall,
   useFrappeUpdateDoc,
-  useFrappeFileUpload,
 } from "frappe-react-sdk";
 import { mutate as globalMutate } from "swr";
 import {
@@ -99,7 +98,8 @@ import { ValidationMessages } from "@/components/validations/ValidationMessages"
 import { DeliveryNotePrintLayout } from "@/pages/DeliveryNotes/components/DeliveryNotePrintLayout";
 import { useReactToPrint } from "react-to-print";
 import { usePrintHistory } from "@/pages/DeliveryNotes/hooks/usePrintHistroy";
-import { CustomAttachment } from "@/components/helpers/CustomAttachment";
+import { UploadDCMIRDialog } from "@/pages/DeliveryChallansAndMirs/components/UploadDCMIRDialog";
+import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 
 interface PODetailsProps {
   po: ProcurementOrder | null;
@@ -178,134 +178,40 @@ export const PODetails: React.FC<PODetailsProps> = ({
     setDeliveryNoteSheet((prevState) => !prevState);
   }, []);
 
-  // Upload DC/MIR state and handlers
-  const [uploadDialog, setUploadDialog] = useState<{
+  // PDD Upload dialog state (new structured flow)
+  const [pddUploadState, setPddUploadState] = useState<{
     open: boolean;
-    type: "DC" | "MIR" | null;
-  }>({
-    open: false,
-    type: null,
-  });
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [refNumber, setRefNumber] = useState("");
+    mode: "create" | "edit";
+    dcType: "Delivery Challan" | "Material Inspection Report";
+  }>({ open: false, mode: "create", dcType: "Delivery Challan" });
 
-  // Upload hooks
-  const { upload, loading: uploadLoading } = useFrappeFileUpload();
-  const { call: createAttachmentDoc, loading: createAttachmentLoading } =
-    useFrappePostCall("frappe.client.insert");
-
-  const handleOpenUploadDialog = useCallback((type: "DC" | "MIR") => {
-    setUploadDialog({ open: true, type });
-    setSelectedFile(null);
+  const handleOpenPDDUpload = useCallback((type: "DC" | "MIR") => {
+    setPddUploadState({
+      open: true,
+      mode: "create",
+      dcType: type === "DC" ? "Delivery Challan" : "Material Inspection Report",
+    });
   }, []);
 
-  const handleCloseUploadDialog = useCallback(() => {
-    setUploadDialog({ open: false, type: null });
-    setSelectedFile(null);
-    setRefNumber("");
-  }, []);
+  const handlePDDUploadSuccess = useCallback(async () => {
+    await poMutate();
+    await globalMutate(
+      (key) => Array.isArray(key) && JSON.stringify(key).includes("Nirmaan Attachments"),
+      undefined,
+      { revalidate: true }
+    );
+  }, [poMutate]);
 
-  const handleUploadFile = useCallback(async () => {
-    if (isCEOHold) {
-      showBlockedToast();
-      return;
-    }
-    if (!selectedFile || !uploadDialog.type || !po?.name) {
-      toast({
-        title: "No File Selected",
-        description: "Please select a file to upload",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (!refNumber) {
-      toast({
-        title: "Required Field Missing",
-        description: `Please enter the ${
-          uploadDialog.type === "DC" ? "DC Number" : "MIR Number"
-        }`,
-        variant: "destructive",
-      });
-      return;
-    }
-
-    try {
-      // Step 1: Upload file to Frappe
-      const uploadResult = await upload(selectedFile, {
-        doctype: "Procurement Orders",
-        docname: po.name,
-        fieldname: "attachment",
-        isPrivate: true,
-      });
-
-      if (!uploadResult?.file_url) {
-        throw new Error("File upload failed");
-      }
-
-      // Step 2: Create Nirmaan Attachments record
-      const attachmentType =
-        uploadDialog.type === "DC"
-          ? "po delivery challan"
-          : "material inspection report";
-
-      const attachmentDoc = {
-        doctype: "Nirmaan Attachments",
-        project: po.project,
-        attachment: uploadResult.file_url,
-        attachment_type: attachmentType,
-        associated_doctype: "Procurement Orders",
-        associated_docname: po.name,
-        attachment_link_doctype: "Vendors",
-        attachment_link_docname: po.vendor,
-        attachment_ref: refNumber || undefined,
-      };
-
-      await createAttachmentDoc({ doc: attachmentDoc });
-
-      // Success
-      toast({
-        title: "Upload Successful",
-        description: `${uploadDialog.type} uploaded successfully`,
-        variant: "success",
-      });
-
-      // Refresh data
-      await poMutate();
-
-      // Refresh all attachment queries globally
-      await globalMutate(
-        (key) => {
-          if (Array.isArray(key)) {
-            return JSON.stringify(key).includes("Nirmaan Attachments");
-          }
-          return false;
-        },
-        undefined,
-        { revalidate: true }
-      );
-
-      handleCloseUploadDialog();
-    } catch (error: any) {
-      console.error("Upload error:", error);
-      toast({
-        title: "Upload Failed",
-        description: error.message || "Failed to upload file",
-        variant: "destructive",
-      });
-    }
-  }, [
-    selectedFile,
-    uploadDialog.type,
-    po,
-    upload,
-    createAttachmentDoc,
-    poMutate,
-    handleCloseUploadDialog,
-    refNumber,
-  ]);
-
-  const isUploading = uploadLoading || createAttachmentLoading;
+  const poItemsForSelector = useMemo(() => {
+    if (!po?.items) return [];
+    return po.items.map(item => ({
+      item_id: item.item_id,
+      item_name: item.item_name,
+      unit: item.unit,
+      category: item.category,
+      make: item.make,
+    }));
+  }, [po?.items]);
 
   const [dispatchPODialog, setDispatchPODialog] = useState(false);
   const toggleDispatchPODialog = useCallback(() => {
@@ -615,6 +521,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
 
   return (
     <div>
+      {isCEOHold && <CEOHoldBanner className="mb-4" />}
       <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
         {/* ═══════════════════════════════════════════════════════════════════
             SECTION 1: HEADER - Title with validation warning
@@ -796,7 +703,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                           variant="outline"
                           size="sm"
                           className="h-8 px-2.5 border-primary text-primary shrink-0"
-                          onClick={() => handleOpenUploadDialog("DC")}
+                          onClick={() => handleOpenPDDUpload("DC")}
                         >
                           <CirclePlus className="h-3.5 w-3.5 sm:mr-1.5" />
                           <span className="hidden sm:inline text-xs">Upload DC</span>
@@ -815,7 +722,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                           variant="outline"
                           size="sm"
                           className="h-8 px-2.5 border-primary text-primary shrink-0"
-                          onClick={() => handleOpenUploadDialog("MIR")}
+                          onClick={() => handleOpenPDDUpload("MIR")}
                         >
                           <Upload className="h-3.5 w-3.5 sm:mr-1.5" />
                           <span className="hidden sm:inline text-xs">Upload MIR</span>
@@ -1539,68 +1446,21 @@ export const PODetails: React.FC<PODetailsProps> = ({
         </DialogContent>
       </Dialog>
 
-      {/* Upload DC/MIR Dialog */}
-      <Dialog open={uploadDialog.open} onOpenChange={handleCloseUploadDialog}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>
-              Upload{" "}
-              {uploadDialog.type === "DC"
-                ? "Delivery Challan"
-                : "Material Inspection Report"}
-            </DialogTitle>
-            <DialogDescription>
-              Upload {uploadDialog.type} for{" "}
-              {po?.name ? `PO-${po.name.split("/")[1]}` : "this Purchase Order"}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="py-4 space-y-4">
-            <CustomAttachment
-              selectedFile={selectedFile}
-              onFileSelect={setSelectedFile}
-              label={`Select ${uploadDialog.type} File`}
-              maxFileSize={20 * 1024 * 1024}
-              acceptedTypes={["application/pdf", "image/*"]}
-            />
-            <div className="space-y-2">
-              <label className="text-sm font-medium">
-                {uploadDialog.type === "DC" ? "DC Number" : "MIR Number"}{" "}
-                <span className="text-red-500">*</span>
-              </label>
-              <Input
-                placeholder={
-                  uploadDialog.type === "DC"
-                    ? "Enter DC number"
-                    : "Enter MIR number"
-                }
-                value={refNumber}
-                onChange={(e) => setRefNumber(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            {isUploading ? (
-              <div className="flex justify-center w-full">
-                <TailSpin color="#3b82f6" width={40} height={40} />
-              </div>
-            ) : (
-              <>
-                <Button variant="outline" onClick={handleCloseUploadDialog}>
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleUploadFile}
-                  disabled={!selectedFile || !refNumber}
-                >
-                  Upload
-                </Button>
-              </>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Upload DC/MIR Dialog (new structured dialog with items + signature) */}
+      <UploadDCMIRDialog
+        open={pddUploadState.open}
+        onOpenChange={(open) => {
+          if (!open) setPddUploadState({ open: false, mode: "create", dcType: "Delivery Challan" });
+        }}
+        mode={pddUploadState.mode}
+        dcType={pddUploadState.dcType}
+        poName={po?.name || ""}
+        poDisplayName={po?.name ? `PO-${po.name.split("/")[1]}` : ""}
+        poProject={po?.project || ""}
+        poVendor={po?.vendor || ""}
+        poItems={poItemsForSelector}
+        onSuccess={handlePDDUploadSuccess}
+      />
 
       {/* Hidden printable components */}
       <div className="hidden">
