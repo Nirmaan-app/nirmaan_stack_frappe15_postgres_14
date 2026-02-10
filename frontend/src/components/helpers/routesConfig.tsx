@@ -1,4 +1,5 @@
 // src/routes.tsx
+import { lazy, Suspense } from "react";
 import { RouteObject } from "react-router-dom";
 
 // --- Import all necessary components used in routes ---
@@ -28,9 +29,9 @@ import OrderPaymentSummary from "@/pages/ProjectPayments/order-payment-summary";
 import { RenderSentBackComponent } from "@/pages/Sent Back Requests/RenderSentBackComponent";
 import { RenderSRComponent } from "@/pages/ServiceRequests/RenderSRComponent";
 import { ServiceRequestsTabs } from "@/pages/ServiceRequests/ServiceRequestsTabs";
-import ApprovedSR from "@/pages/ServiceRequests/service-request/approved-sr";
+const ApprovedSR = lazy(() => import("@/pages/ServiceRequests/service-request/approved-sr"));
 import ListSR from "@/pages/ServiceRequests/service-request/list-sr";
-import SelectServiceVendor from "@/pages/ServiceRequests/service-request/select-service-vendor";
+const SelectServiceVendor = lazy(() => import("@/pages/ServiceRequests/service-request/select-service-vendor"));
 import ForgotPassword from "@/pages/auth/forgot-password";
 import Login from "@/pages/auth/Login";
 // import Login from "@/pages/auth/old-login";
@@ -223,8 +224,8 @@ export const appRoutes: RouteObject[] = [
                 path: ":srId",
                 children: [
                   // Consolidated: ApprovedSR now handles all statuses with role-based feature visibility
-                  { index: true, element: <ApprovedSR summaryPage={true} /> },
-                  { path: "resolve-sr", element: <SelectServiceVendor /> },
+                  { index: true, element: <Suspense fallback={null}><ApprovedSR summaryPage={true} /></Suspense> },
+                  { path: "resolve-sr", element: <Suspense fallback={null}><SelectServiceVendor /></Suspense> },
                 ],
               },
             ],

@@ -1,6 +1,8 @@
+import { lazy, Suspense } from "react";
 import { useParams } from "react-router-dom";
-import { PurchaseOrder } from "../ProcurementOrders/purchase-order/PurchaseOrder";
-import ApprovedSR from "../ServiceRequests/service-request/approved-sr";
+
+const PurchaseOrder = lazy(() => import("../ProcurementOrders/purchase-order/PurchaseOrder").then(m => ({ default: m.PurchaseOrder })));
+const ApprovedSR = lazy(() => import("../ServiceRequests/service-request/approved-sr"));
 
 // const OrderPaymentSummary = () => {
 //     const { id } = useParams<{ id: string }>();
@@ -1654,9 +1656,9 @@ const OrderPaymentSummary = () => {
     const isPO = poId?.split("/")[0] === "PO";
 
   if (isPO) {
-    return <PurchaseOrder accountsPage={true} />
+    return <Suspense fallback={null}><PurchaseOrder accountsPage={true} /></Suspense>
   } else {
-    return <ApprovedSR accountsPage={true} />
+    return <Suspense fallback={null}><ApprovedSR accountsPage={true} /></Suspense>
   }
 }
 

@@ -1,7 +1,7 @@
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { useFrappeCreateDoc, useFrappeDocumentEventListener, useFrappeFileUpload, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { CheckIcon, CirclePlus, Edit, PencilIcon, Save, SquarePlus, Trash, Trash2, TriangleAlert,Badge } from "lucide-react";
+import { CheckIcon, CirclePlus, Edit, PencilIcon, Save, SquarePlus, Trash, Trash2, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useReactToPrint } from "react-to-print";
@@ -10,7 +10,6 @@ import { Input } from "@/components/ui/input";
 import { Pencil2Icon } from "@radix-ui/react-icons";
 // import { Button, Layout } from 'antd';
 import logo from "@/assets/logo-svg.svg";
-import { AddressView } from "@/components/address-view";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { SRDetailsCard } from "./components/SRDetailsCard";
 import { SRComments } from "./components/SRComments";
@@ -27,7 +26,6 @@ import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/components/ui/use-toast";
@@ -136,7 +134,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     const [deleteDialog, setDeleteDialog] = useState(false)
     // Use the custom hook for deletion logic
     const { deleteServiceRequest, isDeleting } = useServiceRequestLogic({
-        onSuccess: (deletedSrName) => {
+        onSuccess: (_deletedSrName) => {
             service_request_mutate();
             setDeleteDialog(false);
         },
@@ -206,7 +204,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     })
 
     // Fetch vendor invoices for this SR
-    const { data: vendorInvoices, isLoading: vendorInvoicesLoading, mutate: vendorInvoicesMutate } = useFrappeGetDocList<VendorInvoice>("Vendor Invoices", {
+    const { data: vendorInvoices, isLoading: vendorInvoicesLoading } = useFrappeGetDocList<VendorInvoice>("Vendor Invoices", {
         fields: ["name"],
         filters: [["document_type", "=", "Service Requests"], ["document_name", "=", id]],
         limit: 1000,
@@ -299,7 +297,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
             //     updatedData = {...updatedData, advance: advance}
             // }
 
-            await updateDoc("Service Requests", orderData?.name, updatedData)
+            await updateDoc("Service Requests", orderData!.name, updatedData)
 
             // console.log("updatedData", data)
 
@@ -325,7 +323,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     const handleGstToggle = async (enabled: boolean) => {
         setGstEnabled(enabled);
         try {
-            await updateDoc("Service Requests", orderData?.name, { gst: String(enabled) });
+            await updateDoc("Service Requests", orderData!.name, { gst: String(enabled) });
             await service_request_mutate();
             toast({
                 title: "Success!",
@@ -489,7 +487,6 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 vendor={service_vendor}
                 gstEnabled={gstEnabled}
                 getTotal={getTotal}
-                amountPaid={getAmountPaid}
                 amountPaid={getAmountPaid}
                 // isRestrictedRole removed, using specific flags below
                 hideActions={isEstimatesExecutive}
@@ -807,7 +804,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                     <sup className="text-sm text-red-600">*</sup>
                                                 </h3>
                                                 {project &&
-                                                    JSON.parse(project?.project_gst_number)?.list
+                                                    JSON.parse(project?.project_gst_number as unknown as string)?.list
                                                         ?.length > 0 && (
                                                         <>
                                                             <Select
@@ -815,11 +812,11 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                                 defaultValue={orderData?.project_gst}
                                                                 onValueChange={(selectedOption) => {
                                                                     const gstArr = JSON.parse(
-                                                                        project?.project_gst_number
+                                                                        project?.project_gst_number as unknown as string
                                                                     )?.list;
                                                                     setSelectedGST(
                                                                         gstArr.find(
-                                                                            (item) =>
+                                                                            (item: { gst: string; location: string }) =>
                                                                                 item.gst === selectedOption
                                                                         )
                                                                     );
@@ -835,8 +832,8 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                                 </SelectTrigger>
                                                                 <SelectContent>
                                                                     {JSON.parse(
-                                                                        project?.project_gst_number
-                                                                    )?.list?.map((option) => (
+                                                                        project?.project_gst_number as unknown as string
+                                                                    )?.list?.map((option: { gst: string; location: string }) => (
                                                                         <SelectItem
                                                                             key={option.location}
                                                                             value={option.gst}
@@ -929,7 +926,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                     <span className="text-sm text-gray-900">
                                         {(() => {
                                             try {
-                                                const gstList = JSON.parse(project?.project_gst_number || '{"list":[]}')?.list || [];
+                                                const gstList = JSON.parse((project?.project_gst_number as unknown as string) || '{"list":[]}')?.list || [];
                                                 const match = gstList.find((item: any) => item.gst === orderData.project_gst);
                                                 return match ? `${match.location} (${match.gst})` : orderData.project_gst;
                                             } catch {
