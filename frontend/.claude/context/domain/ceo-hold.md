@@ -102,7 +102,7 @@ This status was added in commit `7c691bff` (2026-02-03) alongside "Created", "WI
 
 | Page | File | Guard Hook | Actions Blocked |
 |------|------|------------|-----------------|
-| PO Details | `purchase-order/components/PODetails.tsx` | `useCEOHoldGuard` | Upload DC/MIR, delete attachment, mark delivered |
+| PO Details | `purchase-order/components/PODetails.tsx` | `useCEOHoldGuard` | Delete attachment, mark delivered (Upload DC/MIR NOT blocked) |
 | Payment Terms | `purchase-order/components/POPaymentTermsCard.tsx` | `useCEOHoldGuard` | Request payment |
 | Delivery Notes | `DeliveryNotes/deliverynote.tsx` | `useCEOHoldGuard` | Banner display |
 | DN Items | `DeliveryNotes/components/deliveryNoteItemsDisplay.tsx` | `useCEOHoldGuard` | Submit delivery updates |
@@ -114,7 +114,7 @@ This status was added in commit `7c691bff` (2026-02-03) alongside "Created", "WI
 | PO Reports | `reports/components/POReports.tsx` | `useCEOHoldProjects` | Row highlighting |
 | SR Reports | `reports/components/SRReports.tsx` | `useCEOHoldProjects` | Row highlighting |
 | Reconcile | `reports/components/POAttachmentReconcileReport.tsx` | `useCEOHoldProjects` | Row highlighting |
-| TDS Approval | `tds/TDSApprovalDetail.tsx` | `useCEOHoldGuard` | Add item, approve, reject, delete |
+| TDS Approval | `tds/TDSApprovalDetail.tsx` | `useCEOHoldGuard` | Add item, delete (Approve/Reject NOT blocked) |
 | Design Tracker | `ProjectDesignTracker/project-design-tracker-details.tsx` | `useCEOHoldGuard` | Banner only |
 | Material Plan | `MaterialPlanTracker/material-plan-tracker-detail.tsx` | `useCEOHoldGuard` | Banner only |
 | Cashflow Plan | `CashflowPlanTracker/cashflow-plan-tracker-detail.tsx` | `useCEOHoldGuard` | Banner only |
@@ -185,10 +185,14 @@ function MyListPage() {
 
 ## Who Can Set CEO Hold
 
-Only **Admin** (`Nirmaan Admin Profile`) and **PMO Executive** (`Nirmaan PMO Executive Profile`) can change project status, including setting CEO Hold.
+CEO Hold can **only** be set/unset by **`nitesh@nirmaan.app`** (not any Admin or role-based check).
 
-**File:** `src/pages/projects/project.tsx:1085-1119` - Status change popover
-**File:** `src/pages/projects/project.tsx:1215-1258` - Confirmation dialog
+- **Backend validation:** `projects.py` (`validate` method) enforces this — rejects CEO Hold changes from any other user
+- **`ceo_hold_by` field:** Added to Projects doctype to track who set the hold
+- **Frontend constant:** `CEO_HOLD_AUTHORIZED_USER` in `src/constants/ceoHold.ts` — used for UI gating (dropdown filter, disabled state, locked hint, heldBy banner)
+
+**File:** `src/constants/ceoHold.ts` - Authorized user constant
+**File:** `src/pages/projects/project.tsx` - Status change popover and confirmation dialog
 
 ---
 
@@ -196,7 +200,7 @@ Only **Admin** (`Nirmaan Admin Profile`) and **PMO Executive** (`Nirmaan PMO Exe
 
 | Aspect | CEO Hold | Halted |
 |--------|----------|--------|
-| Visual | Amber/orange theme | Red theme |
+| Visual | Light red row highlighting | Red theme |
 | PR/SR Creation | **Blocked** | Not blocked (no guard) |
 | PR/SR Approval | **Blocked** | Not blocked |
 | Payments | **Blocked** | Not blocked |
@@ -216,4 +220,5 @@ Only **Admin** (`Nirmaan Admin Profile`) and **PMO Executive** (`Nirmaan PMO Exe
 | `src/hooks/useCEOHoldProjects.ts` | Multi-project lookup hook |
 | `src/components/ui/ceo-hold-banner.tsx` | Visual banner component |
 | `src/utils/ceoHoldRowStyles.ts` | Row styling constants |
+| `src/constants/ceoHold.ts` | `CEO_HOLD_AUTHORIZED_USER` constant |
 | `src/pages/projects/project.tsx:98-118` | Status options definition |

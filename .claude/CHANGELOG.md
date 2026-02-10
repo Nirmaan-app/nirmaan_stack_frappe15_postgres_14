@@ -4,6 +4,15 @@ Changes made by Claude Code sessions.
 
 ---
 
+## 2026-02-10
+
+- feat: Restrict CEO Hold to authorized user (`nitesh@nirmaan.app`) with `ceo_hold_by` field, backend validation, and migration patch
+- feat: Add `DC Item` child table and `PO Delivery Documents` doctype for structured DC/MIR tracking
+- feat: Add `po_delivery_documentss.py` API for DC/MIR document operations
+- feat: Migration patch from legacy Nirmaan Attachments to PO Delivery Documents
+
+---
+
 ### 2026-02-06: Help Repository - Doctype and Frontend Page
 
 **Summary:** Created Help Repository feature for storing and viewing Loom training videos, with admin management and accordion-based viewing for all users.
