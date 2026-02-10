@@ -216,7 +216,7 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
 
     // 2. Fetch Existing Material Delivery Plans
     const { data: existingPlans, isLoading: isLoadingPlans, mutate: refreshPlans } = useFrappeGetDocList("Material Delivery Plan", {
-        fields: ["name", "po_link", "package_name", "critical_po_category", "critical_po_task", "delivery_date", "mp_items", "creation", "po_type"],
+        fields: ["name", "po_link", "package_name", "critical_po_category", "critical_po_task", "critical_po_sub_category", "delivery_date", "mp_items", "creation", "po_type"],
         filters: docListFilters,
         orderBy: { field: "creation", order: "desc" },
         limit:0
@@ -430,7 +430,7 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                                             <div className="col-span-1 md:col-span-2 flex flex-col justify-center">
                                                 <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">Task</span>
                                                 <span className={`text-xs font-semibold break-words leading-tight ${!plan.critical_po_task ? "text-red-500" : "text-gray-800"}`}>
-                                                    {plan.critical_po_task || "Not Defined"}
+                                                    {plan.critical_po_task || "Not Defined"}{plan.critical_po_sub_category ? ` (${plan.critical_po_sub_category})` : ''}
                                                 </span>
                                             </div>
                                         </>

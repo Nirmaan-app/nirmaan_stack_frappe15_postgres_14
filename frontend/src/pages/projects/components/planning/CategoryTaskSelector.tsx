@@ -74,7 +74,10 @@ export const CategoryTaskSelector: React.FC<CategoryTaskSelectorProps> = ({
     const taskOptions = useMemo(() => {
         return filteredTasks.map(task => ({
             value: task.name,
-            label: `${task.item_name}${task.associated_pos_count > 0 ? ` (${task.associated_pos_count} POs)` : ''}`
+            label: task.item_name,
+            subCategory: task.sub_category,
+            category: task.critical_po_category,
+            posCount: task.associated_pos_count
         }));
     }, [filteredTasks]);
 
@@ -167,6 +170,20 @@ export const CategoryTaskSelector: React.FC<CategoryTaskSelectorProps> = ({
                         onChange={handleTaskChange}
                         placeholder="Select Task..."
                         isDisabled={disabled || isLoading}
+                        formatOptionLabel={(option: any) => (
+                            <div className="flex items-center gap-1">
+                                <span>{option.label}</span>
+                                {option.subCategory && (
+                                    <span className="text-xs text-gray-500">({option.subCategory})</span>
+                                )}
+                                {option.category && (
+                                    <span className="text-xs text-blue-500 ml-1">- {option.category}</span>
+                                )}
+                                {option.posCount > 0 && (
+                                    <span className="text-xs text-green-500 ml-1">({option.posCount} POs)</span>
+                                )}
+                            </div>
+                        )}
                         styles={{
                             ...selectStyles,
                             control: (base: any, state: any) => ({
@@ -211,7 +228,7 @@ export const CategoryTaskSelector: React.FC<CategoryTaskSelectorProps> = ({
                             <div className="space-y-1">
                                 {/* <div className="font-medium"></div> */}
                                 <div className="flex items-center gap-2 text-muted-foreground">
-                                  <span>{task.item_name}</span>
+                                  <span>{task.item_name}{task.sub_category ? ` (${task.sub_category})` : ''}</span>
                                   <span>|</span>
                                     <span>Category: {task.critical_po_category || "None"}</span>
                                     <span>|</span>
