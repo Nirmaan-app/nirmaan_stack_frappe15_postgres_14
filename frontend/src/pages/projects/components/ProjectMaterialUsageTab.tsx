@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
 import { VirtualizedMaterialTable } from './VirtualizedMaterialTable';
+import { POWiseMaterialTable } from './POWiseMaterialTable';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
 import { useMaterialUsageData } from '../hooks/useMaterialUsageData';
 import { toast } from '@/components/ui/use-toast';
@@ -26,26 +27,61 @@ export type DeliveryStatus = "Fully Delivered" | "Partially Delivered" | "Pendin
 export type OverallItemPOStatus = POStatus | "N/A";
 
 // Defines which columns can be sorted and hidden.
-export type MaterialSortKey = 'deliveredQuantity' | 'orderedQuantity' | 'totalAmount';
+export type MaterialSortKey = 'deliveredQuantity' | 'orderedQuantity' | 'totalAmount' | 'dcQuantity' | 'mirQuantity';
+
+// Shared type for DC/MIR document references in the Material Usage table
+export interface DeliveryDocumentInfo {
+  name: string;           // PO Delivery Document name
+  referenceNumber: string;
+  dcDate?: string;
+  isSignedByClient: boolean;
+  attachmentUrl?: string;
+  itemCount: number;
+  poNumber: string;
+}
+
+// Data structure for PO-Wise view rows
+export interface POWiseDisplayItem {
+  poNumber: string;
+  vendorName: string;
+  category: string;
+  totalOrderedQty: number;
+  totalDeliveryNoteQty: number;
+  totalDCQty: number;
+  totalMIRQty: number;
+  totalAmount: number;
+  deliveryStatus: DeliveryStatus;
+  paymentStatus: POStatus;
+  dcs: DeliveryDocumentInfo[];
+  mirs: DeliveryDocumentInfo[];
+  items: MaterialUsageDisplayItem[];
+}
 
 // The main data structure for each row in the table.
 // NOTE: Standardized property names like `categoryName` and `overallPOPaymentStatus`
 // to match the row component and export logic.
 export interface MaterialUsageDisplayItem {
   uniqueKey: string;
+  itemId?: string;
   itemName?: string;
-  categoryName: string; 
+  categoryName: string;
   unit?: string;
   estimatedQuantity?: number;
   orderedQuantity: number;
   deliveredQuantity: number;
+  dcQuantity: number;
+  mirQuantity: number;
   totalAmount?: number;
   deliveryStatus: DeliveryStatus;
   overallPOPaymentStatus: OverallItemPOStatus;
   poNumbers?: { po: string, status: POStatus, amount: number, poCalculatedAmount?: string }[];
+  vendorNames?: string[];  // Vendor names from all POs for this item
   billingCategory?: string;
-  deliveryChallans?: { name: string; creation: string; attachment: string; attachment_ref?: string }[];
+  deliveryChallans?: DeliveryDocumentInfo[];
   dcCount?: number;
+  mirCount?: number;
+  mirs?: DeliveryDocumentInfo[];
+  isOrphanDCItem?: boolean;  // true when item comes from DC/MIR but has no matching PO item
 }
 
 export interface ProjectMaterialUsageTabProps {
@@ -64,14 +100,18 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
   
   // --- A. DATA FETCHING ---
   // A custom hook that fetches and prepares all material usage items.
-  const { 
-    allMaterialUsageItems, 
-    isLoading, 
-    error, 
-    categoryOptions, 
-    deliveryStatusOptions, 
-    poStatusOptions 
+  const {
+    allMaterialUsageItems,
+    poWiseItems,
+    isLoading,
+    error,
+    categoryOptions,
+    deliveryStatusOptions,
+    poStatusOptions
   } = useMaterialUsageData(projectId, projectPayments);
+
+  // --- A2. TAB STATE ---
+  const [activeTab, setActiveTab] = useState<string>(() => getUrlStringParam('mus_tab', 'Item Wise'));
 
   // --- B. STATE MANAGEMENT ---
   // Manages the state for all user interactions: search, filters, sorting, and hidden columns.
@@ -95,8 +135,9 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
   // These effects keep the browser URL in sync with the component's state,
   // allowing filters to be bookmarked and shared.
 
-  // Updates the URL when the search term changes.
+  // Updates the URL when the search term or tab changes.
   useEffect(() => { urlStateManager.updateParam('mus_q', searchTerm || null); }, [searchTerm]);
+  useEffect(() => { urlStateManager.updateParam('mus_tab', activeTab !== 'Item Wise' ? activeTab : null); }, [activeTab]);
   
   // Updates the URL for all Set-based filters.
   const updateUrlParamJsonArray = useCallback((key: string, valueSet: Set<string>) => {
@@ -132,7 +173,7 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
   // Initializes Fuse.js for fuzzy searching on the item names.
   const fuseInstance = useMemo(() => {
     if (!allMaterialUsageItems) return null;
-    return new Fuse(allMaterialUsageItems, { keys: ['itemName'], threshold: 0.3 });
+    return new Fuse(allMaterialUsageItems, { keys: ['itemName', 'vendorNames'], threshold: 0.3 });
   }, [allMaterialUsageItems]);
   
   // The main `useMemo` hook to process data. This is the single source of truth.
@@ -187,14 +228,18 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
     const exportColumns = [
       { header: 'Item Name', accessor: (item: MaterialUsageDisplayItem) => item.itemName || "N/A" },
       { header: 'Category', accessor: (item: MaterialUsageDisplayItem) => item.categoryName },
+      { header: 'Billing Category', accessor: (item: MaterialUsageDisplayItem) => item.billingCategory || "N/A" },
       { header: 'Unit', accessor: (item: MaterialUsageDisplayItem) => item.unit || "N/A" },
       { header: 'Est. Qty', accessor: (item: MaterialUsageDisplayItem) => item.estimatedQuantity?.toFixed(2) || "N/A" },
       { header: 'Ordered Qty', accessor: (item: MaterialUsageDisplayItem) => item.orderedQuantity.toFixed(2) },
-      { header: 'Delivered Qty', accessor: (item: MaterialUsageDisplayItem) => item.deliveredQuantity.toFixed(2) },
+      { header: 'Delivery Note Qty', accessor: (item: MaterialUsageDisplayItem) => item.deliveredQuantity.toFixed(2) },
+      { header: 'DC Qty', accessor: (item: MaterialUsageDisplayItem) => item.dcQuantity.toFixed(2) },
+      { header: 'MIR Qty', accessor: (item: MaterialUsageDisplayItem) => item.mirQuantity.toFixed(2) },
       { header: 'Total Amount', accessor: (item: MaterialUsageDisplayItem) => item.totalAmount?.toFixed(2) || "0.00" },
       { header: 'Delivery Status', accessor: (item: MaterialUsageDisplayItem) => item.deliveryStatus },
       { header: 'PO Numbers', accessor: (item: MaterialUsageDisplayItem) => item.poNumbers?.map(p => p.po).join(', ') || "-" },
       { header: 'DC Count', accessor: (item: MaterialUsageDisplayItem) => (item.dcCount || 0).toString() },
+      { header: 'MIR Count', accessor: (item: MaterialUsageDisplayItem) => (item.mirCount || 0).toString() },
       { header: 'Overall PO Status', accessor: (item: MaterialUsageDisplayItem) => item.overallPOPaymentStatus },
     ];
 
@@ -205,7 +250,7 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
         }, {} as Record<string, any>)
     );
 
-    exportToCsv(`project_${projectId}_material_usage.csv`, dataToExport, exportColumns.map(c => ({header: c.header, accessorKey: c.header})));
+    exportToCsv(`project_${projectId}_item_wise_usage.csv`, dataToExport, exportColumns.map(c => ({header: c.header, accessorKey: c.header})));
     toast({ title: "Export Successful", description: `${dataToExport.length} rows exported.`, variant: "success"});
   }, [processedItems, projectId]);
 
@@ -231,40 +276,81 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
   }
   if (error) { return <AlertDestructive error={error} />; }
 
+  const tabs = [
+    { label: "Item Wise", value: "Item Wise" },
+    { label: "PO Wise", value: "PO Wise" },
+  ];
+
+  const searchPlaceholder = activeTab === "Item Wise"
+    ? "Search item name, vendor..."
+    : "Search PO, vendor, category...";
+
   return (
     <div className="flex-1 space-y-4">
-      {/* Header with Search and Export Button */}
-      <div className="flex justify-between items-center">
-        <div className="relative w-full max-w-md">
-          <SearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input type="search" placeholder="Search Item Name..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-8 h-9" />
+      {/* Unified toolbar: Tabs + Search + Export */}
+      <div className="flex items-center gap-3">
+        {/* Tabs (left) */}
+        <div className="flex gap-1.5 shrink-0">
+          {tabs.map((tab) => {
+            const isActive = activeTab === tab.value;
+            return (
+              <button
+                key={tab.value}
+                onClick={() => setActiveTab(tab.value)}
+                className={`px-3 py-1.5 text-sm rounded transition-colors whitespace-nowrap
+                  ${isActive
+                    ? "bg-sky-500 text-white"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  }`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
-        <Button onClick={handleExportCsv} variant="outline" size="sm" className="h-9" disabled={processedItems.length === 0}>
-          <FileUp className="mr-2 h-4 w-4" /> Export
-        </Button>
+
+        {/* Search (center, fills space) */}
+        <div className="relative flex-1 max-w-md">
+          <SearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input type="search" placeholder={searchPlaceholder} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-8 h-9" />
+        </div>
+
+        {/* Export (right) — only for Item Wise tab */}
+        {activeTab === "Item Wise" && (
+          <Button onClick={handleExportCsv} variant="outline" size="sm" className="h-9 shrink-0" disabled={processedItems.length === 0}>
+            <FileUp className="mr-2 h-4 w-4" /> Export
+          </Button>
+        )}
       </div>
 
-      {/* The Virtualized Table Component */}
-      <VirtualizedMaterialTable
-        items={processedItems}
-        estimatedRowHeight={48}
-        // Pass all state and handlers down to the table component
-        categoryOptions={categoryOptions}
-        categoryFilter={categoryFilter}
-        onSetCategoryFilter={setCategoryFilter}
-        deliveryStatusOptions={deliveryStatusOptions}
-        deliveryStatusFilter={deliveryStatusFilter}
-        onSetDeliveryStatusFilter={setDeliveryStatusFilter}
-        poStatusOptions={poStatusOptions}
-        poStatusFilter={poStatusFilter}
-        onSetPoStatusFilter={setPoStatusFilter}
-        sortKey={sortConfig.key}
-        sortDirection={sortConfig.direction}
-        onSetSort={handleSetSort}
-        onClearSort={handleClearSort}
-        hiddenColumns={hiddenColumns}
-        onToggleColumnVisibility={handleToggleColumnVisibility}
-      />
+      {/* Table Content based on active tab */}
+      {activeTab === "Item Wise" ? (
+        <VirtualizedMaterialTable
+          items={processedItems}
+          estimatedRowHeight={48}
+          categoryOptions={categoryOptions}
+          categoryFilter={categoryFilter}
+          onSetCategoryFilter={setCategoryFilter}
+          deliveryStatusOptions={deliveryStatusOptions}
+          deliveryStatusFilter={deliveryStatusFilter}
+          onSetDeliveryStatusFilter={setDeliveryStatusFilter}
+          poStatusOptions={poStatusOptions}
+          poStatusFilter={poStatusFilter}
+          onSetPoStatusFilter={setPoStatusFilter}
+          sortKey={sortConfig.key}
+          sortDirection={sortConfig.direction}
+          onSetSort={handleSetSort}
+          onClearSort={handleClearSort}
+          hiddenColumns={hiddenColumns}
+          onToggleColumnVisibility={handleToggleColumnVisibility}
+        />
+      ) : (
+        <POWiseMaterialTable
+          items={poWiseItems || []}
+          searchTerm={debouncedSearchTerm}
+          projectId={projectId}
+        />
+      )}
     </div>
   );
 };
