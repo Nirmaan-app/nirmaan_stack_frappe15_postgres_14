@@ -11,8 +11,10 @@ export type POReportOption = 'Pending Invoices' | 'PO with Excess Payments' | 'D
 // The 'value' for "Excess Payments" will be 'PO with Excess Payments'
 export type SROption = 'Pending Invoices' | 'PO with Excess Payments' | '2B Reconcile Report';
 
+export type DCMIRReportType = 'DC Report' | 'MIR Report';
+
 // Combined type for any selectable report
-export type ReportType = ProjectReportType | VendorReportType | POReportOption | SROption | null;
+export type ReportType = ProjectReportType | VendorReportType | POReportOption | SROption | DCMIRReportType | null;
 
 interface ReportState {
     // Keep track of the *type* of report selected for export/filtering
@@ -61,6 +63,11 @@ const getDefaultReportTypeForTabAndRole = (tab: string, userRole?: string): Repo
             return 'Pending Invoices'; // Default for SR tab for allowed roles
         }
         return null;
+    } else if (tab === REPORTS_TABS.DCS_MIRS) {
+        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(userRole || "")) {
+            return 'DC Report';
+        }
+        return null;
     }
     return null; // Default fallback
 };
@@ -80,7 +87,7 @@ const getDefaultReportTypeForTabAndRole = (tab: string, userRole?: string): Repo
 //     }
 // }));
 
-export const useReportStore = create<ReportState>((set, get) => ({
+export const useReportStore = create<ReportState>((set) => ({
     // Initialize selectedReportType to null. It will be set by setDefaultReportType on mount.
     selectedReportType: null,
 

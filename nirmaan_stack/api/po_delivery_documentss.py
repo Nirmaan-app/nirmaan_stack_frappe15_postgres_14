@@ -286,3 +286,45 @@ def get_project_po_delivery_documents(project_id):
     )
 
     return _enrich_delivery_docs(docs)
+
+
+@frappe.whitelist()
+def get_all_delivery_documents(doc_type=None):
+    """
+    Get all PO Delivery Documents, optionally filtered by type.
+    Used by the DCs & MIRs report tab.
+
+    Args:
+        doc_type: "Delivery Challan" or "Material Inspection Report" (optional)
+
+    Returns:
+        list of PO Delivery Documents with items and attachment URLs
+    """
+    filters = {}
+    if doc_type:
+        filters["type"] = doc_type
+
+    docs = frappe.get_all(
+        "PO Delivery Documents",
+        filters=filters,
+        fields=[
+            "name",
+            "creation",
+            "modified_by",
+            "procurement_order",
+            "project",
+            "vendor",
+            "type",
+            "nirmaan_attachment",
+            "reference_number",
+            "dc_date",
+            "is_signed_by_client",
+            "client_representative_name",
+            "dc_reference",
+            "is_stub",
+        ],
+        order_by="creation desc",
+        limit=0,
+    )
+
+    return _enrich_delivery_docs(docs)

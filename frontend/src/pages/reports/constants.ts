@@ -3,6 +3,7 @@ export const REPORTS_TABS = {
   VENDORS: 'vendors',
   PO: 'po',
   SR: 'sr',
+  DCS_MIRS: 'dcs_mirs',
 } as const; // Use "as const" for stricter typing
 
 // export const INVOICE_TASK_TYPE = "po_invoice_approval";
