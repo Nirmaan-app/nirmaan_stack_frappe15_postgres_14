@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from "react";
+import { Badge } from "@/components/ui/badge";
+
 import { X, Search, Calendar, Trash2, Plus } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -182,35 +184,42 @@ export const EditMaterialPlanForm = ({ plan, onClose, onSuccess }: EditMaterialP
                 
                 {/* Header */}
                 <div className="flex flex-col px-6 py-4 border-b border-gray-100">
-                    <div className="flex items-center justify-between w-full mb-1">
-                        <h2 className="text-xl font-bold text-gray-900">Edit Materials- Plan {plan.idx || ""}</h2>
+                    <div className="flex items-center justify-between w-full mb-3">
+                        <h2 className="text-xl font-bold text-gray-900">Edit Materials - Plan {plan.idx || ""}</h2>
                         <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-full transition-colors">
                             <X className="w-5 h-5 text-gray-500" />
                         </button>
                     </div>
                     
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px]">
+                    <div className="flex flex-wrap items-center gap-2">
                         {/* Category */}
-                        <span className={`font-medium ${!plan.critical_po_category ? "text-red-500" : "text-gray-400"}`}>
-                            {plan.critical_po_category || "Not Defined"}
-                        </span>
+                        <Badge variant="secondary" className={`${!plan.critical_po_category ? "bg-red-50 text-red-600 border-red-100" : "bg-rose-50 text-rose-700 border-rose-100 hover:bg-rose-100"}`}>
+                            {plan.critical_po_category || "Category Undefined"}
+                        </Badge>
 
-                        <div className="h-5 w-[1px] bg-red-400/60 shrink-0"></div>
+                        {/* Sub Category - NEW */}
+                        {plan.critical_po_sub_category && (
+                             <Badge variant="secondary" className="bg-orange-50 text-orange-700 border-orange-100 hover:bg-orange-100">
+                                {plan.critical_po_sub_category}
+                            </Badge>
+                        )}
 
                         {/* Task */}
-                        <span className={`font-medium ${!plan.critical_po_task ? "text-red-500" : "text-gray-400"}`}>
-                            {plan.critical_po_task || "Not Defined"}
-                        </span>
-
-                        <div className="h-5 w-[1px] bg-red-400/60 shrink-0"></div>
+                        <Badge variant="secondary" className={`${!plan.critical_po_task ? "bg-red-50 text-red-600 border-red-100" : "bg-red-50 text-red-700 border-red-100 hover:bg-red-100"}`}>
+                            {plan.critical_po_task || "Task Undefined"}
+                        </Badge>
+                        
+                        <div className="h-4 w-[1px] bg-gray-200 mx-1 hidden sm:block"></div>
 
                         {/* PO ID */}
-                        <span className="text-gray-400 font-medium whitespace-nowrap">PO ID: {plan.po_link || "N/A"}</span>
-
-                        <div className="h-5 w-[1px] bg-red-400/60 shrink-0"></div>
+                        <Badge variant="outline" className="text-gray-500 font-medium whitespace-nowrap border-gray-200">
+                             PO: {plan.po_link || "N/A"}
+                        </Badge>
 
                         {/* PO Type */}
-                        <span className="text-gray-400 font-medium whitespace-nowrap">PO Type: {plan.po_type || "--"}</span>
+                        <Badge variant="outline" className="text-gray-500 font-medium whitespace-nowrap border-gray-200">
+                            {plan.po_type || "--"}
+                        </Badge>
                     </div>
                 </div>
 

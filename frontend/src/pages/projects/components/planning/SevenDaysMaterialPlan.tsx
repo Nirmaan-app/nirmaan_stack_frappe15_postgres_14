@@ -2,7 +2,7 @@ import React, { useState, useMemo } from "react";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList, useFrappeDeleteDoc } from "frappe-react-sdk";
 import { format, addDays, startOfDay, parseISO } from "date-fns";
 import { safeFormatDateDD_MMM_YYYY } from "@/lib/utils";
-import { Loader2, AlertCircle, ChevronDown, ChevronUp, Package, Calendar, Trash2, Download } from "lucide-react";
+import { Loader2, AlertCircle, ChevronDown, ChevronUp, Package, Calendar, Trash2, Download, Edit2 } from "lucide-react";
 import { SevenDayPlanningHeader } from "./SevenDayPlanningHeader";
 import { DateRange } from "react-day-picker";
 import { useUrlParam } from "@/hooks/useUrlParam";
@@ -222,7 +222,7 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
         limit:0
     });
 
-    console.log("existingPlans",existingPlans)
+    // console.log("existingPlans",existingPlans)
     // Extract unique packages from child table for Options
     const projectPackages = useMemo(() => {
         if (!projectDoc?.project_wp_category_makes) return [];
@@ -391,122 +391,128 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                     const isMissingCriticalInfo = (plan.po_type === "Existing PO" || plan.po_type === "New PO") && (!plan.critical_po_category || !plan.critical_po_task);
 
                     return (
-                        <div key={plan.name} className={`border rounded-lg overflow-hidden shadow-sm transition-all ${
-                            isMissingCriticalInfo ? "bg-red-50 border-red-200" : "bg-[#F5F7F9] border-gray-100"
-                        }`}>
-                            {/* Main Row */}
-                            <div className={`flex flex-col md:flex-row items-center p-3 gap-4 md:gap-0 ${!isOverview ? "min-h-[4.5rem]" : ""}`}>
-                                
-                                {/* Left Section: Toggle + Plan ID */}
-                                <div className="w-full md:w-auto flex items-center gap-4 md:pr-6 shrink-0">
-                                    {!isOverview && (
-                                        <button 
-                                            onClick={() => togglePlan(plan.name)}
-                                            className={`h-5 w-5 flex items-center justify-center rounded bg-white border border-gray-200 shadow-sm transition-colors hover:bg-gray-50 shrink-0 ${isExpanded ? "text-gray-900" : "text-gray-400"}`}
-                                        >
-                                            <ChevronDown className={`h-5 w-5 transition-transform duration-200 ${isExpanded ? "rotate-0" : "-rotate-90"}`} />
-                                        </button>
-                                    )}
+                        <div key={plan.name} className={`border rounded-lg bg-blue-50/50 shadow-sm overflow-hidden transition-all hover:shadow-md ${
+                                isMissingCriticalInfo ? "border-red-200 bg-red-50/30" : "border-gray-200"
+                            }`}>
+                                <div className="flex flex-col md:flex-row md:flex-wrap lg:flex-nowrap items-start lg:items-center p-3 gap-3">
                                     
-                                    <div className="flex items-center gap-3">
-                                        <Package className="h-5 w-5 text-gray-700" />
-                                        <span className="font-semibold text-gray-800 text-base whitespace-nowrap">Plan {planNum}</span>
+                                    {/* Section 1: Task Info */}
+                                    <div className="flex items-start gap-2 w-full md:w-[45%] lg:w-[25%] shrink-0">
+                                        {/* Dot Indicator (Placeholder if needed, or matching POCashflow's w-8 flex-center) */}
+                                        <div className="hidden md:flex w-8 shrink-0 justify-center mt-1">
+                                            <div className="w-6 h-6 bg-red-50 rounded-full flex items-center justify-center">
+                                                <span className="block w-2 h-2 bg-red-500 rounded-full"></span>
+                                            </div>
+                                        </div>
+
+                                        {/* Toggle button */}
+                                        {!isOverview && (
+                                            <button 
+                                                onClick={() => togglePlan(plan.name)}
+                                                className="mt-1 text-gray-400 hover:text-gray-600 shrink-0"
+                                            >
+                                                <ChevronDown className={`w-5 h-5 transition-transform duration-200 ${isExpanded ? "" : "-rotate-90"}`} />
+                                            </button>
+                                        )}
+                                        
+                                        <div className="flex flex-col gap-0.5 min-w-0">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-sm px-1.5 py-0 text-[10px] font-normal uppercase tracking-wider">
+                                                    Plan {planNum}
+                                                </Badge>
+                                            </div>
+                                            
+                                            <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Task</span>
+                                            <h4 className="font-semibold text-gray-900 leading-tight text-sm break-words">
+                                                {plan.critical_po_task || plan.package_name || "Untitled Task"}
+                                                {plan.critical_po_sub_category && (
+                                                    <span className="text-gray-500 font-normal text-xs ml-1">({plan.critical_po_sub_category})</span>
+                                                )}
+                                            </h4>
+                                        </div>
                                     </div>
 
-                                    {/* Vertical Separator */}
-                                    <div className="hidden md:block h-6 w-[2px] bg-red-400 mx-2"></div>
-                                </div>
+                                    <div className="hidden lg:block w-px h-10 bg-gray-200 mx-1" />
 
-                                {/* Right Section: Grid Details */}
-                                <div className="w-full grid grid-cols-2 md:grid-cols-12 items-center gap-y-4 gap-x-3">
-                                    {plan.critical_po_category || plan.critical_po_task || plan.po_type ? (
-                                        <>
-                                            <div className="col-span-1 md:col-span-2 flex flex-col justify-center">
-                                                <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">Critical PO Category</span>
-                                                <span className={`text-sm font-semibold break-words leading-tight ${!plan.critical_po_category ? "text-red-500" : "text-gray-800"}`}>
-                                                    {plan.critical_po_category || "Not Defined"}
-                                                </span>
-                                            </div>
-                                            <div className="col-span-1 md:col-span-2 flex flex-col justify-center">
-                                                <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">Task</span>
-                                                <span className={`text-xs font-semibold break-words leading-tight ${!plan.critical_po_task ? "text-red-500" : "text-gray-800"}`}>
-                                                    {plan.critical_po_task || "Not Defined"}{plan.critical_po_sub_category ? ` (${plan.critical_po_sub_category})` : ''}
-                                                </span>
-                                            </div>
-                                        </>
-                                    ) : (
-                                        <div className="col-span-2 md:col-span-4 flex flex-col justify-center">
-                                            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">Work Package</span>
-                                            <span className="text-sm font-semibold text-gray-800 break-words leading-tight">
-                                                {plan.package_name || '--'}
-                                            </span>
-                                        </div>
-                                    )}
-                                    <div className="col-span-1 md:col-span-2 flex flex-col justify-center">
-                                        <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">PO ID</span>
-                                        <span className="text-sm text-gray-700 truncate font-medium" title={plan.po_link}>
+                                    {/* Section 1.5: Category Info */}
+                                    <div className="flex flex-col gap-0.5 w-full md:w-[45%] lg:w-[15%] shrink-0 min-w-0">
+                                        <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Category</span>
+                                        <span className={`text-[11px] font-medium truncate ${!plan.critical_po_category ? "text-red-500" : "text-gray-500"}`}>
+                                            {plan.critical_po_category || "Category Undefined"}
+                                        </span>
+                                    </div>
+
+                                    <div className="hidden lg:block w-px h-10 bg-gray-200 mx-1" />
+
+                                    {/* Section 2: PO Info */}
+                                    <div className="flex flex-col gap-1 w-full md:w-[45%] lg:w-[20%] shrink-0 min-w-0">
+                                        <div className="font-medium text-gray-900 text-sm truncate" title={plan.po_link}>
                                             {plan.po_link || "--"}
-                                        </span>
-                                    </div>
-                                    <div className="col-span-1 md:col-span-1 flex flex-col justify-center">
-                                        <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">PO Type</span>
-                                        <span className="text-sm text-gray-700 whitespace-nowrap font-medium">
-                                            {plan.po_type || "--"}
-                                        </span>
-                                    </div>
-                                    <div className="col-span-1 md:col-span-1 flex flex-col justify-center items-center">
-                                        <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1">Items</span>
-                                        <div className="bg-white border border-gray-200 rounded-full px-2 py-0.5 text-[11px] font-bold text-gray-700 shadow-sm min-w-[3rem] text-center">
-                                            {itemsCount}
+                                        </div>
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                            <Badge variant="outline" className={`px-1.5 py-0 text-[10px] font-normal ${plan.po_type === "Existing PO" ? "bg-blue-50 text-blue-700 border-blue-100" : "bg-yellow-50 text-yellow-700 border-yellow-100"}`}>
+                                                {plan.po_type || "--"}
+                                            </Badge>
+                                            <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 font-medium bg-gray-50 text-gray-600 border-gray-200">
+                                                {itemsCount} Items
+                                            </Badge>
                                         </div>
                                     </div>
-                                    <div className={`${isOverview ? "col-span-1 md:col-span-3" : "col-span-1 md:col-span-2"} flex flex-col justify-center`}>
-                                        <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">Delivery Date</span>
-                                        <span className="text-sm font-medium text-gray-800 whitespace-nowrap">
+
+                                    <div className="hidden lg:block w-px h-10 bg-gray-200 mx-1" />
+
+                                    {/* Section 3: Delivery Date */}
+                                    <div className="flex flex-col gap-0.5 w-full md:w-[45%] lg:flex-1 shrink-0">
+                                        <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Delivery Date</span>
+                                        <span className="font-semibold text-gray-900 text-sm">
                                             {safeFormatDateDD_MMM_YYYY(plan.delivery_date)}
                                         </span>
                                     </div>
-                                    {!isOverview && (
-                                        <div className="col-span-2 md:col-span-1 flex md:flex-col justify-center items-end gap-1">
-                                            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wide md:mb-1">Action</span>
-                                            <div className="flex items-center gap-2">
+
+                                    <div className="hidden lg:block w-px h-10 bg-gray-200 mx-1" />
+
+                                    {/* Section 4: Actions */}
+                                    <div className="flex items-center justify-between w-full md:w-full lg:w-auto gap-3 min-w-0 border-t border-gray-100 pt-2 lg:border-0 lg:pt-0 mt-1 lg:mt-0">
+                                        {!isOverview && (
+                                            <div className="flex items-center gap-1 pl-0 lg:pl-3 lg:border-l border-gray-100 shrink-0 ml-auto">
                                                 <button 
-                                                        onClick={(e) => { e.stopPropagation(); setEditingPlan(plan); }}
-                                                        className="text-gray-400 hover:text-blue-600 p-1"
+                                                    onClick={(e) => { e.stopPropagation(); setEditingPlan(plan); }}
+                                                    className="p-1.5 text-gray-400 hover:text-blue-600 transition-colors hover:bg-blue-50 rounded-md"
+                                                    title="Edit Plan"
                                                 >
-                                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                                                    <Edit2 className="w-4 h-4" />
                                                 </button>
                                                 <button 
-                                                        className="text-gray-400 hover:text-red-600 p-1"
-                                                        onClick={(e) => { e.stopPropagation(); setDeleteDialogState({ isOpen: true, planName: plan.name }); }}
+                                                    onClick={(e) => { e.stopPropagation(); setDeleteDialogState({ isOpen: true, planName: plan.name }); }}
+                                                    className="p-1.5 text-gray-400 hover:text-red-600 transition-colors hover:bg-red-50 rounded-md"
+                                                    title="Delete Plan"
                                                 >
                                                     <Trash2 className="w-4 h-4" />
                                                 </button>
                                             </div>
-                                        </div>
-                                    )}
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
 
-                            {/* Expanded Content: Materials List */}
-                            {isExpanded && (
-                                <div className="p-4 pl-4 md:pl-6 pt-2 pb-6 flex flex-col md:flex-row md:items-start gap-4">
-                                     <span className="text-xs font-bold text-gray-800 shrink-0 mt-1.5">
-                                         Materials ({itemsCount}):
-                                     </span>
-                                     <div className="flex flex-wrap gap-2">
-                                         {itemsList.map((item: any, i: number) => (
-                                             <div key={i} className="bg-[#EBE9F8] text-gray-700 text-xs px-2.5 py-1 rounded-md font-medium">
-                                                 {item.item_name}
-                                             </div>
-                                         ))}
-                                     </div>
-                                </div>
-                            )}
-                        </div>
-                    );
-                })}
-            </div>
+                                {/* Expanded Content: Materials List */}
+                                {isExpanded && (
+                                    <div className="bg-gray-50/50 border-t p-4 pl-4 md:pl-6 pt-2 pb-6 flex flex-col md:flex-row md:items-start gap-4 animate-in slide-in-from-top-2 duration-200">
+                                         <span className="text-xs font-bold text-gray-800 shrink-0 mt-1.5">
+                                             Materials ({itemsCount}):
+                                         </span>
+                                         <div className="flex flex-wrap gap-2">
+                                             {itemsList.map((item: any, i: number) => (
+                                                 <div key={i} className="bg-[#EBE9F8] text-gray-700 text-xs px-2.5 py-1 rounded-md font-medium">
+                                                     {item.item_name}
+                                                 </div>
+                                             ))}
+                                         </div>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
             
             <AlertDialog open={deleteDialogState.isOpen} onOpenChange={(open) => setDeleteDialogState(prev => ({ ...prev, isOpen: open }))}>
                 <AlertDialogContent>
