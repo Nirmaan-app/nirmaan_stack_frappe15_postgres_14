@@ -1,11 +1,9 @@
 import frappe
 from frappe import _
-from frappe.utils.caching import redis_cache
 from frappe.utils import flt
 
 
 @frappe.whitelist()
-@redis_cache(shared=True)
 def get_delivery_challan_pos_with_categories(project_id=None):
 	"""
 	API to fetch Procurement Orders with 'Partially Delivered' or 'Delivered' status
@@ -29,9 +27,6 @@ def get_delivery_challan_pos_with_categories(project_id=None):
 	if project_id:
 		filters["project"] = project_id
 
-	# Debug logging
-	print(f"🔍 API Called - Filters: {filters}")
-
 	# Fetch all matching POs with required fields
 	po_list = frappe.get_all(
 		"Procurement Orders",
@@ -50,9 +45,6 @@ def get_delivery_challan_pos_with_categories(project_id=None):
 		order_by="latest_delivery_date desc",
 		limit=0
 	)
-
-	# Debug logging
-	print(f"🔍 Fetched {len(po_list)} POs")
 
 	# Initialize aggregation data structures
 	unique_categories = set()
@@ -143,9 +135,6 @@ def get_delivery_challan_pos_with_categories(project_id=None):
 		"category_counts": category_po_map,
 		"total_pos": len(enriched_pos)
 	}
-
-	# Debug logging
-	print(f"🔍 Returning: {len(enriched_pos)} enriched POs, {len(unique_categories)} categories")
 
 	return result
 
