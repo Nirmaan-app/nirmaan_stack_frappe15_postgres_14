@@ -141,6 +141,7 @@ export default function DCMIRReports() {
             date: row.dc_date ? formatDate(row.dc_date) : "",
             items: row.itemsSummary,
             signed: row.is_signed_by_client === 1 ? "Yes" : "No",
+            attachment: row.attachment_url || "",
             status: row.is_stub === 1 ? "Stub" : "Complete",
         }));
 
@@ -154,6 +155,7 @@ export default function DCMIRReports() {
             { header: "Date", accessorKey: "date" },
             { header: "Items", accessorKey: "items" },
             { header: "Signed", accessorKey: "signed" },
+            { header: "Attachment", accessorKey: "attachment" },
             { header: "Status", accessorKey: "status" },
         ];
 

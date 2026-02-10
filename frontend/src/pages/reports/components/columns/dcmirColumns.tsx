@@ -6,6 +6,7 @@ import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
 import { Badge } from "@/components/ui/badge";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { DCMIRReportType } from "../../store/useReportStore";
+import { Paperclip } from "lucide-react";
 
 // --- Items popover column cell ---
 const ItemsSummaryCell = ({ row }: { row: { original: DCMIRReportRowData } }) => {
@@ -142,6 +143,33 @@ const stubColumn: ColumnDef<DCMIRReportRowData> = {
     filterFn: facetedFilterFn,
 };
 
+const attachmentColumn: ColumnDef<DCMIRReportRowData> = {
+    id: "attachment",
+    accessorFn: (row) => row.attachment_url ? "Yes" : "No",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Attachment" />,
+    cell: ({ row }) => {
+        const url = row.original.attachment_url;
+        if (!url) return <span className="text-gray-400 text-xs">—</span>;
+        return (
+            <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs"
+            >
+                <Paperclip className="h-3 w-3" />
+                View
+            </a>
+        );
+    },
+    size: 90,
+    enableSorting: false,
+    meta: {
+        exportHeaderName: "Attachment",
+        exportValue: (row: DCMIRReportRowData) => row.attachment_url || "",
+    },
+};
+
 // --- Function to get columns based on report type ---
 export const getDCMIRReportColumns = (reportType: DCMIRReportType): ColumnDef<DCMIRReportRowData>[] => {
     if (reportType === 'MIR Report') {
@@ -170,6 +198,7 @@ export const getDCMIRReportColumns = (reportType: DCMIRReportType): ColumnDef<DC
             dateColumn,
             itemsColumn,
             signedColumn,
+            attachmentColumn,
             stubColumn,
         ];
     }
@@ -191,6 +220,7 @@ export const getDCMIRReportColumns = (reportType: DCMIRReportType): ColumnDef<DC
         dateColumn,
         itemsColumn,
         signedColumn,
+        attachmentColumn,
         stubColumn,
     ];
 };
