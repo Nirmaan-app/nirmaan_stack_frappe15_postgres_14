@@ -64,6 +64,7 @@ interface DocumentAttachmentsProps<T extends DocumentType> {
   isPMUserChallans?: boolean;
   disabledAddInvoice?: boolean;
   isProjectManager?: boolean;
+  isEstimatesExecutive?: boolean;
 }
 
 interface SrInvoiceDialogData {
@@ -90,6 +91,7 @@ export const DocumentAttachments = <T extends DocumentType>({
   isPMUserChallans,
   disabledAddInvoice,
   isProjectManager = false,
+  isEstimatesExecutive = false,
 }: DocumentAttachmentsProps<T>) => {
 //   console.log("DocumentAttachments", project, documentData);
 
@@ -638,15 +640,18 @@ export const DocumentAttachments = <T extends DocumentType>({
                     View / Download Tax Invoice
                   </Button>
                 )}
-              <Button
-                variant="outline"
-                size="sm" // Consistent button size
-                className="text-primary border-primary hover:bg-primary/5" // Subtle hover
-                onClick={toggleNewInvoiceDialog}
-                disabled={disabledAddInvoice||false}
-              >
-                Add Invoice
-              </Button>
+              
+              {!isEstimatesExecutive && (
+                <Button
+                  variant="outline"
+                  size="sm" // Consistent button size
+                  className="text-primary border-primary hover:bg-primary/5" // Subtle hover
+                  onClick={toggleNewInvoiceDialog}
+                  disabled={disabledAddInvoice || false}
+                >
+                  Add Invoice
+                </Button>
+              )}
             </div>
           </CardTitle>
         </CardHeader>
@@ -663,6 +668,7 @@ export const DocumentAttachments = <T extends DocumentType>({
               isLoading={deleteInvoiceEntryLoading}
               canDeleteEntry={canDeleteInvoice}
               getUserName={getUserName}
+              hideActions={isEstimatesExecutive}
             />
           </div>
         </CardContent>
@@ -683,7 +689,7 @@ export const DocumentAttachments = <T extends DocumentType>({
                   {dcAttachments.length}
                 </Badge>
               </div>
-              {isPO && showDcTable && (
+              {isPO && showDcTable && !isEstimatesExecutive && (
                 <div className="flex gap-2 items-center">
                   <Button
                     variant="outline"
@@ -709,7 +715,10 @@ export const DocumentAttachments = <T extends DocumentType>({
           </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
-              <DeliveryChallanTable attachments={dcAttachments} />
+              <DeliveryChallanTable 
+                attachments={dcAttachments} 
+                hideActions={isEstimatesExecutive}
+              />
             </div>
           </CardContent>
         </Card>

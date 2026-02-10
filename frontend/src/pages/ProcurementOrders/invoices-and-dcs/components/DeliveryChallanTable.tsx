@@ -15,9 +15,10 @@ import { Eye } from 'lucide-react'; // Use Eye icon for view
 
 interface DeliveryChallanTableProps {
     attachments: NirmaanAttachment[];
+    hideActions?: boolean;
 }
 
-export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({ attachments }) => {
+export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({ attachments, hideActions = false }) => {
 
     // Helper to safely extract filename
     const getFileName = (url: string | undefined): string => {
@@ -55,7 +56,7 @@ export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({ atta
                     <TableHead className="text-black font-bold">Type</TableHead>
                     <TableHead className="text-black font-bold">Ref No.</TableHead>
                     <TableHead className="w-[150px] text-black font-bold">Date Added</TableHead>
-                    <TableHead className="w-[120px] text-center text-black font-bold">Actions</TableHead>
+                    {!hideActions && <TableHead className="w-[120px] text-center text-black font-bold">Actions</TableHead>}
                 </TableRow>
             </TableHeader>
             <TableBody>
@@ -66,7 +67,7 @@ export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({ atta
                             <TableCell className="font-medium">{toCamelCase(att.attachment_type)}</TableCell>
                             <TableCell>{att.attachment_ref || "-"}</TableCell>
                             <TableCell>{formatDate(new Date(att.creation), "dd-MMM-yyyy")}</TableCell>
-                            <TableCell className="text-center">
+                            {!hideActions && <TableCell className="text-center">
                                 <Button
                                     variant="ghost"
                                     size="sm"
@@ -79,12 +80,12 @@ export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({ atta
                                         View
                                     </a>
                                 </Button>
-                            </TableCell>
+                            </TableCell>}
                         </TableRow>
                     ))
                 ) : (
                     <TableRow>
-                        <TableCell colSpan={5} className="text-center py-4 text-gray-500">
+                        <TableCell colSpan={hideActions ? 4 : 5} className="text-center py-4 text-gray-500">
                             No Delivery Challans or MIRs Found
                         </TableCell>
                     </TableRow>
