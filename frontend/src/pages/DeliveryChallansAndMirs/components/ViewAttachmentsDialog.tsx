@@ -52,12 +52,19 @@ export const ViewAttachmentsDialog = ({
     return { dc, mir };
   }, [documents]);
 
+  const truncateFileName = (name: string, max = 25) => {
+    if (name.length <= max) return name;
+    const dotIdx = name.lastIndexOf(".");
+    const ext = dotIdx !== -1 ? name.slice(dotIdx) : "";
+    const availLen = max - ext.length - 3; // 3 for "..."
+    return availLen > 0
+      ? `${name.slice(0, availLen)}...${ext}`
+      : `${name.slice(0, max - 3)}...`;
+  };
+
   const renderDocCard = (doc: PODeliveryDocuments, borderColor: string) => {
     const fileName = doc.attachment_url?.split("/").pop() || "file";
-    const slicedName =
-      fileName.length > 30
-        ? `${fileName.substring(0, 27)}...${fileName.split(".").pop() ? `.${fileName.split(".").pop()}` : ""}`
-        : fileName;
+    const slicedName = truncateFileName(fileName);
 
     return (
       <Card key={doc.name} className={`border-l-4 ${borderColor}`}>

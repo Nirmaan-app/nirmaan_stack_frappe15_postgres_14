@@ -323,10 +323,20 @@ export const UploadDCMIRDialog = ({
                       href={`${SITEURL}${existingDoc.attachment_url}`}
                       target="_blank"
                       rel="noreferrer noopener"
-                      className="flex items-center gap-2 text-sm text-blue-600 hover:underline truncate"
+                      className="flex items-center gap-2 text-sm text-blue-600 hover:underline"
+                      title={existingDoc.attachment_url.split("/").pop() || "Attached file"}
                     >
                       <FileText className="h-4 w-4 flex-shrink-0" />
-                      {existingDoc.attachment_url.split("/").pop() || "Attached file"}
+                      {(() => {
+                        const name = existingDoc.attachment_url.split("/").pop() || "Attached file";
+                        if (name.length <= 25) return name;
+                        const dotIdx = name.lastIndexOf(".");
+                        const ext = dotIdx !== -1 ? name.slice(dotIdx) : "";
+                        const availLen = 25 - ext.length - 3;
+                        return availLen > 0
+                          ? `${name.slice(0, availLen)}...${ext}`
+                          : `${name.slice(0, 22)}...`;
+                      })()}
                     </a>
                     <Button
                       type="button"
