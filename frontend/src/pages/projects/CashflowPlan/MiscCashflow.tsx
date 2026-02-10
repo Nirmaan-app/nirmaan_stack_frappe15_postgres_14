@@ -17,7 +17,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-import { safeFormatDate } from "@/lib/utils";
+import { safeFormatDateDD_MMM_YYYY } from "@/lib/utils";
 
 // ... imports
 
@@ -172,8 +172,8 @@ const MiscCashflowContent = ({ projectId, dateRange, isOverview = false }: { pro
                                         {/* Planned Date */}
                                         <div className="flex flex-col gap-0.5 min-w-[120px]">
                                             <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Planned Date</span>
-                                            <span className="font-medium text-gray-900 text-sm">
-                                                {safeFormatDate(plan.planned_date)}
+                                            <span className="font-semibold text-gray-900 text-sm">
+                                                {safeFormatDateDD_MMM_YYYY(plan.planned_date)}
                                             </span>
                                         </div>
                                     </div>

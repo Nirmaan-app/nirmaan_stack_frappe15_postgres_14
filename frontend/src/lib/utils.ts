@@ -20,3 +20,9 @@ export function safeFormatDate(date: string | Date | undefined | null, dateForma
     const d = new Date(date);
     return isValid(d) ? format(d, dateFormat) : "-";
 }
+
+export function safeFormatDateDD_MMM_YYYY(date: string | Date | undefined | null, dateFormat: string = "dd-MMM-yyyy"): string {
+    if (!date) return "-";
+    const d = new Date(date);
+    return isValid(d) ? format(d, dateFormat) : "-";
+}

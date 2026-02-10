@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList, useFrappeDeleteDoc } from "frappe-react-sdk";
 import { format, addDays, startOfDay, parseISO } from "date-fns";
-import { safeFormatDate } from "@/lib/utils";
+import { safeFormatDateDD_MMM_YYYY } from "@/lib/utils";
 import { Loader2, AlertCircle, ChevronDown, ChevronUp, Package, Calendar, Trash2, Download } from "lucide-react";
 import { SevenDayPlanningHeader } from "./SevenDayPlanningHeader";
 import { DateRange } from "react-day-picker";
@@ -463,7 +463,7 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                                     <div className={`${isOverview ? "col-span-1 md:col-span-3" : "col-span-1 md:col-span-2"} flex flex-col justify-center`}>
                                         <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">Delivery Date</span>
                                         <span className="text-sm font-medium text-gray-800 whitespace-nowrap">
-                                            {safeFormatDate(plan.delivery_date)}
+                                            {safeFormatDateDD_MMM_YYYY(plan.delivery_date)}
                                         </span>
                                     </div>
                                     {!isOverview && (

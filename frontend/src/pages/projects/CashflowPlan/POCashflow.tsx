@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useFrappeGetDocList, useFrappeDeleteDoc } from "frappe-react-sdk";
 import { format } from "date-fns";
-import { safeFormatDate } from "@/lib/utils";
+import { safeFormatDateDD_MMM_YYYY } from "@/lib/utils";
 import { Trash2, ChevronDown, Edit2 ,CirclePlus} from "lucide-react";
 import {
   AlertDialog,
@@ -256,7 +256,7 @@ const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashf
                                         <div className="flex flex-col gap-0.5">
                                             <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Planned Date</span>
                                             <span className="font-semibold text-gray-900 text-sm">
-                                                {safeFormatDate(plan.planned_date)}
+                                                {safeFormatDateDD_MMM_YYYY(plan.planned_date)}
                                             </span>
                                         </div>
 
