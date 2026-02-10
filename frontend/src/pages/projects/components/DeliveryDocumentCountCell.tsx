@@ -77,7 +77,14 @@ export const DeliveryDocumentCountCell = ({ type, documents, count }: DeliveryDo
               {documents.map((doc, i) => (
                 <TableRow key={i}>
                   <TableCell className="text-sm text-gray-600 py-2">
-                    {doc.referenceNumber || '-'}
+                    <div className="flex items-center gap-1.5">
+                      <span>{doc.referenceNumber || '-'}</span>
+                      {doc.isStub && (
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-orange-50 text-orange-600 border-orange-300">
+                          Incomplete
+                        </Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-sm text-gray-600 py-2">
                     {doc.dcDate ? formatDate(doc.dcDate) : '-'}

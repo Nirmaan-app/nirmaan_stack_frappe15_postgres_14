@@ -83,7 +83,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
     const docs = poDeliveryDocsData?.message || [];
 
     for (const doc of docs) {
-      if (doc.is_stub) continue; // Skip stub documents
+      const isStub = doc.is_stub === 1;
 
       const docInfo: DeliveryDocumentInfo = {
         name: doc.name,
@@ -93,6 +93,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
         attachmentUrl: doc.attachment_url,
         itemCount: doc.items?.length || 0,
         poNumber: doc.procurement_order,
+        isStub,
       };
 
       const isDC = doc.type === "Delivery Challan";
@@ -110,7 +111,8 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
       }
 
       // Build itemDeliveryMap - aggregate quantities per category_itemId
-      if (doc.items) {
+      // Stubs have no items, so skip them for item-level quantities
+      if (!isStub && doc.items) {
         for (const item of doc.items) {
           const itemKey = `${item.category}_${item.item_id}`;
           if (!itemMap.has(itemKey)) {
@@ -402,6 +404,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
           attachmentUrl: doc.attachment_url,
           itemCount: doc.items?.length || 0,
           poNumber: doc.procurement_order,
+          isStub: false, // Orphans are never stubs (line 335 skips stubs)
         };
 
         if (isDC) {

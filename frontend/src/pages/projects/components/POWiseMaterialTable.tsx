@@ -203,7 +203,7 @@ export const POWiseMaterialTable: React.FC<POWiseMaterialTableProps> = ({ items,
     const headers = [
       'Type', 'PO Number', 'Vendor', 'Category', 'Item Name', 'Unit',
       'Ordered Qty', 'Delivery Note Qty', 'DC Qty', 'MIR Qty',
-      'Amount (inc.GST)', 'Delivery Status', 'DC Count', 'MIR Count', 'Payment Status'
+      'Amount (inc.GST)', 'Delivery Status', 'DC Count', 'Incomplete DCs', 'MIR Count', 'Incomplete MIRs', 'Payment Status'
     ];
 
     const rows: Record<string, string>[] = [];
@@ -223,7 +223,9 @@ export const POWiseMaterialTable: React.FC<POWiseMaterialTableProps> = ({ items,
         'Amount (inc.GST)': po.totalAmount.toFixed(2),
         'Delivery Status': po.deliveryStatus,
         'DC Count': po.dcs.length.toString(),
+        'Incomplete DCs': po.dcs.filter(d => d.isStub).length.toString(),
         'MIR Count': po.mirs.length.toString(),
+        'Incomplete MIRs': po.mirs.filter(d => d.isStub).length.toString(),
         'Payment Status': po.paymentStatus,
       });
       // Nested item rows
@@ -242,7 +244,9 @@ export const POWiseMaterialTable: React.FC<POWiseMaterialTableProps> = ({ items,
           'Amount (inc.GST)': (item.totalAmount || 0).toFixed(2),
           'Delivery Status': '',
           'DC Count': '',
+          'Incomplete DCs': '',
           'MIR Count': '',
+          'Incomplete MIRs': '',
           'Payment Status': '',
         });
       }

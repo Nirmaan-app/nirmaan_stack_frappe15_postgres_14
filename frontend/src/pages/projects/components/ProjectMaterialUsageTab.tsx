@@ -38,6 +38,7 @@ export interface DeliveryDocumentInfo {
   attachmentUrl?: string;
   itemCount: number;
   poNumber: string;
+  isStub: boolean;        // true when document has no items mapped yet
 }
 
 // Data structure for PO-Wise view rows
