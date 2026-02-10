@@ -11,7 +11,8 @@
       "Bash(find:*)",
       "Bash(grep:*)",
       "Skill(webapp-testing)",
-      "Bash(git log:*)"
+      "Bash(git log:*)",
+      "Bash(git -C /Users/abhishek/work/nirmaan/deploy_setup/frappe_docker/development/frappe-bench/apps/nirmaan_stack log --all --oneline --grep=\"MIR\" -10)"
     ],
     "deny": [],
     "ask": []
