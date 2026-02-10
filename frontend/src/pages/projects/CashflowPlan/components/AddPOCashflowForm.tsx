@@ -38,7 +38,7 @@ interface POItem {
     work_package?: string;
     items?: any[];
     is_critical?: boolean;
-    associated_tasks?: { task_name: string; item_name: string; category: string }[];
+    associated_tasks?: { task_name: string; item_name: string; category: string; sub_category?: string }[];
     vendor?: string;
     vendor_name?: string;
     [key: string]: any;
@@ -55,6 +55,7 @@ interface POPlan {
     isCritical: boolean;
     category?: string;
     task?: string;
+    subCategory?: string;
     vendor?: string;
     vendorName?: string;
     total_amount?: number;
@@ -330,7 +331,8 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
                 vendorName: po.vendor_name,
                 isCritical: assocTasks.length > 0 || isLocal || isFallback,
                 category: assocTasks.length > 0 ? assocTasks[0].category : (isLocal || isFallback ? (selectedCategory || selectedTaskDoc?.critical_po_category) : undefined),
-                task: assocTasks.length > 0 ? assocTasks[0].item_name : (isLocal || isFallback ? selectedTaskDoc?.item_name : undefined)
+                task: assocTasks.length > 0 ? assocTasks[0].item_name : (isLocal || isFallback ? selectedTaskDoc?.item_name : undefined),
+                subCategory: assocTasks.length > 0 ? assocTasks[0].sub_category : (isLocal || isFallback ? selectedTaskDoc?.sub_category : undefined)
             };
         });
         setReviewPlans(plans);
@@ -381,7 +383,8 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
                     vendorName: po.vendor_name,
                     isCritical: assocTasks.length > 0 || isLocal || isFallback,
                     category: assocTasks.length > 0 ? assocTasks[0].category : (isLocal || isFallback ? (selectedCategory || selectedTaskDoc?.critical_po_category) : undefined),
-                    task: assocTasks.length > 0 ? assocTasks[0].item_name : (isLocal || isFallback ? selectedTaskDoc?.item_name : undefined)
+                    task: assocTasks.length > 0 ? assocTasks[0].item_name : (isLocal || isFallback ? selectedTaskDoc?.item_name : undefined),
+                    subCategory: assocTasks.length > 0 ? assocTasks[0].sub_category : (isLocal || isFallback ? selectedTaskDoc?.sub_category : undefined)
                 };
             });
             setReviewPlans(plans);
@@ -416,7 +419,8 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
                     vendorName: poDoc?.vendor_name,
                     isCritical: assocTasks.length > 0 || isLocal || isFallback,
                     category: assocTasks.length > 0 ? assocTasks[0].category : (isLocal || isFallback ? (selectedCategory || selectedTaskDoc?.critical_po_category) : undefined),
-                    task: assocTasks.length > 0 ? assocTasks[0].item_name : (isLocal || isFallback ? selectedTaskDoc?.item_name : undefined)
+                    task: assocTasks.length > 0 ? assocTasks[0].item_name : (isLocal || isFallback ? selectedTaskDoc?.item_name : undefined),
+                    subCategory: assocTasks.length > 0 ? assocTasks[0].sub_category : (isLocal || isFallback ? selectedTaskDoc?.sub_category : undefined)
                 };
             });
             setReviewPlans(plans);
@@ -446,6 +450,7 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
                     package_name: "", // V2: Not used
                     critical_po_category: plan.isCritical ? plan.category : null,
                     critical_po_task: plan.isCritical ? plan.task : null,
+                    critical_po_sub_category: plan.isCritical ? plan.subCategory : null,
                     planned_date: plan.plannedDate,
                     planned_amount: plan.plannedAmount || 0,
                     estimated_price: plan.estimatedPrice || 0,
@@ -558,6 +563,7 @@ export const AddPOCashflowForm = ({ projectId, onClose, onSuccess }: AddPOCashfl
                 package_name: "",
                 critical_po_category: selectedCategory || null,
                 critical_po_task: selectedTaskDoc?.item_name || null,
+                critical_po_sub_category: selectedTaskDoc?.sub_category || null,
                 planned_date: plannedDate,
                 planned_amount: parseFloat(newPOAmount),
                 estimated_price: parseFloat(estimatedPrice),

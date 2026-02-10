@@ -20,6 +20,7 @@
   "for_pos_section",
   "critical_po_category",
   "critical_po_task",
+  "critical_po_sub_category",
   "for_msc_section",
   "remarks"
  ],
@@ -110,12 +111,17 @@
    "fieldname": "vendor_name",
    "fieldtype": "Data",
    "label": "Vendor Name"
+  },
+  {
+   "fieldname": "critical_po_sub_category",
+   "fieldtype": "Data",
+   "label": "Critical PO Sub Category"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-02-02 13:13:54.031975",
+ "modified": "2026-02-10 11:07:34.773398",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Cashflow Plan",
