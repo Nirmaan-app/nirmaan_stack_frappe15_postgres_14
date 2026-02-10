@@ -95,6 +95,8 @@ export interface Projects {
 	estimates_exec?: string
 	/**	Status : Data	*/
 	status: string
+	/** CEO Hold Set By : Data (read_only, hidden) */
+	ceo_hold_by?: string
 	/**	Project Work Packages : JSON	*/
 	project_work_packages?: {
 		work_packages: WorkPackage[]

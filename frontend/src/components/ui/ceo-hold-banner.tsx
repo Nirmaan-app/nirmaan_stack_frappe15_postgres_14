@@ -4,9 +4,10 @@ import { cn } from "@/lib/utils";
 interface CEOHoldBannerProps {
   className?: string;
   compact?: boolean;  // For inline usage in cards/tables
+  heldBy?: string;    // Email of user who set CEO Hold
 }
 
-export function CEOHoldBanner({ className, compact = false }: CEOHoldBannerProps) {
+export function CEOHoldBanner({ className, compact = false, heldBy }: CEOHoldBannerProps) {
   if (compact) {
     return (
       <div className={cn(
@@ -66,7 +67,9 @@ export function CEOHoldBanner({ className, compact = false }: CEOHoldBannerProps
           <p className="mt-1 text-sm text-amber-700 leading-relaxed">
             Some procurement, payment, and expense operations are restricted.
             <span className="block mt-1 text-amber-600 font-medium">
-              Contact Admin to resume full operations.
+              {heldBy
+                ? `Set by ${heldBy}. Only they can remove this hold.`
+                : "Contact Admin to resume full operations."}
             </span>
           </p>
         </div>
