@@ -1,10 +1,9 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useUserData } from "@/hooks/useUserData";
-import { Radio } from "antd";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { REPORTS_TABS } from './constants';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { POReportOption, SROption, ProjectReportType, ReportType, useReportStore, VendorReportType } from './store/useReportStore';
+import { DCMIRReportType, POReportOption, SROption, ProjectReportType, ReportType, useReportStore, VendorReportType } from './store/useReportStore';
 import { getUrlStringParam } from '@/hooks/useServerDataTable';
 import { urlStateManager } from '@/utils/urlStateManager';
 
@@ -13,6 +12,7 @@ const ProjectReports = React.lazy(() => import('./components/ProjectReports'));
 const POReports = React.lazy(() => import('./components/POReports'));
 const SRReports = React.lazy(() => import('./components/SRReports'));
 const VendorReports = React.lazy(() => import('./components/VendorReports'));
+const DCMIRReports = React.lazy(() => import('./components/DCMIRReports'));
 
 // Define options for the selector
 const projectReportOptions: { label: string; value: ProjectReportType }[] = [
@@ -40,6 +40,11 @@ const srReportOptions: { label: string; value: SROption }[] = [
     { label: '2B Reconcile Report', value: '2B Reconcile Report' },
 ];
 
+const dcmirReportOptions: { label: string; value: DCMIRReportType }[] = [
+    { label: 'DC Report', value: 'DC Report' },
+    { label: 'MIR Report', value: 'MIR Report' },
+];
+
 export default function ReportsContainer() {
     const { role } = useUserData(); // Get current user's role
     const selectedReportType = useReportStore((state) => state.selectedReportType);
@@ -51,11 +56,11 @@ export default function ReportsContainer() {
         const urlTab = getUrlStringParam("tab", null);
         if (role === "Nirmaan Project Manager Profile") {
             // PM can only see PO and SR. If URL tab is something else or null, default to PO.
-            if (urlTab === REPORTS_TABS.PO || urlTab === REPORTS_TABS.SR) return urlTab;
+            if (urlTab === REPORTS_TABS.PO || urlTab === REPORTS_TABS.SR || urlTab === REPORTS_TABS.DCS_MIRS) return urlTab;
             return REPORTS_TABS.PO;
         }
         // Admin/Accountant default to Projects if no valid URL tab or if URL tab is Projects
-        if (urlTab === REPORTS_TABS.PROJECTS || urlTab === REPORTS_TABS.VENDORS || urlTab === REPORTS_TABS.PO || urlTab === REPORTS_TABS.SR) return urlTab;
+        if (urlTab === REPORTS_TABS.PROJECTS || urlTab === REPORTS_TABS.VENDORS || urlTab === REPORTS_TABS.PO || urlTab === REPORTS_TABS.SR || urlTab === REPORTS_TABS.DCS_MIRS) return urlTab;
         return REPORTS_TABS.PROJECTS; // Default for Admin/Accountant
     }, [role]);
 
@@ -129,32 +134,21 @@ export default function ReportsContainer() {
 
     // Define available tabs based on role
     const tabs = useMemo(() => {
-        const availableTabs = [];
+        const availableTabs: { label: string; value: string }[] = [];
         if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(role)) {
-            availableTabs.push({
-                label: <div className="flex items-center"><span>Projects</span></div>,
-                value: REPORTS_TABS.PROJECTS,
-            });
+            availableTabs.push({ label: "Projects", value: REPORTS_TABS.PROJECTS });
         }
         if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(role)) {
-            availableTabs.push({
-                label: <div className="flex items-center"><span>Vendors</span></div>,
-                value: REPORTS_TABS.VENDORS,
-            });
+            availableTabs.push({ label: "Vendors", value: REPORTS_TABS.VENDORS });
         }
-        //
-        // All three roles (Admin, Accountant, PM) can see PO and SR tabs
         if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)) {
-            availableTabs.push({
-                label: <div className="flex items-center"><span>PO</span></div>,
-                value: REPORTS_TABS.PO,
-            });
+            availableTabs.push({ label: "PO", value: REPORTS_TABS.PO });
         }
         if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)) {
-            availableTabs.push({
-                label: <div className="flex items-center"><span>WO</span></div>,
-                value: REPORTS_TABS.SR,
-            });
+            availableTabs.push({ label: "WO", value: REPORTS_TABS.SR });
+        }
+        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)) {
+            availableTabs.push({ label: "DCs & MIRs", value: REPORTS_TABS.DCS_MIRS });
         }
         return availableTabs;
     }, [role]);
@@ -204,6 +198,11 @@ export default function ReportsContainer() {
                     : srReportOptions.filter(option => option.value !== '2B Reconcile Report');
             }
             return [];
+        } else if (activeTab === REPORTS_TABS.DCS_MIRS) {
+            if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)) {
+                return dcmirReportOptions;
+            }
+            return [];
         }
         return [];
     }, [activeTab, role, canSee2BReconcileReport]);
@@ -233,18 +232,30 @@ export default function ReportsContainer() {
     }, [currentReportOptions, selectedReportType, setSelectedReportType, setDefaultReportType, activeTab, role]);
 
 
-    const renderRadioGroup = () => {
+    const renderTabs = () => {
         if (!tabs.length) {
             return <div className="text-sm text-gray-600 p-4">No reports accessible for your current role.</div>;
         }
         return (
-            <Radio.Group
-                options={tabs}
-                optionType="button"
-                buttonStyle="solid"
-                value={activeTab} // Controlled by activeTab state
-                onChange={(e) => handleTabClick(e.target.value)}
-            />
+            <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">
+                <div className="flex gap-1.5 sm:flex-wrap pb-1 sm:pb-0">
+                    {tabs.map((option) => (
+                        <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => handleTabClick(option.value)}
+                            className={`px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded
+                                transition-colors flex items-center gap-1.5 whitespace-nowrap
+                                ${activeTab === option.value
+                                    ? "bg-sky-500 text-white"
+                                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                }`}
+                        >
+                            {option.label}
+                        </button>
+                    ))}
+                </div>
+            </div>
         );
     };
 
@@ -253,9 +264,10 @@ export default function ReportsContainer() {
             return <div className="p-4 text-center text-gray-500">Please select an available report tab.</div>;
         }
         if (activeTab === REPORTS_TABS.PROJECTS) return <ProjectReports />;
-        if (activeTab === REPORTS_TABS.VENDORS) return <VendorReports />; // 👈 ADD THIS
+        if (activeTab === REPORTS_TABS.VENDORS) return <VendorReports />;
         if (activeTab === REPORTS_TABS.PO) return <POReports />;
         if (activeTab === REPORTS_TABS.SR) return <SRReports />;
+        if (activeTab === REPORTS_TABS.DCS_MIRS) return <DCMIRReports />;
         return <div className="p-4 text-center text-gray-500">Select a report tab to view details.</div>;
     };
 
@@ -263,7 +275,7 @@ export default function ReportsContainer() {
     return (
         <div className="flex-1 space-y-4">
             <div className="flex justify-between items-center gap-4 flex-wrap">
-                {renderRadioGroup()}
+                {renderTabs()}
 
                 {currentReportOptions.length > 0 && (
                     <div className="flex items-center gap-2">
