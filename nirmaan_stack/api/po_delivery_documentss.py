@@ -79,6 +79,47 @@ def create_po_delivery_documents(
     return {"name": doc.name, "status": "success"}
 
 
+def _enrich_delivery_docs(docs):
+    """Batch-fetch child items and attachment URLs for PO Delivery Documents."""
+    if not docs:
+        return []
+
+    # Batch-fetch attachment URLs
+    attachment_ids = [d.nirmaan_attachment for d in docs if d.nirmaan_attachment]
+    attachment_url_map = {}
+    if attachment_ids:
+        attachments = frappe.get_all(
+            "Nirmaan Attachments",
+            filters={"name": ["in", attachment_ids]},
+            fields=["name", "attachment"],
+        )
+        attachment_url_map = {a.name: a.attachment for a in attachments}
+
+    # Batch-fetch ALL child items in ONE query (fixes N+1)
+    parent_names = [doc.name for doc in docs]
+    items_by_parent = {}
+    if parent_names:
+        all_items = frappe.get_all(
+            "DC Item",
+            filters={"parent": ["in", parent_names], "parenttype": "PO Delivery Documents"},
+            fields=["name", "parent", "item_id", "item_name", "unit", "category", "quantity", "make", "idx"],
+            order_by="parent asc, idx asc",
+            limit=0,
+        )
+        for item in all_items:
+            parent = item.pop("parent")
+            items_by_parent.setdefault(parent, []).append(item)
+
+    # Assemble result
+    result = []
+    for doc in docs:
+        doc_dict = dict(doc)
+        doc_dict["items"] = items_by_parent.get(doc.name, [])
+        doc_dict["attachment_url"] = attachment_url_map.get(doc.nirmaan_attachment, None)
+        result.append(doc_dict)
+    return result
+
+
 @frappe.whitelist()
 def get_po_delivery_documents(procurement_order):
     """
@@ -114,36 +155,7 @@ def get_po_delivery_documents(procurement_order):
         limit=0,
     )
 
-    # Collect all attachment IDs to batch-fetch URLs
-    attachment_ids = [d.nirmaan_attachment for d in docs if d.nirmaan_attachment]
-
-    attachment_url_map = {}
-    if attachment_ids:
-        attachments = frappe.get_all(
-            "Nirmaan Attachments",
-            filters={"name": ["in", attachment_ids]},
-            fields=["name", "attachment"],
-        )
-        attachment_url_map = {a.name: a.attachment for a in attachments}
-
-    # Enrich each document with items and attachment URL
-    result = []
-    for doc in docs:
-        # Fetch child table items
-        items = frappe.get_all(
-            "DC Item",
-            filters={"parent": doc.name, "parenttype": "PO Delivery Documents"},
-            fields=["name", "item_id", "item_name", "unit", "category", "quantity", "make"],
-            order_by="idx asc",
-            limit=0,
-        )
-
-        doc_dict = dict(doc)
-        doc_dict["items"] = items
-        doc_dict["attachment_url"] = attachment_url_map.get(doc.nirmaan_attachment, None)
-        result.append(doc_dict)
-
-    return result
+    return _enrich_delivery_docs(docs)
 
 
 @frappe.whitelist()
@@ -233,3 +245,44 @@ def update_po_delivery_documents(
     frappe.db.commit()
 
     return {"name": doc.name, "status": "success"}
+
+
+@frappe.whitelist()
+def get_project_po_delivery_documents(project_id):
+    """
+    Get all PO Delivery Documents for a given Project,
+    enriched with attachment URLs and child table items.
+
+    Used by the Material Usage tab to display all DCs/MIRs
+    across all POs within a project in a single call.
+
+    Args:
+        project_id: Projects document name
+
+    Returns:
+        list of PO Delivery Documents with items and attachment URLs
+    """
+    docs = frappe.get_all(
+        "PO Delivery Documents",
+        filters={"project": project_id},
+        fields=[
+            "name",
+            "creation",
+            "modified_by",
+            "procurement_order",
+            "project",
+            "vendor",
+            "type",
+            "nirmaan_attachment",
+            "reference_number",
+            "dc_date",
+            "is_signed_by_client",
+            "client_representative_name",
+            "dc_reference",
+            "is_stub",
+        ],
+        order_by="creation desc",
+        limit=0,
+    )
+
+    return _enrich_delivery_docs(docs)
