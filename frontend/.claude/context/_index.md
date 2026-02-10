@@ -32,6 +32,7 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | SR Form Wizard | `src/pages/ServiceRequests/sr-form/` | Step-based wizard: `schema.ts`, `constants.ts`, `steps/`, `amend/` |
 | SR Remarks | `src/pages/ServiceRequests/approved-sr/` | `hooks/useSRRemarks.ts`, `components/SRRemarks.tsx` |
 | Reports | `src/pages/reports/` | `hooks/usePO*.ts` for data, `components/columns/*.tsx` for columns, `config/*.config.ts` for table config |
+| Help Repository | `src/pages/help-repository/` | `types.ts` for schema, `utils/loom-embed.ts` for URL conversion |
 | Work Headers | `src/components/` | `workHeaderMilestones.tsx` (config component) |
 
 ---

@@ -102,6 +102,12 @@ Asset Category
 ### Frontend Route
 - `/asset-management` (NOT `/assets` - conflicts with Frappe's static file serving)
 
+## Help & Training
+
+| Doctype | Purpose |
+|---------|---------|
+| **Help Repository** | Loom video training content with title, description, video_link. Autoname: field:title. CRUD: Admin/PMO; Read: All roles |
+
 ## Documents & Collaboration
 
 | Doctype | Purpose |
