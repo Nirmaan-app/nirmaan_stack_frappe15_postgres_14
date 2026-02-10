@@ -12,6 +12,7 @@ import {
 } from "frappe-react-sdk";
 import { useWorkHeaderOrder } from "@/hooks/useWorkHeaderOrder";
 import CameraCapture from "@/components/CameraCapture";
+import { ImageBentoGrid } from "@/components/ui/ImageBentoGrid";
 import {Camera, X, MapPin, CheckCircle, FileText } from "lucide-react"
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -2369,33 +2370,17 @@ console.log(user)
                       </div>
                       
                       {localPhotos.filter(p => p.attach_type === 'Drawing').length > 0 ? (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                          {localPhotos.filter(p => p.attach_type === 'Drawing').map((photo) => (
-                            <div key={photo.local_id} className="group relative bg-white rounded-lg border border-orange-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                              <div className="aspect-square">
-                                <img
-                                  src={photo.image_link}
-                                  alt="Drawing"
-                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                                />
-                              </div>
-                              <Button
-                                variant="destructive"
-                                size="icon"
-                                className="absolute top-2 right-2 h-6 w-6 rounded-full opacity-80 group-hover:opacity-100 transition-opacity"
-                                onClick={() => handleRemovePhoto(photo.local_id)}
-                                disabled={isBlockedByDraftOwnership}
-                              >
-                                <X className="h-3 w-3" />
-                              </Button>
-                              {photo.remarks && (
-                                <div className="p-2 bg-orange-50 border-t border-orange-100">
-                                  <p className="text-xs text-gray-600 truncate">{photo.remarks}</p>
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
+                        <ImageBentoGrid
+                            images={localPhotos.filter(p => p.attach_type === 'Drawing').map(p => ({
+                                image_link: p.image_link,
+                                location: p.location || undefined,
+                                remarks: p.remarks,
+                                local_id: p.local_id
+                            }))}
+                            onRemove={handleRemovePhoto}
+                            onRemarkChange={(id, val) => handlePhotoRemarksChange(id, val)}
+                            isEditable={!isBlockedByDraftOwnership}
+                            />
                       ) : (
                         <div className="text-center py-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
                           <Camera className="h-6 w-6 text-gray-300 mx-auto mb-1" />
@@ -2513,35 +2498,19 @@ console.log(user)
                             />
                         </div>
                       </div>
-                      
-                      {localPhotos.filter(p => p.attach_type === 'Site').length > 0 ? (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                          {localPhotos.filter(p => p.attach_type === 'Site').map((photo) => (
-                            <div key={photo.local_id} className="group relative bg-white rounded-lg border border-red-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                              <div className="aspect-square">
-                                <img
-                                  src={photo.image_link}
-                                  alt="Site"
-                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                                />
-                              </div>
-                              <Button
-                                variant="destructive"
-                                size="icon"
-                                className="absolute top-2 right-2 h-6 w-6 rounded-full opacity-80 group-hover:opacity-100 transition-opacity"
-                                onClick={() => handleRemovePhoto(photo.local_id)}
-                                disabled={isBlockedByDraftOwnership}
-                              >
-                                <X className="h-3 w-3" />
-                              </Button>
-                              {photo.remarks && (
-                                <div className="p-2 bg-red-50 border-t border-red-100">
-                                  <p className="text-xs text-gray-600 truncate">{photo.remarks}</p>
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
+
+                    {localPhotos.filter(p => p.attach_type === 'Site').length > 0 ? (
+                        <ImageBentoGrid
+                            images={localPhotos.filter(p => p.attach_type === 'Site').map(p => ({
+                                image_link: p.image_link,
+                                location: p.location || undefined,
+                                remarks: p.remarks,
+                                local_id: p.local_id
+                            }))}
+                            onRemove={handleRemovePhoto}
+                            onRemarkChange={(id, val) => handlePhotoRemarksChange(id, val)}
+                            isEditable={!isBlockedByDraftOwnership}
+                            />
                       ) : (
                         <div className="text-center py-4 bg-gray-50 rounded-lg border border-dashed border-gray-200">
                           <Camera className="h-6 w-6 text-gray-300 mx-auto mb-1" />
@@ -2586,44 +2555,19 @@ console.log(user)
             </div>
            )}
           {localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').length > 0 ? (
-            <div className="space-y-4">
-              {localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').map((photo) => (
-                <div 
-                  key={photo.local_id} 
-                  className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-3 bg-white rounded-md shadow-sm border  border-gray-400"
-                >
-                  <div className="relative flex-shrink-0 w-full h-[180px] sm:w-[180px] sm:h-[140px] border-2 border-pink-500 rounded-xl overflow-hidden"
-                  >
-                    <img
-                      src={photo.image_link}
-                      alt={`Photo ${photo.local_id}`}
-                      className="w-full h-full object-cover"
-                    />
-                    <Button
-                      variant="destructive"
-                      size="icon"
-                      className="absolute top-1.5 right-1.5 h-6 w-6 p-0 rounded-full bg-red-500 hover:bg-red-600 z-10"
-                      onClick={() => handleRemovePhoto(photo.local_id)}
-                      disabled={isBlockedByDraftOwnership} // MODIFIED: Disable if blocked
-                    >
-                      <X className="h-3 w-3" />
-                      <span className="sr-only">Remove Photo</span>
-                    </Button>
-                  </div>
-
-                  <div className="flex-grow">
-                    <Textarea
-                      value={photo.remarks || ''}
-                      onChange={(e) => handlePhotoRemarksChange(photo.local_id, e.target.value)}
-                      placeholder="Enter Remarks"
-                      maxLength={250}
-                      className="min-h-[124px] h-[124px] text-sm border-gray-300 rounded-xl resize-none"
-                      disabled={isBlockedByDraftOwnership} // MODIFIED: Disable if blocked
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
+             <ImageBentoGrid
+              images={localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').map(p => ({
+                image_link: p.image_link,
+                location: p.location || undefined,
+                remarks: p.remarks,
+                local_id: p.local_id
+              }))}
+              isEditable={true}
+              onRemove={handleRemovePhoto}
+              onRemarkChange={handlePhotoRemarksChange}
+              disabled={isBlockedByDraftOwnership}
+              forPdf={false}
+            />
           ) : (
             <div className="text-center py-12 px-4 bg-white rounded-lg shadow-md border border-dashed border-gray-300">
               
@@ -5196,60 +5140,7 @@ export const MilestoneTab = () => {
 //               <span> ADD PHOTOS</span>
 //           </Button> */}
 //            <PhotoPermissionChecker
-//             isBlockedByDraftOwnership={isBlockedByDraftOwnership}
-//             onAddPhotosClick={() => setIsCaptureDialogOpen(true)}
-//             GEO_API={apiData?.api_key}
-//           />
-//         </CardHeader>
-//         <CardContent className="pt-0">
-//           {localPhotos.length > 0 ? (
-//             <div className="space-y-4">
-//               {localPhotos.map((photo) => (
-//                 <div 
-//                   key={photo.local_id} 
-//                   className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-3 bg-white rounded-md shadow-sm border  border-gray-400"
-//                 >
-//                   <div className="relative flex-shrink-0 w-full h-[180px] sm:w-[180px] sm:h-[140px] border-2 border-pink-500 rounded-xl overflow-hidden"
-//                   >
-//                     <img
-//                       src={photo.image_link}
-//                       alt={`Photo ${photo.local_id}`}
-//                       className="w-full h-full object-cover"
-//                     />
-//                     <Button
-//                       variant="destructive"
-//                       size="icon"
-//                       className="absolute top-1.5 right-1.5 h-6 w-6 p-0 rounded-full bg-red-500 hover:bg-red-600 z-10"
-//                       onClick={() => handleRemovePhoto(photo.local_id)}
-//                       disabled={isBlockedByDraftOwnership} // MODIFIED: Disable if blocked
-//                     >
-//                       <X className="h-3 w-3" />
-//                       <span className="sr-only">Remove Photo</span>
-//                     </Button>
-//                   </div>
 
-//                   <div className="flex-grow">
-//                     <Textarea
-//                       value={photo.remarks || ''}
-//                       onChange={(e) => handlePhotoRemarksChange(photo.local_id, e.target.value)}
-//                       placeholder="Enter Remarks"
-//                       maxLength={250}
-//                       className="min-h-[124px] h-[124px] text-sm border-gray-300 rounded-xl resize-none"
-//                       disabled={isBlockedByDraftOwnership} // MODIFIED: Disable if blocked
-//                     />
-//                   </div>
-//                 </div>
-//               ))}
-//             </div>
-//           ) : (
-//             <div className="text-center py-12 px-4 bg-white rounded-lg shadow-md border border-dashed border-gray-300">
-              
-//               <p className="text-lg text-gray-600 font-semibold mb-2">No photos captured yet!</p>
-//               <p className="text-gray-500 text-sm">Click the "ADD PHOTOS" button above to get started.</p>
-//             </div>
-//           )}
-//         </CardContent>
-//       </Card>
       
 //     </TabsContent>
 // {/* 

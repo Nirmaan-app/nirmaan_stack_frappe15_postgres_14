@@ -39,6 +39,7 @@ interface SelectedPlanData {
     package_name: string;
     critical_po_category: string;
     critical_po_task: string;
+    critical_po_sub_category?: string;
     items: any[];
     delivery_date: string;
     plannedDate?: string;
@@ -68,7 +69,7 @@ export const FromMaterialPlanDialog = ({ isOpen, onClose, projectId, onSuccess }
 
     // Fetch Material Delivery Plans
     const { data: materialPlans, isLoading: isLoadingPlans } = useFrappeGetDocList("Material Delivery Plan", {
-        fields: ["name", "po_link", "package_name", "critical_po_category", "critical_po_task", "delivery_date", "mp_items", "po_type"],
+        fields: ["name", "po_link", "package_name", "critical_po_category", "critical_po_task", "critical_po_sub_category", "delivery_date", "mp_items", "po_type"],
         filters: [["project", "=", projectId]],
         orderBy: { field: "creation", order: "desc" },
         limit: 0
@@ -204,6 +205,7 @@ export const FromMaterialPlanDialog = ({ isOpen, onClose, projectId, onSuccess }
                     vendor_name: plan.vendor?.label,
                     critical_po_category: plan.critical_po_category,
                     critical_po_task: plan.critical_po_task,
+                    critical_po_sub_category: plan.critical_po_sub_category || null,
                     items: JSON.stringify({ list: plan.items })
                 });
             }
@@ -288,7 +290,12 @@ export const FromMaterialPlanDialog = ({ isOpen, onClose, projectId, onSuccess }
                                     </div>
                                     
                                     <div className="flex-1 min-w-0">
-                                        <div className="font-semibold text-sm text-gray-900 truncate">{plan.critical_po_task}</div>
+                                        <div className="font-semibold text-sm text-gray-900 truncate">
+                                            {plan.critical_po_task}
+                                            {plan.critical_po_sub_category && (
+                                                <span className="text-gray-500 font-normal text-xs ml-1">({plan.critical_po_sub_category})</span>
+                                            )}
+                                        </div>
                                         <div className="text-xs text-gray-500 truncate">{plan.critical_po_category}</div>
                                     </div>
 
@@ -395,7 +402,12 @@ const ReviewPlanCard = ({ plan, index, onUpdate, onRemove, vendorOptions, portal
                     </div>
                     <div>
                         <Label className="text-[10px] text-gray-500 uppercase font-bold tracking-wider mb-1 block">Item</Label>
-                        <div className="text-xs md:text-sm font-semibold text-gray-900">{plan.critical_po_task || "--"}</div>
+                        <div className="text-xs md:text-sm font-semibold text-gray-900">
+                            {plan.critical_po_task || "--"}
+                            {plan.critical_po_sub_category && (
+                                <span className="text-gray-500 font-normal text-xs ml-1">({plan.critical_po_sub_category})</span>
+                            )}
+                        </div>
                     </div>
                     <div>
                         <Label className="text-[10px] text-gray-500 uppercase font-bold tracking-wider mb-1 block">PO ID</Label>

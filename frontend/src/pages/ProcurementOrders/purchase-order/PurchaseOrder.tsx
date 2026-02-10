@@ -1737,6 +1737,7 @@ export const PurchaseOrder = ({
                   project={project}
                   disabledAddInvoice={PO?.status == "Inactive"}
                   isProjectManager={isProjectManager}
+                  isEstimatesExecutive={estimatesViewing}
                 />
 
                 {/* <POAttachments PO={PO} poMutate={poMutate} /> */}

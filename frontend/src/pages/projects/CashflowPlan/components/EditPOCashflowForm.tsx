@@ -289,6 +289,11 @@ export const EditPOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
                             {plan.critical_po_task}
                         </span>
                     )}
+                    {plan?.critical_po_sub_category && (
+                        <span className="px-2 py-1 bg-orange-50 text-orange-700 border border-orange-100 rounded">
+                            {plan.critical_po_sub_category}
+                        </span>
+                    )}
                     {plan?.critical_po_category && (
                         <span className="px-2 py-1 bg-red-50 text-red-700 border border-red-100 rounded">
                             {plan.critical_po_category}

@@ -826,7 +826,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   )}
 
                 {/* Add Invoice - hidden for Project Manager and Accountant */}
-                {!isProjectManager && role !== "Nirmaan Accountant Profile" && (
+                {!isProjectManager && role !== "Nirmaan Accountant Profile" && !estimatesViewing && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button

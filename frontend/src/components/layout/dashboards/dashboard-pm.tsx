@@ -9,6 +9,7 @@ import {
   ShoppingCart,
   Truck,
   PencilRuler,
+  Package,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -175,6 +176,12 @@ export const ProjectManager = () => {
             title="Work Plan Tracker"
             icon={<Calendar className="h-7 w-7" strokeWidth={1.5} />}
             onClick={() => navigate("/work-plan-tracker")}
+            variant="secondary"
+          />
+          <DashboardCard
+            title="Material Plan"
+            icon={<Package className="h-7 w-7" strokeWidth={1.5} />}
+            onClick={() => navigate("/material-plan-tracker")}
             variant="secondary"
           />
         </div>

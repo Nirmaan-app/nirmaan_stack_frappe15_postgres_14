@@ -17,7 +17,8 @@
   "wp_end_date",
   "wp_status",
   "wp_progress",
-  "wp_estimate_completion_date"
+  "wp_estimate_completion_date",
+  "wp_remarks"
  ],
  "fields": [
   {
@@ -88,12 +89,17 @@
    "fieldname": "wp_estimate_completion_date",
    "fieldtype": "Date",
    "label": "WP Estimate Completion Date"
+  },
+  {
+   "fieldname": "wp_remarks",
+   "fieldtype": "Text",
+   "label": "WP Remarks"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-12 17:49:26.468695",
+ "modified": "2026-02-09 16:44:46.670101",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Work Plan",
@@ -221,6 +227,7 @@
   }
  ],
  "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": []
