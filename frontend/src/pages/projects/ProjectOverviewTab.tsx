@@ -42,6 +42,7 @@ import { AddCustomerPODialog, CustomerPODetail } from "./components/AddCustomerP
 import { CustomerPODetailsCard } from "./components/CustomerPODeatilsCard";
 import { ProjectDriveLink } from "./components/ProjectDriveLink";
 import { SevenDayPlanningTab } from "./SevenDayPlanningTab";
+import { BulkPdfDownloadButton } from "@/components/common/BulkPdfDownloadButton";
 
 
 interface ProjectOverviewTabProps {
@@ -269,12 +270,16 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
           <CardTitle>
             <div className="flex justify-between items-center">
               <p className="text-2xl">Project Details</p>
-              {role !== "Nirmaan Accountant Profile" && (
-                <Button onClick={() => navigate("add-estimates")}>
-                  <CirclePlus className="h-4 w-4 mr-2" /> Add Project
-                  Estimates
-                </Button>
-              )}
+              
+              <div className="flex items-center gap-2">
+                <BulkPdfDownloadButton projectId={projectData.name} />
+                {role !== "Nirmaan Accountant Profile" && (
+                  <Button onClick={() => navigate("add-estimates")}>
+                    <CirclePlus className="h-4 w-4 mr-2" /> Add Project
+                    Estimates
+                  </Button>
+                )}
+              </div>
             </div>
           </CardTitle>
         </CardHeader>
