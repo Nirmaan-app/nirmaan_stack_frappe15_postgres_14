@@ -5,7 +5,6 @@ import {
   useFrappeGetDocList,
   useFrappePostCall,
   useFrappeUpdateDoc,
-  useFrappeFileUpload,
 } from "frappe-react-sdk";
 import { useDialogStore } from "@/zustand/useDialogStore"; // Adjust import path
 import { useToast } from "@/components/ui/use-toast"; // Adjust import path
@@ -38,13 +37,14 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { RefreshCcw, CirclePlus, Upload } from "lucide-react";
 import { Projects } from "@/types/NirmaanStack/Projects";
-import { CustomAttachment } from "@/components/helpers/CustomAttachment";
+import { usePODeliveryDocuments } from "@/pages/DeliveryChallansAndMirs/hooks/usePODeliveryDocuments";
+import { UploadDCMIRDialog } from "@/pages/DeliveryChallansAndMirs/components/UploadDCMIRDialog";
+import type { PODeliveryDocuments as PODeliveryDoc } from "@/types/NirmaanStack/PODeliveryDocuments";
 
 // Define a union type for the document data
 type DocumentType = ProcurementOrder | ServiceRequests;
@@ -52,10 +52,10 @@ type DocumentType = ProcurementOrder | ServiceRequests;
 
 interface DocumentAttachmentsProps<T extends DocumentType> {
   docType: T extends ProcurementOrder
-    ? "Procurement Orders"
-    : T extends ServiceRequests
-    ? "Service Requests"
-    : never;
+  ? "Procurement Orders"
+  : T extends ServiceRequests
+  ? "Service Requests"
+  : never;
   docName: string;
   documentData: T | null | undefined;
   // Mutator specifically for the *parent* document (PO or SR)
@@ -64,6 +64,7 @@ interface DocumentAttachmentsProps<T extends DocumentType> {
   isPMUserChallans?: boolean;
   disabledAddInvoice?: boolean;
   isProjectManager?: boolean;
+  isEstimatesExecutive?: boolean;
 }
 
 interface SrInvoiceDialogData {
@@ -76,11 +77,6 @@ const initialSrInvoiceDialogData: SrInvoiceDialogData = {
   invoice_date: formatDate(new Date(), "yyyy-MM-dd"), // Default to today
 };
 
-interface UploadDialogState {
-  open: boolean;
-  type: "DC" | "MIR" | null;
-}
-
 export const DocumentAttachments = <T extends DocumentType>({
   docType,
   docName,
@@ -90,8 +86,9 @@ export const DocumentAttachments = <T extends DocumentType>({
   isPMUserChallans,
   disabledAddInvoice,
   isProjectManager = false,
+  isEstimatesExecutive = false,
 }: DocumentAttachmentsProps<T>) => {
-//   console.log("DocumentAttachments", project, documentData);
+  //   console.log("DocumentAttachments", project, documentData);
 
   const { toggleNewInvoiceDialog } = useDialogStore();
   const { toast } = useToast();
@@ -113,25 +110,37 @@ export const DocumentAttachments = <T extends DocumentType>({
 
   const [isGeneratingInvNo, setIsGeneratingInvNo] = useState(false);
 
-  // Upload DC/MIR state
-  const [uploadDialog, setUploadDialog] = useState<UploadDialogState>({
-    open: false,
-    type: null,
-  });
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [refNumber, setRefNumber] = useState("");
-
-  const { updateDoc, loading: update_loading } = useFrappeUpdateDoc();
+  const { updateDoc } = useFrappeUpdateDoc();
   // Hook for fetching new invoice number
   const { call: generateInvoiceNumberAPI } = useFrappePostCall(
     "nirmaan_stack.api.invoice_utils.generate_next_invoice_number" // Path to your new Python API
   );
 
-  // Upload hooks
-  const { upload, loading: uploadLoading } = useFrappeFileUpload();
-  const { call: createAttachmentDoc, loading: createAttachmentLoading } = useFrappePostCall(
-    "frappe.client.insert"
+  // PO Delivery Documents hook (only for POs)
+  const { data: pddDocs, mutate: mutatePDD } = usePODeliveryDocuments(
+    docType === "Procurement Orders" ? docName : null
   );
+
+  // PDD upload dialog state
+  const [pddUploadState, setPddUploadState] = useState<{
+    open: boolean;
+    mode: "create" | "edit";
+    dcType: "Delivery Challan" | "Material Inspection Report";
+    existingDoc?: PODeliveryDoc;
+  }>({ open: false, mode: "create", dcType: "Delivery Challan" });
+
+  // Map PO items for the upload dialog's item selector
+  const poItemsForSelector = useMemo(() => {
+    if (docType !== "Procurement Orders" || !documentData) return [];
+    const poData = documentData as ProcurementOrder;
+    return (poData.items || []).map(item => ({
+      item_id: item.item_id,
+      item_name: item.item_name,
+      unit: item.unit,
+      category: item.category,
+      make: item.make,
+    }));
+  }, [docType, documentData]);
 
   // Pre-fill dialog if invoice_no and invoice_date exist on orderData
   useEffect(() => {
@@ -326,118 +335,36 @@ export const DocumentAttachments = <T extends DocumentType>({
     return ["Pending", "Rejected"].includes(item?.status || "");
   }, []);
 
-  // --- Upload DC/MIR Handlers ---
-  const handleOpenUploadDialog = useCallback((type: "DC" | "MIR") => {
-    setUploadDialog({
+  // Legacy upload handlers removed — now using UploadDCMIRDialog
+
+  // --- PDD Upload Handlers ---
+  const handleOpenPDDUpload = useCallback((type: "DC" | "MIR") => {
+    setPddUploadState({
       open: true,
-      type,
+      mode: "create",
+      dcType: type === "DC" ? "Delivery Challan" : "Material Inspection Report",
     });
-    setSelectedFile(null);
   }, []);
 
-  const handleCloseUploadDialog = useCallback(() => {
-    setUploadDialog({ open: false, type: null });
-    setSelectedFile(null);
-    setRefNumber("");
+  const handlePDDEdit = useCallback((doc: PODeliveryDoc) => {
+    setPddUploadState({
+      open: true,
+      mode: "edit",
+      dcType: doc.type,
+      existingDoc: doc,
+    });
   }, []);
 
-  const handleUploadFile = useCallback(async () => {
-    if (!selectedFile || !uploadDialog.type) {
-      toast({
-        title: "No File Selected",
-        description: "Please select a file to upload",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (!refNumber) {
-      toast({
-        title: "Required Field Missing",
-        description: `Please enter the ${
-          uploadDialog.type === "DC" ? "DC Number" : "MIR Number"
-        }`,
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (!documentData) {
-      toast({
-        title: "Error",
-        description: "Document data not available",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    try {
-      // Step 1: Upload file to Frappe
-      const uploadResult = await upload(selectedFile, {
-        doctype: docType,
-        docname: docName,
-        fieldname: "attachment",
-        isPrivate: true,
-      });
-
-      if (!uploadResult?.file_url) {
-        throw new Error("File upload failed");
-      }
-
-      // Step 2: Create Nirmaan Attachments record
-      const attachmentType = uploadDialog.type === "DC" ? "po delivery challan" : "material inspection report";
-
-      const attachmentDoc = {
-        doctype: "Nirmaan Attachments",
-        project: documentData.project,
-        attachment: uploadResult.file_url,
-        attachment_type: attachmentType,
-        associated_doctype: docType,
-        associated_docname: docName,
-        attachment_link_doctype: "Vendors",
-        attachment_link_docname: (documentData as ProcurementOrder).vendor,
-        attachment_ref: refNumber || undefined,
-      };
-
-      await createAttachmentDoc({ doc: attachmentDoc });
-
-      // Success
-      toast({
-        title: "Upload Successful",
-        description: `${uploadDialog.type} uploaded successfully`,
-        variant: "success",
-      });
-
-      // Refresh data and close dialog
-      await docMutate();
-      await mutateAttachments(); // Refresh attachments list in this component
-
-      // Refresh all attachment queries globally (including parent component counts)
-      // SWR keys in frappe-react-sdk are arrays, so we need to check array keys
-      await globalMutate(
-        (key) => {
-          if (Array.isArray(key)) {
-            // Serialize the key and check if it contains 'Nirmaan Attachments'
-            return JSON.stringify(key).includes('Nirmaan Attachments');
-          }
-          return false;
-        },
-        undefined,
-        { revalidate: true }
-      );
-
-      handleCloseUploadDialog();
-    } catch (error: any) {
-      console.error("Upload error:", error);
-      toast({
-        title: "Upload Failed",
-        description: error.message || "Failed to upload file",
-        variant: "destructive",
-      });
-    }
-  }, [selectedFile, uploadDialog.type, documentData, docType, docName, upload, createAttachmentDoc, toast, docMutate, mutateAttachments, handleCloseUploadDialog, refNumber]);
-
-  const isUploading = uploadLoading || createAttachmentLoading;
+  const handlePDDUploadSuccess = useCallback(async () => {
+    await mutatePDD();
+    await mutateAttachments();
+    await docMutate();
+    await globalMutate(
+      (key) => Array.isArray(key) && JSON.stringify(key).includes('Nirmaan Attachments'),
+      undefined,
+      { revalidate: true }
+    );
+  }, [mutatePDD, mutateAttachments, docMutate]);
 
   // --- Loading and Error States ---
   if (attachmentsLoading || invoicesLoading) {
@@ -565,17 +492,17 @@ export const DocumentAttachments = <T extends DocumentType>({
           const downloadUrl = `/api/method/frappe.utils.print_format.download_pdf?${queryString}`;
           const response = await fetch(downloadUrl);
           if (!response.ok) throw new Error("Failed to generate PDF");
-          
+
           const blob = await response.blob();
           const fileName = `${invoiceDialogData.invoice_no}_${project?.project_name || "Project"}.pdf`;
-          
+
           const url = window.URL.createObjectURL(blob);
           const link = document.createElement('a');
           link.href = url;
           link.setAttribute('download', fileName);
           document.body.appendChild(link);
           link.click();
-          
+
           link.remove();
           window.URL.revokeObjectURL(url);
           setIsPrintDialogOpen(false);
@@ -599,124 +526,132 @@ export const DocumentAttachments = <T extends DocumentType>({
 
   return (
     <div
-      className={`grid gap-4 lg:grid-cols-2 ${
-        showDcTable && !isProjectManager ? "lg:grid-cols-2" : "lg:grid-cols-1"
-      }`}
+      className={`grid gap-4 lg:grid-cols-2 ${showDcTable && !isProjectManager ? "lg:grid-cols-2" : "lg:grid-cols-1"
+        }`}
     >
       {/* Invoice Card - Hidden for Project Manager */}
       {!isProjectManager && (
-      <Card className="rounded-md shadow-sm border border-gray-200 overflow-hidden">
-        {" "}
-        {/* Subtle styling */}
-        <CardHeader className="border-b border-gray-200">
-          <CardTitle className="flex justify-between items-center">
-            <div className="flex items-center gap-2">
-              <p className="text-xl max-sm:text-lg text-red-600">Invoices</p>
-              <Badge variant="secondary" className="text-sm">
-                {vendorInvoices?.length || 0}
-              </Badge>
-            </div>
-            <div className="flex gap-2 items-center">
-              {docType === "Service Requests" &&
-                (documentData as ServiceRequests)?.gst !== "true" && (
-                  <Button
-                    disabled={!documentData?.project_gst} // Keep your existing disabled logic
-                    size="sm"
-                    className="text-primary border-primary hover:bg-primary/5"
-                    variant="outline"
-                    onClick={() => {
-                      // Reset/Prefill dialog state when opening
-                      setInvoiceDialogData({
-                        invoice_no: documentData?.invoice_no || "",
-                        invoice_date:
-                          documentData?.invoice_date ||
-                          formatDate(new Date(), "yyyy-MM-dd"),
-                      });
-                      setIsPrintDialogOpen(true);
-                    }}
-                  >
-                    View / Download Tax Invoice
-                  </Button>
-                )}
-              <Button
-                variant="outline"
-                size="sm" // Consistent button size
-                className="text-primary border-primary hover:bg-primary/5" // Subtle hover
-                onClick={toggleNewInvoiceDialog}
-                disabled={disabledAddInvoice||false}
-              >
-                Add Invoice
-              </Button>
-            </div>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
+        <Card className="rounded-md shadow-sm border border-gray-200 overflow-hidden">
           {" "}
-          {/* Remove padding to let table control it */}
-          <div className="overflow-x-auto">
-            {" "}
-            {/* Ensure table scrolls horizontally if needed */}
-            <InvoiceTable
-              items={vendorInvoices} // Use Vendor Invoices instead of JSON data
-              onViewAttachment={handleViewInvoiceAttachment}
-              onDeleteEntry={handleDeleteInvoiceEntry}
-              isLoading={deleteInvoiceEntryLoading}
-              canDeleteEntry={canDeleteInvoice}
-              getUserName={getUserName}
-            />
-          </div>
-        </CardContent>
-      </Card>
-      )}
-      {/* Delivery Challan Card (Conditional) */}
-      
-      {
-        !isPMUserChallans && (
- <Card className="rounded-md shadow-sm border border-gray-200 overflow-hidden">
+          {/* Subtle styling */}
           <CardHeader className="border-b border-gray-200">
             <CardTitle className="flex justify-between items-center">
               <div className="flex items-center gap-2">
-                <p className="text-lg font-semibold text-red-600">
-                  Delivery Challans & MIRs
-                </p>
+                <p className="text-xl max-sm:text-lg text-red-600">Invoices</p>
                 <Badge variant="secondary" className="text-sm">
-                  {dcAttachments.length}
+                  {vendorInvoices?.length || 0}
                 </Badge>
               </div>
-              {isPO && showDcTable && (
-                <div className="flex gap-2 items-center">
+              <div className="flex gap-2 items-center">
+                {docType === "Service Requests" && !isEstimatesExecutive &&
+                  (documentData as ServiceRequests)?.gst !== "true" && (
+                    <Button
+                      disabled={!documentData?.project_gst} // Keep your existing disabled logic
+                      size="sm"
+                      className="text-primary border-primary hover:bg-primary/5"
+                      variant="outline"
+                      onClick={() => {
+                        // Reset/Prefill dialog state when opening
+                        setInvoiceDialogData({
+                          invoice_no: documentData?.invoice_no || "",
+                          invoice_date:
+                            documentData?.invoice_date ||
+                            formatDate(new Date(), "yyyy-MM-dd"),
+                        });
+                        setIsPrintDialogOpen(true);
+                      }}
+                    >
+                      View / Download Tax Invoice
+                    </Button>
+                  )}
+
+                {!isEstimatesExecutive && (
                   <Button
                     variant="outline"
-                    size="sm"
-                    onClick={() => handleOpenUploadDialog("DC")}
-                    className="text-primary border-primary hover:bg-primary/5"
+                    size="sm" // Consistent button size
+                    className="text-primary border-primary hover:bg-primary/5" // Subtle hover
+                    onClick={toggleNewInvoiceDialog}
+                    disabled={disabledAddInvoice || false}
                   >
-                    <CirclePlus className="h-4 w-4 mr-1" />
-                    Upload DC
+                    Add Invoice
                   </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleOpenUploadDialog("MIR")}
-                    className="text-primary border-primary hover:bg-primary/5"
-                  >
-                    <Upload className="h-4 w-4 mr-1" />
-                    Upload MIR
-                  </Button>
-                </div>
-              )}
+                )}
+              </div>
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent>
+            {" "}
+            {/* Remove padding to let table control it */}
             <div className="overflow-x-auto">
-              <DeliveryChallanTable attachments={dcAttachments} />
+              {" "}
+              {/* Ensure table scrolls horizontally if needed */}
+              <InvoiceTable
+                items={vendorInvoices} // Use Vendor Invoices instead of JSON data
+                onViewAttachment={handleViewInvoiceAttachment}
+                onDeleteEntry={handleDeleteInvoiceEntry}
+                isLoading={deleteInvoiceEntryLoading}
+                canDeleteEntry={canDeleteInvoice}
+                getUserName={getUserName}
+                hideActions={isEstimatesExecutive}
+              />
             </div>
           </CardContent>
         </Card>
+      )}
+      {/* Delivery Challan Card (Conditional) */}
+
+      {
+        !isPMUserChallans && (
+          <Card className="rounded-md shadow-sm border border-gray-200 overflow-hidden">
+            <CardHeader className="border-b border-gray-200">
+              <CardTitle className="flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <p className="text-lg font-semibold text-red-600">
+                    Delivery Challans & MIRs
+                  </p>
+                  <Badge variant="secondary" className="text-sm">
+                    {pddDocs?.length ?? dcAttachments.length}
+                  </Badge>
+                </div>
+                {isPO && showDcTable && !isEstimatesExecutive && (
+                  <div className="flex gap-2 items-center">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleOpenPDDUpload("DC")}
+                      className="text-primary border-primary hover:bg-primary/5"
+                      aria-label="Upload Delivery Challan"
+                    >
+                      <CirclePlus className="h-4 w-4 mr-1" aria-hidden="true" />
+                      Upload DC
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleOpenPDDUpload("MIR")}
+                      className="text-primary border-primary hover:bg-primary/5"
+                      aria-label="Upload Material Inspection Report"
+                    >
+                      <Upload className="h-4 w-4 mr-1" aria-hidden="true" />
+                      Upload MIR
+                    </Button>
+                  </div>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <DeliveryChallanTable
+                  documents={pddDocs || []}
+                  onEdit={handlePDDEdit}
+                />
+              </div>
+            </CardContent>
+          </Card>
         )
       }
-       
-      
+
+
       <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -803,64 +738,22 @@ export const DocumentAttachments = <T extends DocumentType>({
         </DialogContent>
       </Dialog>
 
-      {/* Upload DC/MIR Dialog */}
-      <Dialog open={uploadDialog.open} onOpenChange={handleCloseUploadDialog}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>
-              Upload {uploadDialog.type === "DC" ? "Delivery Challan" : "Material Inspection Report"}
-            </DialogTitle>
-            <DialogDescription>
-              Upload {uploadDialog.type} for {docName ? `PO-${docName.split("/")[1]}` : "this Purchase Order"}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="py-4 space-y-4">
-            <CustomAttachment
-              selectedFile={selectedFile}
-              onFileSelect={setSelectedFile}
-              label={`Select ${uploadDialog.type} File`}
-              maxFileSize={20 * 1024 * 1024}
-              acceptedTypes={["application/pdf", "image/*"]}
-            />
-            <div className="space-y-2">
-              <label className="text-sm font-medium">
-                {uploadDialog.type === "DC" ? "DC Number" : "MIR Number"}{" "}
-                <span className="text-red-500">*</span>
-              </label>
-              <Input
-                placeholder={
-                  uploadDialog.type === "DC"
-                    ? "Enter DC number"
-                    : "Enter MIR number"
-                }
-                value={refNumber}
-                onChange={(e) => setRefNumber(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            {isUploading ? (
-              <div className="flex justify-center w-full">
-                <TailSpin color="#3b82f6" width={40} height={40} />
-              </div>
-            ) : (
-              <>
-                <Button variant="outline" onClick={handleCloseUploadDialog}>
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleUploadFile}
-                  disabled={!selectedFile || !refNumber}
-                >
-                  Upload
-                </Button>
-              </>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Upload DC/MIR Dialog (new structured dialog with items + signature) */}
+      <UploadDCMIRDialog
+        open={pddUploadState.open}
+        onOpenChange={(open) => {
+          if (!open) setPddUploadState({ open: false, mode: "create", dcType: "Delivery Challan" });
+        }}
+        mode={pddUploadState.mode}
+        dcType={pddUploadState.dcType}
+        poName={docName}
+        poDisplayName={docName ? `PO-${docName.split("/")[1]}` : ""}
+        poProject={documentData?.project || ""}
+        poVendor={(documentData as ProcurementOrder)?.vendor || ""}
+        poItems={poItemsForSelector}
+        existingDoc={pddUploadState.existingDoc}
+        onSuccess={handlePDDUploadSuccess}
+      />
     </div>
   );
 };

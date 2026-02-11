@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { MaterialUsageDisplayItem, POStatus, MaterialSortKey } from './ProjectMaterialUsageTab';
 import { determineDeliveryStatus, determineOverallItemPOStatus } from '../config/materialUsageHelpers';
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { DCCountCell } from './DCCountCell';
+import { DeliveryDocumentCountCell } from './DeliveryDocumentCountCell';
 
 
 // =================================================================================
@@ -102,10 +102,24 @@ export const MaterialTableRow: React.FC<MaterialTableRowProps> = ({ item, hidden
         </TableCell>
       )}
 
-      {/* Column: Delivered Quantity (Conditionally Hidden) */}
+      {/* Column: Delivery Note Quantity (Conditionally Hidden) */}
       {!hiddenColumns.has('deliveredQuantity') && (
         <TableCell className="text-right font-mono py-2 px-3">
           {item.deliveredQuantity.toFixed(2)}
+        </TableCell>
+      )}
+
+      {/* Column: DC Quantity (Conditionally Hidden) */}
+      {!hiddenColumns.has('dcQuantity') && (
+        <TableCell className="text-right font-mono py-2 px-3">
+          {item.dcQuantity.toFixed(2)}
+        </TableCell>
+      )}
+
+      {/* Column: MIR Quantity (Conditionally Hidden) */}
+      {!hiddenColumns.has('mirQuantity') && (
+        <TableCell className="text-right font-mono py-2 px-3">
+          {item.mirQuantity.toFixed(2)}
         </TableCell>
       )}
 
@@ -140,7 +154,12 @@ export const MaterialTableRow: React.FC<MaterialTableRowProps> = ({ item, hidden
 
       {/* Column: Delivery Challans */}
       <TableCell className="text-center py-2 px-3">
-        <DCCountCell dcs={item.deliveryChallans || []} count={item.dcCount || 0} />
+        <DeliveryDocumentCountCell type="dc" documents={item.deliveryChallans || []} count={item.dcCount || 0} />
+      </TableCell>
+
+      {/* Column: MIRs */}
+      <TableCell className="text-center py-2 px-3">
+        <DeliveryDocumentCountCell type="mir" documents={item.mirs || []} count={item.mirCount || 0} />
       </TableCell>
 
       {/* Column: Overall PO Status Badge */}

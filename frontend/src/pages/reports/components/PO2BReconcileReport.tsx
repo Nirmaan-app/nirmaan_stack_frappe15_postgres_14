@@ -5,6 +5,8 @@ import { cn } from "@/lib/utils";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { PO2BReconcileRowData, usePO2BReconcileData } from "../hooks/usePO2BReconcileData";
 import { po2BReconcileColumns } from "./columns/po2BReconcileColumns";
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList";
@@ -39,6 +41,20 @@ interface SelectOption {
 const URL_SYNC_KEY = "po_2b_reconcile_table";
 
 export default function PO2BReconcileReport() {
+    const { ceoHoldProjectIds } = useCEOHoldProjects();
+
+    // CEO Hold row highlighting
+    const getRowClassName = useCallback(
+        (row: any) => {
+            const projectId = row.original.projectId;
+            if (projectId && ceoHoldProjectIds.has(projectId)) {
+                return CEO_HOLD_ROW_CLASSES;
+            }
+            return undefined;
+        },
+        [ceoHoldProjectIds]
+    );
+
     // Date range state with URL persistence
     const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
         const fromParam = urlStateManager.getParam(`${URL_SYNC_KEY}_from`);
@@ -499,6 +515,7 @@ export default function PO2BReconcileReport() {
                         onExport={handleCustomExport}
                         exportFileName={exportFileName}
                         showRowSelection={false}
+                        getRowClassName={getRowClassName}
                     />
                 )}
             </div>

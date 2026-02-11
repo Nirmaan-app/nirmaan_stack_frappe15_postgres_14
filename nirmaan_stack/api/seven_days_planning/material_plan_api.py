@@ -312,7 +312,7 @@ def get_all_project_pos(project):
     # Fetch global critical POs for the project to flag them
     critical_tasks = frappe.get_all("Critical PO Tasks",
         filters={"project": project},
-        fields=["name", "item_name", "critical_po_category", "associated_pos"]
+        fields=["name", "item_name", "critical_po_category", "associated_pos", "sub_category"]
     )
     
     # Map PO Name (trimmed) -> List of Task Details
@@ -342,7 +342,8 @@ def get_all_project_pos(project):
                 po_critical_map[po_id].append({
                     "task_name": t.name,
                     "item_name": t.item_name,
-                    "category": t.critical_po_category
+                    "category": t.critical_po_category,
+                    "sub_category": t.sub_category
                 })
 
     pos = []

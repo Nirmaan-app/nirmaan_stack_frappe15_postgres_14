@@ -71,6 +71,7 @@ user_id === "Administrator" || role === "Nirmaan Admin Profile" || role === "Nir
 | Non-Project Expenses | Y | Y | - | - | - | Y | - | - | - | - |
 | Reports | Y | Y | Y | Y | Y | Y | - | - | - | - |
 | Design Tracker | Y | Y | Y | Y | - | - | Y | Y | - | - |
+| Help Repository | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 
 ---
 

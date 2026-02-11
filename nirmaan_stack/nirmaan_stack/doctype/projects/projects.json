@@ -33,6 +33,7 @@
   "accountant",
   "project_work_details_section",
   "status",
+  "ceo_hold_by",
   "project_work_packages",
   "project_scopes",
   "subdivisions",
@@ -160,6 +161,13 @@
    "fieldname": "status",
    "fieldtype": "Data",
    "label": "Status"
+  },
+  {
+   "fieldname": "ceo_hold_by",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "CEO Hold Set By",
+   "read_only": 1
   },
   {
    "fieldname": "project_work_packages",

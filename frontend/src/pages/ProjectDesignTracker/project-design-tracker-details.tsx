@@ -1630,7 +1630,6 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                                 variant="default"
                                 className="bg-blue-600 hover:bg-blue-700"
                                 onClick={() => setIsBulkAssignOpen(true)}
-                                disabled={isCEOHold}
                             >
                                 <Users className="h-3.5 w-3.5 mr-1.5" />
                                 Bulk Assign ({selectedCount})

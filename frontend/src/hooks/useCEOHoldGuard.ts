@@ -25,12 +25,15 @@ export function useCEOHoldGuard(projectId: string | undefined): CEOHoldGuardResu
   );
 
   const showBlockedToast = useCallback(() => {
+    const heldBy = project?.ceo_hold_by;
     toast({
       title: "Action Blocked",
-      description: "This project is on CEO Hold. Contact Admin to resume operations.",
+      description: heldBy
+        ? `This project is on CEO Hold (set by ${heldBy}). Only they can remove the hold.`
+        : "This project is on CEO Hold. Contact Admin to resume operations.",
       variant: "destructive"
     });
-  }, [toast]);
+  }, [toast, project?.ceo_hold_by]);
 
   return {
     isCEOHold,

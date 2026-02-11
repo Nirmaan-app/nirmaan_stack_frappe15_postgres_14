@@ -19,7 +19,7 @@ interface POItem {
     uom?: string;
     [key: string]: any;
     is_critical?: boolean;
-    associated_tasks?: { task_name: string; item_name: string; category: string }[];
+    associated_tasks?: { task_name: string; item_name: string; category: string; sub_category?: string }[];
 }
 
 interface POPlan {
@@ -33,6 +33,7 @@ interface POPlan {
     isCritical: boolean;
     category?: string;
     task?: string;
+    subCategory?: string;
     vendor?: string;
     vendorName?: string;
     total_amount?: number;
@@ -101,20 +102,24 @@ export const ReviewPOCashflowPage: React.FC<ReviewPOCashflowPageProps> = ({
             amount_paid: newPO.amount_paid,
             isCritical: isCritical,
             category: assocTasks.length > 0 ? assocTasks[0].category : ((isLocal || isFallback) ? categoryName : undefined),
-            task: assocTasks.length > 0 ? assocTasks[0].item_name : ((isLocal || isFallback) ? taskName : undefined)
+            task: assocTasks.length > 0 ? assocTasks[0].item_name : ((isLocal || isFallback) ? taskName : undefined),
+            subCategory: assocTasks.length > 0 ? assocTasks[0].sub_category : ((isLocal || isFallback) ? updatedPlans[planIndex].subCategory : undefined)
         };
         
         onPlansChange(updatedPlans);
     };
 
-    // Handle Task Change
     const handleTaskChange = (planIndex: number, option: any) => {
         if (!option) return;
+        const taskDoc = option.taskId 
+            ? allTasks.find((t: any) => t.name === option.taskId)
+            : allTasks.find((t: any) => t.item_name === option.value);
         const updatedPlans = [...plans];
         updatedPlans[planIndex] = {
             ...updatedPlans[planIndex],
             task: option.value,
-            category: option.category
+            category: option.category,
+            subCategory: taskDoc?.sub_category || option.subCategory || undefined
         };
         onPlansChange(updatedPlans);
     };
@@ -268,8 +273,12 @@ export const ReviewPOCashflowPage: React.FC<ReviewPOCashflowPageProps> = ({
                                 if (associatedTasks.length > 0) {
                                     const taskOptions = associatedTasks.map(t => ({
                                         value: t.item_name,
-                                        label: `${t.item_name} (${t.category})`,
-                                        category: t.category
+                                        label: t.sub_category 
+                                            ? `${t.item_name} (${t.sub_category}) - ${t.category}`
+                                            : `${t.item_name} (${t.category})`,
+                                        category: t.category,
+                                        subCategory: t.sub_category,
+                                        taskId: t.task_name
                                     }));
                                     
                                     // Check if editing mode
@@ -290,10 +299,18 @@ export const ReviewPOCashflowPage: React.FC<ReviewPOCashflowPageProps> = ({
                                                     <ReactSelect
                                                         options={taskOptions}
                                                         value={currentTask || null}
-                                                        onChange={(opt) => {
-                                                            handleTaskChange(planIndex, opt);
-                                                            // Turn off edit mode
+                                                        onChange={(opt: any) => {
+                                                            if (!opt) return;
+                                                            const taskDoc = opt.taskId 
+                                                                ? allTasks.find((t: any) => t.name === opt.taskId)
+                                                                : allTasks.find((t: any) => t.item_name === opt.value);
                                                             const updated = [...plans];
+                                                            updated[planIndex] = {
+                                                                ...updated[planIndex],
+                                                                task: opt.value,
+                                                                category: opt.category,
+                                                                subCategory: taskDoc?.sub_category || opt.subCategory || undefined
+                                                            };
                                                             (updated[planIndex] as any)._isEditingIntrinsic = false;
                                                             onPlansChange(updated);
                                                         }}
@@ -338,7 +355,10 @@ export const ReviewPOCashflowPage: React.FC<ReviewPOCashflowPageProps> = ({
                                             <p className="text-sm text-green-600 flex items-center gap-2 font-medium">
                                                 <span>{currentTask?.category || plan.category}</span>
                                                 <span className="text-green-300">|</span>
-                                                <span>{currentTask?.value || plan.task}</span>
+                                                <span>{currentTask?.value || plan.task}{(() => {
+                                                    const subCat = plan.subCategory || currentTask?.subCategory || allTasks.find((t: any) => t.item_name === plan.task)?.sub_category;
+                                                    return subCat ? ` (${subCat})` : '';
+                                                })()}</span>
                                             </p>
                                             <Button 
                                                 size="icon" 
@@ -367,27 +387,42 @@ export const ReviewPOCashflowPage: React.FC<ReviewPOCashflowPageProps> = ({
                                             <div className="flex items-center gap-2 mt-2">
                                                 <div className="w-[300px]" onClick={e => e.stopPropagation()}>
                                                     <ReactSelect
-                                                            options={allTasks.map(t => ({
+                                                            options={allTasks.map((t: any) => ({
                                                                 value: t.name,
-                                                                label: `${t.item_name} (${t.critical_po_category})`,
+                                                                label: t.item_name,
+                                                                subCategory: t.sub_category,
                                                                 category: t.critical_po_category,
-                                                                // Store original task name as value if needed, but display item_name
                                                                 original: t
                                                             }))}
-                                                            value={
-                                                                allTasks.find(t => t.item_name === plan.task) 
-                                                                    ? { 
-                                                                        value: allTasks.find(t => t.item_name === plan.task)?.name, 
-                                                                        label: plan.task 
-                                                                    } 
-                                                                    : null
-                                                            }
+                                                            value={(() => {
+                                                                const taskToFind = plan.task || taskName;
+                                                                const foundTask = allTasks.find((t: any) => t.item_name === taskToFind);
+                                                                if (!foundTask) return null;
+                                                                return { 
+                                                                    value: foundTask.name, 
+                                                                    label: foundTask.item_name,
+                                                                    subCategory: foundTask.sub_category,
+                                                                    category: foundTask.critical_po_category
+                                                                };
+                                                            })()}
+                                                            formatOptionLabel={(option: any, { context }: any) => (
+                                                                <div className="flex items-center gap-1">
+                                                                    <span>{option.label}</span>
+                                                                    {option.subCategory && (
+                                                                        <span className={`text-xs ${context === 'menu' ? 'text-gray-500' : 'text-gray-600'}`}>({option.subCategory})</span>
+                                                                    )}
+                                                                    {option.category && (
+                                                                        <span className={`text-xs ml-1 ${context === 'menu' ? 'text-blue-500' : 'text-blue-600'}`}>- {option.category}</span>
+                                                                    )}
+                                                                </div>
+                                                            )}
                                                             onChange={(opt: any) => {
                                                                 if (opt) {
                                                                     const updated = [...plans];
                                                                     const planToUpdate = updated[planIndex];
                                                                     planToUpdate.task = opt.original.item_name;
                                                                     planToUpdate.category = opt.original.critical_po_category;
+                                                                    planToUpdate.subCategory = opt.original.sub_category || undefined;
                                                                     (planToUpdate as any)._isEditing = false;
                                                                     onPlansChange(updated);
                                                                 }
@@ -418,9 +453,13 @@ export const ReviewPOCashflowPage: React.FC<ReviewPOCashflowPageProps> = ({
                                                 {/* (Fallback) */}
                                             </Badge>
                                             <p className="text-sm text-red-600 flex items-center gap-2 font-medium">
-                                                <span>{categoryName}</span>
+                                                <span>{plan.category || categoryName}</span>
                                                 <span className="text-red-300">|</span>
-                                                <span>{taskName}</span>
+                                                <span>{plan.task || taskName}{(() => {
+                                                    const displayTask = plan.task || taskName;
+                                                    const subCat = plan.subCategory || allTasks.find((t: any) => t.item_name === displayTask)?.sub_category;
+                                                    return subCat ? ` (${subCat})` : '';
+                                                })()}</span>
                                             </p>
                                             <Button 
                                                 size="icon" 

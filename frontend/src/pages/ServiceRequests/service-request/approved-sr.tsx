@@ -10,7 +10,6 @@ import { Input } from "@/components/ui/input";
 import { Pencil2Icon } from "@radix-ui/react-icons";
 // import { Button, Layout } from 'antd';
 import logo from "@/assets/logo-svg.svg";
-import { AddressView } from "@/components/address-view";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { SRDetailsCard } from "./components/SRDetailsCard";
 import { SRComments } from "./components/SRComments";
@@ -27,7 +26,6 @@ import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/components/ui/use-toast";
@@ -72,7 +70,6 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
 
     const isPMUser = role === "Nirmaan Project Manager Profile"
     const isEstimatesExecutive = role === "Nirmaan Estimates Executive Profile"
-    const isRestrictedRole = isPMUser || isEstimatesExecutive
 
     const id = accountsPage ? params.id : params.srId;
 
@@ -137,7 +134,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     const [deleteDialog, setDeleteDialog] = useState(false)
     // Use the custom hook for deletion logic
     const { deleteServiceRequest, isDeleting } = useServiceRequestLogic({
-        onSuccess: (deletedSrName) => {
+        onSuccess: (_deletedSrName) => {
             service_request_mutate();
             setDeleteDialog(false);
         },
@@ -207,7 +204,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     })
 
     // Fetch vendor invoices for this SR
-    const { data: vendorInvoices, isLoading: vendorInvoicesLoading, mutate: vendorInvoicesMutate } = useFrappeGetDocList<VendorInvoice>("Vendor Invoices", {
+    const { data: vendorInvoices, isLoading: vendorInvoicesLoading } = useFrappeGetDocList<VendorInvoice>("Vendor Invoices", {
         fields: ["name"],
         filters: [["document_type", "=", "Service Requests"], ["document_name", "=", id]],
         limit: 1000,
@@ -300,7 +297,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
             //     updatedData = {...updatedData, advance: advance}
             // }
 
-            await updateDoc("Service Requests", orderData?.name, updatedData)
+            await updateDoc("Service Requests", orderData!.name, updatedData)
 
             // console.log("updatedData", data)
 
@@ -326,7 +323,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     const handleGstToggle = async (enabled: boolean) => {
         setGstEnabled(enabled);
         try {
-            await updateDoc("Service Requests", orderData?.name, { gst: String(enabled) });
+            await updateDoc("Service Requests", orderData!.name, { gst: String(enabled) });
             await service_request_mutate();
             toast({
                 title: "Success!",
@@ -491,7 +488,9 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 gstEnabled={gstEnabled}
                 getTotal={getTotal}
                 amountPaid={getAmountPaid}
-                isRestrictedRole={isRestrictedRole}
+                // isRestrictedRole removed, using specific flags below
+                hideActions={isEstimatesExecutive}
+                hideAmounts={isPMUser}
                 onDelete={() => setDeleteDialog(true)}
                 onAmend={toggleAmendDialog}
                 onAddInvoice={toggleNewInvoiceDialog}
@@ -550,9 +549,8 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 onSuccess={() => service_request_mutate()}
             />
 
-            {/* Hide Transaction Details and WO Options for restricted roles (PM, Estimates Executive) */}
-            {!isRestrictedRole && (
-                <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
+            {/* Transaction Details and WO Options - visible to all, but inner content restricted */ }
+            {!isPMUser &&(<div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
                     <Card className="rounded-sm shadow-m col-span-3 overflow-x-auto">
                         <CardHeader>
                             <CardTitle className="text-xl max-sm:text-lg text-red-600 flex items-center justify-between">
@@ -564,7 +562,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                             variant="outline"
                                             className="text-primary border-primary text-xs px-2"
                                             onClick={toggleRequestPaymentDialog}
-                                            disabled={isPMUser}
+                                            disabled={isPMUser || isEstimatesExecutive}
 
                                         >
                                             Request Payment
@@ -745,6 +743,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                                 payment={payment}
                                                                 srName={orderData.name} // Pass SR ID for file naming (if orderData is ServiceRequests)
                                                                 onVoucherUpdate={projectPaymentsMutate} // Pass the SWR mutate function to refresh payments after upload/delete
+                                                                hideActions={isEstimatesExecutive}
                                                             />
                                                         ) : ("--")}
                                                     </TableCell>
@@ -787,7 +786,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                         <TriangleAlert className="text-primary max-sm:w-4 max-sm:h-4" />
                                     )}
                                 </div>
-                                {!summaryPage && !accountsPage && !isFinalized && (
+                                {!summaryPage && !accountsPage && !isFinalized && !isEstimatesExecutive && (
                                     <Dialog open={editSrTermsDialog} onOpenChange={toggleEditSrTermsDialog}>
                                         <DialogTrigger>
                                             <Button variant={"outline"} className="felx items-center gap-1">
@@ -805,7 +804,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                     <sup className="text-sm text-red-600">*</sup>
                                                 </h3>
                                                 {project &&
-                                                    JSON.parse(project?.project_gst_number)?.list
+                                                    JSON.parse(project?.project_gst_number as unknown as string)?.list
                                                         ?.length > 0 && (
                                                         <>
                                                             <Select
@@ -813,11 +812,11 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                                 defaultValue={orderData?.project_gst}
                                                                 onValueChange={(selectedOption) => {
                                                                     const gstArr = JSON.parse(
-                                                                        project?.project_gst_number
+                                                                        project?.project_gst_number as unknown as string
                                                                     )?.list;
                                                                     setSelectedGST(
                                                                         gstArr.find(
-                                                                            (item) =>
+                                                                            (item: { gst: string; location: string }) =>
                                                                                 item.gst === selectedOption
                                                                         )
                                                                     );
@@ -833,8 +832,8 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                                 </SelectTrigger>
                                                                 <SelectContent>
                                                                     {JSON.parse(
-                                                                        project?.project_gst_number
-                                                                    )?.list?.map((option) => (
+                                                                        project?.project_gst_number as unknown as string
+                                                                    )?.list?.map((option: { gst: string; location: string }) => (
                                                                         <SelectItem
                                                                             key={option.location}
                                                                             value={option.gst}
@@ -927,7 +926,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                     <span className="text-sm text-gray-900">
                                         {(() => {
                                             try {
-                                                const gstList = JSON.parse(project?.project_gst_number || '{"list":[]}')?.list || [];
+                                                const gstList = JSON.parse((project?.project_gst_number as unknown as string) || '{"list":[]}')?.list || [];
                                                 const match = gstList.find((item: any) => item.gst === orderData.project_gst);
                                                 return match ? `${match.location} (${match.gst})` : orderData.project_gst;
                                             } catch {
@@ -959,29 +958,35 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
 
                             <Separator className="my-4" />
 
-                            <div className="flex items-center justify-between">
-                                <Label className="font-bold">GST Applicable?</Label>
-                                <Switch
-                                    checked={gstEnabled}
-                                    onCheckedChange={handleGstToggle}
-                                />
-                            </div>
+                            {!isEstimatesExecutive && (
+                                <div className="flex items-center justify-between">
+                                    <Label className="font-bold">GST Applicable?</Label>
+                                    <Switch
+                                        checked={gstEnabled}
+                                        onCheckedChange={handleGstToggle}
+                                    />
+                                </div>
+                            )}
                         </CardContent>
                     </Card>
-                </div>
-            )}
+                </div>)}
+            
+            
 
             {/* Hide DocumentAttachments (Invoices and DCs) for restricted roles */}
-            {!isRestrictedRole && (
-                <DocumentAttachments
-                    docType="Service Requests"
-                    docName={service_request?.name}
-                    documentData={orderData}
-                    docMutate={service_request_mutate}
-                    project={project}
-                    isPMUserChallans={isPMUser || false}
-                />
+            {/* DocumentAttachments (Invoices and DCs) - visibility handled internally or via props */}
+            {!isPMUser &&(
+               <DocumentAttachments
+                docType="Service Requests"
+                docName={service_request?.name}
+                documentData={orderData}
+                docMutate={service_request_mutate}
+                project={project}
+                isPMUserChallans={isPMUser || false}
+                isEstimatesExecutive={isEstimatesExecutive}
+            />
             )}
+            
             {/* <SRAttachments SR={orderData} /> */}
 
             <InvoiceDialog docType={"Service Requests"} docName={service_request?.name} docMutate={service_request_mutate} vendor={service_request?.vendor} />
@@ -1000,7 +1005,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                 <th className="w-[5%] text-left ">
                                     S.No.
                                 </th>
-                                <th className={isRestrictedRole ? "w-[60%] text-left px-2" : "w-[50%] text-left px-2"}>
+                                <th className={isPMUser ? "w-[60%] text-left px-2" : "w-[50%] text-left px-2"}>
                                     Service Description
                                 </th>
                                 <th className="w-[10%]  text-center px-2">
@@ -1009,7 +1014,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                 <th className="w-[10%]  text-center px-2">
                                     Quantity
                                 </th>
-                                {!isRestrictedRole && (
+                                {!isPMUser && (
                                     <>
                                         <th className="w-[10%]  text-center px-2">
                                             Rate
@@ -1027,7 +1032,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                     <td className="w-[5%] text-start ">
                                         {index + 1}
                                     </td>
-                                    <td className={isRestrictedRole ? "w-[60%] text-left py-1" : "w-[50%] text-left py-1"}>
+                                    <td className={isPMUser ? "w-[60%] text-left py-1" : "w-[50%] text-left py-1"}>
                                         <p className="font-semibold">{item?.category}</p>
                                         <span className="whitespace-pre-wrap">{item?.description}</span>
                                     </td>
@@ -1037,7 +1042,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                     <td className="w-[10%]  text-center">
                                         {item.quantity}
                                     </td>
-                                    {!isRestrictedRole && (
+                                    {!isPMUser && (
                                         <>
                                             <td className="w-[10%]  text-center">
                                                 {formatToIndianRupee(item?.rate)}

@@ -3,7 +3,7 @@
  *
  * Updated to use Vendor Invoices doctype.
  */
-import React, { useEffect, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { useInvoiceTaskActions } from "../hooks/useInvoiceTaskActions";
 import { getPendingTaskColumns } from "./columns";
@@ -26,11 +26,25 @@ import { useUserData } from "@/hooks/useUserData";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { useOrderTotals } from "@/hooks/useOrderTotals";
 import { useOrderPayments } from "@/hooks/useOrderPayments";
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
 const URL_SYNC_KEY = "inv_pending";
 
 export const PendingTasksTable: React.FC = () => {
     const { role, user_id } = useUserData();
+    const { ceoHoldProjectIds } = useCEOHoldProjects();
+
+    const getRowClassName = useCallback(
+        (row: any) => {
+            const projectId = row.original.project;
+            if (projectId && ceoHoldProjectIds.has(projectId)) {
+                return CEO_HOLD_ROW_CLASSES;
+            }
+            return undefined;
+        },
+        [ceoHoldProjectIds]
+    );
 
     // --- Fetch Attachments (Supporting Data) ---
     const [attachmentIds, setAttachmentIds] = React.useState<string[]>([]);
@@ -189,6 +203,7 @@ export const PendingTasksTable: React.FC = () => {
                     showExportButton={true}
                     onExport={"default"}
                     exportFileName="Pending_Vendor_Invoices"
+                    getRowClassName={getRowClassName}
                 />
             )}
 

@@ -451,8 +451,10 @@ import { useProjectAssignees } from "@/hooks/useProjectAssignees";
 import { getAssigneesColumn } from "@/components/common/assigneesTableColumns";
 
 // --- Types & Config ---
-import { Projects } from "@/types/NirmaanStack/Projects"; 
+import { Projects } from "@/types/NirmaanStack/Projects";
 
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
 import { UserContext } from "@/utils/auth/UserProvider"; 
 
@@ -523,7 +525,20 @@ const getRoleIcon = (role: string) => {
 export function ProjectProgressReports() {
     
     // --- Context and Hooks ---
-    const navigate = useNavigate(); 
+    const navigate = useNavigate();
+
+    const { ceoHoldProjectIds } = useCEOHoldProjects();
+
+    const getRowClassName = useCallback(
+      (row: any) => {
+        const projectId = row.original.name;
+        if (projectId && ceoHoldProjectIds.has(projectId)) {
+          return CEO_HOLD_ROW_CLASSES;
+        }
+        return undefined;
+      },
+      [ceoHoldProjectIds]
+    );
 
     // --- 1. Dynamic Date Configuration (useMemo) ---
     const dynamicDateColumns = useMemo(() => getDynamicDateColumns(), []);
@@ -938,6 +953,7 @@ cell: ({ row }) => {
                 onExport={handleCustomExport}
                 exportFileName={'Project_Progress_Report_IDs'}
                 showRowSelection={false}
+                getRowClassName={getRowClassName}
                 dateFilterColumns={[]}
             />
         </div>

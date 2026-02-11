@@ -17,7 +17,8 @@ interface SRDetailsCardProps {
   gstEnabled: boolean;
   getTotal: number;
   amountPaid: number;
-  isRestrictedRole: boolean;
+  hideActions?: boolean;
+  hideAmounts?: boolean;
   // Action callbacks
   onDelete?: () => void;
   onAmend?: () => void;
@@ -61,7 +62,8 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
   gstEnabled,
   getTotal,
   amountPaid,
-  isRestrictedRole,
+  hideActions = false,
+  hideAmounts = false,
   onDelete,
   onAmend,
   onAddInvoice,
@@ -174,7 +176,7 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
         {/* ═══════════════════════════════════════════════════════════════════
             SECTION 3: AMOUNTS - Financial figures (only when approved, hidden for PM)
         ═══════════════════════════════════════════════════════════════════ */}
-        {orderData?.status === "Approved" && !isRestrictedRole && (
+        {orderData?.status === "Approved" && !hideAmounts && (
           <div className="pb-3 border-b border-gray-100">
             <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
               Amounts
@@ -238,7 +240,7 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
             </div>
 
             {/* Approved Date (if applicable) */}
-            {orderData?.status === "Approved" && (
+            {orderData?.status === "Approved"  && (
               <div className="space-y-0.5">
                 <p className="text-xs text-gray-500">Approved</p>
                 <p className="text-sm">{orderData?.modified ? formatDate(orderData.modified) : "--"}</p>
@@ -265,7 +267,7 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
             SECTION 5: ACTIONS - All action buttons (hidden for PM role)
             Layout: Finalize/Revert → Preview → Content actions → Edit actions → Delete
         ═══════════════════════════════════════════════════════════════════ */}
-        {!isRestrictedRole && (
+        {!hideActions && !hideAmounts  &&(
           <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 sm:flex-wrap sm:justify-end">
             {/* ─── State Control Actions (First) ─── */}
             {/* Finalize Button - Primary action when available */}

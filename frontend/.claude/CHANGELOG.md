@@ -4,6 +4,16 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-02-10
+
+- feat: Restrict CEO Hold UI to `nitesh@nirmaan.app` — dropdown filter, disabled state, locked hint, heldBy banner
+- feat: Expand CEO Hold row highlighting to 9 additional table pages with light red styling
+- feat: Unblock Upload DC/MIR, Update Delivery Note, Mark as Paid, TDS actions from CEO Hold guard
+- refactor: Break 900+ line DeliveryChallansAndMirs.tsx into modular components (6 new components, custom hook, Zod schema)
+- feat: Add PO Delivery Documents TypeScript types and upload/view dialogs
+
+---
+
 ## 2026-02-04: Context Sync - 2 Week Feature Analysis
 
 ### Summary

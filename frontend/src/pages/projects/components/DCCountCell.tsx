@@ -1,3 +1,4 @@
+/** @deprecated Use DeliveryDocumentCountCell instead. This component uses old Nirmaan Attachments data. */
 import { useState } from "react";
 import { Truck, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";

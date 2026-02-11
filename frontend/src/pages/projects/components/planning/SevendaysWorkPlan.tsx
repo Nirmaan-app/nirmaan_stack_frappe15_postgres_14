@@ -3,7 +3,11 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappeDeleteDoc } from "frappe-react-sdk";
 import { format, addDays, startOfDay, parseISO } from "date-fns";
-import { AlertCircle, Loader2, ChevronDown, ChevronUp, Pencil, Trash2, Download, Play, Flag, Activity, TrendingUp, Target, Zap } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { AlertCircle, Loader2, ChevronDown, ChevronUp, Pencil, Trash2, Download, Play, Flag, Activity, TrendingUp, Target, Zap, MessageCircle } from "lucide-react";
+// ... (existing imports)
+
+
 import { ProgressCircle } from "@/components/ui/ProgressCircle";
 import { CreateWorkplantask } from "./CreateWorkplantask";
 import { WorkPlanOverview } from "./WorkPlanOverview";
@@ -63,6 +67,7 @@ export interface WorkPlanDoc {
     wp_description: string;
     wp_progress?: string;
     wp_estimate_completion_date?: string;
+    wp_remarks?: string;
 }
 
 export const getColorForProgress = (value: number): string => {
@@ -297,15 +302,15 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                                         return (
                                             <div
                                                 key={plan.name}
-                                                className="bg-white border border-gray-150 rounded-lg hover:border-gray-200 transition-colors"
+                                                className="relative bg-white border border-gray-150 rounded-lg hover:border-gray-200 transition-colors"
                                             >
                                                 {/* Two-row layout: Title row + Data row */}
-                                                <div className="px-4 py-3 border-b border-gray-100">
-                                                    <h4 className="text-sm font-semibold text-gray-900 leading-tight" title={plan.wp_title}>
+                                                <div className="px-4 py-3 border-b border-gray-100 max-w-full overflow-hidden">
+                                                    <h4 className="text-sm font-semibold text-gray-900 leading-tight break-words" title={plan.wp_title}>
                                                         {plan.wp_title}
                                                     </h4>
                                                     {plan.wp_description && (
-                                                        <p className="mt-1.5 text-xs text-gray-500 leading-relaxed">
+                                                        <p className="mt-1.5 text-xs text-gray-500 leading-relaxed break-words whitespace-pre-line overflow-hidden">
                                                             <span className="font-medium text-amber-600">Note:</span>{" "}
                                                             {plan.wp_description}
                                                         </p>
@@ -415,15 +420,39 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                                                                             <Activity className="h-2.5 w-2.5" />
                                                                             <span className="hidden sm:inline">Status</span>
                                                                         </div>
-                                                                        <span className={`inline-flex items-center px-1.5 lg:px-2 py-0.5 text-[10px] lg:text-[11px] font-medium rounded ${
-                                                                            plan.wp_status === 'Completed' ? 'bg-emerald-100 text-emerald-700' :
-                                                                            plan.wp_status === 'In Progress' ? 'bg-amber-100 text-amber-700' :
-                                                                            plan.wp_status === 'Pending' || plan.wp_status === 'Not Started' ? 'bg-red-100 text-red-700' :
-                                                                            plan.wp_status === 'On Hold' ? 'bg-gray-200 text-gray-600' :
-                                                                            'bg-red-100 text-red-700'
-                                                                        }`}>
-                                                                            {plan.wp_status || 'Pending'}
-                                                                        </span>
+                                                                        <div className="flex items-center justify-center gap-1.5">
+                                                                            <span className={`inline-flex items-center px-1.5 lg:px-2 py-0.5 text-[10px] lg:text-[11px] font-medium rounded ${
+                                                                                plan.wp_status === 'Completed' ? 'bg-emerald-100 text-emerald-700' :
+                                                                                plan.wp_status === 'In Progress' ? 'bg-amber-100 text-amber-700' :
+                                                                                plan.wp_status === 'Pending' || plan.wp_status === 'Not Started' ? 'bg-red-100 text-red-700' :
+                                                                                plan.wp_status === 'On Hold' ? 'bg-gray-200 text-gray-600' :
+                                                                                'bg-red-100 text-red-700'
+                                                                            }`}>
+                                                                                {plan.wp_status || 'Pending'}
+                                                                            </span>
+                                                                            {plan.wp_status === 'On Hold' && plan.wp_remarks && (
+                                                                                <Popover>
+                                                                                    <PopoverTrigger asChild>
+                                                                                        <div 
+                                                                                            className="flex-shrink-0 text-red-500 hover:text-red-600 flex items-center justify-center cursor-pointer p-1 rounded hover:bg-red-50 transition-colors" 
+                                                                                            onClick={(e) => e.stopPropagation()}
+                                                                                        >
+                                                                                            <MessageCircle className="h-3.5 w-3.5" />
+                                                                                        </div>
+                                                                                    </PopoverTrigger>
+                                                                                    <PopoverContent 
+                                                                                        align="center" 
+                                                                                        sideOffset={8}
+                                                                                        onClick={(e) => e.stopPropagation()}
+                                                                                    >
+                                                                                        <div className="space-y-2">
+                                                                                            <p className="text-[10px] font-bold text-gray-600 uppercase tracking-wide pb-1.5 border-b border-gray-300">Remarks</p>
+                                                                                            <p className="text-xs leading-relaxed font-normal break-words text-gray-700">{plan.wp_remarks}</p>
+                                                                                        </div>
+                                                                                    </PopoverContent>
+                                                                                </Popover>
+                                                                            )}
+                                                                        </div>
                                                                     </div>
 
                                                                     {/* Progress */}
@@ -746,7 +775,8 @@ export const SevendaysWorkPlan = ({
                     wp_end_date: plan.wp_end_date,
                     wp_description: plan.wp_description,
                     wp_progress: plan.wp_progress ? parseFloat(plan.wp_progress) : 0,
-                    wp_estimate_completion_date: plan.wp_estimate_completion_date
+                    wp_estimate_completion_date: plan.wp_estimate_completion_date,
+                    wp_remarks: plan.wp_remarks
                 }
             });
         } else {

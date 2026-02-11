@@ -8,7 +8,53 @@ from datetime import datetime, timedelta
 
 from frappe.utils import flt
 
+CEO_HOLD_AUTHORIZED_USER = "nitesh@nirmaan.app"
+
 class Projects(Document):
+	def validate(self):
+		self._validate_ceo_hold_status()
+
+	def _validate_ceo_hold_status(self):
+		"""Enforce CEO Hold access rules:
+		1. Only CEO_HOLD_AUTHORIZED_USER can set status to 'CEO Hold'
+		2. Only the user who set CEO Hold can revert it
+		3. Auto-manage the ceo_hold_by field
+		"""
+		old_doc = self.get_doc_before_save()
+		if not old_doc:
+			if self.status == "CEO Hold":
+				if frappe.session.user != CEO_HOLD_AUTHORIZED_USER:
+					frappe.throw(
+						"Only the authorized user can set a project to CEO Hold.",
+						frappe.PermissionError
+					)
+				self.ceo_hold_by = frappe.session.user
+			return
+
+		old_status = old_doc.status
+		new_status = self.status
+
+		if old_status == new_status:
+			return
+
+		# Setting TO CEO Hold
+		if new_status == "CEO Hold":
+			if frappe.session.user != CEO_HOLD_AUTHORIZED_USER:
+				frappe.throw(
+					"Only the authorized user can set a project to CEO Hold.",
+					frappe.PermissionError
+				)
+			self.ceo_hold_by = frappe.session.user
+
+		# Changing FROM CEO Hold
+		elif old_status == "CEO Hold":
+			if frappe.session.user != old_doc.ceo_hold_by:
+				frappe.throw(
+					"Only the user who placed this project on CEO Hold can remove it.",
+					frappe.PermissionError
+				)
+			self.ceo_hold_by = None
+
 	def before_save(self):
 		self.project_value = sum(flt(d.customer_po_value_exctax) for d in self.get("customer_po_details", []))
 		self.project_value_gst = sum(flt(d.customer_po_value_inctax) for d in self.get("customer_po_details", []))		

@@ -36,7 +36,7 @@ interface POItem {
     work_package?: string;
     items?: any[];
     is_critical?: boolean;
-    associated_tasks?: { task_name: string; item_name: string; category: string }[];
+    associated_tasks?: { task_name: string; item_name: string; category: string; sub_category?: string }[];
     [key: string]: any;
 }
 
@@ -49,6 +49,7 @@ interface POPlan {
     isCritical: boolean;
     category?: string;
     task?: string;
+    subCategory?: string;
 }
 
 interface SearchItem {
@@ -306,7 +307,8 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                 deliveryDate: "",
                 isCritical: assocTasks.length > 0 || isLocal || isFallback,
                 category: assocTasks.length > 0 ? assocTasks[0].category : (isLocal || isFallback ? selectedCategory : undefined),
-                task: assocTasks.length > 0 ? assocTasks[0].item_name : (isLocal || isFallback ? selectedTaskDoc?.item_name : undefined)
+                task: assocTasks.length > 0 ? assocTasks[0].item_name : (isLocal || isFallback ? selectedTaskDoc?.item_name : undefined),
+                subCategory: assocTasks.length > 0 ? assocTasks[0].sub_category : (isLocal || isFallback ? selectedTaskDoc?.sub_category : undefined)
             };
         });
         setReviewPlans(plans);
@@ -347,7 +349,8 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                     deliveryDate: "",
                     isCritical: assocTasks.length > 0 || isLocal,
                     category: assocTasks.length > 0 ? assocTasks[0].category : (isLocal ? selectedCategory : undefined),
-                    task: assocTasks.length > 0 ? assocTasks[0].item_name : (isLocal ? selectedTaskDoc?.item_name : undefined)
+                    task: assocTasks.length > 0 ? assocTasks[0].item_name : (isLocal ? selectedTaskDoc?.item_name : undefined),
+                    subCategory: assocTasks.length > 0 ? assocTasks[0].sub_category : (isLocal ? selectedTaskDoc?.sub_category : undefined)
                 };
             });
             setReviewPlans(plans);
@@ -375,7 +378,8 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                     deliveryDate: "",
                     isCritical: assocTasks.length > 0 || isLocal,
                     category: assocTasks.length > 0 ? assocTasks[0].category : (isLocal ? selectedCategory : undefined),
-                    task: assocTasks.length > 0 ? assocTasks[0].item_name : (isLocal ? selectedTaskDoc?.item_name : undefined)
+                    task: assocTasks.length > 0 ? assocTasks[0].item_name : (isLocal ? selectedTaskDoc?.item_name : undefined),
+                    subCategory: assocTasks.length > 0 ? assocTasks[0].sub_category : (isLocal ? selectedTaskDoc?.sub_category : undefined)
                 };
             });
             setReviewPlans(plans);
@@ -398,12 +402,22 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
             }));
             
             try {
+                // Failsafe: if subCategory is missing but we have a task name, try to find it
+                let finalSubCategory = plan.subCategory;
+                if (!finalSubCategory && plan.task && allTasks.length > 0) {
+                     const foundTask = allTasks.find((t: any) => t.item_name === plan.task && (!plan.category || t.critical_po_category === plan.category));
+                     if (foundTask) {
+                         finalSubCategory = foundTask.sub_category;
+                     }
+                }
+
                 await createDoc("Material Delivery Plan", {
                     project: projectId,
                     po_link: plan.poName,
                     package_name: "", // V2: Not used
                     critical_po_category: plan.isCritical ? plan.category : null,
                     critical_po_task: plan.isCritical ? plan.task : null,
+                    critical_po_sub_category: plan.isCritical ? finalSubCategory : null,
                     delivery_date: plan.deliveryDate,
                     po_type: "Existing PO",
                     mp_items: JSON.stringify({ list: minimalItems })
@@ -474,6 +488,7 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                 package_name: "",
                 critical_po_category: selectedCategory || null,
                 critical_po_task: selectedTaskDoc?.item_name || null,
+                critical_po_sub_category: selectedTaskDoc?.sub_category || null,
                 delivery_date: deliveryDate,
                 po_type: "New PO",
                 mp_items: JSON.stringify({ list: manualItems })

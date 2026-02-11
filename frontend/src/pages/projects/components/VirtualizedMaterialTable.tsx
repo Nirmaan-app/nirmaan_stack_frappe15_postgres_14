@@ -129,7 +129,7 @@ export const VirtualizedMaterialTable: React.FC<VirtualizedMaterialTableProps> =
   
   // --- B. DYNAMIC LAYOUT CALCULATION ---
   // Calculate the number of visible columns to correctly set the `colSpan` for placeholder rows.
-  const totalColumns = 11; // The original, total number of columns in your table.
+  const totalColumns = 15; // Total columns: Item Name, Category, Billing Cat, Unit, Est Qty, Ordered Qty, DN Qty, DC Qty, MIR Qty, PO Amount, Delivery Status, PO Numbers, DCs, MIRs, PO Status
   const visibleColumnCount = totalColumns - hiddenColumns.size;
     
   // Helper function to bundle all sorting-related props for the SortableHeader.
@@ -162,7 +162,9 @@ export const VirtualizedMaterialTable: React.FC<VirtualizedMaterialTableProps> =
 
             {/* Sortable/Hideable Headers (Conditionally Rendered) */}
             {!hiddenColumns.has('orderedQuantity') && <SortableHeader {...createSortableHeaderProps('orderedQuantity')} className="text-right min-w-[140px]">Ordered Qty</SortableHeader>}
-            {!hiddenColumns.has('deliveredQuantity') && <SortableHeader {...createSortableHeaderProps('deliveredQuantity')} className="text-right min-w-[150px]">Delivered Qty</SortableHeader>}
+            {!hiddenColumns.has('deliveredQuantity') && <SortableHeader {...createSortableHeaderProps('deliveredQuantity')} className="text-right min-w-[160px]">Delivery Note Qty</SortableHeader>}
+            {!hiddenColumns.has('dcQuantity') && <SortableHeader {...createSortableHeaderProps('dcQuantity')} className="text-right min-w-[120px]">DC Qty</SortableHeader>}
+            {!hiddenColumns.has('mirQuantity') && <SortableHeader {...createSortableHeaderProps('mirQuantity')} className="text-right min-w-[120px]">MIR Qty</SortableHeader>}
             {!hiddenColumns.has('totalAmount') && <SortableHeader {...createSortableHeaderProps('totalAmount')} className="text-center min-w-[190px]">PO Amount(inc.GST)</SortableHeader>}
             
             {/* More Regular Headers with Filters */}
@@ -174,6 +176,7 @@ export const VirtualizedMaterialTable: React.FC<VirtualizedMaterialTableProps> =
             </TableHead>
             <TableHead className="text-center min-w-[170px]">PO Number(s)</TableHead>
             <TableHead className="text-center min-w-[80px]">DCs</TableHead>
+            <TableHead className="text-center min-w-[80px]">MIRs</TableHead>
             <TableHead className="min-w-[180px]">
                <div className="flex items-center gap-1 justify-center">
                 <SimpleFacetedFilter title="PO Status" options={props.poStatusOptions} selectedValues={props.poStatusFilter as Set<string>} onSelectedValuesChange={(newSet) => props.onSetPoStatusFilter(newSet as Set<OverallItemPOStatus>)} />

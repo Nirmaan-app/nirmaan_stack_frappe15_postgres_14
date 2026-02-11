@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { MapPin, MessagesSquare, Loader2 } from 'lucide-react';
+import { MapPin, MessagesSquare, Loader2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 
 type ImageOrientation = 'portrait' | 'landscape' | 'square';
 
@@ -10,6 +12,8 @@ interface ImageData {
   latitude?: number;
   longitude?: number;
   remarks?: string;
+  local_id?: string; // Added for identification
+  id?: string; // Added for identification
 }
 
 interface ImageWithOrientation extends ImageData {
@@ -21,6 +25,10 @@ interface ImageBentoGridProps {
   images: ImageData[];
   forPdf?: boolean;
   maxImagesPerPage?: number;
+  isEditable?: boolean;
+  onRemove?: (id: string) => void;
+  onRemarkChange?: (id: string, value: string) => void;
+  disabled?: boolean;
 }
 
 /**
@@ -38,7 +46,7 @@ const usePreloadImages = (images: ImageData[]) => {
     }
 
     const loadImage = (imageData: ImageData): Promise<ImageWithOrientation> => {
-      return new Promise((resolve, reject) => {
+      return new Promise((resolve) => {
         const img = new Image();
 
         img.onload = () => {
@@ -66,7 +74,7 @@ const usePreloadImages = (images: ImageData[]) => {
             ...imageData,
             orientation: 'square',
             aspectRatio: 1,
-          });
+            });
         };
 
         img.src = imageData.image_link;
@@ -94,6 +102,10 @@ export const ImageBentoGrid: React.FC<ImageBentoGridProps> = ({
   images,
   forPdf = false,
   maxImagesPerPage = 4,
+  isEditable = false,
+  onRemove,
+  onRemarkChange,
+  disabled = false,
 }) => {
   const { loadedImages, isLoading } = usePreloadImages(images);
 
@@ -140,7 +152,16 @@ export const ImageBentoGrid: React.FC<ImageBentoGridProps> = ({
   }
 
   // For regular view, show all images in a single adaptive grid
-  return <BentoGridPage images={loadedImages} forPdf={false} />;
+  return (
+    <BentoGridPage
+      images={loadedImages}
+      forPdf={false}
+      isEditable={isEditable}
+      onRemove={onRemove}
+      onRemarkChange={onRemarkChange}
+      disabled={disabled}
+    />
+  );
 };
 
 /**
@@ -151,12 +172,16 @@ const BentoGridPage: React.FC<{
   pageNumber?: number;
   totalPages?: number;
   forPdf: boolean;
-}> = ({ images, pageNumber, totalPages, forPdf }) => {
+  isEditable?: boolean;
+  onRemove?: (id: string) => void;
+  onRemarkChange?: (id: string, value: string) => void;
+  disabled?: boolean;
+}> = ({ images, forPdf, isEditable, onRemove, onRemarkChange, disabled }) => {
   // Smart layout algorithm: arrange images to minimize empty space
   const getGridLayout = (imgs: ImageWithOrientation[]) => {
     const layout: { image: ImageWithOrientation; span: string }[] = [];
 
-    imgs.forEach((img, idx) => {
+    imgs.forEach((img) => {
       // Determine grid span based on orientation and position
       let span = 'col-span-1 row-span-1';
 
@@ -194,7 +219,7 @@ const BentoGridPage: React.FC<{
         <div
           key={idx}
           className={cn(
-            "rounded-lg overflow-hidden shadow-md bg-white border border-gray-200",
+            "rounded-lg overflow-hidden shadow-md bg-white border border-gray-200 relative", // Added relative for positioning removal button
             forPdf && "avoid-page-break-inside",
             !forPdf && item.span
           )}
@@ -238,19 +263,51 @@ const BentoGridPage: React.FC<{
               </div>
 
               {/* Remarks */}
-              <p className={cn(
-                "bg-yellow-100 text-yellow-900 rounded-md break-words",
-                forPdf ? "p-1.5 text-xs" : "p-2 text-xs"
-              )}>
-                <MessagesSquare className={cn(
-                  "inline-block mr-1 flex-shrink-0",
-                  forPdf ? "h-3 w-3" : "h-4 w-4"
-                )} />
-                {item.image.remarks || "No remarks provided."}
-              </p>
+                {/* Edit Mode: Textarea */}
+                {isEditable ? (
+                   <div className="mt-1">
+                      <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1 block">Remarks</label>
+                      <Textarea
+                        value={item.image.remarks || ""}
+                        onChange={(e) => onRemarkChange?.(item.image.local_id || item.image.id || "", e.target.value)}
+                        placeholder="Add remarks..."
+                        className="min-h-[80px] text-xs resize-none"
+                        disabled={disabled}
+                        onClick={(e) => e.stopPropagation()} 
+                      />
+                   </div>
+                ) : (
+                  /* Read-Only Mode */
+                  <p className={cn(
+                    "bg-yellow-100 text-yellow-900 rounded-md break-words",
+                    forPdf ? "p-1.5 text-xs" : "p-2 text-xs"
+                  )}>
+                    <MessagesSquare className={cn(
+                      "inline-block mr-1 flex-shrink-0",
+                      forPdf ? "h-3 w-3" : "h-4 w-4"
+                    )} />
+                    {item.image.remarks || "No remarks provided."}
+                  </p>
+                )}
+              </div>
             </div>
+             {/* Remove Button for Editable Mode */}
+             {isEditable && (
+              <Button
+                variant="destructive"
+                size="icon"
+                className="absolute top-2 right-2 h-7 w-7 rounded-full shadow-md z-10"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemove?.(item.image.local_id || item.image.id || "");
+                }}
+                disabled={disabled}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            )}
           </div>
-        </div>
+
       ))}
     </div>
   );

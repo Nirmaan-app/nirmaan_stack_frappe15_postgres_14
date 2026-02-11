@@ -29,6 +29,8 @@ interface InvoiceTableProps {
     canDeleteEntry?: (item: VendorInvoice) => boolean;
     /** Function to convert user ID to display name */
     getUserName?: (userId: string | undefined) => string;
+    /** Whether to hide the actions column */
+    hideActions?: boolean;
 }
 
 export const InvoiceTable: React.FC<InvoiceTableProps> = ({
@@ -38,6 +40,7 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
     isLoading,
     canDeleteEntry,
     getUserName,
+    hideActions = false,
 }) => {
     const invoiceList = items || [];
 
@@ -63,7 +66,7 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
                     <TableHead className="text-black font-bold">Invoice No.</TableHead>
                     <TableHead className="w-[120px] text-black font-bold">Status</TableHead>
                     <TableHead className="w-[150px] text-black font-bold">Uploaded By</TableHead>
-                    <TableHead className="w-[100px] text-center text-black font-bold">Actions</TableHead>
+                    {!hideActions && <TableHead className="w-[100px] text-center text-black font-bold">Actions</TableHead>}
                 </TableRow>
             </TableHeader>
             <TableBody>
@@ -97,7 +100,7 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
                                 <TableCell className="text-gray-600 text-sm">
                                     {getUserName ? getUserName(invoice.uploaded_by) : invoice.uploaded_by || '--'}
                                 </TableCell>
-                                <TableCell className="text-center space-x-1">
+                                {!hideActions && <TableCell className="text-center space-x-1">
                                     {showDeleteButton ? (
                                         <Dialog>
                                             <DialogTrigger asChild>
@@ -131,13 +134,13 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
                                             </DialogContent>
                                         </Dialog>
                                     ) : "--"}
-                                </TableCell>
+                                </TableCell>}
                             </TableRow>
                         );
                     })
                 ) : (
                     <TableRow>
-                        <TableCell colSpan={6} className="text-center py-4 text-gray-500">
+                        <TableCell colSpan={hideActions ? 5 : 6} className="text-center py-4 text-gray-500">
                             No Invoices Found
                         </TableCell>
                     </TableRow>

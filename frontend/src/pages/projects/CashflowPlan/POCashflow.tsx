@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useFrappeGetDocList, useFrappeDeleteDoc } from "frappe-react-sdk";
 import { format } from "date-fns";
-import { safeFormatDate } from "@/lib/utils";
+import { safeFormatDateDD_MMM_YYYY } from "@/lib/utils";
 import { Trash2, ChevronDown, Edit2 ,CirclePlus} from "lucide-react";
 import {
   AlertDialog,
@@ -72,7 +72,7 @@ const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashf
 
     // Fetch Plans
     const { data: existingPlans, isLoading: isLoadingPlans, mutate: refreshPlans } = useFrappeGetDocList("Cashflow Plan", {
-        fields: ["name", "id_link","type", "planned_date", "planned_amount", "creation", "critical_po_category", "critical_po_task", "items", "remarks", "vendor","vendor_name", "estimated_price"],
+        fields: ["name", "id_link","type", "planned_date", "planned_amount", "creation", "critical_po_category", "critical_po_task", "critical_po_sub_category", "items", "remarks", "vendor","vendor_name", "estimated_price"],
         filters: docListFilters,
         orderBy: { field: "creation", order: "desc" },
         limit:0
@@ -199,6 +199,9 @@ const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashf
                                             </div>
                                             <h4 className="font-semibold text-gray-900 leading-tight text-sm  break-words" title={plan.critical_po_task}>
                                                 {plan.critical_po_task || "Untitled Task"}
+                                                {plan.critical_po_sub_category && (
+                                                    <span className="text-gray-500 font-normal text-xs ml-1">({plan.critical_po_sub_category})</span>
+                                                )}
                                             </h4>
                                             <span className="text-[11px] text-gray-500 font-medium truncate" title={plan.critical_po_category}>
                                                 {plan.critical_po_category || "Uncategorized"}
@@ -253,7 +256,7 @@ const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashf
                                         <div className="flex flex-col gap-0.5">
                                             <span className="text-[10px] text-gray-500 uppercase font-bold tracking-wide">Planned Date</span>
                                             <span className="font-semibold text-gray-900 text-sm">
-                                                {safeFormatDate(plan.planned_date)}
+                                                {safeFormatDateDD_MMM_YYYY(plan.planned_date)}
                                             </span>
                                         </div>
 

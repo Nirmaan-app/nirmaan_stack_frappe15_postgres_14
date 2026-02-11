@@ -20,7 +20,9 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 import { toast } from "@/components/ui/use-toast";
+import { CEO_HOLD_AUTHORIZED_USER } from "@/constants/ceoHold";
 import { useUserData } from "@/hooks/useUserData";
 import { Customers } from "@/types/NirmaanStack/Customers";
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
@@ -275,7 +277,9 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   // console.log("modified-call", po_item_data)
 
-  const { role } = useUserData();
+  const { role, user_id } = useUserData();
+  const isCEOHoldStatus = data?.status === "CEO Hold";
+  const canChangeStatus = !isCEOHoldStatus || user_id === CEO_HOLD_AUTHORIZED_USER;
 
   const [newStatus, setNewStatus] = useState<string>("");
   const [showStatusChangeDialog, setShowStatusChangeDialog] = useState(false);
@@ -1118,11 +1122,19 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         description: `Successfully changed status to ${newStatus}.`,
         variant: "success",
       });
-    } catch (error) {
+    } catch (error: any) {
       console.log("error", error);
+      let description = `Failed to change status to ${newStatus}.`;
+      try {
+        if (error?._server_messages) {
+          const msgs = JSON.parse(error._server_messages);
+          const msg = typeof msgs[0] === "string" ? JSON.parse(msgs[0]) : msgs[0];
+          if (msg?.message) description = msg.message;
+        }
+      } catch (_) { /* use default */ }
       toast({
         title: "Failed!",
-        description: `Failed to change status to ${newStatus}.`,
+        description,
         variant: "destructive",
       });
     } finally {
@@ -1232,6 +1244,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                     variant="outline"
                     role="combobox"
                     className="w-48 md:py-6 flex justify-between"
+                    disabled={!canChangeStatus}
                   >
                     <span className="font-bold text-md">Status: </span>
                     <div
@@ -1254,7 +1267,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                     <CommandList>
                       <CommandGroup>
                         {projectStatuses
-                          .filter((s) => s.value !== "CEO Hold" || role === "Nirmaan Admin Profile")
+                          .filter((s) => s.value !== "CEO Hold" || user_id === CEO_HOLD_AUTHORIZED_USER)
                           .map((s) => (
                           <CommandItem
                             key={s.value}
@@ -1270,6 +1283,9 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                   </Command>
                 </PopoverContent>
               </Popover>
+              {isCEOHoldStatus && !canChangeStatus && (
+                <span className="text-xs text-red-600 ml-2">Locked by CEO Hold</span>
+              )}
               <AlertDialog
                 open={showStatusChangeDialog}
                 onOpenChange={setShowStatusChangeDialog}
@@ -1332,6 +1348,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         </div>
       </div>
 
+      {data?.status === "CEO Hold" && <CEOHoldBanner className="mb-4" heldBy={data?.ceo_hold_by} />}
 
       <div className="w-full">
         <ConfigProvider

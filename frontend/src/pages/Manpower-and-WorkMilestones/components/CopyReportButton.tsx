@@ -25,6 +25,7 @@ import CameraCapture from "@/components/CameraCapture";
 import PhotoPermissionChecker from "./PhotoPermissionChecker"; // Adjust path if needed
 import { useFrappeGetDoc as useFrappeGetDocForMap } from "frappe-react-sdk"; // Aliased to avoid conflict if needed
 import { useWorkHeaderOrder } from "@/hooks/useWorkHeaderOrder";
+import { ImageBentoGrid } from "@/components/ui/ImageBentoGrid";
 
 // --- NEW INTERFACES ---
 interface ProjectWorkHeaderChildEntry {
@@ -865,38 +866,19 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
                   </div>
 
                   {localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').length > 0 ? (
-                    <div className="space-y-4">
-                      {localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').map((photo) => (
-                        <div
-                          key={photo.local_id}
-                          className="flex flex-col sm:flex-row sm:items-center gap-3 p-2 bg-gray-50 rounded-md border border-gray-200"
-                        >
-                          <div className="relative flex-shrink-0 w-full h-[140px] sm:w-[120px] sm:h-[100px] rounded-md overflow-hidden border border-gray-300">
-                            <img
-                              src={photo.image_link}
-                              alt="New Capture"
-                              className="w-full h-full object-cover"
-                            />
-                            <Button
-                              variant="destructive"
-                              size="icon"
-                              className="absolute top-1 right-1 h-6 w-6 rounded-full"
-                              onClick={() => handleRemovePhoto(photo.local_id)}
-                            >
-                              <X className="h-3 w-3" />
-                            </Button>
-                          </div>
-
-                          <div className="flex-grow w-full">
-                            <Textarea
-                              value={photo.remarks || ''}
-                              onChange={(e) => handlePhotoRemarksChange(photo.local_id, e.target.value)}
-                              placeholder="Add remarks for this photo..."
-                              className="min-h-[80px] text-xs bg-white resize-none"
-                            />
-                          </div>
-                        </div>
-                      ))}
+                    <div className="w-full">
+                       <ImageBentoGrid
+                        images={localPhotos.filter(p => !p.attach_type || p.attach_type === 'Work').map(p => ({
+                          image_link: p.image_link,
+                          location: p.location || undefined,
+                          remarks: p.remarks,
+                          local_id: p.local_id
+                        }))}
+                        isEditable={true}
+                        onRemove={handleRemovePhoto}
+                        onRemarkChange={handlePhotoRemarksChange}
+                        forPdf={false}
+                      />
                     </div>
                   ) : (
                     <div className="text-center py-6 border-2 border-dashed border-gray-300 rounded-lg bg-gray-50">
@@ -1030,13 +1012,19 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
                               </div>
                             </div>
                             {localPhotos.filter(p => p.attach_type === 'Drawing').length > 0 ? (
-                              <div className="grid grid-cols-4 gap-2">
-                                {localPhotos.filter(p => p.attach_type === 'Drawing').map(photo => (
-                                  <div key={photo.local_id} className="relative aspect-square rounded-md overflow-hidden border border-orange-200 group shadow-sm hover:shadow-md transition-all">
-                                    <img src={photo.image_link} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-300" />
-                                    <Button variant="destructive" size="icon" className="absolute top-1 right-1 h-5 w-5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemovePhoto(photo.local_id)}><X className="h-3 w-3" /></Button>
-                                  </div>
-                                ))}
+                              <div className="w-full">
+                                <ImageBentoGrid
+                                  images={localPhotos.filter(p => p.attach_type === 'Drawing').map(p => ({
+                                    image_link: p.image_link,
+                                    location: p.location || undefined,
+                                    remarks: p.remarks,
+                                    local_id: p.local_id
+                                  }))}
+                                  isEditable={true}
+                                  onRemove={handleRemovePhoto}
+                                  onRemarkChange={handlePhotoRemarksChange}
+                                  forPdf={false}
+                                />
                               </div>
                             ) : (
                               <p className="text-[10px] text-gray-400 italic">No photos attached</p>
@@ -1121,13 +1109,19 @@ export const CopyReportButton = ({ selectedProject, selectedZone, dailyReportDet
                               </div>
                             </div>
                             {localPhotos.filter(p => p.attach_type === 'Site').length > 0 ? (
-                              <div className="grid grid-cols-4 gap-2">
-                                {localPhotos.filter(p => p.attach_type === 'Site').map(photo => (
-                                  <div key={photo.local_id} className="relative aspect-square rounded-md overflow-hidden border border-red-200 group shadow-sm hover:shadow-md transition-all">
-                                    <img src={photo.image_link} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-300" />
-                                    <Button variant="destructive" size="icon" className="absolute top-1 right-1 h-5 w-5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemovePhoto(photo.local_id)}><X className="h-3 w-3" /></Button>
-                                  </div>
-                                ))}
+                              <div className="w-full">
+                                <ImageBentoGrid
+                                  images={localPhotos.filter(p => p.attach_type === 'Site').map(p => ({
+                                    image_link: p.image_link,
+                                    location: p.location || undefined,
+                                    remarks: p.remarks,
+                                    local_id: p.local_id
+                                  }))}
+                                  isEditable={true}
+                                  onRemove={handleRemovePhoto}
+                                  onRemarkChange={handlePhotoRemarksChange}
+                                  forPdf={false}
+                                />
                               </div>
                             ) : (
                               <p className="text-[10px] text-gray-400 italic">No photos attached</p>

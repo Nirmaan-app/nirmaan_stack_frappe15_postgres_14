@@ -4,6 +4,67 @@ Changes made by Claude Code sessions.
 
 ---
 
+## 2026-02-10
+
+- feat: Restrict CEO Hold to authorized user (`nitesh@nirmaan.app`) with `ceo_hold_by` field, backend validation, and migration patch
+- feat: Add `DC Item` child table and `PO Delivery Documents` doctype for structured DC/MIR tracking
+- feat: Add `po_delivery_documentss.py` API for DC/MIR document operations
+- feat: Migration patch from legacy Nirmaan Attachments to PO Delivery Documents
+
+---
+
+### 2026-02-06: Help Repository - Doctype and Frontend Page
+
+**Summary:** Created Help Repository feature for storing and viewing Loom training videos, with admin management and accordion-based viewing for all users.
+
+**Backend Files Created:**
+- `nirmaan_stack/nirmaan_stack/doctype/help_repository/help_repository.json` - New doctype with title, description, video_link fields
+- `nirmaan_stack/nirmaan_stack/doctype/help_repository/help_repository.py` - Controller stub
+
+**Frontend Files Created:**
+- `frontend/src/pages/help-repository/HelpRepositoryPage.tsx` - Main page with View/Manage tab switcher
+- `frontend/src/pages/help-repository/components/HelpViewTab.tsx` - Accordion with embedded Loom player
+- `frontend/src/pages/help-repository/components/HelpManageTab.tsx` - Server data table CRUD
+- `frontend/src/pages/help-repository/components/AddHelpDialog.tsx` - Create dialog (React Hook Form + Zod)
+- `frontend/src/pages/help-repository/components/EditHelpDialog.tsx` - Edit dialog
+- `frontend/src/pages/help-repository/types.ts` - Zod schema and form types
+- `frontend/src/pages/help-repository/utils/loom-embed.ts` - Loom share URL to embed URL converter
+- `frontend/src/types/NirmaanStack/HelpRepository.ts` - TypeScript interface
+
+**Frontend Files Modified:**
+- `frontend/src/components/nav/user-nav.tsx` - Added Help sidebar button (HelpCircle icon)
+- `frontend/src/components/helpers/routesConfig.tsx` - Added /help-repository route
+- `frontend/src/components/layout/NewSidebar.tsx` - Added help-repository to allKeys/groupMappings
+
+**Key Details:**
+- Doctype autoname: field:title (unique constraint)
+- Permissions: CRUD for Admin/PMO/System Manager; read-only for all other roles
+- Help button positioned above Notifications in sidebar nav
+- Loom URLs converted from /share/ to /embed/ for inline playback
+
+---
+
+### 2026-02-06: Design Tracker - Bulk Assign and Assigned Designer Filter
+
+**Summary:** Added bulk designer assignment dialog and "Assigned" faceted filter to Design Tracker.
+
+**Frontend Files Created:**
+- `frontend/src/pages/ProjectDesignTracker/components/BulkAssignDialog.tsx` - Multi-task designer assignment dialog
+
+**Frontend Files Modified:**
+- `frontend/src/pages/ProjectDesignTracker/project-design-tracker-details.tsx` - Row selection, bulk assign toolbar button
+- `frontend/src/pages/ProjectDesignTracker/config/taskTableColumns.tsx` - Assigned filter with custom filterFn
+- `frontend/src/pages/ProjectDesignTracker/utils.tsx` - Added parseDesignersFromField shared utility, refactored getAssignedNameForDisplay
+
+**Features:**
+- Row selection enabled for Admin, PMO, Design Lead roles
+- Smart preview showing new vs already-assigned designers per task
+- Batched save with Map<taskName, designers> pattern
+- Faceted filter parses JSON assigned_designers field for userId matching
+- CEO Hold guard on bulk assign button
+
+---
+
 ### 2026-02-04: Context Sync - 2 Week Feature Analysis
 
 **Summary:** Analyzed commits from 2026-01-22 to 2026-02-04 to document new features and update context files.

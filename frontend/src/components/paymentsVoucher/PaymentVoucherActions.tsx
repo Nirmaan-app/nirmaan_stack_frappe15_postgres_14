@@ -25,6 +25,7 @@ interface PaymentVoucherActionsProps {
     payment: ExtendedProjectPayments;
     srName: string; // The name of the parent Service Request (for filename)
     onVoucherUpdate: () => void; // Function to re-fetch payments data
+    hideActions?: boolean;
 }
 
 // --- Upload Logic Component ---
@@ -112,7 +113,7 @@ const VoucherUploadAction = ({ payment, onVoucherUpdate, isLoading, srName }: Om
 }
 
 // --- Main Action Component ---
-export const PaymentVoucherActions = ({ payment, srName, onVoucherUpdate }: PaymentVoucherActionsProps) => {
+export const PaymentVoucherActions = ({ payment, srName, onVoucherUpdate, hideActions = false }: PaymentVoucherActionsProps) => {
     const [isDownloadDialogOpen, setIsDownloadDialogOpen] = useState(false);
     const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
@@ -231,6 +232,7 @@ export const PaymentVoucherActions = ({ payment, srName, onVoucherUpdate }: Paym
                 <a href={`${SITEURL}${voucherAttachment}`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700" title="View Voucher">
                     <FileText className="h-4 w-4" />
                 </a>
+                {!hideActions && (
                 <AlertDialog>
                     <AlertDialogTrigger asChild>
                         <Button
@@ -258,11 +260,13 @@ export const PaymentVoucherActions = ({ payment, srName, onVoucherUpdate }: Paym
                         </AlertDialogFooter>
                     </AlertDialogContent>
                 </AlertDialog>
+                )}
             </div>
         );
     }
 
     // VOUCHER NOT UPLOADED: Show Generate Dialog and separate Upload action
+    if (!hideActions) {
     return (
         <div className="flex items-center justify-center gap-2">
             {/* 1. Generate/Download/Preview Dialog Trigger */}
@@ -319,6 +323,8 @@ export const PaymentVoucherActions = ({ payment, srName, onVoucherUpdate }: Paym
             />
         </div>
     );
+    }
+    return null;
 };
 
 

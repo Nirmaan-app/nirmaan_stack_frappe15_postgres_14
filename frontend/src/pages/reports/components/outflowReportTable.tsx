@@ -22,6 +22,8 @@ import { getOutflowReportColumns } from "./columns/outflowColumns";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { parse, formatISO, startOfDay, endOfDay } from 'date-fns';
+import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
+import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
 // --- Supporting Data Types & Config ---
 import { Projects } from "@/types/NirmaanStack/Projects";
@@ -108,6 +110,20 @@ export function OutflowReportTable() {
         // PRIORITY 3: Default to "ALL" (no date filtering)
         return undefined;
     });
+
+    // CEO Hold row highlighting
+    const { ceoHoldProjectIds } = useCEOHoldProjects();
+
+    const getRowClassName = useCallback(
+        (row: any) => {
+            const projectId = row.original.project;
+            if (projectId && ceoHoldProjectIds.has(projectId)) {
+                return CEO_HOLD_ROW_CLASSES;
+            }
+            return undefined;
+        },
+        [ceoHoldProjectIds]
+    );
 
     // 2. Effect to sync state changes back to the URL
     useEffect(() => {
@@ -324,6 +340,7 @@ export function OutflowReportTable() {
                 isLoading={isLoadingOverall}
                 error={tableHookError}
                 totalCount={filteredRowCount}
+                getRowClassName={getRowClassName}
                 searchFieldOptions={OUTFLOW_SEARCHABLE_FIELDS}
                 selectedSearchField={selectedSearchField}
                 onSelectedSearchFieldChange={setSelectedSearchField}
