@@ -2,7 +2,7 @@ import { useState, useContext } from "react";
 import { useToast } from "@/components/ui/use-toast";
 import { FrappeContext, FrappeConfig } from "frappe-react-sdk";
 
-export type DownloadType = "PO" | "WO" | "Invoice" | "DC" | "MIR";
+export type DownloadType = "PO" | "WO" | "Invoice" | "DC" | "MIR" | "DN";
 
 export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
     const { toast } = useToast();
@@ -72,6 +72,10 @@ export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
                 case "MIR":
                     endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_project_attachments?project=${projectId}&doc_type=MIR`;
                     fileName = `${projectName || projectId}_Material_Inspection_Reports.pdf`;
+                    break;
+                case "DN":
+                    endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_all_dns?project=${projectId}`;
+                    fileName = `${projectName || projectId}_All_DNs.pdf`;
                     break;
             }
 

@@ -131,6 +131,54 @@ def _send_pdf_response(merger, filename):
     frappe.local.response.filecontent = output.getvalue()
     frappe.local.response.type = "download"
 
+
+@frappe.whitelist()
+def download_all_dns(project):
+    """
+    Download all Delivery Notes (PO Delivery Histroy) for a given project.
+    """
+    if not project:
+        frappe.throw("Project is required")
+
+    dt = "Procurement Orders"
+    docs = frappe.get_all(dt, filters={"project": project}, fields=["name"], order_by="creation desc")
+
+    if not docs:
+        frappe.throw(f"No Procurement Orders found for project {project}")
+
+    merger = PdfWriter()
+    count = 0
+
+    total_docs = len(docs)
+    for i, doc in enumerate(docs):
+        try:
+            # Publish Progress BEFORE processing
+            progress = int(((i + 1) / total_docs) * 100)
+            frappe.publish_realtime(
+                "bulk_download_progress",
+                {"progress": progress, "message": f"Processing DN {i+1} of {total_docs}...", "label": "Delivery Notes"},
+                user=frappe.session.user
+            )
+
+            # Print Format for DN
+            print_format = "PO Delivery Histroy"
+            
+            # Generate PDF
+            pdf_content = frappe.get_print(dt, doc.name, print_format=print_format, as_pdf=True)
+            
+            if pdf_content:
+                merger.append(io.BytesIO(pdf_content))
+                count += 1
+        except Exception as e:
+            print(f"Failed to generate DN PDF for PO {doc.name}: {e}")
+
+    if count == 0:
+        frappe.throw("Failed to generate any Delivery Note PDFs.")
+
+    project_name = frappe.db.get_value("Projects", project, "project_name") or project
+    _send_pdf_response(merger, f"{project_name}_All_DNs.pdf")
+
+
 # // her this is they common print of using they PO Invoices ,WO inoices , ALL Inovoices, DC, MIR
 @frappe.whitelist()
 def download_project_attachments(project, doc_type):

@@ -38,15 +38,15 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800 transition-colors duration-200">
+          <Button variant="outline" className="w-64 justify-between border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800 transition-colors duration-200">
             <div className="flex items-center gap-2">
               <FileDown className="h-4 w-4" />
-              <span className="font-semibold">Bulk PDF</span>
-              <ChevronDown className="h-4 w-4 opacity-50" />
+              <span className="font-semibold">Project Bulk Download</span>
             </div>
+            <ChevronDown className="h-4 w-4 opacity-50" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56 p-1">
+        <DropdownMenuContent align="end" className="w-64 p-1">
           <DropdownMenuItem onClick={initiatePODownload} className="cursor-pointer">
             <Download className="mr-2 h-4 w-4" />
             <span>Download All POs</span>
@@ -66,6 +66,10 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
           <DropdownMenuItem onClick={() => handleBulkDownload("MIR", "Material Inspection Reports")} className="cursor-pointer">
             <Download className="mr-2 h-4 w-4" />
             <span>Download All MIRs</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleBulkDownload("DN", "Delivery Notes")} className="cursor-pointer">
+            <Download className="mr-2 h-4 w-4" />
+            <span>Download All DNs</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
