@@ -10,29 +10,9 @@ from nirmaan_stack.api.frappe_s3_attachment import get_s3_temp_url
 # // TDS  interval Merge PDfs for All Select POS 
 
 @frappe.whitelist()
-def merge_pdfs_interleaved(main_pdf_content: bytes, items: list) -> bytes:
+def merge_pdfs_interleaved(main_pdf_content: bytes, items: list, progress_event: str = None) -> bytes:
     """
     Merge main PDF with attachments interleaved after each item's page.
-    
-    Expected structure of main PDF:
-    - Page 0: Stakeholder cards
-    - Page 1: Summary table
-    - Page 2: Item 0 approval form
-    - Page 3: Item 1 approval form
-    - ... etc
-    
-    Output structure:
-    - Page 0: Stakeholder cards
-    - Page 1: Summary table
-    - Page 2: Item 0 approval form
-    - Page 3-N: Item 0 attachment (if exists)
-    - Page N+1: Item 1 approval form
-    - Page N+2-M: Item 1 attachment (if exists)
-    - ... etc
-    
-    Args:
-        main_pdf_content: The base PDF bytes (from print format)
-        items: List of items with 'tds_attachment' field
     """
     writer = PdfWriter()
     
@@ -99,9 +79,25 @@ def merge_pdfs_interleaved(main_pdf_content: bytes, items: list) -> bytes:
                             
             except Exception as e:
                 frappe.log_error(f"Attachment fetch failed for item {idx}: {e}")
+
+        # Publish Progress AFTER processing this item
+        if progress_event:
+            progress = int(((idx + 1) / num_items) * 100)
+            item_name = item.get('tds_item_name', f"Item {idx+1}")
+            frappe.publish_realtime(
+                progress_event,
+                {"progress": progress, "message": f"Completed {item_name} ({idx + 1}/{num_items})", "total": num_items, "current": idx + 1},
+                user=frappe.session.user
+            )
     
     # Output merged PDF
     try:
+        if progress_event:
+            frappe.publish_realtime(
+                progress_event,
+                {"progress": 100, "message": "Finalizing PDF...", "total": num_items, "current": num_items},
+                user=frappe.session.user
+            )
         output = io.BytesIO()
         writer.write(output)
         writer.close()
