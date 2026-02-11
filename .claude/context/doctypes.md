@@ -112,13 +112,27 @@ Asset Category
 
 | Doctype | Purpose |
 |---------|---------|
-| **Nirmaan Attachments** | File attachment system with `attachment_ref` for DC/MIR reference numbers |
+| **Nirmaan Attachments** | Legacy file attachment store. DC/MIR tracking now uses **PO Delivery Documents** doctype; old records migrated as stubs (`is_stub=1`) |
 | **Nirmaan Comments** | Comment system |
 | **Nirmaan Notifications** | In-app notification storage |
 | **Nirmaan Versions** | Custom document versioning |
 
 ## Delivery & Tracking
 
+| Doctype | Purpose |
+|---------|---------|
+| **PO Delivery Documents** | Structured DC/MIR tracking per PO (replaces ad-hoc Nirmaan Attachments queries). Autoname: `PDD-.YYYY.-.#####` |
+| **DC Item** | Child table for PO Delivery Documents — item-level quantity tracking per DC/MIR |
+
+### PO Delivery Documents Fields
+- `procurement_order`, `project`, `vendor` (links)
+- `type` (DC / MIR), `nirmaan_attachment` (link to file)
+- `reference_number`, `dc_reference`, `dc_date`
+- `is_signed_by_client`, `client_representative_name`
+- `items` (DC Item child table)
+- `is_stub` (flag for migrated legacy records)
+
+### Other Delivery Attachments
 - `Delivery Note Attachments` - Delivery documentation
 - `PR Attachments` - PR-specific attachments
 - `Milestone Attachments` - Milestone documentation
@@ -152,6 +166,7 @@ Projects (hub)
   │     ├─→ Quotation Requests
   │     │     └─→ Approved Quotations
   │     └─→ Procurement Orders
+  │           ├─→ PO Delivery Documents (DCs & MIRs)
   │           ├─→ Delivery Notes
   │           ├─→ Project Invoices
   │           └─→ Project Payments

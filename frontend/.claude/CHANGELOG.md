@@ -4,6 +4,17 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-02-11
+
+- feat: Add DCs & MIRs report tab to Reports page (DC Report and MIR Report sub-types with facet filters, HoverCard item popover)
+- feat: Add Attachment link column to DC/MIR report tables
+- feat: Integrate DC/MIR quantity columns and orphan DC item detection in Material Usage table
+- feat: Add stub handling for migrated legacy DC/MIR records in upload/view dialogs
+- refactor: Replace antd Radio.Group with Tailwind button tabs in Reports page
+- fix: Add `vite-env.d.ts` module declarations for `.jpeg`, `.svg`, `uuid`; lazy-load POSummary inline component (vite build fixes)
+
+---
+
 ## 2026-02-10
 
 - feat: Restrict CEO Hold UI to `nitesh@nirmaan.app` — dropdown filter, disabled state, locked hint, heldBy banner

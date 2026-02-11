@@ -31,7 +31,9 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | PR Approve/Edit | `src/pages/ProcurementRequests/ApproveNewPR/` | `hooks/useEditingLock.ts`, `hooks/useApprovePRLogic.ts`, `useApproveNewPRDraftStore.ts` |
 | SR Form Wizard | `src/pages/ServiceRequests/sr-form/` | Step-based wizard: `schema.ts`, `constants.ts`, `steps/`, `amend/` |
 | SR Remarks | `src/pages/ServiceRequests/approved-sr/` | `hooks/useSRRemarks.ts`, `components/SRRemarks.tsx` |
+| DC/MIR Module | `src/pages/DeliveryChallansAndMirs/` | `components/UploadDCMIRDialog.tsx`, `ViewAttachmentsDialog.tsx`, `DCMIRItemSelector.tsx`, `hooks/usePODeliveryDocuments.ts` |
 | Reports | `src/pages/reports/` | `hooks/usePO*.ts` for data, `components/columns/*.tsx` for columns, `config/*.config.ts` for table config |
+| Reports: DCs & MIRs | `src/pages/reports/` | DC Report and MIR Report sub-types with facet filters and HoverCard item popover |
 | Help Repository | `src/pages/help-repository/` | `types.ts` for schema, `utils/loom-embed.ts` for URL conversion |
 | Work Headers | `src/components/` | `workHeaderMilestones.tsx` (config component) |
 

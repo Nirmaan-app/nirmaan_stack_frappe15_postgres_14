@@ -4,6 +4,14 @@ Changes made by Claude Code sessions.
 
 ---
 
+## 2026-02-11
+
+- feat: Add `get_project_po_delivery_documents` API for project-level DC/MIR queries
+- feat: Add `get_all_delivery_documents` API for DC/MIR reports with filters
+- fix: Add `vite-env.d.ts` module declarations for `.jpeg`, `.svg`, and `uuid` (vite build fixes)
+
+---
+
 ## 2026-02-10
 
 - feat: Restrict CEO Hold to authorized user (`nitesh@nirmaan.app`) with `ceo_hold_by` field, backend validation, and migration patch

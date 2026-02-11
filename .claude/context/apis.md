@@ -33,6 +33,14 @@ Backend API endpoints in `nirmaan_stack/api/`.
 - `project_aggregates.py` - Financial aggregations
 - `project_wise_invoice_data.py` - Invoice analytics
 
+### PO Delivery Documents (`api/po_delivery_documentss.py`)
+- `create_po_delivery_documents()` - Create DC/MIR record with file upload and item quantities
+- `get_po_delivery_documents()` - Get delivery docs for a specific PO (enriched with child items and attachment URLs)
+- `update_po_delivery_documents()` - Update existing DC/MIR record
+- `get_project_po_delivery_documents()` - Get all delivery docs for a project
+- `get_all_delivery_documents()` - Get all delivery docs (for reports, with filters)
+- Shared `_enrich_delivery_docs()` helper batch-fetches child items and attachment URLs (avoids N+1 queries)
+
 ### Other Domains
 - `invoices/` - Invoice data APIs (PO-wise, SR-wise)
 - `payments/` - Payment processing
