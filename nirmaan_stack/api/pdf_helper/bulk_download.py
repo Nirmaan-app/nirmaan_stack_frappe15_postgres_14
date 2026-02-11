@@ -20,7 +20,7 @@ def download_all_pos(project, with_rate=1):
         with_rate = bool(with_rate)
 
     dt = "Procurement Orders"
-    docs = frappe.get_all(dt, filters={"project": project}, fields=["name"], order_by="creation desc")
+    docs = frappe.get_all(dt, filters={"project": project, "status": ["not in", ["Merged", "Cancelled", "PO Amendment", "Inactive"]]}, fields=["name"], order_by="creation desc")
 
     if not docs:
         frappe.throw(f"No Procurement Orders found for project {project}")
@@ -80,7 +80,7 @@ def download_all_wos(project):
         frappe.throw("Project is required")
 
     dt = "Service Requests"
-    docs = frappe.get_all(dt, filters={"project": project}, fields=["name"], order_by="creation desc")
+    docs = frappe.get_all(dt, filters={"project": project, "status": "Approved"}, fields=["name"], order_by="creation desc")
 
     if not docs:
         frappe.throw(f"No Work Orders found for project {project}")
@@ -141,7 +141,7 @@ def download_all_dns(project):
         frappe.throw("Project is required")
 
     dt = "Procurement Orders"
-    docs = frappe.get_all(dt, filters={"project": project}, fields=["name"], order_by="creation desc")
+    docs = frappe.get_all(dt, filters={"project": project, "status": ["not in", ["Merged", "Cancelled", "PO Amended", "Inactive"]]}, fields=["name"], order_by="creation desc")
 
     if not docs:
         frappe.throw(f"No Procurement Orders found for project {project}")
