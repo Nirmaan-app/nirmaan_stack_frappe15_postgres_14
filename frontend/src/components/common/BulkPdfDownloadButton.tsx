@@ -5,9 +5,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ChevronDown, Download, Loader2 } from "lucide-react";
+import { ChevronDown, Download, FileDown } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useBulkPdfDownload } from "@/hooks/useBulkPdfDownload";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
+import { Label } from "@/components/ui/label";
 
 interface BulkPdfDownloadButtonProps {
   projectId: string;
@@ -23,33 +25,33 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
     progressMessage,
     showRateDialog,
     setShowRateDialog,
-    withRate,
-    setWithRate,
     initiatePODownload,
-    handleDownload,
     showInvoiceDialog,
     setShowInvoiceDialog,
     invoiceType,
     setInvoiceType,
     initiateInvoiceDownload,
-    handleInvoiceDownload
+    handleBulkDownload
   } = useBulkPdfDownload(projectId, projectName);
 
   return (
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" className="flex items-center justify-between w-48 gap-2">
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Bulk PDF"} 
-            <ChevronDown className="h-4 w-4" />
+          <Button variant="outline" className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800 transition-colors duration-200">
+            <div className="flex items-center gap-2">
+              <FileDown className="h-4 w-4" />
+              <span className="font-semibold">Bulk PDF</span>
+              <ChevronDown className="h-4 w-4 opacity-50" />
+            </div>
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent className="w-48" align="end">
+        <DropdownMenuContent align="end" className="w-56 p-1">
           <DropdownMenuItem onClick={initiatePODownload} className="cursor-pointer">
             <Download className="mr-2 h-4 w-4" />
             <span>Download All POs</span>
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleDownload("WO", "Work Orders")} className="cursor-pointer">
+          <DropdownMenuItem onClick={() => handleBulkDownload("WO", "Work Orders")} className="cursor-pointer">
             <Download className="mr-2 h-4 w-4" />
             <span>Download All WOs</span>
           </DropdownMenuItem>
@@ -57,81 +59,82 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
             <Download className="mr-2 h-4 w-4" />
             <span>Download All Invoices</span>
           </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleBulkDownload("DC", "Delivery Challans")} className="cursor-pointer">
+            <Download className="mr-2 h-4 w-4" />
+            <span>Download All DCs</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleBulkDownload("MIR", "Material Inspection Reports")} className="cursor-pointer">
+            <Download className="mr-2 h-4 w-4" />
+            <span>Download All MIRs</span>
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* Rate Selection Dialog */}
+      {/* PO Rate Selection Dialog */}
       <Dialog open={showRateDialog} onOpenChange={setShowRateDialog}>
-        <DialogContent className="sm:max-w-sm">
-            <DialogHeader>
-                <DialogTitle>Select PO Format</DialogTitle>
-                <DialogDescription>
-                    Choose whether to include rates in the downloaded Procurement Orders.
-                </DialogDescription>
-            </DialogHeader>
-            <div className="flex flex-col space-y-4 py-4">
-                <div className="flex items-center space-x-2">
-                    <input 
-                        type="radio" 
-                        id="withDetails" 
-                        name="rateOption" 
-                        checked={withRate === true} 
-                        onChange={() => setWithRate(true)}
-                        className="accent-primary h-4 w-4"
-                    />
-                    <label htmlFor="withDetails" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                        With Rate (PO Details)
-                    </label>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Download POs</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-4 py-4">
+            <p className="text-sm text-muted-foreground">Select how you want to download the PO documents.</p>
+            <div className="flex flex-col gap-2">
+              <Button 
+                variant="outline" 
+                onClick={() => handleBulkDownload("PO", "POs", { withRate: true })}
+                className="justify-start h-auto py-3 px-4"
+              >
+                <div className="flex flex-col items-start">
+                  <span className="font-semibold">With Rate</span>
+                  <span className="text-xs text-muted-foreground font-normal italic lowercase">Shows prices and totals in the POs</span>
                 </div>
-                <div className="flex items-center space-x-2">
-                     <input 
-                        type="radio" 
-                        id="withoutRate" 
-                        name="rateOption" 
-                        checked={withRate === false} 
-                        onChange={() => setWithRate(false)} 
-                        className="accent-primary h-4 w-4"
-                    />
-                    <label htmlFor="withoutRate" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                        Without Rate
-                    </label>
+              </Button>
+              <Button 
+                variant="outline"
+                onClick={() => handleBulkDownload("PO", "POs", { withRate: false })}
+                className="justify-start h-auto py-3 px-4"
+              >
+                <div className="flex flex-col items-start">
+                  <span className="font-semibold">Without Rate</span>
+                  <span className="text-xs text-muted-foreground font-normal italic lowercase">Hides prices and totals from the POs</span>
                 </div>
-                <Button onClick={() => handleDownload("PO", "Procurement Orders", withRate)} className="w-full mt-4">
-                    Generate PDF
-                </Button>
+              </Button>
             </div>
+          </div>
         </DialogContent>
       </Dialog>
 
       {/* Invoice Selection Dialog */}
       <Dialog open={showInvoiceDialog} onOpenChange={setShowInvoiceDialog}>
-        <DialogContent className="sm:max-w-sm">
-            <DialogHeader>
-                <DialogTitle>Select Invoice Type</DialogTitle>
-                <DialogDescription>
-                    Choose which invoices to download.
-                </DialogDescription>
-            </DialogHeader>
-            <div className="flex flex-col space-y-4 py-4">
-                {["PO Invoices", "WO Invoices", "All Invoices"].map((type) => (
-                    <div key={type} className="flex items-center space-x-2">
-                        <input
-                            type="radio"
-                            id={type}
-                            name="invoiceType"
-                            checked={invoiceType === type}
-                            onChange={() => setInvoiceType(type)}
-                            className="accent-primary h-4 w-4"
-                        />
-                         <label htmlFor={type} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                            {type}
-                        </label>
-                    </div>
-                 ))}
-                <Button onClick={handleInvoiceDownload} className="w-full mt-4">
-                    Generate Invoices PDF
-                </Button>
-            </div>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Download All Invoices</DialogTitle>
+            <DialogDescription>
+              Select the type of invoices to download for this project.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4 py-4">
+            <RadioGroup value={invoiceType} onValueChange={setInvoiceType} className="grid gap-2">
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="PO Invoices" id="po-inv" />
+                <Label htmlFor="po-inv" className="cursor-pointer">PO Invoices</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="WO Invoices" id="wo-inv" />
+                <Label htmlFor="wo-inv" className="cursor-pointer">WO Invoices (SR)</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="All Invoices" id="all-inv" />
+                <Label htmlFor="all-inv" className="cursor-pointer">All Invoices</Label>
+              </div>
+            </RadioGroup>
+            <Button 
+              className="mt-4" 
+              onClick={() => handleBulkDownload("Invoice", "Invoices")}
+            >
+              Generate Invoices PDF
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 

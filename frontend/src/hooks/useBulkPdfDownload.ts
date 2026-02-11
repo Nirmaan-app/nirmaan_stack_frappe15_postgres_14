@@ -2,6 +2,8 @@ import { useState, useContext } from "react";
 import { useToast } from "@/components/ui/use-toast";
 import { FrappeContext, FrappeConfig } from "frappe-react-sdk";
 
+export type DownloadType = "PO" | "WO" | "Invoice" | "DC" | "MIR";
+
 export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
     const { toast } = useToast();
     const { socket } = useContext(FrappeContext) as FrappeConfig;
@@ -9,17 +11,30 @@ export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
     const [showProgress, setShowProgress] = useState(false);
     const [progress, setProgress] = useState(0);
     const [progressMessage, setProgressMessage] = useState("");
+    
+    // PO/WO specific
     const [showRateDialog, setShowRateDialog] = useState(false);
     const [withRate, setWithRate] = useState(true);
+
+    // Invoice specific
+    const [showInvoiceDialog, setShowInvoiceDialog] = useState(false);
+    const [invoiceType, setInvoiceType] = useState<string>("All Invoices");
 
     const initiatePODownload = () => {
         setShowRateDialog(true);
         setWithRate(true);
     };
 
-    const handleDownload = async (type: "PO" | "WO", label: string, rateOption: boolean = true) => {
+    const initiateInvoiceDownload = () => {
+        setShowInvoiceDialog(true);
+        setInvoiceType("All Invoices");
+    };
+
+    const handleBulkDownload = async (type: DownloadType, label: string, options?: any) => {
         try {
-            setShowRateDialog(false);
+            if (type === "PO") setShowRateDialog(false);
+            if (type === "Invoice") setShowInvoiceDialog(false);
+
             setLoading(true);
             setShowProgress(true);
             setProgress(0);
@@ -33,25 +48,45 @@ export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
             }
 
             let endpoint = "";
-            if (type === "PO") {
-                const rateParam = rateOption ? 1 : 0;
-                endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_all_pos?project=${projectId}&with_rate=${rateParam}`;
-            } else {
-                endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_all_wos?project=${projectId}`;
+            let fileName = "";
+
+            switch (type) {
+                case "PO":
+                    const rateParam = options?.withRate ? 1 : 0;
+                    endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_all_pos?project=${projectId}&with_rate=${rateParam}`;
+                    fileName = `${projectName || projectId}_All_POs.pdf`;
+                    break;
+                case "WO":
+                    endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_all_wos?project=${projectId}`;
+                    fileName = `${projectName || projectId}_All_WOs.pdf`;
+                    break;
+                case "Invoice":
+                    const invType = options?.invoiceType || invoiceType;
+                    endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_project_attachments?project=${projectId}&doc_type=${invType}`;
+                    fileName = `${projectName || projectId}_${invType.replace(/ /g, "_")}.pdf`;
+                    break;
+                case "DC":
+                    endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_project_attachments?project=${projectId}&doc_type=DC`;
+                    fileName = `${projectName || projectId}_Delivery_Challans.pdf`;
+                    break;
+                case "MIR":
+                    endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_project_attachments?project=${projectId}&doc_type=MIR`;
+                    fileName = `${projectName || projectId}_Material_Inspection_Reports.pdf`;
+                    break;
             }
 
             const response = await fetch(endpoint);
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.message || "Failed to generate PDF");
+                throw new Error(errorData.message || `Failed to generate ${label} PDF`);
             }
 
             const blob = await response.blob();
             const downloadUrl = window.URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = downloadUrl;
-            a.download = `${projectName || projectId}_All_${label}.pdf`;
+            a.download = fileName;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -59,77 +94,12 @@ export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
 
             toast({
                 title: "Success",
-                description: "PDF downloaded successfully.",
+                description: `${label} downloaded successfully.`,
                 variant: "success",
             });
 
         } catch (error: any) {
-            console.error("Bulk download error:", error);
-            toast({
-                title: "Error",
-                description: error.message || "Something went wrong.",
-                variant: "destructive",
-            });
-        } finally {
-            setLoading(false);
-            setShowProgress(false);
-            if (socket) {
-                socket.off("bulk_download_progress");
-            }
-        }
-    };
-
-
-    const [showInvoiceDialog, setShowInvoiceDialog] = useState(false);
-    const [invoiceType, setInvoiceType] = useState<string>("All Invoices");
-
-    const initiateInvoiceDownload = () => {
-        setShowInvoiceDialog(true);
-        setInvoiceType("All Invoices");
-    };
-
-    const handleInvoiceDownload = async () => {
-        try {
-            setShowInvoiceDialog(false);
-            setLoading(true);
-            setShowProgress(true);
-            setProgress(0);
-            setProgressMessage(`Starting ${invoiceType} download...`);
-
-            if (socket) {
-                socket.on("bulk_download_progress", (data: any) => {
-                    if (data.progress) setProgress(data.progress);
-                    if (data.message) setProgressMessage(data.message);
-                });
-            }
-
-            const endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_all_invoices?project=${projectId}&invoice_type=${invoiceType}`;
-            
-            const response = await fetch(endpoint);
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.message || "Failed to generate Invoice PDF");
-            }
-
-            const blob = await response.blob();
-            const downloadUrl = window.URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = downloadUrl;
-            a.download = `${projectName || projectId}_${invoiceType.replace(/ /g, "_")}.pdf`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            window.URL.revokeObjectURL(downloadUrl);
-
-            toast({
-                title: "Success",
-                description: `${invoiceType} downloaded successfully.`,
-                variant: "success",
-            });
-
-        } catch (error: any) {
-            console.error("Bulk invoice download error:", error);
+            console.error(`Bulk ${label} download error:`, error);
             toast({
                 title: "Error",
                 description: error.message || "Something went wrong.",
@@ -155,12 +125,11 @@ export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
         withRate,
         setWithRate,
         initiatePODownload,
-        handleDownload,
         showInvoiceDialog,
         setShowInvoiceDialog,
         invoiceType,
         setInvoiceType,
         initiateInvoiceDownload,
-        handleInvoiceDownload
+        handleBulkDownload
     };
 };
