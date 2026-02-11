@@ -84,7 +84,7 @@
   "margin_top": 15.0,
   "modified": "2026-02-10 13:17:42.202746",
   "module": "Nirmaan Stack",
-  "name": "PO Invoice",
+  "name": "PO Orders",
   "page_number": "Hide",
   "pdf_generator": "wkhtmltopdf",
   "print_format_builder": 0,
