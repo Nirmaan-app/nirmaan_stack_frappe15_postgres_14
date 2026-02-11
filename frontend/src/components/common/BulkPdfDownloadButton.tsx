@@ -11,9 +11,10 @@ import { useBulkPdfDownload } from "@/hooks/useBulkPdfDownload";
 
 interface BulkPdfDownloadButtonProps {
   projectId: string;
+  projectName?: string;
 }
 
-export const BulkPdfDownloadButton = ({ projectId }: BulkPdfDownloadButtonProps) => {
+export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloadButtonProps) => {
   const {
     loading,
     showProgress,
@@ -25,8 +26,14 @@ export const BulkPdfDownloadButton = ({ projectId }: BulkPdfDownloadButtonProps)
     withRate,
     setWithRate,
     initiatePODownload,
-    handleDownload
-  } = useBulkPdfDownload(projectId);
+    handleDownload,
+    showInvoiceDialog,
+    setShowInvoiceDialog,
+    invoiceType,
+    setInvoiceType,
+    initiateInvoiceDownload,
+    handleInvoiceDownload
+  } = useBulkPdfDownload(projectId, projectName);
 
   return (
     <>
@@ -45,6 +52,10 @@ export const BulkPdfDownloadButton = ({ projectId }: BulkPdfDownloadButtonProps)
           <DropdownMenuItem onClick={() => handleDownload("WO", "Work Orders")} className="cursor-pointer">
             <Download className="mr-2 h-4 w-4" />
             <span>Download All WOs</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={initiateInvoiceDownload} className="cursor-pointer">
+            <Download className="mr-2 h-4 w-4" />
+            <span>Download All Invoices</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -92,24 +103,56 @@ export const BulkPdfDownloadButton = ({ projectId }: BulkPdfDownloadButtonProps)
         </DialogContent>
       </Dialog>
 
+      {/* Invoice Selection Dialog */}
+      <Dialog open={showInvoiceDialog} onOpenChange={setShowInvoiceDialog}>
+        <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+                <DialogTitle>Select Invoice Type</DialogTitle>
+                <DialogDescription>
+                    Choose which invoices to download.
+                </DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-col space-y-4 py-4">
+                {["PO Invoices", "WO Invoices", "All Invoices"].map((type) => (
+                    <div key={type} className="flex items-center space-x-2">
+                        <input
+                            type="radio"
+                            id={type}
+                            name="invoiceType"
+                            checked={invoiceType === type}
+                            onChange={() => setInvoiceType(type)}
+                            className="accent-primary h-4 w-4"
+                        />
+                         <label htmlFor={type} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                            {type}
+                        </label>
+                    </div>
+                 ))}
+                <Button onClick={handleInvoiceDownload} className="w-full mt-4">
+                    Generate Invoices PDF
+                </Button>
+            </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Progress Dialog */}
       <Dialog open={showProgress} onOpenChange={setShowProgress}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader>
+            <DialogHeader>
             <DialogTitle>Generating PDF</DialogTitle>
             <DialogDescription>
-              Please wait while we gather and merge your documents.
+                Please wait while we gather and merge your documents.
             </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col items-center justify-center space-y-4 py-4">
-             <div className="w-full bg-secondary h-4 rounded-full overflow-hidden">
+            </DialogHeader>
+            <div className="flex flex-col items-center justify-center space-y-4 py-4">
+                <div className="w-full bg-secondary h-4 rounded-full overflow-hidden">
                 <div 
                     className="bg-primary h-full transition-all duration-300 ease-in-out" 
                     style={{ width: `${progress}%` }}
                 />
-             </div>
-             <p className="text-sm text-muted-foreground">{progress}% - {progressMessage}</p>
-          </div>
+                </div>
+                <p className="text-sm text-muted-foreground">{progress}% - {progressMessage}</p>
+            </div>
         </DialogContent>
       </Dialog>
     </>

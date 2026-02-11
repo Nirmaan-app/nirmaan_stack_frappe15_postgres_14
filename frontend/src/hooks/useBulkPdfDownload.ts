@@ -2,7 +2,7 @@ import { useState, useContext } from "react";
 import { useToast } from "@/components/ui/use-toast";
 import { FrappeContext, FrappeConfig } from "frappe-react-sdk";
 
-export const useBulkPdfDownload = (projectId: string) => {
+export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
     const { toast } = useToast();
     const { socket } = useContext(FrappeContext) as FrappeConfig;
     const [loading, setLoading] = useState(false);
@@ -51,7 +51,7 @@ export const useBulkPdfDownload = (projectId: string) => {
             const downloadUrl = window.URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = downloadUrl;
-            a.download = `${projectId}_All_${label}.pdf`;
+            a.download = `${projectName || projectId}_All_${label}.pdf`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -79,6 +79,71 @@ export const useBulkPdfDownload = (projectId: string) => {
         }
     };
 
+
+    const [showInvoiceDialog, setShowInvoiceDialog] = useState(false);
+    const [invoiceType, setInvoiceType] = useState<string>("All Invoices");
+
+    const initiateInvoiceDownload = () => {
+        setShowInvoiceDialog(true);
+        setInvoiceType("All Invoices");
+    };
+
+    const handleInvoiceDownload = async () => {
+        try {
+            setShowInvoiceDialog(false);
+            setLoading(true);
+            setShowProgress(true);
+            setProgress(0);
+            setProgressMessage(`Starting ${invoiceType} download...`);
+
+            if (socket) {
+                socket.on("bulk_download_progress", (data: any) => {
+                    if (data.progress) setProgress(data.progress);
+                    if (data.message) setProgressMessage(data.message);
+                });
+            }
+
+            const endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_all_invoices?project=${projectId}&invoice_type=${invoiceType}`;
+            
+            const response = await fetch(endpoint);
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.message || "Failed to generate Invoice PDF");
+            }
+
+            const blob = await response.blob();
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = downloadUrl;
+            a.download = `${projectName || projectId}_${invoiceType.replace(/ /g, "_")}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(downloadUrl);
+
+            toast({
+                title: "Success",
+                description: `${invoiceType} downloaded successfully.`,
+                variant: "success",
+            });
+
+        } catch (error: any) {
+            console.error("Bulk invoice download error:", error);
+            toast({
+                title: "Error",
+                description: error.message || "Something went wrong.",
+                variant: "destructive",
+            });
+        } finally {
+            setLoading(false);
+            setShowProgress(false);
+            if (socket) {
+                socket.off("bulk_download_progress");
+            }
+        }
+    };
+
     return {
         loading,
         showProgress,
@@ -90,6 +155,12 @@ export const useBulkPdfDownload = (projectId: string) => {
         withRate,
         setWithRate,
         initiatePODownload,
-        handleDownload
+        handleDownload,
+        showInvoiceDialog,
+        setShowInvoiceDialog,
+        invoiceType,
+        setInvoiceType,
+        initiateInvoiceDownload,
+        handleInvoiceDownload
     };
 };

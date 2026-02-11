@@ -272,7 +272,10 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
               <p className="text-2xl">Project Details</p>
               
               <div className="flex items-center gap-2">
-                <BulkPdfDownloadButton projectId={projectData.name} />
+                <BulkPdfDownloadButton 
+                  projectId={projectData.name} 
+                  projectName={projectData.project_name} 
+                />
                 {role !== "Nirmaan Accountant Profile" && (
                   <Button onClick={() => navigate("add-estimates")}>
                     <CirclePlus className="h-4 w-4 mr-2" /> Add Project
