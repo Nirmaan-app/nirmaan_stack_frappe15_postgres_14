@@ -349,7 +349,8 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                     deliveryDate: "",
                     isCritical: assocTasks.length > 0 || isLocal,
                     category: assocTasks.length > 0 ? assocTasks[0].category : (isLocal ? selectedCategory : undefined),
-                    task: assocTasks.length > 0 ? assocTasks[0].item_name : (isLocal ? selectedTaskDoc?.item_name : undefined)
+                    task: assocTasks.length > 0 ? assocTasks[0].item_name : (isLocal ? selectedTaskDoc?.item_name : undefined),
+                    subCategory: assocTasks.length > 0 ? assocTasks[0].sub_category : (isLocal ? selectedTaskDoc?.sub_category : undefined)
                 };
             });
             setReviewPlans(plans);
@@ -377,7 +378,8 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
                     deliveryDate: "",
                     isCritical: assocTasks.length > 0 || isLocal,
                     category: assocTasks.length > 0 ? assocTasks[0].category : (isLocal ? selectedCategory : undefined),
-                    task: assocTasks.length > 0 ? assocTasks[0].item_name : (isLocal ? selectedTaskDoc?.item_name : undefined)
+                    task: assocTasks.length > 0 ? assocTasks[0].item_name : (isLocal ? selectedTaskDoc?.item_name : undefined),
+                    subCategory: assocTasks.length > 0 ? assocTasks[0].sub_category : (isLocal ? selectedTaskDoc?.sub_category : undefined)
                 };
             });
             setReviewPlans(plans);
@@ -400,13 +402,22 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
             }));
             
             try {
+                // Failsafe: if subCategory is missing but we have a task name, try to find it
+                let finalSubCategory = plan.subCategory;
+                if (!finalSubCategory && plan.task && allTasks.length > 0) {
+                     const foundTask = allTasks.find((t: any) => t.item_name === plan.task && (!plan.category || t.critical_po_category === plan.category));
+                     if (foundTask) {
+                         finalSubCategory = foundTask.sub_category;
+                     }
+                }
+
                 await createDoc("Material Delivery Plan", {
                     project: projectId,
                     po_link: plan.poName,
                     package_name: "", // V2: Not used
                     critical_po_category: plan.isCritical ? plan.category : null,
                     critical_po_task: plan.isCritical ? plan.task : null,
-                    critical_po_sub_category: plan.isCritical ? plan.subCategory : null,
+                    critical_po_sub_category: plan.isCritical ? finalSubCategory : null,
                     delivery_date: plan.deliveryDate,
                     po_type: "Existing PO",
                     mp_items: JSON.stringify({ list: minimalItems })

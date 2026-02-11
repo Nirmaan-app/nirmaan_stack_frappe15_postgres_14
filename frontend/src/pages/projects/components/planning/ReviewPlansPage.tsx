@@ -137,7 +137,8 @@ export const ReviewPlansPage: React.FC<ReviewPlansPageProps> = ({
             selectedItems: new Set(), // Reset selection as items changed
             isCritical: isCritical,
             category: assocTasks.length > 0 ? assocTasks[0].category : ((isLocal || isFallback) ? categoryName : undefined),
-            task: assocTasks.length > 0 ? assocTasks[0].item_name : ((isLocal || isFallback) ? taskName : undefined)
+            task: assocTasks.length > 0 ? assocTasks[0].item_name : ((isLocal || isFallback) ? taskName : undefined),
+            subCategory: assocTasks.length > 0 ? assocTasks[0].sub_category : ((isLocal || isFallback) ? allTasks.find(t => t.item_name === taskName)?.sub_category : undefined)
         };
         
         onPlansChange(updatedPlans);
