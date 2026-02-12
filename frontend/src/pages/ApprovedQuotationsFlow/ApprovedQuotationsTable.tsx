@@ -401,7 +401,7 @@ export default function ApprovedQuotationsTable({
           return row.original.item_id ? (
             <div className="truncate overflow-hidden cursor-pointer" title={itemName}>
               <Link
-                className="text-blue-600 hover:underline font-medium text-xs"
+                className="text-blue-600 hover:underline font-medium text-[14px]"
                 to={`/products/${row.original.item_id}?unit=${row.original.unit}?make=${row.original.make}`}
               >
                 {truncated}
@@ -409,7 +409,7 @@ export default function ApprovedQuotationsTable({
             </div>
           ) : (
             <div
-              className="font-medium truncate overflow-hidden text-red-600 text-xs"
+              className="font-medium truncate overflow-hidden text-red-600 text-[14px]"
               title={itemName}
             >
               {truncated}
@@ -579,7 +579,7 @@ export default function ApprovedQuotationsTable({
     }, [productId, selectedItems, itemNameToNamesMap]),
   });
 
-  const { facetOptions: projectFacets, isLoading: projectFacetsLoading } =
+  const { facetOptions: POFacets, isLoading: POFacetsLoading } =
     useFacetValues({
       doctype: APPROVED_QUOTATION_DOCTYPE,
       field: "procurement_order",
@@ -646,23 +646,14 @@ export default function ApprovedQuotationsTable({
     });
 
   /* --- Context-Aware Facet Logic (Client-Side) --- */
-  const projectFacetOptionsMapped = useMemo(() => {
-    return projectFacets
-      .map((f: { label: string; value: string }) => ({
-        label: poProjectMap[f.value] || f.value,
-        value: f.value,
-      }))
-      .sort((a: { label: string }, b: { label: string }) =>
-        a.label.localeCompare(b.label)
-      );
-  }, [projectFacets, poProjectMap]);
+
 
   const facetFilterOptions = useMemo(
     () => ({
       procurement_order: {
-        title: "Project",
-        options: projectFacetOptionsMapped,
-        isLoading: projectFacetsLoading,
+        title: "PO #",
+        options: POFacets,
+        isLoading: POFacetsLoading,
       },
       vendor: {
         title: "Vendor",
@@ -676,8 +667,8 @@ export default function ApprovedQuotationsTable({
       },
     }),
     [
-      projectFacetOptionsMapped,
-      projectFacetsLoading,
+      POFacets,
+      POFacetsLoading,
       vendorFacets,
       vendorFacetsLoading,
       unitFacets,
