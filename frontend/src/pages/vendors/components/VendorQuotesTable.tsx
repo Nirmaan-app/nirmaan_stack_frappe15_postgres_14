@@ -17,6 +17,11 @@ interface VendorQuotesTableProps {
   vendorId: string;
 }
 
+interface User {
+  name: string;
+  full_name: string;
+}
+
 export const VendorQuotesTable: React.FC<VendorQuotesTableProps> = ({ vendorId }) => {
   // Fetch projects for name lookup
   const { data: projectsData, isLoading: projectsLoading } = useFrappeGetDocList<Projects>(
@@ -28,11 +33,27 @@ export const VendorQuotesTable: React.FC<VendorQuotesTableProps> = ({ vendorId }
     "projects_lookup_for_vendor_quotes"
   );
 
+  // Fetch users for 'Created By' lookup
+  const { data: usersData, isLoading: usersLoading } = useFrappeGetDocList<User>(
+    "User",
+    {
+      fields: ["name", "full_name"],
+      limit: 0
+    },
+    "users_lookup_for_vendor_quotes"
+  );
+
   const projectMap = useMemo(() => {
     const map = new Map<string, string>();
     projectsData?.forEach(p => map.set(p.name, p.project_name));
     return map;
   }, [projectsData]);
+
+  const userMap = useMemo(() => {
+    const map = new Map<string, string>();
+    usersData?.forEach(u => map.set(u.name, u.full_name));
+    return map;
+  }, [usersData]);
 
   const staticFilters = useMemo(() => {
     if (!vendorId) return [];
@@ -50,6 +71,7 @@ export const VendorQuotesTable: React.FC<VendorQuotesTableProps> = ({ vendorId }
       "creation",
       "associated_docname",
       "project",
+      "owner",
       "attachment_type"
     ],
     []
@@ -75,12 +97,27 @@ export const VendorQuotesTable: React.FC<VendorQuotesTableProps> = ({ vendorId }
   const columns = useMemo<ColumnDef<NirmaanAttachment>[]>(
     () => [
       {
+        accessorKey: "owner",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Created By" />
+        ),
+        cell: ({ row }) => {
+          const ownerId = row.getValue<string>("owner");
+          return (
+            <div className="font-medium text-xs truncate max-w-[150px]" title={userMap.get(ownerId) || ownerId}>
+              {userMap.get(ownerId) || ownerId || "--"}
+            </div>
+          );
+        },
+        size: 150,
+      },
+      {
         accessorKey: "creation",
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Date Uploaded" />
         ),
         cell: ({ row }) => (
-          <div className="font-medium whitespace-nowrap text-xs text-muted-foreground">
+          <div className="font-medium whitespace-nowrap text-xs text-muted-foreground ">
             {formatDate(row.getValue("creation"))}
           </div>
         ),
@@ -113,6 +150,7 @@ export const VendorQuotesTable: React.FC<VendorQuotesTableProps> = ({ vendorId }
         },
         size: 200,
       },
+
       {
         id: "actions",
         header: "Actions",
@@ -124,14 +162,13 @@ export const VendorQuotesTable: React.FC<VendorQuotesTableProps> = ({ vendorId }
           return (
             <div className="flex items-center gap-2">
               <Button
-                variant="ghost"
+                variant="outline"
                 size="sm"
-                className="h-8 flex items-center gap-2 px-2 hover:bg-blue-50 hover:text-blue-700"
+                className="h-8 text-xs text-blue-700  border-blue-200 shadow-sm hover:bg-blue-100 hover:text-blue-800 hover:border-blue-300 transition-colors"
                 onClick={() => window.open(`${SITEURL}${url}`, "_blank")}
                 title={`View ${fileName}`}
               >
-                <Eye className="h-4 w-4" />
-                <span className="text-xs font-medium max-sm:hidden">View</span>
+                <Eye className="mr-1 h-3.5 w-3.5" /> View
               </Button>
             </div>
           );
@@ -139,7 +176,7 @@ export const VendorQuotesTable: React.FC<VendorQuotesTableProps> = ({ vendorId }
         size: 100,
       },
     ],
-    [projectMap]
+    [projectMap, userMap]
   );
 
   const {
@@ -175,6 +212,28 @@ export const VendorQuotesTable: React.FC<VendorQuotesTableProps> = ({ vendorId }
       enabled: true,
     });
 
+  const { facetOptions: ownerFacetOptions, isLoading: isOwnerFacetLoading } =
+    useFacetValues({
+      doctype: "Nirmaan Attachments",
+      field: "owner",
+      currentFilters: columnFilters,
+      searchTerm: searchTerm,
+      selectedSearchField: selectedSearchField,
+      additionalFilters: staticFilters,
+      enabled: true,
+    });
+
+  const { facetOptions: prFacetOptions, isLoading: isPrFacetLoading } =
+    useFacetValues({
+      doctype: "Nirmaan Attachments",
+      field: "associated_docname",
+      currentFilters: columnFilters,
+      searchTerm: searchTerm,
+      selectedSearchField: selectedSearchField,
+      additionalFilters: staticFilters,
+      enabled: true,
+    });
+
   const facetFilterOptions = useMemo(
     () => ({
       project: {
@@ -196,9 +255,33 @@ export const VendorQuotesTable: React.FC<VendorQuotesTableProps> = ({ vendorId }
           };
         }),
         isLoading: isProjectFacetLoading || projectsLoading,
+      },
+      owner: {
+        title: "Created By",
+        options: ownerFacetOptions.map(opt => {
+          const match = opt.label.match(/(.*) \((\d+)\)$/);
+          if (match) {
+            const userId = match[1];
+            const count = match[2];
+            return {
+              ...opt,
+              label: `${userMap.get(userId) || userId} (${count})`
+            };
+          }
+          return {
+            ...opt,
+            label: userMap.get(opt.value) || opt.label
+          };
+        }),
+        isLoading: isOwnerFacetLoading || usersLoading,
+      },
+      associated_docname: {
+        title: "PR ID",
+        options: prFacetOptions,
+        isLoading: isPrFacetLoading,
       }
     }),
-    [projectFacetOptions, isProjectFacetLoading, projectsLoading, projectMap]
+    [projectFacetOptions, isProjectFacetLoading, projectsLoading, projectMap, ownerFacetOptions, isOwnerFacetLoading, usersLoading, userMap, prFacetOptions, isPrFacetLoading]
   );
 
   if (tableError) return <AlertDestructive error={tableError} />;
@@ -207,7 +290,7 @@ export const VendorQuotesTable: React.FC<VendorQuotesTableProps> = ({ vendorId }
     <DataTable<NirmaanAttachment>
       table={table}
       columns={columns}
-      isLoading={tableLoading || projectsLoading}
+      isLoading={tableLoading || projectsLoading || usersLoading}
       totalCount={totalCount}
       searchFieldOptions={searchableFields}
       selectedSearchField={selectedSearchField}
