@@ -89,7 +89,7 @@ export const CustomAttachment = React.forwardRef<
   }, [preview]);
 
   return (
-    <div className={cn("space-y-2 w-full", className)}>
+    <div className={cn("space-y-2 w-full overflow-hidden", className)}>
       <label
         htmlFor={inputId}
         className={cn(
@@ -123,7 +123,7 @@ export const CustomAttachment = React.forwardRef<
               target="_blank"
               rel="noopener noreferrer"
               className={cn(
-                "text-sm truncate max-w-[150px] hover:underline",
+                "text-sm truncate hover:underline",
                 preview ? "text-primary" : "text-muted-foreground"
               )}
               aria-label={`View ${selectedFile.name}`}

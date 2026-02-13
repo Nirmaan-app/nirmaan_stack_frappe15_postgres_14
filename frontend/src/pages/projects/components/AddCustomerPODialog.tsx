@@ -370,10 +370,18 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { toast } from "@/components/ui/use-toast";
 import { useFrappePostCall, useFrappeFileUpload } from "frappe-react-sdk"; 
-import { CirclePlus, Loader2 } from "lucide-react";
+import { CirclePlus, Loader2, Trash2, Plus, Pencil } from "lucide-react";
 import React, { useCallback, useState, ChangeEvent, useMemo } from "react";
+
+// Structured payment term type
+export interface PaymentTerm {
+    label: string;
+    percentage: number;
+    description: string;
+}
 
 // Define the interface for a single row in the 'customer_po_details' child table
 export interface CustomerPODetail {
@@ -405,14 +413,16 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
     
     // State for Link/Attachment choice - Default to 'link' for initial form state
     const [linkOrAttachmentChoice, setLinkOrAttachmentChoice] = useState<LinkAttachmentChoice>('link');
+
+    // Payment terms dynamic rows state
+    const [paymentTerms, setPaymentTerms] = useState<PaymentTerm[]>([]);
     
-    const [formData, setFormData] = useState<Omit<CustomerPODetail, 'name' | 'idx' | 'customer_po_attachment'> & { file: File | null, customer_po_attachment: string }>({
+    const [formData, setFormData] = useState<Omit<CustomerPODetail, 'name' | 'idx' | 'customer_po_attachment' | 'customer_po_payment_terms'> & { file: File | null, customer_po_attachment: string }>({
         customer_po_number: '',
         customer_po_value_inctax: 0,
         customer_po_value_exctax: 0,
         customer_po_link: '',
-        customer_po_payment_terms: '',
-        customer_po_creation_date: new Date().toISOString().split('T')[0], // Default to today's date
+        customer_po_creation_date: new Date().toISOString().split('T')[0],
 
         file: null,
         customer_po_attachment: '', 
@@ -455,18 +465,35 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
         }));
     }, []);
 
+    // Payment term: new term input state (always visible at bottom)
+    const [newTerm, setNewTerm] = useState<PaymentTerm>({ label: '', percentage: 0, description: '' });
+    const [isEditingTerm, setIsEditingTerm] = useState(false);
+
+    const handleAddTerm = useCallback(() => {
+        if (!newTerm.label.trim()) return; // at least label required
+        setPaymentTerms(prev => [...prev, { ...newTerm }]);
+        setNewTerm({ label: '', percentage: 0, description: '' }); // reset input for next
+        setIsEditingTerm(false);
+    }, [newTerm]);
+
+    const removePaymentTerm = useCallback((index: number) => {
+        setPaymentTerms(prev => prev.filter((_, i) => i !== index));
+    }, []);
+
     const resetForm = useCallback(() => {
         setFormData({
             customer_po_number: '',
             customer_po_value_inctax: 0,
             customer_po_value_exctax: 0,
             customer_po_link: '',
-            customer_po_payment_terms: '',
-            customer_po_creation_date: new Date().toISOString().split('T')[0], // Reset to today's 
+            customer_po_creation_date: new Date().toISOString().split('T')[0],
             file: null,
             customer_po_attachment: '',
         });
-        setLinkOrAttachmentChoice('link'); // Reset to default
+        setPaymentTerms([]);
+        setNewTerm({ label: '', percentage: 0, description: '' });
+        setIsEditingTerm(false);
+        setLinkOrAttachmentChoice('link');
     }, []);
 
     const isLinkAttachmentValid = useMemo(() => {
@@ -533,12 +560,15 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
         }
         
         // 2. Prepare data for the Custom API call
+        // Stringify payment terms array to JSON for storage in Long Text field
+        const paymentTermsJson = paymentTerms.length > 0 ? JSON.stringify(paymentTerms) : '';
+
         const newPODetail: Omit<CustomerPODetail, 'name' | 'idx'> = {
             customer_po_number: formData.customer_po_number,
             customer_po_value_inctax: formData.customer_po_value_inctax,
             customer_po_value_exctax: formData.customer_po_value_exctax,
-            customer_po_payment_terms: formData.customer_po_payment_terms,
-            customer_po_creation_date: formData.customer_po_creation_date, // NEW FIELD
+            customer_po_payment_terms: paymentTermsJson,
+            customer_po_creation_date: formData.customer_po_creation_date,
             
             // Conditionally set link or attachment
             customer_po_link: linkOrAttachmentChoice === 'link' ? formData.customer_po_link : '',
@@ -584,7 +614,7 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
                     <CirclePlus className="h-4 w-4 mr-2" /> Add Customer PO
                 </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[600px]">
+            <DialogContent className="sm:max-w-[600px] max-h-[85vh] overflow-y-auto overflow-x-hidden">
                 <DialogHeader>
                     <DialogTitle className="text-xl font-semibold mb-4">
                         Add Customer Purchase Order
@@ -594,7 +624,7 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
                     {/* Basic Fields */}
                     <div className="grid grid-cols-1 gap-4">
                         <div className="space-y-2">
-                            <Label htmlFor="customer_po_number">PO Number*</Label>
+                            <Label htmlFor="customer_po_number">PO Number <span className="text-red-500">*</span></Label>
                             <Input
                                 id="customer_po_number"
                                 value={formData.customer_po_number}
@@ -604,7 +634,7 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
                         </div>
                     </div>
                     <div className="space-y-2">
-                            <Label htmlFor="customer_po_creation_date">PO Date*</Label>
+                            <Label htmlFor="customer_po_creation_date">PO Date <span className="text-red-500">*</span></Label>
                             <Input
                                 id="customer_po_creation_date"
                                 type="date"
@@ -615,7 +645,7 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
                         </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
-                            <Label htmlFor="customer_po_value_inctax">PO Value (Incl. Tax)*</Label>
+                            <Label htmlFor="customer_po_value_inctax">PO Value (Incl. Tax) <span className="text-red-500">*</span></Label>
                             <Input
                                 id="customer_po_value_inctax"
                                 type="number"
@@ -640,7 +670,7 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
 
                     {/* Radio Button Choice for Link or Attachment */}
                     <div className="space-y-2 border p-4 rounded-md">
-                        <Label className="font-medium">PO Source* (Link or Attachment)</Label>
+                        <Label className="font-medium">PO Source <span className="text-red-500">*</span> (Link or Attachment)</Label>
                         <div className="flex gap-6">
                             <div className="flex items-center space-x-2">
                                 <input
@@ -671,7 +701,7 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
                     {linkOrAttachmentChoice === 'link' && (
                         <div className="grid grid-cols-1 gap-4">
                             <div className="space-y-2">
-                                <Label htmlFor="customer_po_link">PO Link*</Label>
+                                <Label htmlFor="customer_po_link">PO Link <span className="text-red-500">*</span></Label>
                                 <Input
                                     id="customer_po_link"
                                     type="url"
@@ -684,34 +714,106 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
                     )}
                     
                     {linkOrAttachmentChoice === 'attachment' && (
-                        <div className="grid grid-cols-1 gap-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="customer_po_attachment">PO Attachment (PDF/Image)*</Label>
-                                <Input
-                                    id="customer_po_attachment"
-                                    type="file"
-                                    onChange={handleFileChange}
-                                    accept=".pdf,image/*"
-                                    // Required attribute is now handled by isFormValid check
-                                />
-                                <p className="text-xs text-gray-500 mt-1">
-                                    {formData.file ? `Selected: ${formData.file.name}` : 'Select a file.'}
-                                </p>
-                            </div>
+                        <div className="space-y-2">
+                            <Label>PO Attachment (PDF/Image) <span className="text-red-500">*</span></Label>
+                            <CustomAttachment
+                                selectedFile={formData.file}
+                                onFileSelect={(file) => setFormData(prev => ({ ...prev, file }))}
+                                acceptedTypes={["application/pdf", "image/*"]}
+                                label="Upload PO Attachment"
+                            />
                         </div>
                     )}
 
-                    {/* Payment Terms Field */}
-                    <div className="grid grid-cols-1 gap-4">
+                    {/* Payment Terms — Display + Add Flow */}
+                    <div className="space-y-3 border p-4 rounded-md">
+                        <Label className="font-medium">Payment Terms</Label>
+
+                        {/* Existing terms — compact read-only rows */}
+                        {paymentTerms.map((term, index) => (
+                            <div key={index} className="px-3 py-2 border rounded bg-gray-50">
+                                <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-3 text-sm">
+                                        <span className="font-medium">{term.label}</span>
+                                        <span className="text-blue-600 font-mono whitespace-nowrap">{term.percentage}%</span>
+                                    </div>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => {
+                                                setNewTerm({ ...term });
+                                            setIsEditingTerm(true);
+                                                removePaymentTerm(index);
+                                            }}
+                                            className="h-7 w-7 p-0 text-blue-500 hover:text-blue-700"
+                                        >
+                                            <Pencil className="h-3.5 w-3.5" />
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => removePaymentTerm(index)}
+                                            className="h-7 w-7 p-0 text-red-500 hover:text-red-700"
+                                        >
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                        </Button>
+                                    </div>
+                                </div>
+                                {term.description && (
+                                    <p className="text-xs text-muted-foreground mt-1 break-words">{term.description}</p>
+                                )}
+                            </div>
+                        ))}
+
+                        {/* Input row — Label + % on first line, Description on second */}
                         <div className="space-y-2">
-                            <Label htmlFor="customer_po_payment_terms">Payment Terms</Label>
-                            <Textarea
-                                id="customer_po_payment_terms"
-                                value={formData.customer_po_payment_terms}
-                                onChange={handleInputChange}
-                                rows={4}
-                            />
+                            <div className="grid grid-cols-[7fr_3fr] gap-2 items-end">
+                                <div className="space-y-1">
+                                    <Label className="text-xs text-muted-foreground">Label</Label>
+                                    <Input
+                                        placeholder="e.g. Advance"
+                                        value={newTerm.label}
+                                        onChange={(e) => setNewTerm(prev => ({ ...prev, label: e.target.value }))}
+                                        className="h-8 text-sm"
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <Label className="text-xs text-muted-foreground">%</Label>
+                                    <Input
+                                        type="number"
+                                        min={0}
+                                        max={100}
+                                        placeholder="%"
+                                        value={newTerm.percentage || ''}
+                                        onChange={(e) => setNewTerm(prev => ({ ...prev, percentage: parseFloat(e.target.value || '0') }))}
+                                        className="h-8 text-sm"
+                                    />
+                                </div>
+                            </div>
+                            <div className="space-y-1">
+                                <Label className="text-xs text-muted-foreground">Description</Label>
+                                <Textarea
+                                    placeholder="e.g. Upon PO signing"
+                                    value={newTerm.description}
+                                    onChange={(e) => setNewTerm(prev => ({ ...prev, description: e.target.value }))}
+                                    rows={2}
+                                    className="text-sm resize-none"
+                                />
+                            </div>
                         </div>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={handleAddTerm}
+                            disabled={!newTerm.label.trim()}
+                            className="w-full h-8 text-xs border-red-500 text-red-600 bg-transparent hover:bg-red-50"
+                        >
+                            <Plus className="h-3 w-3 mr-1" /> {isEditingTerm ? 'Update Term' : 'Add Term'}
+                        </Button>
                     </div>
 
                     <Button type="submit" disabled={!isFormValid || updateLoading}>
