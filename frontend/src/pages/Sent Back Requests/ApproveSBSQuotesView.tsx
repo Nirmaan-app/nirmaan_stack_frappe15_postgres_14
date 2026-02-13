@@ -118,8 +118,9 @@ export const ApproveSBSQuotesView: React.FC<ApproveSBSQuotesViewProps> = ({
                 dataSource={vendorDataSource}
                 onSelectionChange={handleSelectionChange}
                 paymentTerms={paymentTermsByVendor} // Pass the processed original terms
-        onDynamicTermsChange={setDynamicPaymentTerms} // ✨ PASS the setter down
-
+                onDynamicTermsChange={setDynamicPaymentTerms} // ✨ PASS the setter down
+                prId={sentBackData?.procurement_request}
+                projectId={sentBackData?.project}
             />
 
             {/* Footer Actions */}

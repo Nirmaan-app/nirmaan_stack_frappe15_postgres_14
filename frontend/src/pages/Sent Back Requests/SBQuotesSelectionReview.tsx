@@ -46,6 +46,7 @@ import {
 } from "../ProcurementRequests/VendorQuotesSelection/types/paymentTerms";
 import { getItemListFromDocument } from "../ProcurementRequests/VendorQuotesSelection/types";
 import { useTargetRatesForItems, getTargetRateKey } from "../ProcurementRequests/VendorQuotesSelection/hooks/useTargetRatesForItems";
+import { VendorAttachmentForPR } from "@/components/common/VendorAttachmentForPR";
 
 // --- UI Imports ---
 import {
@@ -436,18 +437,26 @@ export const SBQuotesSelectionReview: React.FC = () => {
                           className="border rounded-md overflow-hidden bg-white shadow-sm"
                         >
                           <AccordionTrigger className="!py-0 !px-0 hover:!no-underline focus-visible:!ring-1 focus-visible:!ring-ring focus-visible:!ring-offset-1 rounded-t-md bg-green-50/50">
-                            <CardHeader className="flex flex-row items-center justify-between p-3 w-full cursor-pointer hover:bg-green-50 transition-colors">
+                            <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between p-3 w-full cursor-pointer hover:bg-green-50 transition-colors gap-3">
                               <div className="flex items-center gap-3">
                                 <CardTitle className="text-base font-medium text-primary">
                                   {getVendorName(vendor)}
                                 </CardTitle>
                               </div>
-                              <div className="flex items-center gap-4">
+                              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-4 w-full sm:w-auto">
+                                <div className="w-full sm:w-auto" onClick={(e) => e.stopPropagation()}>
+                                  <VendorAttachmentForPR
+                                    prId={orderData?.procurement_request || ""}
+                                    vendorId={vendor}
+                                    vendorName={getVendorName(vendor)}
+                                    projectId={orderData?.project}
+                                  />
+                                </div>
                                 <Button
                                   variant={termsForVendor ? "outline" : "default"}
                                   size="sm"
                                   className={cn(
-                                    "h-8 text-xs",
+                                    "h-8 text-xs w-full sm:w-auto",
                                     termsForVendor
                                       ? "text-primary border-primary hover:bg-primary hover:text-white"
                                       : "bg-primary text-white hover:bg-primary/90"
@@ -471,7 +480,7 @@ export const SBQuotesSelectionReview: React.FC = () => {
                                     </>
                                   )}
                                 </Button>
-                                <div className="text-xs text-gray-500">
+                                <div className="text-xs text-gray-500 whitespace-nowrap">
                                    Value: <span className="font-semibold text-gray-900">{formatToRoundedIndianRupee(totalInclGst)}</span>
                                 </div>
                               </div>
