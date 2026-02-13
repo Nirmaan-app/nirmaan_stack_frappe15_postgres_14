@@ -132,6 +132,8 @@ export const ApproveRejectVendorQuotesView: React.FC<
         selection={selectionMap}
         paymentTerms={paymentTermsByVendor} // Pass the processed original terms
         onDynamicTermsChange={setDynamicPaymentTerms} // ✨ PASS the setter down
+        prId={prData?.name}
+        projectId={prData?.project}
       />
 
       {/* ... (Rest of the JSX for actions, comments, dialogs is unchanged) ... */}
