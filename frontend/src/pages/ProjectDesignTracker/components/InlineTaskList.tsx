@@ -71,6 +71,41 @@ export const InlineTaskList: React.FC<InlineTaskListProps> = ({
         return { border: 'border-l-gray-400', bg: 'bg-gray-50/40', badgeBg: 'bg-gray-100', badgeText: 'text-gray-700', badgeBorder: 'border-gray-300' };
     }, [statusStyle]);
 
+    // Color-coded rows based on deadline/submission state
+    const getTaskRowColor = (task: TaskPreviewItem): string => {
+        const status = task.task_status;
+
+        // Priority 1: Submitted 3+ days ago but not approved
+        if (task.last_submitted && status !== 'Approved') {
+            const submitted = new Date(task.last_submitted);
+            submitted.setHours(0, 0, 0, 0);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const diffDays = Math.floor((today.getTime() - submitted.getTime()) / (1000 * 60 * 60 * 24));
+            if (diffDays >= 3) return 'bg-red-100';
+        }
+
+        // Priority 2: Past deadline, not submitted and not approved
+        if (task.deadline && status !== 'Submitted' && status !== 'Approved') {
+            const deadline = new Date(task.deadline);
+            deadline.setHours(0, 0, 0, 0);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            if (deadline < today) return 'bg-red-50';
+        }
+
+        // Priority 3: Deadline is today, not approved
+        if (task.deadline && status !== 'Approved') {
+            const deadline = new Date(task.deadline);
+            deadline.setHours(0, 0, 0, 0);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            if (deadline.getTime() === today.getTime()) return 'bg-yellow-50';
+        }
+
+        return '';
+    };
+
     // Convert TaskPreviewItem to DesignTrackerTask for modal
     const taskForModal: DesignTrackerTask | null = editingTask ? {
         name: editingTask.name,
@@ -86,9 +121,15 @@ export const InlineTaskList: React.FC<InlineTaskListProps> = ({
     const handleTaskSave = async (updatedFields: Record<string, any>) => {
         if (!editingTask) return;
 
+        const fieldsToSend: Record<string, any> = { ...updatedFields };
+
+        // Serialize assigned_designers array for Frappe JSON field
+        if (Array.isArray(updatedFields.assigned_designers)) {
+            fieldsToSend.assigned_designers = JSON.stringify({ list: updatedFields.assigned_designers });
+        }
+
         try {
-            // Update the child table row via parent document
-            await updateDoc('Design Tracker Task', editingTask.name, updatedFields);
+            await updateDoc('Design Tracker Task Child Table', editingTask.name, fieldsToSend);
             toast({ title: "Task Updated", description: "Changes saved successfully." });
             setEditingTask(null);
             onTaskUpdated();
@@ -196,6 +237,9 @@ export const InlineTaskList: React.FC<InlineTaskListProps> = ({
                                         <th className="text-left py-2 px-3 font-medium text-gray-600 text-xs uppercase tracking-wider">
                                             Deadline
                                         </th>
+                                        <th className="text-left py-2 px-3 font-medium text-gray-600 text-xs uppercase tracking-wider">
+                                            Submitted
+                                        </th>
                                         <th className="w-12 py-2 px-3 text-center font-medium text-gray-600 text-xs uppercase tracking-wider">
                                             File
                                         </th>
@@ -205,10 +249,12 @@ export const InlineTaskList: React.FC<InlineTaskListProps> = ({
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
-                                    {tasks.map((task) => (
+                                    {tasks.map((task) => {
+                                        const rowColor = getTaskRowColor(task);
+                                        return (
                                         <tr
                                             key={task.name}
-                                            className="hover:bg-gray-50 transition-colors"
+                                            className={`transition-colors ${rowColor ? `${rowColor} hover:brightness-95` : 'hover:bg-gray-50'}`}
                                             style={{ height: '32px' }}
                                         >
                                             <td
@@ -243,6 +289,12 @@ export const InlineTaskList: React.FC<InlineTaskListProps> = ({
                                             >
                                                 {formatDeadlineShort(task.deadline || '')}
                                             </td>
+                                            <td
+                                                className="py-1.5 px-3 text-gray-600 whitespace-nowrap"
+                                                style={{ fontVariantNumeric: 'tabular-nums' }}
+                                            >
+                                                {formatDeadlineShort(task.last_submitted || '')}
+                                            </td>
                                             <td className="py-1.5 px-3 text-center">
                                                 {task.file_link ? (
                                                     <a
@@ -270,7 +322,8 @@ export const InlineTaskList: React.FC<InlineTaskListProps> = ({
                                                 </button>
                                             </td>
                                         </tr>
-                                    ))}
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>

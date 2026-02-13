@@ -88,6 +88,8 @@ export interface RawCategoryData {
     tasks: TaskTemplate[];
 }
 
+export const UNASSIGNED_SENTINEL = '__unassigned__';
+
 // ==================== Team Summary Types ====================
 
 // Status count map type
@@ -169,6 +171,7 @@ export interface TaskPreviewItem {
     design_category: string;
     task_zone?: string;
     deadline?: string;
+    last_submitted?: string;
     task_status: string;
     task_sub_status?: string;
     assigned_designers?: string; // JSON string containing designer IDs

@@ -1,7 +1,7 @@
 // frontend/src/pages/ProjectDesignTracker/components/TeamPerformanceSummary.tsx
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Users } from 'lucide-react';
+import { ChevronDown, ChevronRight, Users, UserX } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -16,6 +16,7 @@ import { TeamSummaryFilterBar } from './TeamSummaryFilterBar';
 import { getUnifiedStatusStyle } from '../utils';
 import { formatDate } from '@/utils/FormatDate';
 import {
+    UNASSIGNED_SENTINEL,
     TaskPreviewFilter,
     InlineTaskExpansion,
     StatusCountMap,
@@ -185,9 +186,10 @@ const UserRow = React.memo<UserRowProps>(
         const hasProjects = user.projects.length > 0;
         const projectsId = `user-projects-${user.user_id}`;
         const expansionIdBase = `expansion-${user.user_id}`;
+        const isUnassigned = user.user_id === UNASSIGNED_SENTINEL;
 
         return (
-            <tr className="hover:bg-gray-50 transition-colors" style={{ height: '32px' }}>
+            <tr className={`transition-colors ${isUnassigned ? 'bg-amber-50/30 hover:bg-amber-50/50' : 'hover:bg-gray-50'}`} style={{ height: '32px' }}>
                 <td className="py-1 px-3 text-gray-900 text-sm font-medium">
                     <span className="flex items-center gap-1">
                         {hasProjects ? (
@@ -208,10 +210,13 @@ const UserRow = React.memo<UserRowProps>(
                         ) : (
                             <span className="w-5" />
                         )}
-                        <span className="truncate max-w-[150px]" title={user.user_name}>
+                        {isUnassigned && (
+                            <UserX className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                        )}
+                        <span className={`truncate max-w-[150px] ${isUnassigned ? 'text-amber-800 italic' : ''}`} title={user.user_name}>
                             {user.user_name}
                         </span>
-                        {isDesignLead && (
+                        {!isUnassigned && isDesignLead && (
                             <Badge
                                 variant="outline"
                                 className="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium bg-purple-50 text-purple-700 border-purple-200"
@@ -309,7 +314,7 @@ export const TeamPerformanceSummary: React.FC<TeamPerformanceSummaryProps> = ({
     } : null;
 
     // Fetch filtered tasks when inline expansion is open
-    const { tasks, isLoading: isLoadingTasks } = useFilteredTasks(taskFilter);
+    const { tasks, isLoading: isLoadingTasks, refetch: refetchTasks } = useFilteredTasks(taskFilter);
 
     // Handlers
     const toggleUserExpand = useCallback((userId: string) => {
@@ -347,6 +352,12 @@ export const TeamPerformanceSummary: React.FC<TeamPerformanceSummaryProps> = ({
             return newExpansion;
         });
     }, []);
+
+    // Refetch both summary counts and inline task list after an edit
+    const handleTaskUpdated = useCallback(() => {
+        refetch();
+        refetchTasks();
+    }, [refetch, refetchTasks]);
 
     // Derived data
     const teamMembers = summaryData?.summary || [];
@@ -437,7 +448,7 @@ export const TeamPerformanceSummary: React.FC<TeamPerformanceSummaryProps> = ({
                                                         usersList={usersList || []}
                                                         statusOptions={statusOptions}
                                                         subStatusOptions={subStatusOptions}
-                                                        onTaskUpdated={refetch}
+                                                        onTaskUpdated={handleTaskUpdated}
                                                         expansionId={`expansion-${user.user_id}-${project.project_id}`}
                                                     />
                                                 )}
@@ -455,7 +466,7 @@ export const TeamPerformanceSummary: React.FC<TeamPerformanceSummaryProps> = ({
                                         usersList={usersList || []}
                                         statusOptions={statusOptions}
                                         subStatusOptions={subStatusOptions}
-                                        onTaskUpdated={refetch}
+                                        onTaskUpdated={handleTaskUpdated}
                                         expansionId={`expansion-${user.user_id}`}
                                     />
                                 )}

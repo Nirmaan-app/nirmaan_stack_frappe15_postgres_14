@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { useFrappeGetCall } from "frappe-react-sdk";
 import {
+    UNASSIGNED_SENTINEL,
     TaskPreviewFilter,
     TaskPreviewItem,
     TeamSummaryFilters,
@@ -72,6 +73,7 @@ interface UseFilteredTasksReturn {
     tasks: TaskPreviewItem[];
     isLoading: boolean;
     error: Error | null;
+    refetch: () => void;
 }
 
 export const useFilteredTasks = (filter: TaskPreviewFilter | null): UseFilteredTasksReturn => {
@@ -102,7 +104,7 @@ export const useFilteredTasks = (filter: TaskPreviewFilter | null): UseFilteredT
 
     // Conditional fetch: undefined params = disabled (SWR pattern)
     // When cacheKey is null/undefined, useFrappeGetCall won't fetch
-    const { data, isLoading, error } = useFrappeGetCall<{ message: TaskWiseListResponse }>(
+    const { data, isLoading, error, mutate } = useFrappeGetCall<{ message: TaskWiseListResponse }>(
         "nirmaan_stack.api.design_tracker.get_task_wise_list.get_task_wise_list",
         filter
             ? {
@@ -118,6 +120,20 @@ export const useFilteredTasks = (filter: TaskPreviewFilter | null): UseFilteredT
     // Parse the JSON field to extract userIds and match exactly
     const filteredTasks = (data?.message?.data || []).filter((task) => {
         if (!filter) return true;
+
+        // Special case: filter for unassigned tasks
+        if (filter.user_id === UNASSIGNED_SENTINEL) {
+            const raw = task.assigned_designers;
+            if (!raw || raw === '' || raw === '[]' || raw === '{"list":[]}') return true;
+            try {
+                const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                if (Array.isArray(parsed) && parsed.length === 0) return true;
+                if (parsed && typeof parsed === 'object' && Array.isArray(parsed.list) && parsed.list.length === 0) return true;
+            } catch {
+                // If parsing fails, treat as non-empty (assigned)
+            }
+            return false;
+        }
 
         const designerField = task.assigned_designers;
         let userIds: string[] = [];
@@ -157,5 +173,6 @@ export const useFilteredTasks = (filter: TaskPreviewFilter | null): UseFilteredT
         tasks: filteredTasks,
         isLoading,
         error: error instanceof Error ? error : null,
+        refetch: mutate,
     };
 };
