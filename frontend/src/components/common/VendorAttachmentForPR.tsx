@@ -34,6 +34,8 @@ interface VendorAttachmentForPRProps {
   vendorId: string; // This should be the Vendor DocName
   vendorName: string; // Display name
   projectId?: string;
+  onUploadSuccess?: () => void;
+  onDeleteSuccess?: () => void;
 }
 
 export const VendorAttachmentForPR = ({
@@ -41,6 +43,8 @@ export const VendorAttachmentForPR = ({
   vendorId,
   vendorName,
   projectId,
+  onUploadSuccess,
+  onDeleteSuccess,
 }: VendorAttachmentForPRProps) => {
   const [open, setOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -134,6 +138,7 @@ export const VendorAttachmentForPR = ({
 
       setSelectedFile(null);
       mutateAttachments();
+      onUploadSuccess?.();
       setOpen(false); // Close dialog on success
     } catch (error: any) {
       console.error("Upload Error:", error);
@@ -157,6 +162,7 @@ export const VendorAttachmentForPR = ({
         variant: "success",
       });
       mutateAttachments();
+      onDeleteSuccess?.();
     } catch (error: any) {
       console.error("Delete Error:", error);
       toast({

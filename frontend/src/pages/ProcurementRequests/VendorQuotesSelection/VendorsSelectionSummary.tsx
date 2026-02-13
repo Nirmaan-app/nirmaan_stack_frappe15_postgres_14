@@ -13,6 +13,7 @@ import {
   ProcurementRequestItemDetail,
 } from "@/types/NirmaanStack/ProcurementRequests";
 import { VendorAttachmentForPR } from "@/components/common/VendorAttachmentForPR";
+import { VendorQuotesAttachmentSummaryPR } from "@/components/common/VendorQuotesAttachmentSummaryPR";
 import formatToIndianRupee, {
   formatToRoundedIndianRupee,
 } from "@/utils/FormatPrice";
@@ -22,6 +23,7 @@ import {
   useFrappeDocumentEventListener,
   useFrappePostCall,
   useFrappeUpdateDoc,
+  useSWRConfig,
 } from "frappe-react-sdk";
 import memoize from "lodash/memoize";
 import {
@@ -105,6 +107,7 @@ export const VendorsSelectionSummary: React.FC = () => {
     );
 
   const { updateDoc } = useFrappeUpdateDoc();
+  const { mutate } = useSWRConfig();
   const [orderData, setOrderData] = useState<ProcurementRequest | null>(null);
   const [openAccordionItems, setOpenAccordionItems] = useState<string[]>([]);
 
@@ -469,6 +472,8 @@ export const VendorsSelectionSummary: React.FC = () => {
                                 vendorId={vendor} 
                                 vendorName={getVendorName(vendor)} 
                                 projectId={procurement_request?.project}
+                                onUploadSuccess={() => mutate(`vendor_quotes_summary_attachments_${prId}`)}
+                                onDeleteSuccess={() => mutate(`vendor_quotes_summary_attachments_${prId}`)}
                               />
                             </div>
                             <Button
@@ -660,6 +665,12 @@ export const VendorsSelectionSummary: React.FC = () => {
                 </p>
               </div>
             </div>
+
+            <VendorQuotesAttachmentSummaryPR
+              docId={prId || ""}
+              selectedVendorIds={Object.keys(vendorWiseApprovalItems)}
+              className="mt-6 border-slate-200"
+            />
           </div>
         )}
 

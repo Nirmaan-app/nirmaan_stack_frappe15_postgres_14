@@ -41,6 +41,8 @@ interface VendorApprovalTableProps {
   onDynamicTermsChange: (dynamicTerms: DynamicPaymentTerms) => void;
   prId?: string;
   projectId?: string;
+  onUploadSuccess?: () => void;
+  onDeleteSuccess?: () => void;
 }
 
 export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
@@ -51,6 +53,8 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
   onDynamicTermsChange,
   prId,
   projectId,
+  onUploadSuccess,
+  onDeleteSuccess,
 }) => {
   const [openAccordionItems, setOpenAccordionItems] = React.useState<string[]>(
     []
@@ -237,6 +241,8 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                           vendorId={vendorId}
                           vendorName={vendorName}
                           projectId={projectId}
+                          onUploadSuccess={onUploadSuccess}
+                          onDeleteSuccess={onDeleteSuccess}
                         />
                       </div>
                     )}

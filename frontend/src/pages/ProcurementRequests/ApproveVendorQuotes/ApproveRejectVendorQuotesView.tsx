@@ -18,6 +18,9 @@ import {
   ProcurementRequestItemDetail,
 } from "@/types/NirmaanStack/ProcurementRequests";
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
+import { VendorQuotesAttachmentSummaryPR } from "@/components/common/VendorQuotesAttachmentSummaryPR";
+import { PaymentTermMilestone } from "../VendorQuotesSelection/types/paymentTerms";
+import { useSWRConfig } from "frappe-react-sdk";
 
 interface ApproveRejectVendorQuotesViewProps
   extends UseApproveRejectLogicReturn {
@@ -54,6 +57,7 @@ export const ApproveRejectVendorQuotesView: React.FC<
   setDynamicPaymentTerms, // ✨ RECEIVE the setter function
   isCEOHold = false,
 }) => {
+  const { mutate } = useSWRConfig();
   const isCustomPr = !orderData?.work_package;
   const sendBackActionText = isCustomPr ? "Reject" : "Send Back";
   const canPerformActions = selectionMap.size > 0 || isCustomPr;
@@ -134,6 +138,14 @@ export const ApproveRejectVendorQuotesView: React.FC<
         onDynamicTermsChange={setDynamicPaymentTerms} // ✨ PASS the setter down
         prId={prData?.name}
         projectId={prData?.project}
+        onUploadSuccess={() => mutate(`vendor_quotes_summary_attachments_${prData?.name}`)}
+        onDeleteSuccess={() => mutate(`vendor_quotes_summary_attachments_${prData?.name}`)}
+      />
+
+      <VendorQuotesAttachmentSummaryPR
+        docId={prData?.name || ""}
+        selectedVendorIds={Array.from(new Set(vendorDataSource.map(v => v.vendorId)))}
+        className="mt-6 border-slate-200"
       />
 
       {/* ... (Rest of the JSX for actions, comments, dialogs is unchanged) ... */}

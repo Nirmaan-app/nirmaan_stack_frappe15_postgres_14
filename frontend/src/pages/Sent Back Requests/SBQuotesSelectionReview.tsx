@@ -47,6 +47,7 @@ import {
 import { getItemListFromDocument } from "../ProcurementRequests/VendorQuotesSelection/types";
 import { useTargetRatesForItems, getTargetRateKey } from "../ProcurementRequests/VendorQuotesSelection/hooks/useTargetRatesForItems";
 import { VendorAttachmentForPR } from "@/components/common/VendorAttachmentForPR";
+import { VendorQuotesAttachmentSummaryPR } from "@/components/common/VendorQuotesAttachmentSummaryPR";
 
 // --- UI Imports ---
 import {
@@ -450,6 +451,8 @@ export const SBQuotesSelectionReview: React.FC = () => {
                                     vendorId={vendor}
                                     vendorName={getVendorName(vendor)}
                                     projectId={orderData?.project}
+                                    onUploadSuccess={() => mutate(`vendor_quotes_summary_attachments_${orderData?.procurement_request}`)}
+                                    onDeleteSuccess={() => mutate(`vendor_quotes_summary_attachments_${orderData?.procurement_request}`)}
                                   />
                                 </div>
                                 <Button
@@ -647,6 +650,12 @@ export const SBQuotesSelectionReview: React.FC = () => {
                     </p>
                   </div>
                 </div>
+
+                <VendorQuotesAttachmentSummaryPR
+                  docId={orderData?.procurement_request || ""}
+                  selectedVendorIds={Object.keys(vendorWiseApprovalItems)}
+                  className="mt-6 border-slate-200"
+                />
               </div>
             )}
           </div>

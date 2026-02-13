@@ -8,6 +8,9 @@ import { SendToBack, ListChecks } from 'lucide-react';
 import { UseApproveSBSLogicReturn } from './hooks/useApproveSBSLogic'; // Import SB return type
 import { NirmaanComments } from '@/types/NirmaanStack/NirmaanComments'; // Adjust path
 import { VendorApprovalTable } from '../ProcurementRequests/ApproveVendorQuotes/components/VendorApprovalTable';
+import { VendorQuotesAttachmentSummaryPR } from '@/components/common/VendorQuotesAttachmentSummaryPR';
+import { useSWRConfig } from 'frappe-react-sdk';
+import { PaymentTermMilestone } from '../ProcurementRequests/VendorQuotesSelection/types/paymentTerms';
 import { ConfirmationDialog } from '../ProcurementRequests/ApproveVendorQuotes/components/ConfirmationDialog';
 
 // Define props based on the Logic Hook's return type + any extras from container
@@ -38,7 +41,7 @@ export const ApproveSBSQuotesView: React.FC<ApproveSBSQuotesViewProps> = ({
   setDynamicPaymentTerms, // ✨ RECEIVE the setter function
 
 }) => {
-
+    const { mutate } = useSWRConfig()
     // Can only perform actions if editable and selection exists
     const canPerformActions = isSbEditable && selectionMap.size > 0;
   // ✨ --- CORRECTED PAYMENT TERM PARSING AND TRANSFORMATION --- ✨
@@ -68,7 +71,7 @@ export const ApproveSBSQuotesView: React.FC<ApproveSBSQuotesViewProps> = ({
                     
                     if (vendorInfo && vendorInfo.type && Array.isArray(vendorInfo.terms)) {
                         // Map over the original terms array...
-                        transformedTerms[vendorId] = vendorInfo.terms.map(milestone => ({
+                        transformedTerms[vendorId] = vendorInfo.terms.map((milestone: any) => ({
                             // ...spread the original milestone properties...
                             ...milestone,
                             // ...and add the 'type' from the parent vendorInfo object.
@@ -78,7 +81,7 @@ export const ApproveSBSQuotesView: React.FC<ApproveSBSQuotesViewProps> = ({
                 }
             }
             
-            return transformedTerms;
+            return transformedTerms as any;
 
         } catch (e) {
             console.error("Failed to parse or transform payment_terms JSON", e);
@@ -117,10 +120,18 @@ export const ApproveSBSQuotesView: React.FC<ApproveSBSQuotesViewProps> = ({
                 selection={selectionMap}
                 dataSource={vendorDataSource}
                 onSelectionChange={handleSelectionChange}
-                paymentTerms={paymentTermsByVendor} // Pass the processed original terms
+                paymentTerms={paymentTermsByVendor as any} // Pass the processed original terms
                 onDynamicTermsChange={setDynamicPaymentTerms} // ✨ PASS the setter down
                 prId={sentBackData?.procurement_request}
                 projectId={sentBackData?.project}
+                onUploadSuccess={() => mutate(`vendor_quotes_summary_attachments_${sentBackData?.procurement_request}`)}
+                onDeleteSuccess={() => mutate(`vendor_quotes_summary_attachments_${sentBackData?.procurement_request}`)}
+            />
+
+            <VendorQuotesAttachmentSummaryPR
+                docId={sentBackData?.procurement_request || ""}
+                selectedVendorIds={Array.from(new Set(vendorDataSource.map(v => v.vendorId)))}
+                className="mt-6 border-slate-200"
             />
 
             {/* Footer Actions */}
