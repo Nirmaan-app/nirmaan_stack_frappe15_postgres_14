@@ -126,6 +126,7 @@ export const ApproveSBSQuotesView: React.FC<ApproveSBSQuotesViewProps> = ({
                 projectId={sentBackData?.project}
                 onUploadSuccess={() => mutate(`vendor_quotes_summary_attachments_${sentBackData?.procurement_request}`)}
                 onDeleteSuccess={() => mutate(`vendor_quotes_summary_attachments_${sentBackData?.procurement_request}`)}
+                readOnly={true}
             />
 
             <VendorQuotesAttachmentSummaryPR
