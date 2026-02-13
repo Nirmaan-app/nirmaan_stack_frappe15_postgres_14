@@ -85,3 +85,4 @@ nirmaan_stack.patches.v3_0.remove_partially_released_status
 nirmaan_stack.patches.v3_0.populate_critical_po_sub_category
 nirmaan_stack.patches.v3_0.migrate_dc_mir_to_po_delivery_documents
 nirmaan_stack.patches.v3_0.backfill_ceo_hold_by
+nirmaan_stack.patches.v3_0.custom_po_migrate_payment_terms_text_to_json #v1
