@@ -15,6 +15,8 @@ TASK_STATUSES = [
     "Approved"
 ]
 
+UNASSIGNED_SENTINEL = "__unassigned__"
+
 
 def _get_empty_counts():
     """Return a dict with all statuses initialized to 0, plus a total."""
@@ -177,7 +179,7 @@ def get_team_summary(projects=None, deadline_from=None, deadline_to=None):
                 designers = _parse_assigned_designers(task.get("assigned_designers"))
 
                 if not designers:
-                    continue
+                    designers = [UNASSIGNED_SENTINEL]
 
                 # Count this task for each assigned designer
                 for user_id in designers:
@@ -215,7 +217,9 @@ def get_team_summary(projects=None, deadline_from=None, deadline_to=None):
 
     for user_id, projects_dict in user_data.items():
         # Fetch user full name (with caching)
-        if user_id not in user_names_cache:
+        if user_id == UNASSIGNED_SENTINEL:
+            user_name = "Unassigned"
+        elif user_id not in user_names_cache:
             user_name = frappe.db.get_value("User", user_id, "full_name") or user_id
             user_names_cache[user_id] = user_name
         else:
@@ -249,6 +253,6 @@ def get_team_summary(projects=None, deadline_from=None, deadline_to=None):
         })
 
     # 4. Sort users alphabetically by user_name
-    summary.sort(key=lambda x: (x.get("user_name") or "").lower())
+    summary.sort(key=lambda x: (x.get("user_id") == UNASSIGNED_SENTINEL, (x.get("user_name") or "").lower()))
 
     return {"summary": summary}
