@@ -140,6 +140,7 @@ export const ApproveRejectVendorQuotesView: React.FC<
         projectId={prData?.project}
         onUploadSuccess={() => mutate(`vendor_quotes_summary_attachments_${prData?.name}`)}
         onDeleteSuccess={() => mutate(`vendor_quotes_summary_attachments_${prData?.name}`)}
+        readOnly={true}
       />
 
       <VendorQuotesAttachmentSummaryPR

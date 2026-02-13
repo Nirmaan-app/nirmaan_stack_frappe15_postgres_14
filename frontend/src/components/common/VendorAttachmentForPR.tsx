@@ -36,6 +36,7 @@ interface VendorAttachmentForPRProps {
   projectId?: string;
   onUploadSuccess?: () => void;
   onDeleteSuccess?: () => void;
+  readOnly?: boolean;
 }
 
 export const VendorAttachmentForPR = ({
@@ -45,6 +46,7 @@ export const VendorAttachmentForPR = ({
   projectId,
   onUploadSuccess,
   onDeleteSuccess,
+  readOnly = false,
 }: VendorAttachmentForPRProps) => {
   const [open, setOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -234,35 +236,37 @@ export const VendorAttachmentForPR = ({
               </div>
 
               {/* Replace Section */}
-              <div className="pt-2 border-t">
-                <h4 className="text-sm font-medium mb-3">Replace Quote</h4>
-                <div className="flex flex-col gap-3 p-4 border rounded-md bg-slate-50">
-                  <CustomAttachment
-                    selectedFile={selectedFile}
-                    onFileSelect={setSelectedFile}
-                    label="Select New File to Replace"
-                    acceptedTypes={[
-                      "application/pdf",
-                      "image/*",
-                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                      "text/csv",
-                    ]}
-                  />
-                  <div className="flex justify-end">
-                    <Button
-                      size="sm"
-                      onClick={handleUpload}
-                      disabled={!selectedFile || isSubmitting}
-                    >
-                      {isSubmitting ? (
-                        <TailSpin width={20} height={20} color="white" />
-                      ) : (
-                        "Confirm Replacement"
-                      )}
-                    </Button>
+              {!readOnly && (
+                <div className="pt-2 border-t">
+                  <h4 className="text-sm font-medium mb-3">Replace Quote</h4>
+                  <div className="flex flex-col gap-3 p-4 border rounded-md bg-slate-50">
+                    <CustomAttachment
+                      selectedFile={selectedFile}
+                      onFileSelect={setSelectedFile}
+                      label="Select New File to Replace"
+                      acceptedTypes={[
+                        "application/pdf",
+                        "image/*",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        "text/csv",
+                      ]}
+                    />
+                    <div className="flex justify-end">
+                      <Button
+                        size="sm"
+                        onClick={handleUpload}
+                        disabled={!selectedFile || isSubmitting}
+                      >
+                        {isSubmitting ? (
+                          <TailSpin width={20} height={20} color="white" />
+                        ) : (
+                          "Confirm Replacement"
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
           ) : (
             /* Upload Section (Empty State) */

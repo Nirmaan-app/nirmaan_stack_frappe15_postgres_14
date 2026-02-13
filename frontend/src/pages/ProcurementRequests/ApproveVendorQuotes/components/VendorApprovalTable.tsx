@@ -43,6 +43,7 @@ interface VendorApprovalTableProps {
   projectId?: string;
   onUploadSuccess?: () => void;
   onDeleteSuccess?: () => void;
+  readOnly?: boolean;
 }
 
 export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
@@ -55,6 +56,7 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
   projectId,
   onUploadSuccess,
   onDeleteSuccess,
+  readOnly = false,
 }) => {
   const [openAccordionItems, setOpenAccordionItems] = React.useState<string[]>(
     []
@@ -243,6 +245,7 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                           projectId={projectId}
                           onUploadSuccess={onUploadSuccess}
                           onDeleteSuccess={onDeleteSuccess}
+                          readOnly={readOnly}
                         />
                       </div>
                     )}
