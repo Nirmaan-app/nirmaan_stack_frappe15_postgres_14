@@ -11,19 +11,18 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
 import { Items } from "@/types/NirmaanStack/Items";
 import { useFrappeGetDocList } from "frappe-react-sdk";
-import { useNirmaanUnitOptions } from "@/components/helpers/SelectUnit";
 
 interface VendorApprovedQuotesTableProps {
   vendorId: string;
+  vendorName?: string;
   // Pass necessary lookup data as props to avoid re-fetching or prop drilling deeply
 }
 
 export const VendorApprovedQuotesTable: React.FC<
   VendorApprovedQuotesTableProps
-> = ({ vendorId }) => {
+> = ({ vendorId, vendorName }) => {
   // Fetches items list
   const {
-    data: itemsList,
     isLoading: itemsLoading,
     error: itemsError,
   } = useFrappeGetDocList<Items>(
@@ -134,7 +133,7 @@ export const VendorApprovedQuotesTable: React.FC<
         size: 180,
         meta: {
           exportHeaderName: "Quote ID",
-          exportValue: (row) => {
+          exportValue: (row: ApprovedQuotations) => {
             return row.name;
           },
         },
@@ -160,7 +159,7 @@ export const VendorApprovedQuotesTable: React.FC<
         size: 250,
         meta: {
           exportHeaderName: "Item Name",
-          exportValue: (row) => {
+          exportValue: (row: ApprovedQuotations) => {
             return row.item_name;
           },
         },
@@ -178,7 +177,7 @@ export const VendorApprovedQuotesTable: React.FC<
         meta: {
           isNumeric: true,
           exportHeaderName: "Quoted Price",
-          exportValue: (row) => {
+          exportValue: (row: ApprovedQuotations) => {
             return formatToRoundedIndianRupee(row.quote);
           },
         }, // For styling if needed
@@ -195,7 +194,7 @@ export const VendorApprovedQuotesTable: React.FC<
         meta: {
           isNumeric: true,
           exportHeaderName: "Quantity",
-          exportValue: (row) => {
+          exportValue: (row: ApprovedQuotations) => {
             return row.quantity || 1;
           },
         },
@@ -212,7 +211,7 @@ export const VendorApprovedQuotesTable: React.FC<
         size: 100,
         meta: {
           exportHeaderName: "Unit",
-          exportValue: (row) => {
+          exportValue: (row: ApprovedQuotations) => {
             return row.unit;
           },
         },
@@ -228,7 +227,7 @@ export const VendorApprovedQuotesTable: React.FC<
         size: 120,
         meta: {
           exportHeaderName: "Make",
-          exportValue: (row) => {
+          exportValue: (row: ApprovedQuotations) => {
             return row.make || "--";
           },
         },
@@ -243,7 +242,7 @@ export const VendorApprovedQuotesTable: React.FC<
           return poId ? (
             <Link
               className="text-blue-600 hover:underline font-medium"
-              to={`${poId.replaceAll("/", "&=")}`}
+              to={`${poId.replace(/\//g, "&=")}`}
             >
               {" "}
               {/* Adjust PO link */}
@@ -256,7 +255,7 @@ export const VendorApprovedQuotesTable: React.FC<
         size: 180,
         meta: {
           exportHeaderName: "PO #",
-          exportValue: (row) => {
+          exportValue: (row: ApprovedQuotations) => {
             return row.procurement_order;
           },
         },
@@ -275,7 +274,7 @@ export const VendorApprovedQuotesTable: React.FC<
         meta: {
           isDate: true,
           exportHeaderName: "Date Approved",
-          exportValue: (row) => {
+          exportValue: (row: ApprovedQuotations) => {
             return formatDate(row.creation);
           },
         },
@@ -325,6 +324,9 @@ export const VendorApprovedQuotesTable: React.FC<
       dateFilterColumns={["modified", "creation"]}
       showExportButton={true}
       onExport={"default"}
+      exportFileName={
+        vendorName ? `${vendorName}_Approved_Quotes` : "Approved_Quotes"
+      }
     />
   );
 };

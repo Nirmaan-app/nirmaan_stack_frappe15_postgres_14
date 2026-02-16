@@ -54,6 +54,7 @@ const DOCTYPE = "Service Requests";
 
 interface FinalizedSRListProps {
   for_vendor?: string;
+  vendorName?: string; // Vendor Name for meaningful export filename
   urlSyncKeySuffix?: string;
 }
 
@@ -65,6 +66,7 @@ export const SR_GST_OPTIONS_MAP = [
 // --- Component ---
 export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
   for_vendor = undefined,
+  vendorName = undefined,
   urlSyncKeySuffix = "finalized",
 }) => {
   const { role } = useUserData();
@@ -266,7 +268,7 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
         size: 150,
         meta: {
           exportHeaderName: "#WO",
-          exportValue: (row) => row.name,
+          exportValue: (row: ServiceRequests) => row.name,
         },
       },
       {
@@ -282,7 +284,7 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
         size: 150,
         meta: {
           exportHeaderName: "Created on",
-          exportValue: (row) => formatDate(row.creation),
+          exportValue: (row: ServiceRequests) => formatDate(row.creation),
         },
       },
       {
@@ -304,7 +306,7 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
         size: 200,
         meta: {
           exportHeaderName: "Project",
-          exportValue: (row) => {
+          exportValue: (row: ServiceRequests) => {
             const project = projectOptions.find((p) => p.value === row.project);
             return project?.label || row.project;
           },
@@ -327,7 +329,7 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
         size: 200,
         meta: {
           exportHeaderName: "Vendor",
-          exportValue: (row) => getVendorName(row.vendor),
+          exportValue: (row: ServiceRequests) => getVendorName(row.vendor),
         },
       },
       {
@@ -357,7 +359,15 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
         size: 180,
         enableSorting: false,
         meta: {
-          excludeFromExport: true,
+          exportHeaderName: "Categories",
+          exportValue: (row: ServiceRequests) => {
+            const categories = row.service_category_list as
+              | { list: { name: string }[] }
+              | undefined;
+            return Array.isArray(categories?.list)
+              ? categories.list.map((c) => c.name).join(", ")
+              : "--";
+          },
         },
       },
       {
@@ -572,6 +582,9 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
           dateFilterColumns={dateColumns}
           showExportButton={true}
           onExport={"default"}
+          exportFileName={
+            vendorName ? `${vendorName}_Finalized_WO` : `_Finalized_WO`
+          }
           getRowClassName={getRowClassName}
         />
       )}

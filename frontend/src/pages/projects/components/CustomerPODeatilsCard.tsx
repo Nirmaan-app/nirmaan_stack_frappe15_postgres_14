@@ -623,6 +623,7 @@ const getCustomerPOColumns = (
                ),
                enableColumnFilter: true,
                enableSorting: true,
+               meta: { exportHeaderName: "Creation Date" },
              },
         {
             accessorKey: "customer_po_number",
@@ -634,6 +635,7 @@ const getCustomerPOColumns = (
             ),
             enableColumnFilter: false,
             enableSorting: true, 
+            meta: { exportHeaderName: "PO Number" },
             size: 150,
         },
         {
@@ -650,6 +652,7 @@ const getCustomerPOColumns = (
             ),
             enableColumnFilter: false,
             enableSorting: true, 
+            meta: { exportHeaderName: "Value (Incl. Tax)" },
             size: 150,
         },
         {
@@ -667,6 +670,7 @@ const getCustomerPOColumns = (
             ),
             enableColumnFilter: false,
             enableSorting: true, 
+            meta: { exportHeaderName: "Value (Excl. Tax)" },
             size: 150,
         },
        {
@@ -732,9 +736,41 @@ const getCustomerPOColumns = (
                     </TooltipProvider>
                 );
             },
+
             enableColumnFilter: false,
             enableSorting: false, 
+            meta: {
+                exportHeaderName: "Payment Terms",
+                exportValue: (row: CustomerPOTableRow) => {
+                    const raw = row.customer_po_payment_terms;
+                    try {
+                        const parsed = JSON.parse(raw || '');
+                        if (Array.isArray(parsed) && parsed.length > 0) {
+                            return parsed.map((t: any) => `• ${t.label} - ${t.percentage}%${t.description ? ` (${t.description})` : ''}`).join('\n');
+                        }
+                    } catch {
+                        // ignore error
+                    }
+                    return raw || '';
+                }
+            },
             size: 150, 
+        },
+        {
+            accessorKey: "customer_po_link",
+            header: "PO Link",
+            meta: { 
+                exportHeaderName: "PO Link",
+                exportValue: (row: CustomerPOTableRow) => row.customer_po_link ? `=HYPERLINK("${row.customer_po_link}", "Open Link")` : ""
+            },
+        },
+        {
+            accessorKey: "customer_po_attachment",
+            header: "PO Attachment",
+            meta: { 
+                exportHeaderName: "PO Attachment",
+                exportValue: (row: CustomerPOTableRow) => row.customer_po_attachment ? `=HYPERLINK("${row.customer_po_attachment}", "Open Attachment")` : ""
+            },
         },
         {
             id: "Link/ Attachment",
@@ -912,7 +948,13 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
         // --- Client-Side Configuration ---
         clientData: poListForDialog,
         clientTotalCount: poListForDialog.length,
-        shouldCache: false // Rely on useFrappeGetDoc's cache
+        shouldCache: false, // Rely on useFrappeGetDoc's cache
+        initialState: {
+            columnVisibility: {
+                "customer_po_link": false,
+                "customer_po_attachment": false
+            }
+        }
     });
 
     // --- Refetch Handler (Shared for Add/Edit/Delete Success) ---
@@ -1023,7 +1065,7 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
                         dateFilterColumns={CUSTOMER_PO_DATE_COLUMNS}
                         showExportButton={true}
                         onExport={"default"}
-                        exportFileName={`Customer_PO_Details_${projectId || "all"}`}
+                        exportFileName={`Customer_PO_Details_${projectDataForDialog?.project_name || projectId || "all"}`}
                         showRowSelection={false}
                     />
                 ))}

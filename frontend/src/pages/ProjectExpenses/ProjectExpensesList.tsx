@@ -525,7 +525,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
         facetFilterOptions={facetFilterOptions}
         showExportButton={true}
         onExport="default"
-        exportFileName={`Project_Expenses_${projectId || "All"}`}
+        exportFileName={`Project_Expenses_${projectId ? getProjectName(projectId) : "All"}`}
         getRowClassName={getRowClassName}
         toolbarActions={
           (role === "Nirmaan Admin Profile" ||

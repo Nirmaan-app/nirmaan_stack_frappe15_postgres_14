@@ -331,7 +331,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
     const getProjectName = useMemo(() => memoize((id: string | undefined) => {
         const projectName = projectValues.find((proj) => proj.value === id)?.label || id;
         return projectName;
-    }, (id: string | undefined) => id), [vendorValues])
+    }, (id: string | undefined) => id), [projectValues])
 
     // Handle input change
     const handleAmountChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {

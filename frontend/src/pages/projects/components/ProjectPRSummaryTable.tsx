@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
@@ -33,6 +33,7 @@ import {
 } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ApprovedQuotations } from "@/types/NirmaanStack/ApprovedQuotations";
+import { Projects } from "@/types/NirmaanStack/Projects";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
@@ -162,6 +163,26 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
       setPrStatuses({});
     }
   }, [projectId, fetchPrStatusesData]);
+
+  // --- Supporting Data (for display in columns/facets, not for main list filtering) ---
+  const { data: projects, isLoading: projectsLoading } =
+    useFrappeGetDocList<Projects>(
+      "Projects",
+      {
+        fields: ["name", "project_name"],
+        filters: projectId ? [["name", "=", projectId]] : [],
+        limit: projectId ? 1 : 1000,
+      },
+      `ProjectForPRSummary_${projectId || "all"}`
+    );
+
+  const getProjectName = useCallback(
+    memoize(
+      (projId?: string) =>
+        projects?.find((p) => p.name === projId)?.project_name || projId || "--"
+    ),
+    [projects]
+  );
 
   // Fetch POs related to the current project for status and total calculations
   const {
@@ -603,7 +624,8 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
     quoteDataLoading ||
     userListLoading ||
     statusCountsLoading ||
-    wpLoading;
+    wpLoading ||
+    projectsLoading;
   const combinedError =
     quoteError || poError || listError || statusCountsError || wpError;
 
@@ -647,7 +669,7 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
           dateFilterColumns={PR_SUMMARY_DATE_COLUMNS}
           showExportButton={true}
           onExport={"default"}
-          exportFileName={`Project_PR_Summary_${projectId || "all"}`}
+          exportFileName={`Project_PR_Summary_${getProjectName(projectId) || "all"}`}
         />
       )}
     </div>
