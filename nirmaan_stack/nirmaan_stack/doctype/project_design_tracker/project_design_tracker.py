@@ -7,7 +7,27 @@ from frappe.model.document import Document
 
 class ProjectDesignTracker(Document):
     def validate(self):
+        self.validate_file_link_for_submitted()
+        self.validate_approval_proof_for_approved()
         self.update_last_submitted_date()
+
+    def validate_file_link_for_submitted(self):
+        import frappe
+        for task in self.get("design_tracker_task", []):
+            if task.task_status == "Submitted" and not task.file_link:
+                frappe.throw(
+                    f"Task '{task.task_name}' requires a design file link before setting status to Submitted.",
+                    title="File Link Required"
+                )
+
+    def validate_approval_proof_for_approved(self):
+        import frappe
+        for task in self.get("design_tracker_task", []):
+            if task.task_status == "Approved" and not task.approval_proof:
+                frappe.throw(
+                    f"Task '{task.task_name}' requires approval proof (screenshot) before setting status to Approved.",
+                    title="Approval Proof Required"
+                )
 
     def update_last_submitted_date(self):
         import frappe

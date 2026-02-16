@@ -18,6 +18,7 @@
   "task_status",
   "task_sub_status",
   "file_link",
+  "approval_proof",
   "comments"
  ],
  "fields": [
@@ -60,6 +61,11 @@
    "fieldname": "file_link",
    "fieldtype": "Data",
    "label": "File Link"
+  },
+  {
+   "fieldname": "approval_proof",
+   "fieldtype": "Attach",
+   "label": "Approval Proof"
   },
   {
    "fieldname": "comments",

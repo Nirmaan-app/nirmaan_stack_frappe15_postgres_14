@@ -32,6 +32,7 @@ export interface DesignTrackerTask {
     task_status: 'Not Started' | 'Not Applicable' | 'Drawings Awaiting from Client' | 'In Progress' | 'Submitted' | 'Revision Pending' | 'Clarification Awaiting' | 'Approved' | 'Todo' | 'On Hold' | 'Done' | 'Blocked';
     task_sub_status?: string; 
     file_link?: string;
+    approval_proof?: string;
     comments?: string;
     
     // Other fields to preserve
@@ -176,4 +177,6 @@ export interface TaskPreviewItem {
     task_sub_status?: string;
     assigned_designers?: string; // JSON string containing designer IDs
     file_link?: string; // Design file URL (Figma, etc.)
+    comments?: string;
+    approval_proof?: string; // Approval proof screenshot URL
 }
