@@ -369,6 +369,25 @@ export function NewSidebar() {
       : []),
 
 
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role)
+      ? [
+        {
+          key: '/boq',
+          icon: FileUp,
+          label: 'BOQ',
+        },
+      ]
+      : []),
+
+    ...(role == "Nirmaan Estimates Executive Profile"
+      ? [
+        {
+          key: '/tds-repository',
+          icon: List,
+          label: 'TDS Repository',
+        },
+      ]
+      : []),
 
     ...([
       "Nirmaan Procurement Executive Profile",
@@ -671,6 +690,8 @@ export function NewSidebar() {
     'help-repository',
     "work-order-rate-card",
     "pmo-dashboard",
+    "commission-tracker",
+    'boq'
 
   ]), [])
 
@@ -711,6 +732,7 @@ export function NewSidebar() {
     '/commission-tracker': ['commission-tracker'],
     '/pmo-dashboard': ['pmo-dashboard'],
     '/work-order-rate-card': ['work-order-rate-card'],
+    '/boq': ['boq']
   }), []);
 
   const openKey = useMemo(() => {
@@ -786,7 +808,6 @@ export function NewSidebar() {
                 asChild
               >
                 <SidebarMenuItem>
-
                   {new Set(["Dashboard",
                     "Item Price Search",
                     "TDS Repository",
@@ -818,7 +839,8 @@ export function NewSidebar() {
                     "TDS Approval",
                     "Work Order Rate Card",
                     "Inventory",
-                    "PMO Dashboard"]).has(item?.label) ? (
+                    "PMO Dashboard",
+                    "BOQ"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
                         ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"

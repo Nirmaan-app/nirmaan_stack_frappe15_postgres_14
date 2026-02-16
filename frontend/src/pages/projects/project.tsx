@@ -86,6 +86,7 @@ const NoDesignTrackerView = React.lazy(() => import("@/pages/ProjectDesignTracke
 const ProjectCommissionReportDetail = React.lazy(() => import("@/pages/CommissionReport/project-commission-report-details"));
 const NoCommissionReportView = React.lazy(() => import("@/pages/CommissionReport/components/NoCommissionReportView").then(module => ({ default: module.NoCommissionReportView })));
 const CriticalPOTasksTab = React.lazy(() => import("./CriticalPOTasks/CriticalPOTasksTab").then(module => ({ default: module.CriticalPOTasksTab })));
+const ProjectBOQTab = React.lazy(() => import("@/pages/BOQImport/project-boq-tab").then(module => ({ default: module.ProjectBOQTab })));
 import { ProjectExpensesTab } from "./components/ProjectExpenseTab"; // NEW
 const ProjectDCMIRTab = React.lazy(() => import("./components/ProjectDCMIRTab").then(module => ({ default: module.ProjectDCMIRTab })));
 const BulkDownloadPage = React.lazy(() => import("@/pages/BulkDownload/BulkDownloadPage"));
@@ -234,6 +235,7 @@ export const PROJECT_PAGE_TABS = {
   SEVEN_DAY_PLANNING: '7dayplanning', // ADD THIS NEW KEY
   CRITICAL_POS: 'criticalpos', // Critical PO Tasks Tab
   DESIGN_TRACKER: 'designtracker',
+  BOQ: 'boq',
   PR_SUMMARY: 'prsummary',
   SR_SUMMARY: 'srsummary',
   PO_SUMMARY: 'posummary',
@@ -264,6 +266,12 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   const designTrackerId = designTrackerResponse.data?.[0]?.name;
   const commissionReportId = commissionReportResponse.data?.[0]?.name;
+
+  const { data: boqList, mutate: mutateBoqList } = useFrappeGetDocList("BOQ", {
+    fields: ["name"],
+    filters: [["project", "=", projectId]],
+    limit: 100,
+  });
 
   // console.log("modified-call", po_item_data)
 
@@ -366,6 +374,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
     PROJECT_PAGE_TABS.CRITICAL_POS,
     PROJECT_PAGE_TABS.DESIGN_TRACKER,
+    PROJECT_PAGE_TABS.BOQ,
     PROJECT_PAGE_TABS.SR_SUMMARY,
     PROJECT_PAGE_TABS.PO_SUMMARY,
     PROJECT_PAGE_TABS.DC_MIR,
@@ -376,6 +385,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   // Allowed tabs for Procurement Executive
   const procurementExecutiveAllowedTabs = useMemo(() => new Set([
     PROJECT_PAGE_TABS.CRITICAL_POS,
+    PROJECT_PAGE_TABS.BOQ,
     PROJECT_PAGE_TABS.PO_SUMMARY,
     PROJECT_PAGE_TABS.SR_SUMMARY,
     PROJECT_PAGE_TABS.MATERIAL_USAGE,
@@ -393,6 +403,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
     PROJECT_PAGE_TABS.CRITICAL_POS,
     PROJECT_PAGE_TABS.DESIGN_TRACKER,
+    PROJECT_PAGE_TABS.BOQ,
     PROJECT_PAGE_TABS.SR_SUMMARY,
     PROJECT_PAGE_TABS.PO_SUMMARY,
     PROJECT_PAGE_TABS.MATERIAL_USAGE,
@@ -436,6 +447,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           key: PROJECT_PAGE_TABS.DESIGN_TRACKER,
         },
         {
+          label: "BOQ",
+          key: PROJECT_PAGE_TABS.BOQ,
+        },
+        {
           label: "WO Summary",
           key: PROJECT_PAGE_TABS.SR_SUMMARY,
         },
@@ -464,6 +479,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         {
           label: "Planning",
           key: PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
+        },
+        {
+          label: "BOQ",
+          key: PROJECT_PAGE_TABS.BOQ,
         },
         {
           label: "WO Summary",
@@ -518,6 +537,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         {
           label: "Design Tracker",
           key: PROJECT_PAGE_TABS.DESIGN_TRACKER,
+        },
+        {
+          label: "BOQ",
+          key: PROJECT_PAGE_TABS.BOQ,
         },
         {
           label: "WO Summary",
@@ -579,6 +602,11 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       ...(!isAccountant ? [{
         label: "Design Tracker",
         key: PROJECT_PAGE_TABS.DESIGN_TRACKER,
+      }] : []),
+      // Hide BOQ from Accountant
+      ...(!isAccountant ? [{
+        label: "BOQ",
+        key: PROJECT_PAGE_TABS.BOQ,
       }] : []),
       {
         label: "Financials",
@@ -1401,6 +1429,15 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
             onTrackerCreated={() => {
               commissionReportResponse.mutate();
             }}
+          />
+        );
+      case PROJECT_PAGE_TABS.BOQ:
+        return (
+          <ProjectBOQTab
+            projectId={projectId}
+            projectName={data.project_name}
+            boqList={boqList}
+            onRefresh={() => mutateBoqList()}
           />
         );
       case PROJECT_PAGE_TABS.PR_SUMMARY:
