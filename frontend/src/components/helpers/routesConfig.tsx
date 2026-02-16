@@ -302,6 +302,26 @@ export const appRoutes: RouteObject[] = [
               { index: true, element: <EstimatedPriceOverview /> },
             ],
           },
+          // --- BOQ ---
+          {
+            path: "boq",
+            children: [
+              {
+                index: true,
+                lazy: async () => {
+                  const { BOQList } = await import("@/pages/BOQImport/boq-list");
+                  return { Component: BOQList };
+                },
+              },
+              {
+                path: ":boqId",
+                lazy: async () => {
+                  const { BOQDetail } = await import("@/pages/BOQImport/boq-detail");
+                  return { Component: BOQDetail };
+                },
+              },
+            ],
+          },
           {
             path: "project-expenses",
             element: <AllProjectExpensesPage />
