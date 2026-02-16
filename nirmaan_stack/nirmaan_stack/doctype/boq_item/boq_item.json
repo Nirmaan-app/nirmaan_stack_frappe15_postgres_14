@@ -1,0 +1,108 @@
+{
+  "actions": [],
+  "allow_rename": 1,
+  "creation": "2026-02-13 10:00:00.000000",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "description_section",
+    "description",
+    "details_section",
+    "unit",
+    "quantity",
+    "supply_rate",
+    "installation_rate",
+    "column_break_rates",
+    "total_rate",
+    "amount",
+    "metadata_section",
+    "source_row_index"
+  ],
+  "fields": [
+    {
+      "fieldname": "description_section",
+      "fieldtype": "Section Break",
+      "label": "Description"
+    },
+    {
+      "fieldname": "description",
+      "fieldtype": "Long Text",
+      "in_list_view": 1,
+      "label": "Description"
+    },
+    {
+      "fieldname": "details_section",
+      "fieldtype": "Section Break",
+      "label": "Details"
+    },
+    {
+      "fieldname": "unit",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Unit"
+    },
+    {
+      "fieldname": "quantity",
+      "fieldtype": "Float",
+      "in_list_view": 1,
+      "label": "Quantity"
+    },
+    {
+      "fieldname": "supply_rate",
+      "fieldtype": "Float",
+      "in_list_view": 1,
+      "label": "Supply Rate"
+    },
+    {
+      "fieldname": "installation_rate",
+      "fieldtype": "Float",
+      "in_list_view": 1,
+      "label": "Installation Rate"
+    },
+    {
+      "fieldname": "column_break_rates",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "total_rate",
+      "fieldtype": "Float",
+      "in_list_view": 1,
+      "label": "Total Rate",
+      "read_only": 1
+    },
+    {
+      "fieldname": "amount",
+      "fieldtype": "Float",
+      "in_list_view": 1,
+      "label": "Amount",
+      "read_only": 1
+    },
+    {
+      "fieldname": "metadata_section",
+      "fieldtype": "Section Break",
+      "label": "Metadata",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "source_row_index",
+      "fieldtype": "Int",
+      "hidden": 1,
+      "label": "Source Row Index"
+    }
+  ],
+  "grid_page_length": 50,
+  "index_web_pages_for_search": 1,
+  "istable": 1,
+  "links": [],
+  "modified": "2026-02-13 10:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Nirmaan Stack",
+  "name": "BOQ Item",
+  "owner": "Administrator",
+  "permissions": [],
+  "row_format": "Dynamic",
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": []
+}
