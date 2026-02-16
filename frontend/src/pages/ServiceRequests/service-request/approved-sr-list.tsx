@@ -686,7 +686,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
           showExportButton={true}
           onExport={"default"}
           exportFileName={
-            vendorName ? `${vendorName}_Approved_WO` : `_Approved_WO`
+            vendorName ? `${vendorName}_Approved_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}` : `Approved_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}`
           }
           getRowClassName={getRowClassName}
         />

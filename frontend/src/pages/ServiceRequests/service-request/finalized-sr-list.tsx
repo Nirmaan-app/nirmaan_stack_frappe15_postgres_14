@@ -583,7 +583,7 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
           showExportButton={true}
           onExport={"default"}
           exportFileName={
-            vendorName ? `${vendorName}_Finalized_WO` : `_Finalized_WO`
+            vendorName ? `${vendorName}_Finalized_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}` : `Finalized_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}`
           }
           getRowClassName={getRowClassName}
         />
