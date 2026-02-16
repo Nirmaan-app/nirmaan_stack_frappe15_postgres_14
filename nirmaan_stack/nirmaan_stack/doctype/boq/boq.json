@@ -1,0 +1,241 @@
+{
+  "actions": [],
+  "autoname": "hash",
+  "allow_rename": 1,
+  "creation": "2026-02-13 10:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "links_section",
+    "project",
+    "work_package",
+    "zone",
+    "file_section",
+    "source_file",
+    "status",
+    "import_details_section",
+    "header_row",
+    "column_mapping",
+    "summary_section",
+    "total_items",
+    "total_amount",
+    "items_section",
+    "items"
+  ],
+  "fields": [
+    {
+      "fieldname": "links_section",
+      "fieldtype": "Section Break",
+      "label": "Links"
+    },
+    {
+      "fieldname": "project",
+      "fieldtype": "Link",
+      "label": "Project",
+      "options": "Projects",
+      "reqd": 1
+    },
+    {
+      "fieldname": "work_package",
+      "fieldtype": "Link",
+      "label": "Work Package",
+      "options": "Work Packages",
+      "reqd": 1
+    },
+    {
+      "fieldname": "zone",
+      "fieldtype": "Data",
+      "label": "Zone"
+    },
+    {
+      "fieldname": "file_section",
+      "fieldtype": "Section Break",
+      "label": "File"
+    },
+    {
+      "fieldname": "source_file",
+      "fieldtype": "Attach",
+      "label": "Source File"
+    },
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "Draft\nImported\nError",
+      "default": "Draft"
+    },
+    {
+      "fieldname": "import_details_section",
+      "fieldtype": "Section Break",
+      "label": "Import Details",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "header_row",
+      "fieldtype": "Int",
+      "label": "Header Row"
+    },
+    {
+      "fieldname": "column_mapping",
+      "fieldtype": "JSON",
+      "label": "Column Mapping"
+    },
+    {
+      "fieldname": "summary_section",
+      "fieldtype": "Section Break",
+      "label": "Summary"
+    },
+    {
+      "fieldname": "total_items",
+      "fieldtype": "Int",
+      "label": "Total Items",
+      "read_only": 1
+    },
+    {
+      "fieldname": "total_amount",
+      "fieldtype": "Currency",
+      "label": "Total Amount",
+      "read_only": 1
+    },
+    {
+      "fieldname": "items_section",
+      "fieldtype": "Section Break",
+      "label": "Items"
+    },
+    {
+      "fieldname": "items",
+      "fieldtype": "Table",
+      "label": "Items",
+      "options": "BOQ Item"
+    }
+  ],
+  "grid_page_length": 50,
+  "index_web_pages_for_search": 1,
+  "links": [],
+  "modified": "2026-02-13 10:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Nirmaan Stack",
+  "name": "BOQ",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Nirmaan Estimates Executive",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Nirmaan Project Lead",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Nirmaan Procurement Executive",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Nirmaan Project Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Nirmaan Accountant",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Nirmaan Design Executive",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Nirmaan Design Lead",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "role": "Nirmaan HR Executive",
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "share": 1
+    },
+    {
+      "role": "Nirmaan PMO Executive",
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "share": 1
+    }
+  ],
+  "row_format": "Dynamic",
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
+}
