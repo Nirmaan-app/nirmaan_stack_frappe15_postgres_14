@@ -36,4 +36,5 @@ export interface SentBackCategory{
 	amended_from?: string
 	workflow_state: string
 	order_list: ProcurementRequestItemDetail[]
+	payment_terms?: string
 }

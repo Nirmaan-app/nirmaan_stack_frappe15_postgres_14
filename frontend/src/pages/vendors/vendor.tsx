@@ -27,6 +27,7 @@ const ApprovedSRList = React.lazy(() => import("../ServiceRequests/service-reque
 const FinalizedSRList = React.lazy(() => import("../ServiceRequests/service-request/finalized-sr-list"));
 import { cn } from "@/lib/utils";
 const POVendorLedger = React.lazy(() => import("./components/POVendorLedger"));
+const VendorQuotesTable = React.lazy(() => import("./components/VendorQuotesTable"));
 const PoInvoices = React.lazy(() => import("../tasks/invoices/components/PoInvoices").then(m => ({ default: m.PoInvoices })));
 const SrInvoices = React.lazy(() => import("../tasks/invoices/components/SrInvoices").then(m => ({ default: m.SrInvoices })));
 
@@ -102,7 +103,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
         { label: "PO Invoices", key: "poInvoices" },
         (vendor?.vendor_type === "Service" || vendor?.vendor_type === "Material & Service") &&
         { label: "SR Invoices", key: "srInvoices" },
-
+        { label: "Vendor Quotes", key: "vendorQuotes" },
     ].filter(Boolean) as MenuItem[], [vendor?.vendor_type]);
 
     // --- SR Counts Data ---
@@ -200,6 +201,8 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                 return <PoInvoices vendorId={vendorId} />;
             case "srInvoices":
                 return <SrInvoices vendorId={vendorId} />;
+            case "vendorQuotes":
+                return <VendorQuotesTable vendorId={vendorId} />;
             default:
                 return <div>Select a tab.</div>;
         }

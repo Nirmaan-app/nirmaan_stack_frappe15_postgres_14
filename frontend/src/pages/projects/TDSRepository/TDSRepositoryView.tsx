@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Download, Loader2 } from 'lucide-react';
-import { useFrappeGetDocList, useFrappeGetDoc } from 'frappe-react-sdk';
+import { useFrappeGetDocList, useFrappeGetDoc, FrappeContext, FrappeConfig } from 'frappe-react-sdk';
 import { format } from 'date-fns';
 import { toast } from "@/components/ui/use-toast";
 import { SetupTDSRepositoryDialog, TDSRepositoryData, ViewCard, TdsCreateForm, TdsHistoryTable, TdsExportDialog } from './components';
@@ -22,6 +23,12 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
     const [refreshKey, setRefreshKey] = useState(0);
     const [isExporting, setIsExporting] = useState(false);
     const [isExportingHistory, setIsExportingHistory] = useState(false);
+    const [exportProgress, setExportProgress] = useState(0);
+    const [exportProgressMessage, setExportProgressMessage] = useState("");
+    const { socket } = React.useContext(FrappeContext) as FrappeConfig;
+
+    // Remove the useEffect listener as we'll manage it in the handler like Bulk Download
+
 
     // Fetch TDS history data directly for export
     const { data: historyData } = useFrappeGetDocList("Project TDS Item List", {
@@ -142,6 +149,17 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
         }
 
         setIsExporting(true);
+        setExportProgress(0);
+        setExportProgressMessage("Initializing export...");
+
+        // Set up socket listener like in Bulk Download
+        if (socket) {
+            socket.on("tds_export_progress", (data: any) => {
+                if (data.progress !== undefined) setExportProgress(data.progress);
+                if (data.message) setExportProgressMessage(data.message);
+            });
+        }
+
         try {
             toast({ 
                 title: "Generating PDF...", 
@@ -205,6 +223,9 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
             });
         } finally {
             setIsExporting(false);
+            if (socket) {
+                socket.off("tds_export_progress");
+            }
         }
     };
 
@@ -327,6 +348,31 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                 historyData={historyData || []}
                 isExporting={isExporting}
             />
+
+            {/* Progress Dialog */}
+            <Dialog open={isExporting} onOpenChange={setIsExporting}>
+                <DialogContent 
+                    className="sm:max-w-md"
+                    onPointerDownOutside={(e) => e.preventDefault()}
+                    onEscapeKeyDown={(e) => e.preventDefault()}
+                >
+                    <DialogHeader>
+                    <DialogTitle>Generating TDS PDF Report</DialogTitle>
+                    <DialogDescription>
+                        Please wait while we gather and merge your documents.
+                    </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex flex-col items-center justify-center space-y-4 py-4">
+                        <div className="w-full bg-secondary h-4 rounded-full overflow-hidden">
+                        <div 
+                            className="bg-primary h-full transition-all duration-300 ease-in-out" 
+                            style={{ width: `${exportProgress}%` }}
+                        />
+                        </div>
+                        <p className="text-sm text-muted-foreground">{exportProgress}% - {exportProgressMessage}</p>
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 };

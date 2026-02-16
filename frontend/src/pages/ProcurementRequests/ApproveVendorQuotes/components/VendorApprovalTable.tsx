@@ -31,6 +31,7 @@ import formatToIndianRupee, {
 import { HistoricalQuotesHoverCard } from "../../VendorQuotesSelection/components/HistoricalQuotesHoverCard";
 import { parseNumber } from "@/utils/parseNumber";
 import { VendorPaymentTerm } from "../../VendorQuotesSelection/types/paymentTerms";
+import { VendorAttachmentForPR } from "@/components/common/VendorAttachmentForPR";
 
 interface VendorApprovalTableProps {
   dataSource: VendorGroupForTable[];
@@ -38,6 +39,11 @@ interface VendorApprovalTableProps {
   onSelectionChange: (newSelection: SelectionState) => void;
   paymentTerms?: { [vendorId: string]: VendorPaymentTerm[] };
   onDynamicTermsChange: (dynamicTerms: DynamicPaymentTerms) => void;
+  prId?: string;
+  projectId?: string;
+  onUploadSuccess?: () => void;
+  onDeleteSuccess?: () => void;
+  readOnly?: boolean;
 }
 
 export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
@@ -46,6 +52,11 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
   onSelectionChange,
   paymentTerms,
   onDynamicTermsChange,
+  prId,
+  projectId,
+  onUploadSuccess,
+  onDeleteSuccess,
+  readOnly = false,
 }) => {
   const [openAccordionItems, setOpenAccordionItems] = React.useState<string[]>(
     []
@@ -224,38 +235,53 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                       {vendorName}
                     </CardTitle>
                   </div>
-                  <div className="flex flex-col items-end gap-2 text-xs">
-                    {potentialSavingLossForVendor !== undefined && (
-                      <div className="flex gap-2 items-end">
-                        <span className="text-gray-500">
-                          Potential Saving/Loss:
-                        </span>
-                        <span
-                          className={cn(
-                            "font-semibold",
-                            potentialSavingLossForVendor > 0
-                              ? "text-green-600"
-                              : potentialSavingLossForVendor < 0
-                                ? "text-red-600"
-                                : "text-gray-600"
-                          )}
-                        >
-                          {formatToIndianRupee(
-                            potentialSavingLossForVendor || "N/A"
-                          )}{" "}
-                          {potentialSavingLossForVendor > 0
-                            ? "(S)"
-                            : potentialSavingLossForVendor < 0
-                              ? "(L)"
-                              : ""}
-                        </span>
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-4 w-full sm:w-auto ml-auto pl-4">
+                    {prId && (
+                      <div onClick={(e) => e.stopPropagation()} className="w-full sm:w-auto">
+                        <VendorAttachmentForPR
+                          prId={prId}
+                          vendorId={vendorId}
+                          vendorName={vendorName}
+                          projectId={projectId}
+                          onUploadSuccess={onUploadSuccess}
+                          onDeleteSuccess={onDeleteSuccess}
+                          readOnly={readOnly}
+                        />
                       </div>
                     )}
-                    <div className="flex items-end gap-2">
-                      <span className="text-gray-500">Selected Value:</span>
-                      <span className="font-semibold text-gray-700">
-                        {formatToRoundedIndianRupee(selectedItemsTotalInclGst)}
-                      </span>
+                    <div className="flex flex-col items-end gap-1 text-xs min-w-[120px]">
+                      {potentialSavingLossForVendor !== undefined && (
+                        <div className="flex gap-2 items-center">
+                          <span className="text-gray-500 whitespace-nowrap">
+                            Saving/Loss:
+                          </span>
+                          <span
+                            className={cn(
+                              "font-semibold",
+                              potentialSavingLossForVendor > 0
+                                ? "text-green-600"
+                                : potentialSavingLossForVendor < 0
+                                  ? "text-red-600"
+                                  : "text-gray-600"
+                            )}
+                          >
+                            {formatToIndianRupee(
+                              potentialSavingLossForVendor || "N/A"
+                            )}{" "}
+                            {potentialSavingLossForVendor > 0
+                              ? "(S)"
+                              : potentialSavingLossForVendor < 0
+                                ? "(L)"
+                                : ""}
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-500 whitespace-nowrap">Selected Value:</span>
+                        <span className="font-semibold text-gray-700">
+                          {formatToRoundedIndianRupee(selectedItemsTotalInclGst)}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </CardHeader>

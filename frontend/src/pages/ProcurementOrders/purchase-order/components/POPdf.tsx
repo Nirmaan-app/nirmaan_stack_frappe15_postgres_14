@@ -1199,7 +1199,7 @@ export const POPdf: React.FC<POPdfProps> = ({
         print_format: formatName, // Dynamic format
       });
 
-      const url = `/api/method/nirmaan_stack.api.pdf_helper.print_integration.download_merged_pdf?${params.toString()}`;
+      const url = `/api/method/nirmaan_stack.api.pdf_helper.po_print.attachment_merged_pdf?${params.toString()}`;
 
       const response = await fetch(url);
       if (!response.ok) throw new Error("Network response was not ok");
@@ -1295,7 +1295,7 @@ export const POPdf: React.FC<POPdfProps> = ({
                 Print
               </Button>
               <Button
-                onClick={() => handleDownloadPdf("PO Invoice")}
+                onClick={() => handleDownloadPdf("PO Orders")}
                 disabled={!!downloadingFormat}
                 className="flex items-center gap-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >

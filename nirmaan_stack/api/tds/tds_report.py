@@ -53,7 +53,7 @@ def export_tds_report(settings_json: str, items_json: str, project_name: str = "
         base_pdf = get_pdf(template)
         
         # Merge with attachments interleaved
-        merged_pdf = merge_pdfs_interleaved(base_pdf, items)
+        merged_pdf = merge_pdfs_interleaved(base_pdf, items, progress_event="tds_export_progress")
         
         # Clean project name for filename
         clean_name = frappe.scrub(project_name).replace('_', ' ').title().replace(' ', '_')
