@@ -4,7 +4,8 @@ import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Link as LinkIcon, MessageCircle, Edit } from "lucide-react";
+import { MessageCircle, Edit } from "lucide-react";
+import { FilesCell } from './FilesCell';
 import { toast } from '@/components/ui/use-toast';
 import { TableSkeleton } from "@/components/ui/skeleton";
 
@@ -187,44 +188,18 @@ const getTaskWiseColumns = (
     enableColumnFilter: true,
 },
        {
-    // Link Column
+    // Files Column (Design file + Approval proof)
     accessorKey: "file_link",
-    header: () => <div className="text-center">Link</div>,
+    header: () => <div className="text-center">Files</div>,
     cell: ({ row }) => (
-        <div className="flex justify-start items-center">
-        
-                <TooltipProvider>
-                    <Tooltip delayDuration={300}>
-                        <TooltipTrigger asChild>
-                            <a 
-                                href={row.original.file_link} 
-                                target="_blank" 
-                                rel="noopener noreferrer" 
-                                className="hover:scale-110 transition-transform"
-
-                            >
-                                <LinkIcon className={`h-6 w-6 p-1 bg-gray-100  rounded-md  ${row.original.file_link ? 'cursor-pointer text-blue-500' : 'text-gray-300'}`} />
-                            </a>
-                        </TooltipTrigger>
-                        {row.original.file_link && (
-                        <TooltipContent className="max-w-xs p-2 bg-white text-gray-900 border shadow-lg">
-                            <a 
-                                href={row.original.file_link} 
-                                target="_blank" 
-                                rel="noopener noreferrer" 
-                                className="cursor-pointer hover:scale-110 transition-transform"
-                            >
-                                {row.original.file_link.substring(0, 30)}...
-                            </a>
-                        </TooltipContent>
-                        )}
-                    </Tooltip>
-                </TooltipProvider>
-            
-        </div>
+        <FilesCell
+            file_link={row.original.file_link}
+            approval_proof={row.original.approval_proof}
+            size="md"
+        />
     ),
-    size: 80, // Add this - restricts column width
-    maxSize: 80, // Add this - maximum width
+    size: 80,
+    maxSize: 80,
     meta: { excludeFromExport: true },
 },
 {

@@ -9,7 +9,8 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { TableSkeleton } from "@/components/ui/skeleton";
-import { ChevronDown, ChevronUp, Search, Filter, CirclePlus, Link as LinkIcon, MessageCircle, Edit, ArrowUpRight, Check, EyeOff, CheckCircle2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Search, Filter, CirclePlus, MessageCircle, Edit, ArrowUpRight, Check, EyeOff, CheckCircle2 } from "lucide-react";
+import { FilesCell } from './components/FilesCell';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -220,7 +221,7 @@ const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, 
                                             <th className="px-4 py-3 text-center w-[12%]">Status</th>
                                             <th className="px-4 py-3 text-center w-[16%]">Sub-Status</th>
                                             <th className="px-4 py-3 text-center w-[8%]">Comments</th>
-                                            <th className="px-4 py-3 text-center w-[8%]">Link</th>
+                                            <th className="px-4 py-3 text-center w-[8%]">Files</th>
                                             <th className="px-4 py-3 text-center w-[14%]">Actions</th>
                                         </tr>
                                     </thead>
@@ -275,35 +276,13 @@ const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, 
                                                     </TooltipProvider>
                                                 </td>
 
-                                                {/* 2. Link Column (Using Tooltip) */}
+                                                {/* 2. Files Column (Design file + Approval proof) */}
                                                 <td className="px-4 py-3 text-center">
-                                                   
-                                                        <TooltipProvider>
-                                                            <Tooltip delayDuration={300}>
-                                                                <TooltipTrigger asChild>
-                                                                    <a
-                                                                        href={task.file_link}
-                                                                        target="_blank"
-                                                                        rel="noopener noreferrer"
-                                                                        className="flex justify-center items-center w-full h-full cursor-pointer hover:scale-110 transition-transform"
-                                                                    >
-                                                                        <LinkIcon className={`h-6 w-6 p-1 bg-gray-100 rounded-md ${task.file_link ? 'cursor-pointer text-blue-500' : 'text-gray-300'}`} />
-                                                                    </a>
-                                                                </TooltipTrigger>
-                                                                {task.file_link && (<TooltipContent className="p-2 bg-gray-900 text-white shadow-lg">
-                                                                    <a
-                                                                        href={task.file_link}
-                                                                        target="_blank"
-                                                                        rel="noopener noreferrer"
-                                                                        className="block w-full h-full cursor-pointer hover:scale-110 transition-transform"
-                                                                    >
-                                                                        {task.file_link.substring(0, 30)}...
-                                                                    </a>
-                                                                </TooltipContent>)}
-                                                                
-                                                            </Tooltip>
-                                                        </TooltipProvider>
-                                                    
+                                                    <FilesCell
+                                                        file_link={task.file_link}
+                                                        approval_proof={task.approval_proof}
+                                                        size="md"
+                                                    />
                                                 </td>
                                                 {/* Actions: Triggers Modal */}
                                                 <td className="px-4 py-3 text-center">
