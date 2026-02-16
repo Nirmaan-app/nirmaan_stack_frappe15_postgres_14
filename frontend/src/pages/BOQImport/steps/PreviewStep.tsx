@@ -17,6 +17,7 @@ interface PreviewStepProps {
   totalRows: number;
   formValues: BOQUploadFormValues;
   fileUrl: string;
+  selectedSheetIndex: number;
   onBack: () => void;
   onReset: () => void;
   onSuccess?: () => void;
@@ -29,6 +30,7 @@ export function PreviewStep({
   totalRows,
   formValues,
   fileUrl,
+  selectedSheetIndex,
   onBack,
   onReset,
   onSuccess,
@@ -93,6 +95,7 @@ export function PreviewStep({
         file_url: fileUrl,
         field_column_map: JSON.stringify(fieldMapping),
         data_start_row: dataStartRow,
+        sheet_index: selectedSheetIndex,
         project: formValues.project,
         work_package: formValues.work_package,
         zone: formValues.zone || '',

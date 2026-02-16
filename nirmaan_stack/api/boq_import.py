@@ -50,7 +50,7 @@ def _get_file_path(file_url):
     return file_url
 
 
-def _read_all_rows(filepath):
+def _read_all_rows(filepath, sheet_index=None):
     """Read all rows from an Excel or CSV file into a 2D list of strings."""
     _, ext = os.path.splitext(filepath)
 
@@ -65,7 +65,10 @@ def _read_all_rows(filepath):
     # Excel (.xlsx)
     import openpyxl
     wb = openpyxl.load_workbook(filepath, data_only=True)
-    ws = wb.active
+    if sheet_index is not None and 0 <= sheet_index < len(wb.sheetnames):
+        ws = wb.worksheets[sheet_index]
+    else:
+        ws = wb.active
     _resolve_merged_cells(ws)
 
     all_rows = []
@@ -204,7 +207,8 @@ def parse_excel_preview(file_url):
 @frappe.whitelist()
 def import_boq_data(file_url, project, work_package, zone=None,
                     header_row=None, column_mapping=None,
-                    field_column_map=None, data_start_row=None):
+                    field_column_map=None, data_start_row=None,
+                    sheet_index=None):
     """
     Import BOQ data from an Excel file into a new BOQ document.
 
@@ -216,7 +220,8 @@ def import_boq_data(file_url, project, work_package, zone=None,
     if not os.path.exists(filepath):
         frappe.throw(_("File not found: {0}").format(file_url))
 
-    all_rows = _read_all_rows(filepath)
+    sheet_idx = int(sheet_index) if sheet_index is not None else None
+    all_rows = _read_all_rows(filepath, sheet_index=sheet_idx)
 
     # Determine col_index_map and data_rows based on format
     if field_column_map is not None:

@@ -87,6 +87,7 @@ export function BOQImportDialog({ isOpen, onClose, onSuccess, preSelectedProject
               totalRows={wizard.totalRows}
               formValues={wizard.form.getValues()}
               fileUrl={wizard.fileUrl}
+              selectedSheetIndex={wizard.selectedSheetIndex}
               onBack={wizard.goBack}
               onReset={wizard.handleReset}
               onSuccess={handleImportSuccess}
