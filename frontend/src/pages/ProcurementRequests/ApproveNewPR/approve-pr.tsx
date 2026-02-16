@@ -337,7 +337,11 @@ export const ApprovePR: React.FC = () => {
         size: 180,
         enableSorting: false,
         meta: {
-          excludeFromExport: true,
+          exportHeaderName: "Categories",
+          exportValue: (row: ProcurementRequest) => {
+            const categories = (row.category_list as { list: Category[] } | undefined)?.list || [];
+            return categories.map(c => c.name).join(", ");
+          }
         },
       },
       {
@@ -541,6 +545,7 @@ export const ApprovePR: React.FC = () => {
           dateFilterColumns={dateColumns}
           showExportButton={true} // Enable if needed
           onExport={"default"}
+          exportFileName={`Approve_PR_${new Date().toISOString().split('T')[0]}`}
           getRowClassName={getRowClassName}
           // toolbarActions={<Button size="sm">Bulk Approve/Reject...</Button>} // Placeholder
         />

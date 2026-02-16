@@ -61,6 +61,7 @@ const PRDataTableWrapper: React.FC<{
     facetFilterOptions: any;
     dateColumns: any;
     notifications: NotificationType[];
+    exportFileName?: string;
 }> = ({
     tab,
     columns,
@@ -69,7 +70,8 @@ const PRDataTableWrapper: React.FC<{
     staticFilters,
     facetFilterOptions,
     dateColumns,
-    notifications
+    notifications,
+    exportFileName
 }) => {
         // Generate urlSyncKey inside the wrapper
         const dynamicUrlSyncKey = `${URL_SYNC_KEY_BASE}_${tab.toLowerCase().replace(/\s+/g, '_')}`;
@@ -171,6 +173,7 @@ const PRDataTableWrapper: React.FC<{
                 dateFilterColumns={dateColumns}
                 showExportButton={true}
                 onExport={'default'}
+                exportFileName={exportFileName}
                 isNewRow={(row) => notifications.find(n => n.docname === row.original.name && n.seen === "false" && n.event_id === eventIdForNotif) !== undefined}
                 getRowClassName={getRowClassName}
             />
@@ -384,7 +387,11 @@ export const ProcurementRequests: React.FC = () => {
                 );
             }, size: 180, enableSorting: false,
             meta: {
-                excludeFromExport: true,
+                exportHeaderName: "Categories",
+                exportValue: (row: ProcurementRequest) => {
+                    const categories = (row.category_list as { list: Category[] } | undefined)?.list || [];
+                    return categories.map(c => c.name).join(", ");
+                }
             }
         },
         {
@@ -503,6 +510,7 @@ export const ProcurementRequests: React.FC = () => {
                     facetFilterOptions={facetFilterOptionsForDataTable}
                     dateColumns={dateColumnsForDataTable}
                     notifications={notifications}
+                    exportFileName={`${tab.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}`}
                 />
             );
         }
