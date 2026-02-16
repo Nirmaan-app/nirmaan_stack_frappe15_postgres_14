@@ -22,7 +22,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { useFacetValues } from "@/hooks/useFacetValues";
 import { formatDate } from "@/utils/FormatDate";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import {
   NotificationType,
@@ -121,10 +121,10 @@ export const ApproveSelectAmendPO: React.FC = () => {
       memoize((order: ProcurementOrdersType | undefined | null): number => {
         if (!order) return 0;
         let total = 0;
-        const orderData = Array.isArray(order.order_list?.list)
-          ? order.order_list.list
+        const orderData = Array.isArray(order.items)
+          ? order.items
           : [];
-        orderData.forEach((item) => {
+        orderData.forEach((item: PurchaseOrderItem) => {
           const price = item.quote;
           total += parseNumber(price * item.quantity);
         });
@@ -163,7 +163,7 @@ export const ApproveSelectAmendPO: React.FC = () => {
         "loading_charges",
         "freight_charges",
         "procurement_request",
-      ]),
+      ] as any),
     []
   );
 
@@ -217,10 +217,7 @@ export const ApproveSelectAmendPO: React.FC = () => {
               {/* Ensure Link points to correct view/tab */}
               <Link
                 className="underline hover:underline-offset-2 whitespace-nowrap"
-                to={`/purchase-orders/${poId?.replaceAll(
-                  "/",
-                  "&="
-                )}?tab=Approve Amended PO`}
+                to={`/purchase-orders/${poId?.split("/").join("&=")}?tab=Approve Amended PO`}
               >
                 {poId?.toUpperCase()}
               </Link>
@@ -239,6 +236,10 @@ export const ApproveSelectAmendPO: React.FC = () => {
           );
         },
         size: 200,
+        meta: {
+          exportHeaderName: "PO ID",
+          exportValue: (row: ProcurementOrdersType) => row.name
+        }
       },
       {
         accessorKey: "procurement_request",
@@ -247,10 +248,14 @@ export const ApproveSelectAmendPO: React.FC = () => {
         ),
         cell: ({ row }) => (
           <div className="font-medium">
-            {row.getValue("procurement_request")?.slice(-4) ?? "--"}
+            {(row.getValue("procurement_request") as string)?.slice(-4) ?? "--"}
           </div>
         ), // Display last 4 of PR
         size: 100,
+        meta: {
+          exportHeaderName: "PR ID",
+          exportValue: (row: ProcurementOrdersType) => row.procurement_request
+        }
       },
       {
         accessorKey: "creation",
@@ -263,6 +268,10 @@ export const ApproveSelectAmendPO: React.FC = () => {
           </div>
         ),
         size: 150,
+        meta: {
+          exportHeaderName: "Created On",
+          exportValue: (row: ProcurementOrdersType) => formatDate(row.creation)
+        }
       },
       {
         accessorKey: "project",
@@ -279,6 +288,10 @@ export const ApproveSelectAmendPO: React.FC = () => {
         ),
         enableColumnFilter: true,
         size: 200,
+        meta: {
+          exportHeaderName: "Project",
+          exportValue: (row: ProcurementOrdersType) => row.project_name || row.project
+        }
       },
       {
         accessorKey: "vendor",
@@ -295,6 +308,10 @@ export const ApproveSelectAmendPO: React.FC = () => {
         ),
         enableColumnFilter: true,
         size: 200,
+        meta: {
+          exportHeaderName: "Vendor",
+          exportValue: (row: ProcurementOrdersType) => row.vendor_name || row.vendor
+        }
       },
       {
         accessorKey: "owner",
@@ -312,6 +329,15 @@ export const ApproveSelectAmendPO: React.FC = () => {
           );
         },
         size: 180,
+        meta: {
+          exportHeaderName: "Created By",
+          exportValue: (row: ProcurementOrdersType) => {
+            const ownerUser = userList?.find(
+              (entry) => row?.owner === entry.name
+            );
+            return ownerUser?.full_name || row?.owner || "--";
+          }
+        }
       },
       {
         id: "total_amount",
@@ -325,6 +351,10 @@ export const ApproveSelectAmendPO: React.FC = () => {
         ),
         size: 150,
         enableSorting: false,
+        meta: {
+          exportHeaderName: "Amount",
+          exportValue: (row: ProcurementOrdersType) => formatForReport(row.total_amount)
+        }
       },
     ],
     [
@@ -349,7 +379,6 @@ export const ApproveSelectAmendPO: React.FC = () => {
     setSelectedSearchField,
     searchTerm,
     setSearchTerm,
-    isRowSelectionActive,
     // globalFilter, setGlobalFilter,
     // isItemSearchEnabled, toggleItemSearch, showItemSearchToggle,
     refetch, // Get refetch function
@@ -454,6 +483,7 @@ export const ApproveSelectAmendPO: React.FC = () => {
           dateFilterColumns={dateColumns}
           showExportButton={true}
           onExport={"default"}
+          exportFileName={`Approve_Amended_PO_${new Date().toISOString().split('T')[0]}`}
           getRowClassName={getRowClassName}
           // showExport={true} // Enable if needed
           // onExport={handleExport} // Define handleExport if needed

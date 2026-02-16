@@ -20,7 +20,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { useFacetValues } from "@/hooks/useFacetValues";
 import { formatDate } from "@/utils/FormatDate";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import {
   NotificationType,
@@ -213,7 +213,7 @@ export const ApproveSelectSentBack: React.FC = () => {
         ),
         cell: ({ row }) => (
           <div className="font-medium">
-            {row.getValue("procurement_request")?.slice(-4) ?? "--"}
+            {(row.getValue("procurement_request") as string)?.slice(-4) ?? "--"}
           </div>
         ),
         size: 100,
@@ -309,7 +309,7 @@ export const ApproveSelectSentBack: React.FC = () => {
         meta: {
           exportHeaderName: "Value",
           exportValue: (row: SentBackCategory) => {
-            return formatToRoundedIndianRupee(getTotal(row.order_list));
+            return formatForReport(getTotal(row.order_list));
           },
         },
       },
@@ -422,6 +422,7 @@ export const ApproveSelectSentBack: React.FC = () => {
           dateFilterColumns={dateColumns}
           showExportButton={true}
           onExport={"default"}
+          exportFileName={`Approve_Sent_Back_PO_${new Date().toISOString().split('T')[0]}`}
           getRowClassName={getRowClassName}
           // toolbarActions={<Button size="sm">Bulk Actions...</Button>}
         />
