@@ -118,9 +118,12 @@ interface PODetailsProps {
     totalAmt: number
   }
   amountPaid: number
-  totalInvoice?: number
-  poMutate: any
-  toggleRequestPaymentDialog: () => void
+  totalInvoice?: number;
+  poMutate: any;
+  toggleRequestPaymentDialog: () => void;
+  totalUploadedInvoiceAmount?: number;
+  totalPendingInvoiceAmount?: number;
+  totalApprovedInvoiceAmount?: number;
 }
 
 
@@ -136,6 +139,9 @@ export const PODetails: React.FC<PODetailsProps> = ({
   totalInvoice,
   poMutate,
   toggleRequestPaymentDialog,
+  totalUploadedInvoiceAmount,
+  totalPendingInvoiceAmount,
+  totalApprovedInvoiceAmount,
 }) => {
   if (!po) return <div>No PO ID Provided</div>;
 
@@ -690,6 +696,59 @@ export const PODetails: React.FC<PODetailsProps> = ({
                     {po?.po_amount_delivered ? formatToRoundedIndianRupee(po?.po_amount_delivered) : "--"}
                   </p>
                 </div>
+              </div>
+
+              {/* Invoice Statistics Row */}
+              <div className="flex  items-center mb-2 mt-4 pt-3 border-t border-dashed border-gray-200">
+                  <p className="text-[10px] mr-5 font-semibold text-gray-400 uppercase tracking-wider">Invoices</p>
+                  {/* Conditional Revision Warning or Standard Link */}
+                  {(totalUploadedInvoiceAmount && po?.total_amount && Math.abs(totalUploadedInvoiceAmount - po.total_amount) > 1) ? (
+                      <div className="flex items-center text-xs text-red-500 bg-red-50 px-2 py-1 rounded">
+                          <span className="mr-1">Total PO Amount and Total Invoice Amount is not matching. Do you want to</span>
+                          <Button
+                              variant="link"
+                              size="sm"
+                              className="text-xs h-auto p-0 text-blue-600 font-semibold underline"
+                              onClick={() => {
+                                  navigate(`/app/revision-po/new?po=${po?.name}`);
+                              }}
+                          >
+                              Revise PO
+                          </Button>
+                      </div>
+                  ) : (
+                      <Button
+                          variant="link"
+                          size="sm"
+                          className="text-[10px] h-auto p-0 text-blue-600 font-semibold uppercase tracking-wider"
+                          onClick={() => {
+                              navigate(`/app/revision-po/new?po=${po?.name}`);
+                          }}
+                      >
+                          Revision PO
+                      </Button>
+                  )}
+              </div>
+              <div className="">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      {/* Total Amount of Invoices Uploaded */}
+                      <div className="space-y-0.5">
+                          <p className="text-xs text-gray-500">Total Invoices Uploaded</p>
+                          <p className="text-sm font-semibold">{totalUploadedInvoiceAmount ? formatToRoundedIndianRupee(totalUploadedInvoiceAmount) : "--"}</p>
+                      </div>
+
+                      {/* Invoices Pending Approval */}
+                      <div className="space-y-0.5">
+                          <p className="text-xs text-gray-500">Invoices Pending Approval</p>
+                          <p className="text-sm font-semibold">{totalPendingInvoiceAmount ? formatToRoundedIndianRupee(totalPendingInvoiceAmount) : "--"}</p>
+                      </div>
+
+                      {/* Total Invoices Approved */}
+                      <div className="space-y-0.5">
+                          <p className="text-xs text-gray-500">Total Invoices Approved</p>
+                          <p className="text-sm font-semibold">{totalApprovedInvoiceAmount ? formatToRoundedIndianRupee(totalApprovedInvoiceAmount) : "--"}</p>
+                      </div>
+                  </div>
               </div>
             </div>
           )}
