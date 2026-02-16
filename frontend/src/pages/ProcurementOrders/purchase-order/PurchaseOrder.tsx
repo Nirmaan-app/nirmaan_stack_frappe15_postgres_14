@@ -1141,7 +1141,25 @@ export const PurchaseOrder = ({
   );
 
   const totalInvoiceAmount = useMemo(
-    () => getTotalVendorInvoiceAmount(vendorInvoices),
+    () =>
+      vendorInvoices
+        ?.reduce((sum, inv) => sum + (inv.invoice_amount || 0), 0) || 0,
+    [vendorInvoices]
+  );
+
+  const totalPendingInvoiceAmount = useMemo(
+    () =>
+      vendorInvoices
+        ?.filter((inv) => inv.status === "Pending")
+        .reduce((sum, inv) => sum + (inv.invoice_amount || 0), 0) || 0,
+    [vendorInvoices]
+  );
+
+  const totalApprovedInvoiceAmount = useMemo(
+    () =>
+      vendorInvoices
+        ?.filter((inv) => inv.status === "Approved")
+        .reduce((sum, inv) => sum + (inv.invoice_amount || 0), 0) || 0,
     [vendorInvoices]
   );
 
@@ -1553,6 +1571,9 @@ export const PurchaseOrder = ({
         togglePoPdfSheet={togglePoPdfSheet}
         // getTotal={getTotal}
         totalInvoice={totalInvoiceAmount}
+        totalUploadedInvoiceAmount={totalInvoiceAmount}
+        totalPendingInvoiceAmount={totalPendingInvoiceAmount}
+        totalApprovedInvoiceAmount={totalApprovedInvoiceAmount}
         amountPaid={PO?.amount_paid}
         poMutate={poMutate}
       />
