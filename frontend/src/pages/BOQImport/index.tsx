@@ -66,6 +66,7 @@ export function BOQImportWizard() {
               totalRows={wizard.totalRows}
               formValues={wizard.form.getValues()}
               fileUrl={wizard.fileUrl}
+              selectedSheetIndex={wizard.selectedSheetIndex}
               onBack={wizard.goBack}
               onReset={wizard.handleReset}
             />
