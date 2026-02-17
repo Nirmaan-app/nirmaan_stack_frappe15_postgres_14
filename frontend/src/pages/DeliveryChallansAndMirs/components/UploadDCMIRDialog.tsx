@@ -104,7 +104,7 @@ export const UploadDCMIRDialog = ({
         make: item.make || "",
         selected: false,
       })),
-      isSignedByClient: false,
+      isSignedByClient: true,
       clientRepresentativeName: "",
     },
   });
@@ -150,7 +150,7 @@ export const UploadDCMIRDialog = ({
             make: item.make || "",
             selected: false,
           })),
-          isSignedByClient: false,
+          isSignedByClient: true,
           clientRepresentativeName: "",
         });
         setSelectedFile(null);
