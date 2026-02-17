@@ -476,6 +476,13 @@ interface ProjectProgressReportRow extends Projects {
     [key: string]: any; 
 }
 
+interface ZoneReportStatus {
+    totalZones: number;
+    reportedCount: number;
+    reportNames: Record<string, string>;
+    progress: number;
+}
+
 const DOCTYPE_PROJECTS = 'Projects';
 const DOCTYPE_PROGRESS_REPORTS = 'Project Progress Reports';
 
@@ -871,40 +878,53 @@ cell: ({ row }) => {
     console.log("table data",table.getRowModel().rows);
     // --- 6. Custom Export Handler (useCallback) ---
     const handleCustomExport = useCallback(() => {
-        const fullyFilteredData = table.getFilteredRowModel().rows.map(row => row.original);
-        if (!fullyFilteredData || fullyFilteredData.length === 0) {
+        const rowsToExport = table.getSortedRowModel().rows.map(row => row.original);
+         
+        if (!rowsToExport || rowsToExport.length === 0) {
             toast({ title: "Export", description: "No data available to export.", variant: "default" });
             return;
         }
 
-        const dataToExport = fullyFilteredData.map(original => {
-            // Flatten the assigned_leads array for export
-            const leadRoles = original.assigned_leads.reduce((acc, lead) => {
-                // Use the exact role name as the key
-                acc[lead.role] = lead.name; 
-                return acc;
-            }, {} as Record<string, string>);
+        const dataToExport = rowsToExport.map(original => {
+            const projectId = original.name;
+            let assignees = assignmentsLookup[projectId] || [];
+            
+            // Allow all roles or filter
+             const allowedRoles = [
+                "Nirmaan Project Manager Profile",
+                "Nirmaan Project Lead Profile"
+            ];
+
+            const roleMap: Record<string, string> = {
+                "Nirmaan Project Manager Profile": "Project Manager",
+                "Nirmaan Project Lead Profile": "Project Lead",
+            };
+
+            const formattedAssignees = assignees
+                .filter((a) => allowedRoles.includes(a.role)) 
+                .map((a) => `• ${a.name} (${roleMap[a.role] || a.role})`)
+                .join("\n");
 
             const exportRow: Record<string, any> = {
-                "Project Name": original.project_name,
-                "Project ID": original.name,
-                "Project Lead": leadRoles["Nirmaan Project Lead"] || "--",
-                "Project Manager": leadRoles["Nirmaan Project Manager"] || "--",
+                "Project Name": original.project_name || original.name,
+                "Assignees": formattedAssignees || "--",
             };
             
             dynamicDateColumns.forEach(col => {
-                exportRow[col.title.replace('\n', ' ')] = original[col.id] || "--";
+                const status = original[col.id] as ZoneReportStatus | undefined;
+                 if (status) {
+                    exportRow[col.title.replace('\n', ' ')] = `${status.reportedCount}/${status.totalZones}`;
+                } else {
+                    exportRow[col.title.replace('\n', ' ')] = "--";
+                }
             });
             return exportRow;
         });
 
         // Define export columns based on the flattened data
         const exportColumns: ColumnDef<any, any>[] = [
-            { header: "Project Name", accessorKey: "Project Name" },
-            { header: "Project ID", accessorKey: "Project ID" },
-            // Only export the roles fetched by permissions
-            { header: "Project Lead", accessorKey: "Project Lead" },
-            { header: "Project Manager", accessorKey: "Project Manager" },
+           { header: "Project Name", accessorKey: "Project Name" },
+           { header: "Assignees", accessorKey: "Assignees" },
             ...dynamicDateColumns.map(col => ({
                 header: col.title.replace('\n', ' '), 
                 accessorKey: col.title.replace('\n', ' ')
