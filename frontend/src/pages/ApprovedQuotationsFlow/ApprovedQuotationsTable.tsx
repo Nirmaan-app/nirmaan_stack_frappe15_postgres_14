@@ -432,6 +432,13 @@ export default function ApprovedQuotationsTable({
           </div>
         ),
         filterFn: facetedFilterFn,
+        meta: {
+          exportHeaderName: "Project Name",
+          exportValue: (row: ApprovedQuotationsType) =>
+            (row.procurement_order
+              ? poProjectMap[row.procurement_order]
+              : null) || "N/A",
+        },
       },
       {
         accessorKey: "vendor",
@@ -499,6 +506,10 @@ export default function ApprovedQuotationsTable({
           </div>
         ),
         enableColumnFilter: false,
+        meta: {
+          exportHeaderName: "Amount (excl. GST)",
+          exportValue: (row: ApprovedQuotationsType) => calculateTotalAmount(row),
+        },
       },
       {
         accessorKey: "make",

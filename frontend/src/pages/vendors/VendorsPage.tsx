@@ -153,6 +153,11 @@ export default function VendorsPage() {
         },
         size: 250,
         enableSorting: false,
+        meta: {
+          exportHeaderName: "Categories",
+          exportValue: (row: VendorsType) =>
+            row.vendor_category?.categories?.join(", ") || "",
+        },
       },
       {
         id: "vendor_address",

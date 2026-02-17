@@ -213,6 +213,7 @@ export const TDSApprovalList: React.FC = () => {
                     if (!filterValue || filterValue.length === 0) return true;
                     return filterValue.includes(row.getValue(id));
                 },
+                meta: { exportHeaderName: "TDS ID" }
             },
             {
                 accessorKey: "project",
@@ -223,6 +224,7 @@ export const TDSApprovalList: React.FC = () => {
                     if (!filterValue || filterValue.length === 0) return true;
                     return filterValue.includes(row.getValue(id));
                 },
+                meta: { exportHeaderName: "Project Name" }
             },
             {
                 accessorKey: "creation",
@@ -242,6 +244,10 @@ export const TDSApprovalList: React.FC = () => {
                     // ... other operators kept same implied
                     return true;
                 },
+                meta: {
+                    exportHeaderName: "Date",
+                    exportValue: (row: TDSRequest) => formatDateClean(row.creation)
+                }
             },
             {
                 accessorKey: "total_items",
@@ -254,6 +260,15 @@ export const TDSApprovalList: React.FC = () => {
                     return <ItemsPill count={count} />;
                 },
                 size: 100,
+                meta: {
+                    exportHeaderName: "Items",
+                    exportValue: (row: TDSRequest) => {
+                        if (activeTab === "Pending Approval") return row.pending_count;
+                        if (activeTab === "Rejected") return row.rejected_count;
+                        if (activeTab === "Approved") return row.approved_count;
+                        return row.total_items;
+                    }
+                }
             },
             {
                 accessorKey: "created_by_full_name",
@@ -264,6 +279,7 @@ export const TDSApprovalList: React.FC = () => {
                     if (!filterValue || filterValue.length === 0) return true;
                     return filterValue.includes(row.getValue(id));
                 },
+                meta: { exportHeaderName: "Created By" }
             },
         ];
 
@@ -274,6 +290,7 @@ export const TDSApprovalList: React.FC = () => {
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
                 cell: ({ row }) => <StatusBadge status={row.getValue("status")} />,
                 size: 120,
+                meta: { exportHeaderName: "Status" }
             });
         }
 
