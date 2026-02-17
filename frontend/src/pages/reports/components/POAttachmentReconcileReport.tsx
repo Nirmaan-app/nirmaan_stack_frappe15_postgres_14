@@ -209,7 +209,9 @@ export default function POAttachmentReconcileReport() {
     const exportFileName = "po_attachment_reconciliation_report";
 
     const handleCustomExport = useCallback(() => {
-        if (!fullyFilteredData || fullyFilteredData.length === 0) {
+        const rowsToExport = table.getSortedRowModel().rows.map((row) => row.original);
+
+        if (!rowsToExport || rowsToExport.length === 0) {
             toast({
                 title: "Export",
                 description: "No data available to export.",
@@ -218,28 +220,54 @@ export default function POAttachmentReconcileReport() {
             return;
         }
 
-        const dataToExport = fullyFilteredData.map((row) => ({
-            po_id: row.name,
-            created_on: row.creation ? formatDate(row.creation) : '-',
-            vendor: row.vendorName,
-            project: row.projectName || '-',
-            latest_delivery_date: row.latestDeliveryDate ? formatDate(row.latestDeliveryDate) : '-',
-            status: row.status,
-            total_po_amt: formatForReport(row.totalPOAmount),
-            amt_paid: formatForReport(row.totalAmountPaid),
-            invoice_amt: formatForReport(row.totalInvoiceAmount),
-            delivered_amt: formatForReport(row.poAmountDelivered),
-            invoice_count: row.invoiceCount,
-            dc_count: row.dcCount,
-            mir_count: row.mirCount,
-        }));
+        const dataToExport = rowsToExport.map((row) => {
+            // Assignees Logic
+            const projectId = row.projectId;
+            let assignees = assignmentsLookup[projectId] || [];
+            const allowedRoles = [
+                "Nirmaan Project Manager Profile",
+                "Nirmaan Procurement Profile",
+                "Nirmaan Admin Profile",
+                "Nirmaan Accountant Profile",
+            ];
+            const roleMap: Record<string, string> = {
+                "Nirmaan Project Manager Profile": "Project Manager",
+                "Nirmaan Procurement Profile": "Procurement",
+                "Nirmaan Admin Profile": "Admin",
+                "Nirmaan Accountant Profile": "Accountant",
+            };
+
+            const formattedAssignees = assignees
+                .filter((a) => allowedRoles.includes(a.role))
+                .map((a) => `• ${a.name} (${roleMap[a.role] || a.role})`)
+                .join("\n");
+
+            return {
+                po_id: row.name,
+                created_on: row.creation ? formatDate(row.creation) : '-',
+                vendor: row.vendorName,
+                project: row.projectName || '-',
+                assignees: formattedAssignees || "--", // New Field
+                latest_delivery_date: row.latestDeliveryDate ? formatDate(row.latestDeliveryDate) : '-',
+                status: row.status,
+                total_po_amt: formatForReport(row.totalPOAmount),
+                amt_paid: formatForReport(row.totalAmountPaid),
+                invoice_amt: formatForReport(row.totalInvoiceAmount),
+                delivered_amt: formatForReport(row.poAmountDelivered),
+                invoice_count: row.invoiceCount,
+                dc_count: row.dcCount,
+                mir_count: row.mirCount,
+            };
+        });
 
         const exportColumnsConfig: ColumnDef<any, any>[] = [
             { header: "PO ID", accessorKey: "po_id" },
-            { header: "Created On", accessorKey: "created_on" },
+           
             { header: "Vendor", accessorKey: "vendor" },
             { header: "Project", accessorKey: "project" },
-            { header: "Latest Delivery Date", accessorKey: "latest_delivery_date" },
+            { header: "Assignees", accessorKey: "assignees" },
+             { header: "Latest Delivery Date", accessorKey: "latest_delivery_date" }, // Moved here
+            { header: "Created On", accessorKey: "created_on" },
             { header: "Status", accessorKey: "status" },
             { header: "Total PO Amt", accessorKey: "total_po_amt" },
             { header: "Amt Paid", accessorKey: "amt_paid" },
@@ -265,7 +293,7 @@ export default function POAttachmentReconcileReport() {
                 variant: "destructive",
             });
         }
-    }, [fullyFilteredData]);
+    }, [table, assignmentsLookup]);
 
     const isLoadingOverall =
         isLoadingInitialData ||

@@ -27,6 +27,7 @@ const ApprovedSRList = React.lazy(() => import("../ServiceRequests/service-reque
 const FinalizedSRList = React.lazy(() => import("../ServiceRequests/service-request/finalized-sr-list"));
 import { cn } from "@/lib/utils";
 const POVendorLedger = React.lazy(() => import("./components/POVendorLedger"));
+const VendorQuotesTable = React.lazy(() => import("./components/VendorQuotesTable"));
 const PoInvoices = React.lazy(() => import("../tasks/invoices/components/PoInvoices").then(m => ({ default: m.PoInvoices })));
 const SrInvoices = React.lazy(() => import("../tasks/invoices/components/SrInvoices").then(m => ({ default: m.SrInvoices })));
 
@@ -102,7 +103,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
         { label: "PO Invoices", key: "poInvoices" },
         (vendor?.vendor_type === "Service" || vendor?.vendor_type === "Material & Service") &&
         { label: "SR Invoices", key: "srInvoices" },
-
+        { label: "Vendor Quotes", key: "vendorQuotes" },
     ].filter(Boolean) as MenuItem[], [vendor?.vendor_type]);
 
     // --- SR Counts Data ---
@@ -120,7 +121,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
     const approvedCount = approvedSRs?.length || 0;
     const finalizedCount = finalizedSRs?.length || 0;
 
-    const handleMenuClick: MenuProps["onClick"] = useCallback(e => setCurrentTab(e.key), []);
+    const handleMenuClick: MenuProps["onClick"] = useCallback((e: any) => setCurrentTab(e.key), []);
 
 
     if (vendorLoading) return <div className="p-6"><OverviewSkeleton2 /></div>;
@@ -144,6 +145,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
             case "materialOrders":
                 return <VendorMaterialOrdersTable
                     vendorId={vendorId}
+                    vendorName={vendor?.vendor_name || vendorId}
                     projectOptions={projectOptions}
                     procurementRequests={procurementRequests}
                 />;
@@ -181,8 +183,8 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                         </div>
 
                         {/* Tab Content */}
-                        {serviceOrderTab === "approved" && <ApprovedSRList for_vendor={vendorId} />}
-                        {serviceOrderTab === "finalized" && <FinalizedSRList for_vendor={vendorId} />}
+                        {serviceOrderTab === "approved" && <ApprovedSRList for_vendor={vendorId} vendorName={vendor?.vendor_name} />}
+                        {serviceOrderTab === "finalized" && <FinalizedSRList for_vendor={vendorId} vendorName={vendor?.vendor_name} />}
                     </div>
                 );
             case "vendorPayments":
@@ -193,13 +195,25 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
             case "approvedQuotes":
                 return <VendorApprovedQuotesTable
                     vendorId={vendorId}
+                    vendorName={vendor?.vendor_name || vendorId}
                 />;
             case "poVendorLedger":
                 return <POVendorLedger vendorId={vendorId} />
             case "poInvoices":
-                return <PoInvoices vendorId={vendorId} />;
+                return <PoInvoices
+                    vendorId={vendorId}
+                    vendorName={vendor?.vendor_name || vendorId}
+                />;
             case "srInvoices":
-                return <SrInvoices vendorId={vendorId} />;
+                return <SrInvoices
+                    vendorId={vendorId}
+                    vendorName={vendor?.vendor_name || vendorId}
+                />;
+            case "vendorQuotes":
+                return <VendorQuotesTable
+                    vendorId={vendorId}
+                    vendorName={vendor?.vendor_name || vendorId}
+                />;
             default:
                 return <div>Select a tab.</div>;
         }

@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Link } from 'react-router-dom';
-import { ArrowDown, ArrowUp, ChevronRight, ChevronDown, ChevronsUpDown, FileUp, ListX } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronRight, ChevronDown, ChevronsUpDown, ListX } from 'lucide-react';
 
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Button } from '@/components/ui/button';
@@ -19,7 +19,7 @@ import { toast } from '@/components/ui/use-toast';
 // 1. TYPES & HELPER COMPONENT
 // =================================================================================
 
-type POWiseSortKey = 'totalOrderedQty' | 'totalDeliveryNoteQty' | 'totalDCQty' | 'totalMIRQty' | 'totalAmount' | 'dcCount' | 'mirCount';
+type POWiseSortKey = 'totalOrderedQty' | 'totalDeliveryNoteQty' | 'totalDCQty' | 'totalMIRQty' | 'dcCount' | 'mirCount';
 
 interface POSortableHeaderProps {
   sortableKey: POWiseSortKey;
@@ -73,7 +73,12 @@ interface POWiseMaterialTableProps {
   projectId: string;
 }
 
-export const POWiseMaterialTable: React.FC<POWiseMaterialTableProps> = ({ items, searchTerm, projectId }) => {
+export interface POWiseMaterialTableHandle {
+  exportCsv: () => void;
+  canExport: boolean;
+}
+
+export const POWiseMaterialTable = React.forwardRef<POWiseMaterialTableHandle, POWiseMaterialTableProps>(({ items, searchTerm, projectId }, ref) => {
   const parentRef = React.useRef<HTMLDivElement>(null);
   const [expandedPOs, setExpandedPOs] = React.useState<Set<string>>(new Set());
 
@@ -193,7 +198,7 @@ export const POWiseMaterialTable: React.FC<POWiseMaterialTableProps> = ({ items,
   const paddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
   const paddingBottom = virtualRows.length > 0 ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end : 0;
 
-  // --- CSV Export Handler (hierarchical PO + item rows) ---
+  // --- CSV Export Handler (flat: one row per item) ---
   const handleExportCsv = React.useCallback(() => {
     if (processedItems.length === 0) {
       toast({ title: "No Data", description: "No data to export based on current filters.", variant: "default" });
@@ -201,39 +206,18 @@ export const POWiseMaterialTable: React.FC<POWiseMaterialTableProps> = ({ items,
     }
 
     const headers = [
-      'Type', 'PO Number', 'Vendor', 'Category', 'Item Name', 'Unit',
+      'PO Number', 'Vendor', 'Category', 'Item Name', 'Unit',
       'Ordered Qty', 'Delivery Note Qty', 'DC Qty', 'MIR Qty',
-      'Amount (inc.GST)', 'Delivery Status', 'DC Count', 'Incomplete DCs', 'MIR Count', 'Incomplete MIRs', 'Payment Status'
+      'Rate', 'Delivery Status', 'Payment Status'
     ];
 
     const rows: Record<string, string>[] = [];
     for (const po of processedItems) {
-      // PO Summary row
-      rows.push({
-        'Type': 'PO Summary',
-        'PO Number': po.poNumber,
-        'Vendor': po.vendorName,
-        'Category': po.category,
-        'Item Name': '',
-        'Unit': '',
-        'Ordered Qty': po.totalOrderedQty.toFixed(2),
-        'Delivery Note Qty': po.totalDeliveryNoteQty.toFixed(2),
-        'DC Qty': po.totalDCQty.toFixed(2),
-        'MIR Qty': po.totalMIRQty.toFixed(2),
-        'Amount (inc.GST)': po.totalAmount.toFixed(2),
-        'Delivery Status': po.deliveryStatus,
-        'DC Count': po.dcs.length.toString(),
-        'Incomplete DCs': po.dcs.filter(d => d.isStub).length.toString(),
-        'MIR Count': po.mirs.length.toString(),
-        'Incomplete MIRs': po.mirs.filter(d => d.isStub).length.toString(),
-        'Payment Status': po.paymentStatus,
-      });
-      // Nested item rows
       for (const item of po.items) {
+        const rate = item.poNumbers?.find(p => p.po === po.poNumber)?.quote || 0;
         rows.push({
-          'Type': 'Item',
-          'PO Number': '',
-          'Vendor': '',
+          'PO Number': po.poNumber,
+          'Vendor': po.vendorName,
           'Category': item.categoryName,
           'Item Name': item.itemName || 'N/A',
           'Unit': item.unit || '-',
@@ -241,13 +225,9 @@ export const POWiseMaterialTable: React.FC<POWiseMaterialTableProps> = ({ items,
           'Delivery Note Qty': item.deliveredQuantity.toFixed(2),
           'DC Qty': item.dcQuantity.toFixed(2),
           'MIR Qty': item.mirQuantity.toFixed(2),
-          'Amount (inc.GST)': (item.totalAmount || 0).toFixed(2),
-          'Delivery Status': '',
-          'DC Count': '',
-          'Incomplete DCs': '',
-          'MIR Count': '',
-          'Incomplete MIRs': '',
-          'Payment Status': '',
+          'Rate': rate.toFixed(2),
+          'Delivery Status': po.deliveryStatus,
+          'Payment Status': po.paymentStatus,
         });
       }
     }
@@ -257,17 +237,15 @@ export const POWiseMaterialTable: React.FC<POWiseMaterialTableProps> = ({ items,
       rows,
       headers.map(h => ({ header: h, accessorKey: h }))
     );
-    toast({ title: "Export Successful", description: `${processedItems.length} POs (${rows.length} rows) exported.`, variant: "success" });
+    toast({ title: "Export Successful", description: `${rows.length} items across ${processedItems.length} POs exported.`, variant: "success" });
   }, [processedItems, projectId]);
 
+  React.useImperativeHandle(ref, () => ({
+    exportCsv: handleExportCsv,
+    canExport: processedItems.length > 0,
+  }), [handleExportCsv, processedItems.length]);
+
   return (
-    <div className="space-y-2">
-      {/* Export button above table */}
-      <div className="flex justify-end">
-        <Button onClick={handleExportCsv} variant="outline" size="sm" className="h-9" disabled={processedItems.length === 0}>
-          <FileUp className="mr-2 h-4 w-4" /> Export
-        </Button>
-      </div>
     <div ref={parentRef} className="rounded-md border overflow-x-auto max-h-[70vh] overflow-y-auto">
       <Table>
         <TableHeader className="bg-background sticky top-0 z-[40]">
@@ -285,7 +263,7 @@ export const POWiseMaterialTable: React.FC<POWiseMaterialTableProps> = ({ items,
             <POSortableHeader {...sortProps('totalDeliveryNoteQty')} className="text-right min-w-[120px]">DN Qty</POSortableHeader>
             <POSortableHeader {...sortProps('totalDCQty')} className="text-right min-w-[100px]">DC Qty</POSortableHeader>
             <POSortableHeader {...sortProps('totalMIRQty')} className="text-right min-w-[100px]">MIR Qty</POSortableHeader>
-            <POSortableHeader {...sortProps('totalAmount')} className="text-right min-w-[150px]">Amount (inc.GST)</POSortableHeader>
+            <TableHead className="text-right min-w-[120px]">Rate</TableHead>
             <TableHead className="min-w-[150px]">
               <div className="flex items-center gap-1 justify-center">
                 <SimpleFacetedFilter title="Delivery Status" options={deliveryStatusOptions} selectedValues={deliveryStatusFilter} onSelectedValuesChange={setDeliveryStatusFilter} />
@@ -333,7 +311,7 @@ export const POWiseMaterialTable: React.FC<POWiseMaterialTableProps> = ({ items,
                   </TableCell>
                   <TableCell className="py-2 px-3 font-medium">
                     <Link
-                      to={`po/${po.poNumber.replaceAll("/", "&=")}`}
+                      to={`po/${po.poNumber.replace(/\//g, "&=")}`}
                       relative="path"
                       className="text-blue-600 hover:underline text-xs font-mono"
                       onClick={(e) => e.stopPropagation()}
@@ -347,7 +325,7 @@ export const POWiseMaterialTable: React.FC<POWiseMaterialTableProps> = ({ items,
                   <TableCell className="text-right py-2 px-3 font-mono text-sm">{po.totalDeliveryNoteQty.toFixed(2)}</TableCell>
                   <TableCell className="text-right py-2 px-3 font-mono text-sm">{po.totalDCQty.toFixed(2)}</TableCell>
                   <TableCell className="text-right py-2 px-3 font-mono text-sm">{po.totalMIRQty.toFixed(2)}</TableCell>
-                  <TableCell className="text-right py-2 px-3 font-mono text-sm">{formatToIndianRupee(po.totalAmount)}</TableCell>
+                  <TableCell className="text-right py-2 px-3 font-mono text-sm text-muted-foreground">-</TableCell>
                   <TableCell className="text-center py-2 px-3">
                     <Badge
                       variant={
@@ -410,7 +388,9 @@ export const POWiseMaterialTable: React.FC<POWiseMaterialTableProps> = ({ items,
                 <TableCell className="text-right py-1.5 px-3 font-mono text-xs">{item.deliveredQuantity.toFixed(2)}</TableCell>
                 <TableCell className="text-right py-1.5 px-3 font-mono text-xs">{item.dcQuantity.toFixed(2)}</TableCell>
                 <TableCell className="text-right py-1.5 px-3 font-mono text-xs">{item.mirQuantity.toFixed(2)}</TableCell>
-                <TableCell className="text-right py-1.5 px-3 font-mono text-xs">{formatToIndianRupee(item.totalAmount || 0)}</TableCell>
+                <TableCell className="text-right py-1.5 px-3 font-mono text-xs">
+                  {formatToIndianRupee(item.poNumbers?.find(p => p.po === po.poNumber)?.quote || 0)}
+                </TableCell>
                 <TableCell className="py-1.5 px-3"></TableCell>
                 <TableCell className="text-center py-1.5 px-3" onClick={(e) => e.stopPropagation()}>
                   <DeliveryDocumentCountCell type="dc" documents={item.deliveryChallans || []} count={item.dcCount || 0} />
@@ -427,6 +407,5 @@ export const POWiseMaterialTable: React.FC<POWiseMaterialTableProps> = ({ items,
         </TableBody>
       </Table>
     </div>
-    </div>
   );
-};
+});

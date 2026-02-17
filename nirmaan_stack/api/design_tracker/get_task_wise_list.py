@@ -14,7 +14,8 @@ def get_task_wise_list(
     limit_page_length=50,
     search_term=None,
     user_id=None,
-    is_design_executive=False
+    is_design_executive=False,
+    task_phase=None
 ):
     """
     Custom API to fetch flattened Design Tracker Tasks.
@@ -82,6 +83,10 @@ def get_task_wise_list(
                 continue
                 
             for t in doc.design_tracker_task:
+                # --- PHASE FILTER ---
+                if task_phase and t.get("task_phase") != task_phase:
+                    continue
+
                 # --- FLATTENING ---
                 # Create a dict representing the Task Row + Project Info
                 row = t.as_dict()
@@ -152,6 +157,9 @@ def get_task_wise_list(
                                 if not match_found: filter_fail = True
                             else:
                                 if row_val not in val: filter_fail = True
+                    elif op_lower == 'not in':
+                        if isinstance(val, list):
+                            if row_val in val: filter_fail = True
                     elif op_lower == 'between':
                         if isinstance(val, (list, tuple)) and len(val) == 2:
                             try:

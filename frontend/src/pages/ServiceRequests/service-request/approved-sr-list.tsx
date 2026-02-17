@@ -65,6 +65,7 @@ const DOCTYPE = "Service Requests";
 
 interface ApprovedSRListProps {
   for_vendor?: string; // Vendor ID to filter by
+  vendorName?: string; // Vendor Name for meaningful export filename
   // Add other props that might define the context/tab for this list
   // e.g., if this component is used in multiple places with different base filters
   urlSyncKeySuffix?: string; // To make URL keys unique if used multiple times on one page
@@ -78,6 +79,7 @@ export const SR_GST_OPTIONS_MAP = [
 // --- Component ---
 export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
   for_vendor = undefined,
+  vendorName = undefined,
   urlSyncKeySuffix = "approved", // Default suffix
 }) => {
   const { role } = useUserData();
@@ -313,7 +315,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         size: 150,
         meta: {
           exportHeaderName: "#WO",
-          exportValue: (row) => {
+          exportValue: (row: ServiceRequests) => {
             return row.name;
           },
         },
@@ -331,7 +333,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         size: 150,
         meta: {
           exportHeaderName: "Created on",
-          exportValue: (row) => {
+          exportValue: (row: ServiceRequests) => {
             return formatDate(row.creation);
           },
         },
@@ -356,7 +358,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         size: 200,
         meta: {
           exportHeaderName: "Project",
-          exportValue: (row) => {
+          exportValue: (row: ServiceRequests) => {
             const project = projectOptions.find((p) => p.value === row.project);
             return project?.label || row.project;
           },
@@ -379,7 +381,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         size: 200,
         meta: {
           exportHeaderName: "Vendor",
-          exportValue: (row) => {
+          exportValue: (row: ServiceRequests) => {
             return getVendorName(row.vendor);
           },
         },
@@ -411,7 +413,15 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         size: 180,
         enableSorting: false,
         meta: {
-          excludeFromExport: true,
+          exportHeaderName: "Categories",
+          exportValue: (row: ServiceRequests) => {
+            const categories = row.service_category_list as
+              | { list: { name: string }[] }
+              | undefined;
+            return Array.isArray(categories?.list)
+              ? categories.list.map((c) => c.name).join(", ")
+              : "--";
+          },
         },
       },
       {
@@ -675,6 +685,9 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
           dateFilterColumns={dateColumns}
           showExportButton={true}
           onExport={"default"}
+          exportFileName={
+            vendorName ? `${vendorName}_Approved_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}` : `Approved_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}`
+          }
           getRowClassName={getRowClassName}
         />
       )}

@@ -27,7 +27,7 @@ export const uploadDCMIRSchema = z
     dcReference: z.string().optional(),
     dcDate: z.string().optional(),
     items: z.array(dcItemSchema),
-    isSignedByClient: z.boolean().default(false),
+    isSignedByClient: z.boolean().default(true),
     clientRepresentativeName: z.string().optional(),
   })
   .refine(

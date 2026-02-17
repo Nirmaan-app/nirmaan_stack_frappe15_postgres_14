@@ -12,6 +12,8 @@ import {
   ProcurementRequest,
   ProcurementRequestItemDetail,
 } from "@/types/NirmaanStack/ProcurementRequests";
+import { VendorAttachmentForPR } from "@/components/common/VendorAttachmentForPR";
+import { VendorQuotesAttachmentSummaryPR } from "@/components/common/VendorQuotesAttachmentSummaryPR";
 import formatToIndianRupee, {
   formatToRoundedIndianRupee,
 } from "@/utils/FormatPrice";
@@ -21,6 +23,7 @@ import {
   useFrappeDocumentEventListener,
   useFrappePostCall,
   useFrappeUpdateDoc,
+  useSWRConfig,
 } from "frappe-react-sdk";
 import memoize from "lodash/memoize";
 import {
@@ -104,6 +107,7 @@ export const VendorsSelectionSummary: React.FC = () => {
     );
 
   const { updateDoc } = useFrappeUpdateDoc();
+  const { mutate } = useSWRConfig();
   const [orderData, setOrderData] = useState<ProcurementRequest | null>(null);
   const [openAccordionItems, setOpenAccordionItems] = useState<string[]>([]);
 
@@ -455,13 +459,23 @@ export const VendorsSelectionSummary: React.FC = () => {
                       className="border rounded-md overflow-hidden bg-white shadow-sm"
                     >
                       <AccordionTrigger className="!py-0 !px-0 hover:!no-underline focus-visible:!ring-1 focus-visible:!ring-ring focus-visible:!ring-offset-1 rounded-t-md bg-green-50/50">
-                        <CardHeader className="flex flex-row items-center justify-between p-3 w-full cursor-pointer hover:bg-green-50 transition-colors">
-                          <div className="flex items-center gap-3">
+                        <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between p-3 w-full cursor-pointer hover:bg-green-50 transition-colors gap-3">
+                          <div className="flex items-center gap-3 w-full sm:w-auto">
                             <CardTitle className="text-base font-medium text-primary">
                               {getVendorName(vendor)}
                             </CardTitle>
                           </div>
-                          <div className="flex items-center gap-4">
+                          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-4 w-full sm:w-auto">
+                            <div className="w-full sm:w-auto" onClick={(e) => e.stopPropagation()}>
+                              <VendorAttachmentForPR 
+                                prId={prId || ""} 
+                                vendorId={vendor} 
+                                vendorName={getVendorName(vendor)} 
+                                projectId={procurement_request?.project}
+                                onUploadSuccess={() => mutate(`vendor_quotes_summary_attachments_${prId}`)}
+                                onDeleteSuccess={() => mutate(`vendor_quotes_summary_attachments_${prId}`)}
+                              />
+                            </div>
                             <Button
                               variant={termsForVendor ? "outline" : "default"}
                               size="sm"
@@ -651,6 +665,12 @@ export const VendorsSelectionSummary: React.FC = () => {
                 </p>
               </div>
             </div>
+
+            <VendorQuotesAttachmentSummaryPR
+              docId={prId || ""}
+              selectedVendorIds={Object.keys(vendorWiseApprovalItems)}
+              className="mt-6 border-slate-200"
+            />
           </div>
         )}
 
@@ -806,6 +826,7 @@ export default VendorsSelectionSummary;
 // import { PaymentTermsDialog } from "./components/PaymentTermsDialog";
 // import { PaymentTermsData, VendorPaymentTerm } from "./types/paymentTerms";
 // import { PaymentTermsDetailsDisplay } from "./components/PaymentTermsDetailsDisplay";
+
 // //target value 
 // import { getItemListFromDocument } from "./types";
 // import {getCategoryListFromDocument} from "./types";

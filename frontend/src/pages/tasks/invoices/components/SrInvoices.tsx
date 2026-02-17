@@ -86,10 +86,11 @@ interface AllSrInvoicesDataCallResponse {
 // --- Component Props ---
 interface SrInvoicesProps {
     vendorId?: string; // Optional: filter to specific vendor
+    vendorName?: string; // Vendor Name for meaningful export filename
 }
 
 // --- Component ---
-export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId }) => {
+export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId, vendorName }) => {
     // --- User Role Check ---
     const { role } = useUserData();
     const canUpdateReconciliation = ["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan PMO Executive Profile"].includes(role || "");
@@ -195,6 +196,7 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId }) => {
 
     // Helper to get user full name
     const getUserFullName = useMemo(() => memoize((userId: string) => {
+        if (userId === "Administrator") return "Administrator";
         const user = userValues.find(u => u.value === userId);
         return user?.label || userId;
     }), [userValues]);
@@ -308,6 +310,12 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId }) => {
                     return <div className="font-medium">{fullName}</div>;
                 },
                 filterFn: (row, id, value) => value.includes(row.getValue(id)),
+                meta: {
+                    exportHeaderName: "Invoice Uploaded By",
+                    exportValue: (row: SrInvoiceItem) => {
+                        return getUserFullName(row.uploaded_by);
+                    },
+                },
                 size: 160,
             },
             {
@@ -320,7 +328,7 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId }) => {
                             <span>{sr}</span>
                             <HoverCard>
                                 <HoverCardTrigger asChild>
-                                    <Link to={`/service-requests/${sr.replaceAll('/', "&=")}?tab=approved-sr`}>
+                                    <Link to={`/service-requests/${sr.replace(/\//g, "&=")}?tab=approved-sr`}>
                                         <Info className="w-4 h-4 text-blue-600 cursor-pointer" />
                                     </Link>
                                 </HoverCardTrigger>
@@ -358,6 +366,12 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId }) => {
                     );
                 },
                 filterFn: (row, id, value) => value.includes(row.getValue(id)),
+                meta: {
+                    exportHeaderName: "Project",
+                    exportValue: (row: SrInvoiceItem) => {
+                        return row.project ? getProjectName(row.project) : "-";
+                    },
+                },
                 size: 200,
             },
         ];
@@ -884,7 +898,9 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId }) => {
                 dateFilterColumns={SR_INVOICE_DATE_COLUMNS}
                 showExportButton={true}
                 onExport="default"
-                exportFileName="sr_invoices"
+                exportFileName={
+                    vendorName ? `${vendorName}_SR_Invoices` : "SR_Invoices"
+                }
                 summaryCard={summaryCard}
                 getRowClassName={getRowClassName}
             />

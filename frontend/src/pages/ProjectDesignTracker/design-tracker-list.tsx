@@ -9,7 +9,8 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { TableSkeleton } from "@/components/ui/skeleton";
-import { ChevronDown, ChevronUp, Search, Filter, CirclePlus, Link as LinkIcon, MessageCircle, Edit, ArrowUpRight, Check, EyeOff, CheckCircle2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Search, Filter, CirclePlus, MessageCircle, Edit, ArrowUpRight, Check, EyeOff } from "lucide-react";
+import { FilesCell } from './components/FilesCell';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -220,7 +221,7 @@ const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, 
                                             <th className="px-4 py-3 text-center w-[12%]">Status</th>
                                             <th className="px-4 py-3 text-center w-[16%]">Sub-Status</th>
                                             <th className="px-4 py-3 text-center w-[8%]">Comments</th>
-                                            <th className="px-4 py-3 text-center w-[8%]">Link</th>
+                                            <th className="px-4 py-3 text-center w-[8%]">Files</th>
                                             <th className="px-4 py-3 text-center w-[14%]">Actions</th>
                                         </tr>
                                     </thead>
@@ -275,35 +276,13 @@ const ExpandedProjectTasks: React.FC<ExpandedProjectTasksProps> = ({ trackerId, 
                                                     </TooltipProvider>
                                                 </td>
 
-                                                {/* 2. Link Column (Using Tooltip) */}
+                                                {/* 2. Files Column (Design file + Approval proof) */}
                                                 <td className="px-4 py-3 text-center">
-                                                   
-                                                        <TooltipProvider>
-                                                            <Tooltip delayDuration={300}>
-                                                                <TooltipTrigger asChild>
-                                                                    <a
-                                                                        href={task.file_link}
-                                                                        target="_blank"
-                                                                        rel="noopener noreferrer"
-                                                                        className="flex justify-center items-center w-full h-full cursor-pointer hover:scale-110 transition-transform"
-                                                                    >
-                                                                        <LinkIcon className={`h-6 w-6 p-1 bg-gray-100 rounded-md ${task.file_link ? 'cursor-pointer text-blue-500' : 'text-gray-300'}`} />
-                                                                    </a>
-                                                                </TooltipTrigger>
-                                                                {task.file_link && (<TooltipContent className="p-2 bg-gray-900 text-white shadow-lg">
-                                                                    <a
-                                                                        href={task.file_link}
-                                                                        target="_blank"
-                                                                        rel="noopener noreferrer"
-                                                                        className="block w-full h-full cursor-pointer hover:scale-110 transition-transform"
-                                                                    >
-                                                                        {task.file_link.substring(0, 30)}...
-                                                                    </a>
-                                                                </TooltipContent>)}
-                                                                
-                                                            </Tooltip>
-                                                        </TooltipProvider>
-                                                    
+                                                    <FilesCell
+                                                        file_link={task.file_link}
+                                                        approval_proof={task.approval_proof}
+                                                        size="md"
+                                                    />
                                                 </td>
                                                 {/* Actions: Triggers Modal */}
                                                 <td className="px-4 py-3 text-center">
@@ -362,6 +341,7 @@ export const DesignTrackerList: React.FC = () => {
     const [activeTab, setActiveTab] = useState<string>(initialTab);
     const [expandedProject, setExpandedProject] = useState<string | null>(null);
     const [activeStatusTab, setActiveStatusTab] = useState<string>("All");
+    const [activePhaseTab, setActivePhaseTab] = useState<string>("Onboarding");
 
     const onClick = useCallback((value: string) => {
         if (activeTab === value || isProjectManager) return; // Disable tab switching for Project Managers
@@ -399,6 +379,8 @@ export const DesignTrackerList: React.FC = () => {
         return [];
     }, [trackerDocsData]);
     
+    const hasAnyHandover = useMemo(() => trackerDocs?.some(doc => doc.handover_generated === 1) ?? false, [trackerDocs]);
+
     // Previous DocList call commented out
     /*
     const {
@@ -410,7 +392,7 @@ export const DesignTrackerList: React.FC = () => {
     });
     */
 
-    const { projectOptions, projects, categories, categoryData, statusOptions,
+    const { projectOptions, projects, categories, categoryData,
         subStatusOptions, mutateMasters } = useDesignMasters();
 
     useEffect(() => {
@@ -476,21 +458,42 @@ export const DesignTrackerList: React.FC = () => {
     const hiddenDocs = useMemo(() =>
         filteredDocs.filter(doc => doc.hide_design_tracker === 1), [filteredDocs]);
 
-    // Calculate aggregate summary stats for the list header
+    // Calculate aggregate summary stats for the list header (phase-aware)
     const summaryStats = useMemo(() => {
         const total = trackerDocs.length;
         const active = activeDocs.length;
         const hidden = hiddenDocs.length;
 
-        // Aggregate task stats across all visible (active) trackers
-        const totalTasks = activeDocs.reduce((sum, doc) => sum + (doc.total_tasks || 0), 0);
-        const completedTasks = activeDocs.reduce((sum, doc) => sum + (doc.completed_tasks || 0), 0);
-        const overallCompletion = totalTasks > 0
-            ? Math.round((completedTasks / totalTasks) * 100)
-            : 0;
+        let onboardingProjects = 0, onboardingApproved = 0, onboardingTotal = 0;
+        let handoverProjects = 0, handoverApproved = 0, handoverTotal = 0;
 
-        return { total, active, hidden, totalTasks, completedTasks, overallCompletion };
-    }, [trackerDocs, activeDocs, hiddenDocs]);
+        activeDocs.forEach(doc => {
+            const tasks: any[] = doc.design_tracker_task || [];
+            let hasOnboarding = false, hasHandover = false;
+
+            tasks.forEach((task: any) => {
+                if (task.task_status === 'Not Applicable') return;
+                if (task.task_phase === 'Handover') {
+                    hasHandover = true;
+                    handoverTotal++;
+                    if (task.task_status === 'Approved') handoverApproved++;
+                } else {
+                    hasOnboarding = true;
+                    onboardingTotal++;
+                    if (task.task_status === 'Approved') onboardingApproved++;
+                }
+            });
+
+            if (hasOnboarding) onboardingProjects++;
+            if (hasHandover) handoverProjects++;
+        });
+
+        return {
+            total, active, hidden,
+            onboardingProjects, onboardingApproved, onboardingTotal,
+            handoverProjects, handoverApproved, handoverTotal,
+        };
+    }, [trackerDocs.length, activeDocs, hiddenDocs.length]);
 
     if (isLoading) return <TableSkeleton />;
     if (error) return <AlertDestructive error={error} />;
@@ -508,31 +511,44 @@ export const DesignTrackerList: React.FC = () => {
                         <p className="text-sm text-gray-500">Track project design progress</p>
                     </div>
 
-                    {/* Summary Pills - Only for privileged users */}
-                    <div className="flex flex-wrap items-center gap-2">
-                        {hasEditStructureAccess && (
-                            <>
-                                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-gray-50 rounded border border-gray-200">
-                                    <span className="text-xs text-gray-500">Projects:</span>
-                                    <span className="text-sm font-semibold text-gray-700">{summaryStats.active}</span>
-                                </div>
-                                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-green-50 rounded border border-green-200">
-                                    <CheckCircle2 className="h-3 w-3 text-green-600" />
-                                    <span className="text-xs text-gray-500">Tasks:</span>
-                                    <span className="text-sm font-semibold text-green-700">
-                                        {summaryStats.completedTasks}/{summaryStats.totalTasks}
-                                    </span>
-                                </div>
-                            </>
-                        )}
-                        {hasEditStructureAccess && summaryStats.hidden > 0 && (
-                            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-orange-50 rounded border border-orange-200">
-                                <EyeOff className="h-3 w-3 text-orange-600" />
-                                <span className="text-xs text-gray-500">Hidden:</span>
-                                <span className="text-sm font-semibold text-orange-700">{summaryStats.hidden}</span>
+                    {/* Summary Stats — single-row metric strip */}
+                    {hasEditStructureAccess && (
+                        <div className="flex items-stretch gap-px bg-gray-200 rounded-lg overflow-hidden border border-gray-200">
+                            {/* Projects */}
+                            <div className="flex flex-col items-center justify-center px-4 py-2 bg-white min-w-[64px]">
+                                <span className="text-lg font-bold text-gray-900 tabular-nums leading-none">{summaryStats.active}</span>
+                                <span className="text-[10px] text-gray-400 font-medium mt-1 uppercase tracking-wider">Projects</span>
                             </div>
-                        )}
-                    </div>
+
+                            {/* Onboarding Approved */}
+                            <div className="flex flex-col items-center justify-center px-4 py-2 bg-green-50/60 min-w-[64px]">
+                                <div className="flex items-baseline gap-0.5 leading-none">
+                                    <span className="text-lg font-bold text-green-700 tabular-nums">{summaryStats.onboardingApproved}</span>
+                                    <span className="text-xs text-green-600/50 font-medium">/{summaryStats.onboardingTotal}</span>
+                                </div>
+                                <span className="text-[10px] text-green-600/70 font-medium mt-1 uppercase tracking-wider">Onboarding</span>
+                            </div>
+
+                            {/* Handover Approved — conditional */}
+                            {summaryStats.handoverProjects > 0 && (
+                                <div className="flex flex-col items-center justify-center px-4 py-2 bg-blue-50/60 min-w-[64px]">
+                                    <div className="flex items-baseline gap-0.5 leading-none">
+                                        <span className="text-lg font-bold text-blue-700 tabular-nums">{summaryStats.handoverApproved}</span>
+                                        <span className="text-xs text-blue-600/50 font-medium">/{summaryStats.handoverTotal}</span>
+                                    </div>
+                                    <span className="text-[10px] text-blue-600/70 font-medium mt-1 uppercase tracking-wider">Handover</span>
+                                </div>
+                            )}
+
+                            {/* Hidden — conditional */}
+                            {summaryStats.hidden > 0 && (
+                                <div className="flex flex-col items-center justify-center px-4 py-2 bg-orange-50/60 min-w-[64px]">
+                                    <span className="text-lg font-bold text-orange-700 tabular-nums leading-none">{summaryStats.hidden}</span>
+                                    <span className="text-[10px] text-orange-600/70 font-medium mt-1 uppercase tracking-wider">Hidden</span>
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
 
                 {/* Row 2: Tab Switcher + Action Button */}
@@ -846,97 +862,59 @@ export const DesignTrackerList: React.FC = () => {
 
             {activeTab === DESIGN_TABS.TASK_WISE && (
                 <div className="space-y-5 px-4 md:px-6">
+                    {/* Phase Tabs - Only shown when handover exists */}
+                    {hasAnyHandover && (
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-gray-500">Phase:</span>
+                            <div className="flex rounded-md border border-gray-300 overflow-hidden">
+                                <button
+                                    className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                                        activePhaseTab === "Onboarding"
+                                            ? 'bg-primary text-white'
+                                            : 'bg-white text-gray-700 hover:bg-gray-50'
+                                    }`}
+                                    onClick={() => setActivePhaseTab("Onboarding")}
+                                >
+                                    Onboarding
+                                </button>
+                                <button
+                                    className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                                        activePhaseTab === "Handover"
+                                            ? 'bg-blue-600 text-white'
+                                            : 'bg-white text-blue-600 hover:bg-blue-50'
+                                    }`}
+                                    onClick={() => setActivePhaseTab("Handover")}
+                                >
+                                    Handover
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Team Performance Summary - Admin/Lead Only */}
-                    <TeamPerformanceSummary hasAccess={hasEditStructureAccess} />
+                    <TeamPerformanceSummary hasAccess={hasEditStructureAccess} taskPhase={hasAnyHandover ? activePhaseTab : undefined} />
 
-                    {/* Status Filter Tabs - Enhanced Design */}
-                    <div className="bg-gray-50/70 rounded-lg p-3 border border-gray-200">
-                        <div className="flex items-center gap-2 mb-2">
-                            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Filter by Status</span>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                            {/* All Tasks Tab */}
+                    {/* Status Filter Tabs */}
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium text-gray-500 uppercase tracking-wider mr-1">Status</span>
+                        {([
+                            { value: 'All', label: 'All Tasks', active: 'bg-gray-800 text-white', inactive: 'text-gray-700 border-gray-300 hover:bg-gray-100' },
+                            { value: 'Pending', label: 'Pending', active: 'bg-orange-500 text-white', inactive: 'text-orange-700 border-orange-300 hover:bg-orange-50' },
+                            { value: 'Submitted', label: 'Submitted', active: 'bg-blue-600 text-white', inactive: 'text-blue-700 border-blue-300 hover:bg-blue-50' },
+                            { value: 'Approved', label: 'Approved', active: 'bg-green-600 text-white', inactive: 'text-green-700 border-green-300 hover:bg-green-50' },
+                        ] as const).map((tab) => (
                             <button
-                                onClick={() => setActiveStatusTab("All")}
-                                className={`
-                                    px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150
-                                    flex items-center gap-2
-                                    ${activeStatusTab === "All"
-                                        ? 'bg-gray-800 text-white shadow-md'
-                                        : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-100 hover:border-gray-400'
-                                    }
-                                `}
+                                key={tab.value}
+                                onClick={() => setActiveStatusTab(tab.value)}
+                                className={`px-3.5 py-1.5 rounded-md text-sm font-medium transition-all duration-150 border ${
+                                    activeStatusTab === tab.value
+                                        ? `${tab.active} shadow-sm`
+                                        : `bg-white ${tab.inactive}`
+                                }`}
                             >
-                                <span className={`w-2 h-2 rounded-full ${activeStatusTab === "All" ? 'bg-white' : 'bg-gray-400'}`} />
-                                All Tasks
+                                {tab.label}
                             </button>
-
-                            {/* Approved Tab - Green */}
-                            <button
-                                onClick={() => setActiveStatusTab("Approved")}
-                                className={`
-                                    px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150
-                                    flex items-center gap-2
-                                    ${activeStatusTab === "Approved"
-                                        ? 'bg-green-600 text-white shadow-md'
-                                        : 'bg-white text-green-700 border border-green-300 hover:bg-green-50 hover:border-green-400'
-                                    }
-                                `}
-                            >
-                                <CheckCircle2 className={`h-3.5 w-3.5 ${activeStatusTab === "Approved" ? 'text-white' : 'text-green-600'}`} />
-                                Approved
-                            </button>
-
-                            {/* Dynamic Status Tabs with status-specific colors */}
-                            {statusOptions
-                                ?.filter(s => s.value !== 'Approved' && s.value !== 'Not Applicable')
-                                .sort((a, b) => {
-                                    // Custom sort order: In Progress first, then alphabetically
-                                    if (a.value === 'In Progress') return -1;
-                                    if (b.value === 'In Progress') return 1;
-                                    if (a.value === 'Not Started') return -1;
-                                    if (b.value === 'Not Started') return 1;
-                                    return a.label.localeCompare(b.label);
-                                })
-                                .map((option) => {
-                                    const isActive = activeStatusTab === option.value;
-                                    const lowerValue = option.value.toLowerCase();
-
-                                    // Determine color scheme based on status
-                                    let activeStyles = 'bg-gray-700 text-white';
-                                    let inactiveStyles = 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50';
-                                    let dotColor = isActive ? 'bg-white' : 'bg-gray-400';
-
-                                    if (lowerValue.includes('in progress')) {
-                                        activeStyles = 'bg-blue-600 text-white';
-                                        inactiveStyles = 'bg-white text-blue-700 border-blue-300 hover:bg-blue-50 hover:border-blue-400';
-                                        dotColor = isActive ? 'bg-white' : 'bg-blue-500';
-                                    } else if (lowerValue.includes('blocked') || lowerValue.includes('on hold') || lowerValue.includes('revision') || lowerValue.includes('clarification')) {
-                                        activeStyles = 'bg-orange-500 text-white';
-                                        inactiveStyles = 'bg-white text-orange-700 border-orange-300 hover:bg-orange-50 hover:border-orange-400';
-                                        dotColor = isActive ? 'bg-white' : 'bg-orange-500';
-                                    } else if (lowerValue.includes('not started') || lowerValue.includes('todo')) {
-                                        activeStyles = 'bg-gray-600 text-white';
-                                        inactiveStyles = 'bg-white text-gray-600 border-gray-300 hover:bg-gray-100 hover:border-gray-400';
-                                        dotColor = isActive ? 'bg-white' : 'bg-gray-400';
-                                    }
-
-                                    return (
-                                        <button
-                                            key={option.value}
-                                            onClick={() => setActiveStatusTab(option.value)}
-                                            className={`
-                                                px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150
-                                                flex items-center gap-2 border
-                                                ${isActive ? `${activeStyles} shadow-md` : inactiveStyles}
-                                            `}
-                                        >
-                                            <span className={`w-2 h-2 rounded-full ${dotColor}`} />
-                                            {option.label}
-                                        </button>
-                                    );
-                                })}
-                        </div>
+                        ))}
                     </div>
 
                     {/* Task Table */}
@@ -947,6 +925,7 @@ export const DesignTrackerList: React.FC = () => {
                         user_id={user_id}
                         isDesignExecutive={isDesignExecutive}
                         statusFilter={activeStatusTab}
+                        taskPhase={hasAnyHandover ? activePhaseTab : undefined}
                     />
                 </div>
             )}

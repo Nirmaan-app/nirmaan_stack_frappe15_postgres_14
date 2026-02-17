@@ -312,7 +312,15 @@ export const ApproveSelectSR: React.FC = () => {
         size: 180,
         enableSorting: false,
         meta: {
-          excludeFromExport: true,
+          exportHeaderName: "Categories",
+          exportValue: (row: ServiceRequests) => {
+            const categories = row.service_category_list as
+              | { list: { name: string }[] }
+              | undefined;
+            return Array.isArray(categories?.list)
+              ? categories.list.map((c) => c.name).join(", ")
+              : "--";
+          },
         },
       },
       {
@@ -511,6 +519,7 @@ export const ApproveSelectSR: React.FC = () => {
           dateFilterColumns={dateColumns}
           showExportButton={true}
           onExport={"default"}
+          exportFileName={`Approve_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}`}
           getRowClassName={getRowClassName}
           // toolbarActions={<Button size="sm">Bulk Approve...</Button>} // Placeholder for future actions
         />

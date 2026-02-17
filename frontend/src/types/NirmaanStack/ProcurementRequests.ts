@@ -115,4 +115,5 @@ export interface ProcurementRequest {
 	custom?: string
 	estimated_value?: number; // Estimated value of the procurement request
 	target_value?: number;
+	payment_terms?: string;
 }

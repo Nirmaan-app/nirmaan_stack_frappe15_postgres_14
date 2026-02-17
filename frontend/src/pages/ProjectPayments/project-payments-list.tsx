@@ -30,6 +30,7 @@ import { SquarePlus } from "lucide-react";
 import { useCallback, useContext, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
+import { exportToCsv } from "@/utils/exportToCsv";
 import { InvoiceDataDialog } from "../ProcurementOrders/purchase-order/components/InvoiceDataDialog";
 import { PaymentsDataDialog } from "./PaymentsDataDialog";
 import PaymentSummaryCards from "./PaymentSummaryCards";
@@ -331,7 +332,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
     const getProjectName = useMemo(() => memoize((id: string | undefined) => {
         const projectName = projectValues.find((proj) => proj.value === id)?.label || id;
         return projectName;
-    }, (id: string | undefined) => id), [vendorValues])
+    }, (id: string | undefined) => id), [projectValues])
 
     // Handle input change
     const handleAmountChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -348,7 +349,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                 cell: ({ row }) => {
                     const data = row.original
                     const id = data?.name;
-                    const poId = id?.replaceAll("/", "&=")
+                    const poId = id?.replace(/\//g, "&=")
                     const isPO = data?.type === "Purchase Order"
                     const isNew = notifications.find(
                         (item) => item.docname === id && item.seen === "false" && item.event_id === (isPO ? "po:new" : "sr:approved")
@@ -368,6 +369,10 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                         </div>
                     );
                 },
+                meta: {
+                    exportHeaderName: "PO/SR ID",
+                    exportValue: (row: any) => row.name
+                }
             },
             {
                 accessorKey: "type",
@@ -375,6 +380,9 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                 cell: ({ row }) => (
                     <Badge variant="default">{row.original.type}</Badge>
                 ),
+                meta: {
+                    exportValue: (row: any) => row.type
+                }
             },
             {
                 accessorKey: "creation",
@@ -386,6 +394,10 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                 cell: ({ row }) => (
                     <div className="font-medium">{formatDate(row.getValue("creation")?.split(" ")[0])}</div>
                 ),
+                meta: {
+                    exportHeaderName: "PO Date",
+                    exportValue: (row: any) => formatDate(row.creation?.split(" ")[0])
+                }
             },
             ...(!projectId ? [
                 {
@@ -400,6 +412,9 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                     filterFn: (row, id, value) => {
                         return value.includes(row.getValue(id))
                     },
+                    meta: {
+                        exportValue: (row: any) => getProjectName(row.project) || row.project
+                    }
                 },
             ] : []),
             {
@@ -413,6 +428,9 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                 },
                 filterFn: (row, id, value) => {
                     return value.includes(row.getValue(id))
+                },
+                meta: {
+                    exportValue: (row: any) => getVendorName(row.vendor) || row.vendor
                 }
             },
             // {
@@ -439,6 +457,10 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
 
                     </div>
                 },
+                meta: {
+                    exportHeaderName: "Total PO Amt",
+                    exportValue: (row: any) => getTotalAmount(row.name, row.type)?.totalWithTax
+                }
             },
             {
                 id: "invoices_amount",
@@ -459,6 +481,10 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                             {formatToRoundedIndianRupee(invoiceAmount || "N/A")}
                         </div>
                     )
+                },
+                meta: {
+                    exportHeaderName: "Total Invoice Amt",
+                    exportValue: (row: any) => invoiceTotalsMap.get(row.name) ?? 0
                 }
             },
             {
@@ -471,6 +497,10 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                         {formatToRoundedIndianRupee(amountPaid || "N/A")}
                     </div>
                 },
+                meta: {
+                    exportHeaderName: "Amt Paid",
+                    exportValue: (row: any) => getAmountPaid(row.name)
+                }
             },
             //     ...(!projectId && !customerId ? [
             //         {
@@ -661,7 +691,16 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                 (poLoading || srLoading || projectsLoading || vendorsLoading || projectPaymentsLoading || vendorInvoicesLoading) ? (
                     <TableSkeleton />
                 ) : (
-                    <DataTable columns={columns} data={combinedData} project_values={!projectId ? projectValues : undefined} approvedQuotesVendors={vendorValues} getRowClassName={getRowClassName} />
+                    <DataTable 
+                        columns={columns} 
+                        data={combinedData} 
+                        project_values={!projectId ? projectValues : undefined} 
+                        approvedQuotesVendors={vendorValues} 
+                        getRowClassName={getRowClassName} 
+                        onExport={(filteredData) => {
+                            exportToCsv(`PO_Wise_Payments_${formatDate(new Date())}`, filteredData, columns);
+                        }}
+                    />
                 )
             }
         </div>

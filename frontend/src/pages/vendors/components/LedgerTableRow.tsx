@@ -46,7 +46,7 @@ export const LedgerTableRow: React.FC<LedgerTableRowProps> = ({ item }) => {
             const poId = part.substring('For PO: '.length);
             return (
                 <React.Fragment key={index}>
-                    For PO: <Link className="text-blue-600 hover:underline font-medium" to={`${poId.replaceAll("/", "&=")}`}> 
+                    For PO: <Link className="text-blue-600 hover:underline font-medium" to={`${poId.replace(/\//g, "&=")}`}> 
                               {poId}
                           </Link>
                 </React.Fragment>
@@ -56,7 +56,7 @@ export const LedgerTableRow: React.FC<LedgerTableRowProps> = ({ item }) => {
             const poId = part.substring('PO: '.length);
             return (
                 <React.Fragment key={index}>
-                   PO: <Link className="text-blue-600 hover:underline font-medium" to={`${poId.replaceAll("/", "&=")}`}> 
+                   PO: <Link className="text-blue-600 hover:underline font-medium" to={`${poId.replace(/\//g, "&=")}`}> 
                               {poId}
                           </Link>
                 </React.Fragment>

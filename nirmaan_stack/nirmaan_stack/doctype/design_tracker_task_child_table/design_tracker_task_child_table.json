@@ -18,6 +18,7 @@
   "task_status",
   "task_sub_status",
   "file_link",
+  "approval_proof",
   "comments"
  ],
  "fields": [
@@ -62,6 +63,11 @@
    "label": "File Link"
   },
   {
+   "fieldname": "approval_proof",
+   "fieldtype": "Attach",
+   "label": "Approval Proof"
+  },
+  {
    "fieldname": "comments",
    "fieldtype": "Long Text",
    "label": "Comments"
@@ -77,6 +83,7 @@
    "label": "Task Zone"
   },
   {
+   "default": "Onboarding",
    "fieldname": "task_phase",
    "fieldtype": "Data",
    "label": "Task Phase"

@@ -271,10 +271,13 @@ function CashSheetReport() {
   const totalCount = filteredDataForSummary.length;
 
   // --- Export Logic (Updated to use tableData) ---
-  const exportFileName = "projects_report_Cash_Sheet";
+  // --- Export Logic (Updated to use tableData) ---
+  const exportFileName = `ProjectReport_Cash_Sheet_${formatDate(new Date())}`;
 
   const handleCustomExport = useCallback(() => {
-    if (!filteredDataForSummary || filteredDataForSummary.length === 0) {
+    const rowsToExport = table.getSortedRowModel().rows.map((r) => r.original);
+
+    if (!rowsToExport || rowsToExport.length === 0) {
       toast({
         title: "Export",
         description: "No data available to export.",
@@ -282,70 +285,39 @@ function CashSheetReport() {
       });
       return;
     }
-    if (isLoadingGlobalDeps) {
-      toast({
-        title: "Export",
-        description: "Dependency data is still loading. Please wait.",
-        variant: "default",
-      });
-      return;
-    }
 
-    const dataToExport = filteredDataForSummary.map((row) => {
-      return {
-        project_name: row.project_name,
-        project_value_lakhs: formatValueToLakhsString(row.project_value_gst),
-        totalInvoiced_lakhs: formatValueToLakhsString(row.totalInvoiced),
-        totalPoSrInvoiced_lakhs: formatValueToLakhsString(
-          row.totalPoSrInvoiced
-        ),
-        totalProjectInvoiced_lakhs: formatValueToLakhsString(
-          row.totalProjectInvoiced
-        ),
-        totalInflow_lakhs: formatValueToLakhsString(row.totalInflow),
-        totalOutflow_lakhs: formatValueToLakhsString(row.totalOutflow),
-        totalLiabilities_lakhs: formatValueToLakhsString(row.totalLiabilities),
-        cashflowGap_lakhs: formatValueToLakhsString(row.cashflowGap),
-        totalPurchaseOverCredit_lakhs: formatValueToLakhsString(
-          row.TotalPurchaseOverCredit
-        ),
-      };
-    });
-    const exportColumns = [
+    const dataToExport = rowsToExport.map((row: any) => ({
+      project_name: row.project_name || row.name,
+      project_value: formatValueToLakhsString(row.project_value_gst),
+      client_invoiced: formatValueToLakhsString(row.totalProjectInvoiced),
+      inflow: formatValueToLakhsString(row.totalInflow),
+      outflow: formatValueToLakhsString(row.totalOutflow),
+      liability: formatValueToLakhsString(row.totalLiabilities),
+      gap: formatValueToLakhsString(row.cashflowGap),
+      po_sr_value: formatValueToLakhsString(row.totalInvoiced),
+      po_sr_invoiced: formatValueToLakhsString(row.totalPoSrInvoiced),
+      purchase_over_credit: formatValueToLakhsString(row.TotalPurchaseOverCredit),
+    }));
+
+    const exportColumnsConfig = [
       { header: "Project Name", accessorKey: "project_name" },
-      { header: "Value (excl. GST)", accessorKey: "project_value_lakhs" },
-      {
-        header: "Total PO+SR Value(incl. GST)",
-        accessorKey: "totalInvoiced_lakhs",
-      },
-      {
-        header: "Total PO+SR Invoice Received",
-        accessorKey: "totalPoSrInvoiced_lakhs",
-      },
-      {
-        header: "Total Project Invoiced (incl. GST)",
-        accessorKey: "totalProjectInvoiced_lakhs",
-      },
-      { header: "Inflow", accessorKey: "totalInflow_lakhs" },
-      { header: "Outflow", accessorKey: "totalOutflow_lakhs" },
-      { header: "Current Liability", accessorKey: "totalLiabilities_lakhs" },
-      { header: "Cashflow Gap", accessorKey: "cashflowGap_lakhs" },
-      {
-        header: "Total Purchase Over Credit",
-        accessorKey: "totalPurchaseOverCredit_lakhs",
-      },
+      { header: "Value (incl. GST)", accessorKey: "project_value" },
+      { header: "Client Invoiced (incl. GST)", accessorKey: "client_invoiced" },
+      { header: "Inflow", accessorKey: "inflow" },
+      { header: "Outflow", accessorKey: "outflow" },
+      { header: "Current Liability", accessorKey: "liability" },
+      { header: "Cashflow Gap", accessorKey: "gap" },
+      { header: "Total PO+SR Value(incl. GST)", accessorKey: "po_sr_value" },
+      { header: "Total PO+SR Invoice Received", accessorKey: "po_sr_invoiced" },
+      { header: "Total Purchase Over Credit", accessorKey: "purchase_over_credit" },
     ];
 
     try {
-      exportToCsv(
-        exportFileName,
-        dataToExport,
-        exportColumns as ColumnDef<any, any>[]
-      );
+      exportToCsv(exportFileName, dataToExport, exportColumnsConfig);
       toast({
         title: "Export Successful",
         description: `${dataToExport.length} rows exported.`,
-        variant: "success",
+        variant: "default",
       });
     } catch (e) {
       console.error("Export failed:", e);
@@ -355,15 +327,7 @@ function CashSheetReport() {
         variant: "destructive",
       });
     }
-  }, [filteredDataForSummary, isLoadingGlobalDeps, exportFileName]);
-
-  // Helper to display current filter status
-  const getCurrentFilterStatus = () => {
-    if (!searchTerm) {
-      return "Showing overall summary for selected date range.";
-    }
-    return `Filtered by Search term: "${searchTerm}".`;
-  };
+  }, [table, exportFileName]);
 
   const handleClearDateFilter = useCallback(() => {
     setDateRange(undefined); // Set to undefined to disable date filtering entirely
@@ -382,13 +346,6 @@ function CashSheetReport() {
     urlStateManager.updateParam(`${URL_SYNC_KEY}_to`, toISO);
   }, [dateRange]);
 
-  const fromISO = dateRange?.from
-    ? formatISO(dateRange.from, { representation: "date" })
-    : undefined;
-  const toISO = dateRange?.to
-    ? formatISO(dateRange.to, { representation: "date" })
-    : undefined;
-
   if (globalDepsError) {
     return <AlertDestructive error={globalDepsError as Error} />;
   }
@@ -404,8 +361,9 @@ function CashSheetReport() {
 
   return (
     <div
-      className={`flex flex-col gap-2 ${totalCount > 0 ? "h-[calc(100vh-130px)] overflow-hidden" : ""
-        }`}
+      className={`flex flex-col gap-2 ${
+        totalCount > 0 ? "h-[calc(100vh-130px)] overflow-hidden" : ""
+      }`}
     >
       <StandaloneDateFilter
         value={dateRange}

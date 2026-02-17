@@ -8,7 +8,7 @@ import { ApprovedQuotations as ApprovedQuotationsType } from "@/types/NirmaanSta
 import { Items as ItemsType } from "@/types/NirmaanStack/Items";
 
 export const APPROVED_QUOTATION_DOCTYPE = 'Approved Quotations';
-export const ITEM_DOCTYPE = 'Items';
+export const ITEM_DOCTYPE = 'Approved Quotations';
 
 export const AQ_LIST_FIELDS_TO_FETCH: (keyof ApprovedQuotationsType | 'name')[] = [
     'name', 'creation', 'item_id', 'item_name', 'unit', 'quantity', 'quote',

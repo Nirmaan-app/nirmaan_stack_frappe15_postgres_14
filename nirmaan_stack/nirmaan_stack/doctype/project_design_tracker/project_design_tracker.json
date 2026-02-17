@@ -12,6 +12,7 @@
   "overall_deadline",
   "status",
   "hide_design_tracker",
+  "handover_generated",
   "design_tracker_task",
   "phase",
   "zone"
@@ -49,6 +50,14 @@
    "label": "Hide Design Tracker",
    "description": "When enabled, this tracker is hidden from Design Executives and Project Managers",
    "default": "0"
+  },
+  {
+   "default": "0",
+   "fieldname": "handover_generated",
+   "fieldtype": "Check",
+   "hidden": 1,
+   "label": "Handover Generated",
+   "read_only": 1
   },
   {
    "fieldname": "design_tracker_task",

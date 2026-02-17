@@ -19,10 +19,11 @@ export interface DesignTrackerTask {
     name: string; // Child row DocName (e.g., 'sv2jh70g8v')
     
     // Core Links/Data (Server Names)
-    design_category: string; 
+    design_category: string;
     task_name: string;
-    task_type?: string; 
-    deadline?: string; 
+    task_type?: string;
+    task_phase?: string; // "Onboarding" or "Handover"
+    deadline?: string;
     
     // JSON/Multi-Select Field: Stores an array of AssignedDesignerDetail objects, 
     // but the field type is JSON/string on the wire.
@@ -32,6 +33,7 @@ export interface DesignTrackerTask {
     task_status: 'Not Started' | 'Not Applicable' | 'Drawings Awaiting from Client' | 'In Progress' | 'Submitted' | 'Revision Pending' | 'Clarification Awaiting' | 'Approved' | 'Todo' | 'On Hold' | 'Done' | 'Blocked';
     task_sub_status?: string; 
     file_link?: string;
+    approval_proof?: string;
     comments?: string;
     
     // Other fields to preserve
@@ -61,6 +63,7 @@ export interface ProjectDesignTracker {
     design_tracker_task: DesignTrackerTask[];
     zone?: TrackerZone[];
     hide_design_tracker?: 0 | 1;
+    handover_generated?: 0 | 1;
 }
 
 export interface MasterDataResponse {
@@ -87,6 +90,8 @@ export interface RawCategoryData {
     category_name: string;
     tasks: TaskTemplate[];
 }
+
+export const UNASSIGNED_SENTINEL = '__unassigned__';
 
 // ==================== Team Summary Types ====================
 
@@ -135,6 +140,7 @@ export interface TaskPreviewFilter {
     projectIds?: string[];     // Multiple projects from filter bar (when no specific project clicked)
     deadlineFrom?: string;
     deadlineTo?: string;
+    taskPhase?: string;        // "Onboarding" or "Handover" - phase filter from parent
 }
 
 // Inline task expansion state (for TeamPerformanceSummary inline display)
@@ -157,6 +163,7 @@ export interface TeamSummaryFilters {
     projects?: ProjectFilterOption[];  // Array of selected projects (multi-select)
     deadlineFrom?: string;             // ISO date string (YYYY-MM-DD)
     deadlineTo?: string;               // ISO date string (YYYY-MM-DD)
+    dateFilter?: import('@/components/ui/standalone-date-filter').DateFilterValue; // UI state preserving operator
 }
 
 // Task preview item (for dialog)
@@ -169,8 +176,12 @@ export interface TaskPreviewItem {
     design_category: string;
     task_zone?: string;
     deadline?: string;
+    last_submitted?: string;
     task_status: string;
     task_sub_status?: string;
+    task_phase?: string; // "Onboarding" or "Handover"
     assigned_designers?: string; // JSON string containing designer IDs
     file_link?: string; // Design file URL (Figma, etc.)
+    comments?: string;
+    approval_proof?: string; // Approval proof screenshot URL
 }

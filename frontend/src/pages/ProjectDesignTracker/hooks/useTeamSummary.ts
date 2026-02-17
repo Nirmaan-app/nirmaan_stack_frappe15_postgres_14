@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { useFrappeGetCall } from "frappe-react-sdk";
 import {
+    UNASSIGNED_SENTINEL,
     TaskPreviewFilter,
     TaskPreviewItem,
     TeamSummaryFilters,
@@ -19,7 +20,7 @@ interface UseTeamSummaryReturn {
     refetch: () => void;
 }
 
-export const useTeamSummary = (filters?: TeamSummaryFilters): UseTeamSummaryReturn => {
+export const useTeamSummary = (filters?: TeamSummaryFilters, taskPhase?: string): UseTeamSummaryReturn => {
     // Extract primitive values for cache key (React best practice - avoid object references)
     const projectIds = filters?.projects?.map(p => p.value).sort().join(',') || '';
 
@@ -29,8 +30,9 @@ export const useTeamSummary = (filters?: TeamSummaryFilters): UseTeamSummaryRetu
         if (projectIds) parts.push(`projects:${projectIds}`);
         if (filters?.deadlineFrom) parts.push(`from:${filters.deadlineFrom}`);
         if (filters?.deadlineTo) parts.push(`to:${filters.deadlineTo}`);
+        if (taskPhase) parts.push(`phase:${taskPhase}`);
         return parts.join('|');
-    }, [projectIds, filters?.deadlineFrom, filters?.deadlineTo]);
+    }, [projectIds, filters?.deadlineFrom, filters?.deadlineTo, taskPhase]);
 
     // Build params object for API call
     const params = useMemo(() => {
@@ -41,8 +43,9 @@ export const useTeamSummary = (filters?: TeamSummaryFilters): UseTeamSummaryRetu
         }
         if (filters?.deadlineFrom) p.deadline_from = filters.deadlineFrom;
         if (filters?.deadlineTo) p.deadline_to = filters.deadlineTo;
+        if (taskPhase) p.task_phase = taskPhase;
         return p;
-    }, [projectIds, filters?.deadlineFrom, filters?.deadlineTo]);
+    }, [projectIds, filters?.deadlineFrom, filters?.deadlineTo, taskPhase]);
 
     const { data, isLoading, error, mutate } = useFrappeGetCall<{ message: TeamSummaryResponse }>(
         "nirmaan_stack.api.design_tracker.get_team_summary.get_team_summary",
@@ -72,6 +75,7 @@ interface UseFilteredTasksReturn {
     tasks: TaskPreviewItem[];
     isLoading: boolean;
     error: Error | null;
+    refetch: () => void;
 }
 
 export const useFilteredTasks = (filter: TaskPreviewFilter | null): UseFilteredTasksReturn => {
@@ -79,7 +83,7 @@ export const useFilteredTasks = (filter: TaskPreviewFilter | null): UseFilteredT
     // Include all filter params to ensure cache key changes when filters change
     const projectsKey = filter?.projectIds?.sort().join(',') || '';
     const cacheKey = filter
-        ? `task-preview-${filter.user_id}-${filter.status}-${filter.project_id || projectsKey || 'all'}-${filter.deadlineFrom || ''}-${filter.deadlineTo || ''}`
+        ? `task-preview-${filter.user_id}-${filter.status}-${filter.project_id || projectsKey || 'all'}-${filter.deadlineFrom || ''}-${filter.deadlineTo || ''}-${filter.taskPhase || ''}`
         : null;
 
     // Build filters array for the API
@@ -102,13 +106,14 @@ export const useFilteredTasks = (filter: TaskPreviewFilter | null): UseFilteredT
 
     // Conditional fetch: undefined params = disabled (SWR pattern)
     // When cacheKey is null/undefined, useFrappeGetCall won't fetch
-    const { data, isLoading, error } = useFrappeGetCall<{ message: TaskWiseListResponse }>(
+    const { data, isLoading, error, mutate } = useFrappeGetCall<{ message: TaskWiseListResponse }>(
         "nirmaan_stack.api.design_tracker.get_task_wise_list.get_task_wise_list",
         filter
             ? {
                 filters: JSON.stringify(filters),
                 limit_page_length: 100,
                 order_by: "deadline asc",
+                ...(filter.taskPhase ? { task_phase: filter.taskPhase } : {}),
             }
             : undefined,
         cacheKey ?? undefined // Only fetches when cacheKey is truthy
@@ -118,6 +123,20 @@ export const useFilteredTasks = (filter: TaskPreviewFilter | null): UseFilteredT
     // Parse the JSON field to extract userIds and match exactly
     const filteredTasks = (data?.message?.data || []).filter((task) => {
         if (!filter) return true;
+
+        // Special case: filter for unassigned tasks
+        if (filter.user_id === UNASSIGNED_SENTINEL) {
+            const raw = task.assigned_designers;
+            if (!raw || raw === '' || raw === '[]' || raw === '{"list":[]}') return true;
+            try {
+                const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                if (Array.isArray(parsed) && parsed.length === 0) return true;
+                if (parsed && typeof parsed === 'object' && Array.isArray(parsed.list) && parsed.list.length === 0) return true;
+            } catch {
+                // If parsing fails, treat as non-empty (assigned)
+            }
+            return false;
+        }
 
         const designerField = task.assigned_designers;
         let userIds: string[] = [];
@@ -157,5 +176,6 @@ export const useFilteredTasks = (filter: TaskPreviewFilter | null): UseFilteredT
         tasks: filteredTasks,
         isLoading,
         error: error instanceof Error ? error : null,
+        refetch: mutate,
     };
 };

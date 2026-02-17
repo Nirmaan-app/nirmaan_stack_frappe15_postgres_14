@@ -7,7 +7,48 @@ from frappe.model.document import Document
 
 class ProjectDesignTracker(Document):
     def validate(self):
+        self.validate_file_link_for_submitted()
+        self.validate_approval_proof_for_approved()
         self.update_last_submitted_date()
+
+    def _get_old_tasks_map(self):
+        """Build a lookup of task name -> old task from before save."""
+        before_save_doc = self.get_doc_before_save()
+        old_tasks_map = {}
+        if before_save_doc:
+            for t in before_save_doc.get("design_tracker_task", []):
+                old_tasks_map[t.name] = t
+        return old_tasks_map
+
+    def validate_file_link_for_submitted(self):
+        import frappe
+        old_tasks_map = self._get_old_tasks_map()
+        for task in self.get("design_tracker_task", []):
+            if task.task_status != "Submitted" or task.file_link:
+                continue
+            # Only enforce on tasks newly transitioning TO Submitted
+            old_task = old_tasks_map.get(task.name)
+            old_status = old_task.task_status if old_task else None
+            if old_status != "Submitted":
+                frappe.throw(
+                    f"Task '{task.task_name}' requires a design file link before setting status to Submitted.",
+                    title="File Link Required"
+                )
+
+    def validate_approval_proof_for_approved(self):
+        import frappe
+        old_tasks_map = self._get_old_tasks_map()
+        for task in self.get("design_tracker_task", []):
+            if task.task_status != "Approved" or task.approval_proof:
+                continue
+            # Only enforce on tasks newly transitioning TO Approved
+            old_task = old_tasks_map.get(task.name)
+            old_status = old_task.task_status if old_task else None
+            if old_status != "Approved":
+                frappe.throw(
+                    f"Task '{task.task_name}' requires approval proof (screenshot) before setting status to Approved.",
+                    title="Approval Proof Required"
+                )
 
     def update_last_submitted_date(self):
         import frappe

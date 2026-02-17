@@ -158,7 +158,9 @@ def create_vendor_invoice(
     current_user = frappe.session.user
     uploaded_by = None
 
-    if current_user != "Administrator" and current_user != "Guest":
+    if current_user == "Administrator":
+        uploaded_by = "Administrator"
+    elif current_user != "Guest":
         if frappe.db.exists("Nirmaan Users", current_user):
             uploaded_by = current_user
 

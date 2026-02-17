@@ -3,7 +3,8 @@
 import { ColumnDef } from "@tanstack/react-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Link as LinkIcon, MessageCircle, Edit } from "lucide-react";
+import { MessageCircle, Edit } from "lucide-react";
+import { FilesCell } from "../components/FilesCell";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { DesignTrackerTask } from "../types";
@@ -218,6 +219,13 @@ export const getTaskTableColumns = (
             size: 140,
             minSize: 120,
             maxSize: 180,
+            meta: {
+                exportHeaderName: "Assigned Designers",
+                exportValue: (row: DesignTrackerTask) => {
+                    const designers = parseDesignersFromField(row.assigned_designers);
+                    return designers.map(d => `• ${d.userName || d.userId}`).join("\n");
+                }
+            }
         }] as ColumnDef<DesignTrackerTask>[]),
         {
             id: "deadline",
@@ -321,42 +329,17 @@ export const getTaskTableColumns = (
         {
             id: "file_link",
             accessorKey: "file_link",
-            header: () => <div className="text-center text-[10px]">Link</div>,
+            header: () => <div className="text-center text-[10px]">Files</div>,
             cell: ({ row }) => (
-                <div className="flex justify-center">
-                    <TooltipProvider>
-                        <Tooltip delayDuration={300}>
-                            <TooltipTrigger asChild>
-                                <a
-                                    href={row.original.file_link || '#'}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    onClick={(e) => !row.original.file_link && e.preventDefault()}
-                                    className="hover:scale-110 transition-transform"
-                                >
-                                    <LinkIcon
-                                        className={`h-4 w-4 p-0.5 bg-gray-100 rounded ${
-                                            row.original.file_link
-                                                ? 'cursor-pointer text-blue-500'
-                                                : 'text-gray-300 cursor-default'
-                                        }`}
-                                    />
-                                </a>
-                            </TooltipTrigger>
-                            {row.original.file_link && (
-                                <TooltipContent className="max-w-xs p-2 bg-gray-900 text-white shadow-lg">
-                                    <span className="text-xs">
-                                        {row.original.file_link.substring(0, 40)}...
-                                    </span>
-                                </TooltipContent>
-                            )}
-                        </Tooltip>
-                    </TooltipProvider>
-                </div>
+                <FilesCell
+                    file_link={row.original.file_link}
+                    approval_proof={row.original.approval_proof}
+                    size="sm"
+                />
             ),
-            size: 40,
-            minSize: 36,
-            maxSize: 50,
+            size: 60,
+            minSize: 50,
+            maxSize: 70,
             meta: { excludeFromExport: true },
         },
         // Actions column (hidden for Project Managers)

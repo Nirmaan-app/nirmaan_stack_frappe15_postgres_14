@@ -24,12 +24,18 @@ interface SelectOption {
     value: string;
 }
 
-export default function DCMIRReports() {
+interface DCMIRReportsProps {
+    projectId?: string;
+    forcedReportType?: 'DC Report' | 'MIR Report';
+}
+
+export default function DCMIRReports({ projectId, forcedReportType }: DCMIRReportsProps = {}) {
     const { reportData: allDeliveryDocs, isLoading: isLoadingInitialData, error: initialDataError } = useDCMIRReportsData();
 
-    const selectedReportType = useReportStore(
+    const storeReportType = useReportStore(
         (state) => state.selectedReportType as DCMIRReportType | null
     );
+    const selectedReportType = forcedReportType || storeReportType;
 
     // Determine columns based on selected report type
     const tableColumnsToDisplay = useMemo(
@@ -43,8 +49,13 @@ export default function DCMIRReports() {
         if (!selectedReportType) return [];
 
         const typeFilter = selectedReportType === 'DC Report' ? 'Delivery Challan' : 'Material Inspection Report';
-        return allDeliveryDocs.filter((doc) => doc.type === typeFilter);
-    }, [allDeliveryDocs, selectedReportType]);
+        
+        let filtered = allDeliveryDocs.filter((doc) => doc.type === typeFilter);
+        if (projectId) {
+            filtered = filtered.filter(doc => doc.project === projectId);
+        }
+        return filtered;
+    }, [allDeliveryDocs, selectedReportType, projectId]);
 
     // Initialize useServerDataTable in clientData mode
     const {
@@ -63,7 +74,7 @@ export default function DCMIRReports() {
         searchableFields: DCMIR_REPORTS_SEARCHABLE_FIELDS,
         clientData: currentDisplayData,
         clientTotalCount: currentDisplayData.length,
-        urlSyncKey: `dcmir_reports_${selectedReportType?.toString().replace(/\s+/g, "_") || "all"}`,
+        urlSyncKey: `dcmir_reports_${projectId ? projectId + "_" : ""}${selectedReportType?.toString().replace(/\s+/g, "_") || "all"}`,
         defaultSort: "creation desc",
         enableRowSelection: false,
     });
@@ -112,18 +123,27 @@ export default function DCMIRReports() {
     ], []);
 
     const facetOptionsConfig = useMemo(
-        () => ({
-            project_name: { title: "Project", options: projectFacetOptions },
-            is_signed: { title: "Signed", options: signedFacetOptions },
-            is_stub: { title: "Status", options: stubFacetOptions },
-        }),
-        [projectFacetOptions, signedFacetOptions, stubFacetOptions]
+        () => {
+            const baseConfig = {
+                is_signed: { title: "Signed", options: signedFacetOptions },
+                is_stub: { title: "Status", options: stubFacetOptions },
+            };
+            
+            if (!projectId) {
+               return {
+                   project_name: { title: "Project", options: projectFacetOptions },
+                   ...baseConfig
+               }
+            }
+            return baseConfig;
+        },
+        [projectFacetOptions, signedFacetOptions, stubFacetOptions, projectId]
     );
 
     const exportFileName = useMemo(() => {
         const prefix = selectedReportType === 'MIR Report' ? 'mir_report' : 'dc_report';
-        return prefix;
-    }, [selectedReportType]);
+        return projectId ? `${projectId}_${prefix}` : prefix;
+    }, [selectedReportType, projectId]);
 
     const handleCustomExport = useCallback(() => {
         if (!fullyFilteredData || fullyFilteredData.length === 0) {

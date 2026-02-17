@@ -48,7 +48,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
     data: itemsData,
     isLoading: itemsLoading,
     error: itemsError,
-  } = useFrappeGetDocList<ItemBillingCategory>('Items', {
+  } = useFrappeGetDocList<{ name: string; billing_category: string }>('Items', {
     // Only need the ID and the Billing Category
     fields: ['name', 'billing_category'], 
     // Filter to only include items that have estimates or PO items (Optimization is complex, fetching all is safest)
@@ -199,9 +199,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
       const itemKey = `${poItem.category}_${poItem.item_id}`;
       let currentItemUsage = usageByItemKey.get(itemKey);
       
-      // === MODIFIED: The type for this array now includes `amount` ===
-      const individualPOsForItem: { po: string; status: POStatus; amount: number;poCalculatedAmount: string;
-       }[] = currentItemUsage?.poNumbers || [];
+      const individualPOsForItem: NonNullable<MaterialUsageDisplayItem['poNumbers']> = [...(currentItemUsage?.poNumbers || [])];
 
       if (poItem.po_number) {
         const existingPoEntry = individualPOsForItem.find(p => p.po === poItem.po_number);
@@ -211,6 +209,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
             po: poItem.po_number,
             status: getIndividualPOStatus(poItem.po_number),
             amount: amountWithGst,
+            quote: safeParseFloat(poItem.quote),
             poCalculatedAmount:`(${poItem.quantity} x ${formatToIndianRupee(poItem.quote)}) + ${formatToIndianRupee(gstAmount)}(Gst)`,
           });
         }
@@ -517,6 +516,12 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
     { label: "N/A", value: "N/A" },
   ], []);
 
+  const billingCategoryOptions = useMemo(() => {
+    if (!allMaterialUsageItems) return [];
+    const uniqueBillingCategories = new Set(allMaterialUsageItems.map(item => item.billingCategory || ""));
+    return Array.from(uniqueBillingCategories).filter(Boolean).sort().map(bc => ({ label: bc, value: bc }));
+  }, [allMaterialUsageItems]);
+
   return {
     allMaterialUsageItems,
     poWiseItems,
@@ -524,6 +529,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
     isLoading: po_item_loading || estimatesLoading || itemsLoading || poDeliveryLoading,
     error: po_item_error || estimatesError || itemsError || poDeliveryError,
     categoryOptions,
+    billingCategoryOptions,
     deliveryStatusOptions,
     poStatusOptions,
   };

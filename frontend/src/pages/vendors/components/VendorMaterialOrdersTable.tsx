@@ -23,6 +23,7 @@ import { parseNumber } from "@/utils/parseNumber";
 
 interface VendorMaterialOrdersTableProps {
   vendorId: string;
+  vendorName: string;
   // Pass necessary lookup data as props to avoid re-fetching or prop drilling deeply
   projectOptions: Array<{ label: string; value: string }>;
   procurementRequests?: ProcurementRequest[]; // For getting work_package
@@ -56,7 +57,7 @@ const PO_SEARCHABLE_FIELDS: SearchFieldOption[] = [
 
 export const VendorMaterialOrdersTable: React.FC<
   VendorMaterialOrdersTableProps
-> = ({ vendorId, projectOptions, procurementRequests }) => {
+> = ({ vendorId, vendorName, projectOptions, procurementRequests }) => {
   //  console.log("projectOptions",projectOptions)
   const getWorkPackage = useCallback(
     (prName?: string) => {
@@ -171,7 +172,7 @@ export const VendorMaterialOrdersTable: React.FC<
             <div className="flex items-center gap-1.5">
               <Link
                 className="text-blue-600 hover:underline font-medium"
-                to={`${data.name.replaceAll("/", "&=")}`}
+                to={`${data.name.replace(/\//g, "&=")}`}
               >
                 {data?.name?.split("/")[1]}
               </Link>
@@ -242,10 +243,10 @@ export const VendorMaterialOrdersTable: React.FC<
       // },
 
       {
-        accessorKey: "project",
+        accessorKey: "project_name",
 
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Project" />
+          <DataTableColumnHeader column={column} title="Project Name" />
         ),
 
         cell: ({ row }) => {
@@ -271,6 +272,11 @@ export const VendorMaterialOrdersTable: React.FC<
           </div>
         ),
         size: 140,
+        meta: {
+          exportHeaderName: "Package",
+          exportValue: (row: ProcurementOrder) =>
+            getWorkPackage(row.procurement_request),
+        },
       },
       // {
       //     id: "categories",
@@ -345,6 +351,13 @@ export const VendorMaterialOrdersTable: React.FC<
         },
         size: 150,
         enableSorting: false,
+        meta: {
+          exportHeaderName: "Total Invoiced",
+          exportValue: (row: ProcurementOrder) => {
+            const invoiceTotal = invoiceTotalsMap.get(row.name) ?? 0;
+            return formatToRoundedIndianRupee(invoiceTotal);
+          },
+        },
       },
       {
         accessorKey: "amount_paid",
@@ -418,6 +431,7 @@ export const VendorMaterialOrdersTable: React.FC<
       dateFilterColumns={["modified", "creation"]}
       showExportButton={true}
       onExport={"default"}
+      exportFileName={`${vendorName}_Material_Orders`}
     />
   );
 };

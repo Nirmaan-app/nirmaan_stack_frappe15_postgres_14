@@ -248,7 +248,7 @@ export const ApproveSelectVendor: React.FC = () => {
         meta: {
           exportHeaderName: "Created On",
           exportValue: (row: ProcurementRequest) => {
-            return row.creation;
+            return formatDate(row.creation);
           },
         },
       },
@@ -322,7 +322,11 @@ export const ApproveSelectVendor: React.FC = () => {
         size: 180,
         enableSorting: false,
         meta: {
-          excludeFromExport: true, // Exclude from export if not needed
+          exportHeaderName: "Categories",
+          exportValue: (row: ProcurementRequest) => {
+            const categories = (row.category_list as { list: Category[] } | undefined)?.list || [];
+            return categories.map(c => c.name).join(", ");
+          }
         },
       },
       {
@@ -477,6 +481,7 @@ export const ApproveSelectVendor: React.FC = () => {
           dateFilterColumns={PR_DATE_COLUMNS} // Enable date filters for creation/modified
           showExportButton={true} // Disable export if not needed
           onExport={"default"}
+          exportFileName={`Approve_PO_${new Date().toISOString().split('T')[0]}`}
           showRowSelection={isRowSelectionActive}
           getRowClassName={getRowClassName}
         />

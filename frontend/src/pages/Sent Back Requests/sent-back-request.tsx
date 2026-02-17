@@ -60,6 +60,7 @@ const SBDataTableWrapper: React.FC<{
     facetFilterOptions: any;
     dateColumns: any;
     getRowClassName?: (row: Row<SentBackCategory>) => string | undefined;
+    exportFileName?: string;
 }> = ({
     tab,
     columns,
@@ -68,7 +69,8 @@ const SBDataTableWrapper: React.FC<{
     staticFilters,
     facetFilterOptions,
     dateColumns,
-    getRowClassName
+    getRowClassName,
+    exportFileName
 }) => {
         // Generate urlSyncKey inside the wrapper
         const dynamicUrlSyncKey = `${URL_SYNC_KEY}_${tab.toLowerCase().replace(/\s+/g, '_')}`;
@@ -122,6 +124,7 @@ const SBDataTableWrapper: React.FC<{
                 dateFilterColumns={dateColumns}
                 showExportButton={true} // Optional
                 onExport={'default'}
+                exportFileName={exportFileName}
                 getRowClassName={getRowClassName}
             />
         );
@@ -388,6 +391,7 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
                     facetFilterOptions={facetFilterOptions}
                     dateColumns={dateColumns}
                     getRowClassName={getRowClassName}
+                    exportFileName={`${tab.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}`}
                 />
             )}
             {/* Delete Confirmation Dialog */}

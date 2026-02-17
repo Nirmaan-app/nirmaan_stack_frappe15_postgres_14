@@ -25,6 +25,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { VendorAttachmentForPR } from "@/components/common/VendorAttachmentForPR";
 
 
 interface SelectVendorQuotesTableProps {
@@ -197,27 +198,37 @@ export function SelectVendorQuotesTable({
                                         ) : (
                                             formData.selectedVendors.map((v) => (
                                                 <TableHead key={v.value} className="text-primary font-semibold p-1.5 text-center">
-                                                    <div className="min-w-[150px] max-w-[150px] mx-auto py-1 flex gap-1 items-center justify-center border border-gray-400 rounded-md px-2 text-xs">
-                                                        <div className="truncate flex-grow">
-                                                            <VendorHoverCard vendor_id={v.value} />
+                                                    <div className="flex flex-col items-center gap-2">
+                                                        <div className="min-w-[150px] max-w-[150px] mx-auto py-1 flex gap-1 items-center justify-center border border-gray-400 rounded-md px-2 text-xs">
+                                                            <div className="truncate flex-grow">
+                                                                <VendorHoverCard vendor_id={v.value} />
+                                                            </div>
+                                                            {mode === "edit" && !isReadOnly && (
+                                                                <AlertDialog>
+                                                                    <AlertDialogTrigger asChild>
+                                                                        <Button variant="ghost" size="icon" className="h-5 w-5 p-0 text-destructive hover:bg-destructive/10 flex-shrink-0">
+                                                                            <CircleMinus className="w-3.5 h-3.5" />
+                                                                        </Button>
+                                                                    </AlertDialogTrigger>
+                                                                    <AlertDialogContent>
+                                                                        <AlertDialogHeader>
+                                                                            <AlertDialogTitle>Remove Vendor: {v.label}?</AlertDialogTitle>                                                                                <AlertDialogDescription>This will remove the vendor and all their quotes from this RFQ.</AlertDialogDescription>
+                                                                        </AlertDialogHeader>
+                                                                        <AlertDialogFooter>
+                                                                            <AlertDialogCancel>Cancel</AlertDialogCancel>                                                                                <Button variant="destructive" onClick={() => handleInternalDeleteVendor(v.value)}>Confirm Remove</Button>
+                                                                        </AlertDialogFooter>
+                                                                    </AlertDialogContent>
+                                                                </AlertDialog>
+                                                            )}
                                                         </div>
-                                                        {mode === "edit" && !isReadOnly && (
-                                                            <AlertDialog>
-                                                                <AlertDialogTrigger asChild>
-                                                                    <Button variant="ghost" size="icon" className="h-5 w-5 p-0 text-destructive hover:bg-destructive/10 flex-shrink-0">
-                                                                        <CircleMinus className="w-3.5 h-3.5" />
-                                                                    </Button>
-                                                                </AlertDialogTrigger>
-                                                               <AlertDialogContent>
-                                                                             <AlertDialogHeader>
-                                                                                <AlertDialogTitle>Remove Vendor: {v.label}?</AlertDialogTitle>                                                                                <AlertDialogDescription>This will remove the vendor and all their quotes from this RFQ.</AlertDialogDescription>
-                                                                           </AlertDialogHeader>
-                                                                            <AlertDialogFooter>
-                                                                                <AlertDialogCancel>Cancel</AlertDialogCancel>                                                                                <Button variant="destructive" onClick={() => handleInternalDeleteVendor(v.value)}>Confirm Remove</Button>
-                                                                            </AlertDialogFooter>
-                                                                        </AlertDialogContent>
-                                                            </AlertDialog>
-                                                        )}
+                                                        <div onClick={(e) => e.stopPropagation()}>
+                                                            <VendorAttachmentForPR 
+                                                                prId={'procurement_request' in currentDocument ? currentDocument.procurement_request : currentDocument.name} 
+                                                                vendorId={v.value} 
+                                                                vendorName={v.label} 
+                                                                projectId={currentDocument.project}
+                                                            />
+                                                        </div>
                                                     </div>
                                                 </TableHead>
                                             ))
