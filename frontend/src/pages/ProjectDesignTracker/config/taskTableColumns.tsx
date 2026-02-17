@@ -219,6 +219,13 @@ export const getTaskTableColumns = (
             size: 140,
             minSize: 120,
             maxSize: 180,
+            meta: {
+                exportHeaderName: "Assigned Designers",
+                exportValue: (row: DesignTrackerTask) => {
+                    const designers = parseDesignersFromField(row.assigned_designers);
+                    return designers.map(d => `• ${d.userName || d.userId}`).join("\n");
+                }
+            }
         }] as ColumnDef<DesignTrackerTask>[]),
         {
             id: "deadline",
