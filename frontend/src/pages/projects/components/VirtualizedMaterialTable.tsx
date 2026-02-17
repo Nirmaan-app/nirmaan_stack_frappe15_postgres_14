@@ -86,7 +86,9 @@ interface VirtualizedMaterialTableProps {
   categoryOptions: { label: string; value: string }[];
   categoryFilter: Set<string>;
   onSetCategoryFilter: (selected: Set<string>) => void;
-  // ... other filter props ...
+  billingCategoryOptions: { label: string; value: string }[];
+  billingCategoryFilter: Set<string>;
+  onSetBillingCategoryFilter: (selected: Set<string>) => void;
   deliveryStatusOptions: { label: string; value: DeliveryStatus }[];
   deliveryStatusFilter: Set<DeliveryStatus>;
   onSetDeliveryStatusFilter: (selected: Set<DeliveryStatus>) => void;
@@ -156,7 +158,12 @@ export const VirtualizedMaterialTable: React.FC<VirtualizedMaterialTableProps> =
                 <span>Category</span>
               </div>
             </TableHead>
-            <TableHead className="text-center min-w-[80px]">Billing category</TableHead>
+            <TableHead className="min-w-[140px]">
+              <div className="flex items-center gap-1">
+                <SimpleFacetedFilter title="Billing Category" options={props.billingCategoryOptions} selectedValues={props.billingCategoryFilter} onSelectedValuesChange={props.onSetBillingCategoryFilter} />
+                <span>Billing Cat.</span>
+              </div>
+            </TableHead>
             <TableHead className="text-center min-w-[80px]">Unit</TableHead>
             <TableHead className="text-right min-w-[120px]">Est. Qty</TableHead>
 

@@ -1,10 +1,10 @@
 // components/tabs/ProjectMaterialUsageTab.tsx (Full, Refactored File)
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
 import { VirtualizedMaterialTable } from './VirtualizedMaterialTable';
-import { POWiseMaterialTable } from './POWiseMaterialTable';
+import { POWiseMaterialTable, POWiseMaterialTableHandle } from './POWiseMaterialTable';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
 import { useMaterialUsageData } from '../hooks/useMaterialUsageData';
 import { toast } from '@/components/ui/use-toast';
@@ -75,7 +75,7 @@ export interface MaterialUsageDisplayItem {
   totalAmount?: number;
   deliveryStatus: DeliveryStatus;
   overallPOPaymentStatus: OverallItemPOStatus;
-  poNumbers?: { po: string, status: POStatus, amount: number, poCalculatedAmount?: string }[];
+  poNumbers?: { po: string, status: POStatus, amount: number, quote?: number, poCalculatedAmount?: string }[];
   vendorNames?: string[];  // Vendor names from all POs for this item
   billingCategory?: string;
   deliveryChallans?: DeliveryDocumentInfo[];
@@ -107,11 +107,13 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
     isLoading,
     error,
     categoryOptions,
+    billingCategoryOptions,
     deliveryStatusOptions,
     poStatusOptions
   } = useMaterialUsageData(projectId, projectPayments);
 
-  // --- A2. TAB STATE ---
+  // --- A2. TAB STATE & REFS ---
+  const poTableRef = useRef<POWiseMaterialTableHandle>(null);
   const [activeTab, setActiveTab] = useState<string>(() => getUrlStringParam('mus_tab', 'Item Wise'));
 
   // --- B. STATE MANAGEMENT ---
@@ -125,7 +127,8 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
   const [categoryFilter, setCategoryFilter] = useState<Set<string>>(() => new Set(getUrlJsonParam<string[]>('mus_cat', [])));
   const [deliveryStatusFilter, setDeliveryStatusFilter] = useState<Set<DeliveryStatus>>(() => new Set(getUrlJsonParam<DeliveryStatus[]>('mus_ds', [])));
   const [poStatusFilter, setPoStatusFilter] = useState<Set<OverallItemPOStatus>>(() => new Set(getUrlJsonParam<OverallItemPOStatus[]>('mus_ps', [])));
-  
+  const [billingCategoryFilter, setBillingCategoryFilter] = useState<Set<string>>(() => new Set(getUrlJsonParam<string[]>('mus_bc', [])));
+
   // Sorting state
   const [sortConfig, setSortConfig] = useState<{ key: MaterialSortKey | null; direction: 'asc' | 'desc'; }>({ key: null, direction: 'asc' });
   
@@ -149,6 +152,7 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
   useEffect(() => { updateUrlParamJsonArray('mus_cat', categoryFilter); }, [categoryFilter, updateUrlParamJsonArray]);
   useEffect(() => { updateUrlParamJsonArray('mus_ds', deliveryStatusFilter); }, [deliveryStatusFilter, updateUrlParamJsonArray]);
   useEffect(() => { updateUrlParamJsonArray('mus_ps', poStatusFilter); }, [poStatusFilter, updateUrlParamJsonArray]);
+  useEffect(() => { updateUrlParamJsonArray('mus_bc', billingCategoryFilter); }, [billingCategoryFilter, updateUrlParamJsonArray]);
 
   // --- D. EVENT HANDLERS & HELPERS ---
   
@@ -189,9 +193,10 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
     // 2. FILTER: Apply all active faceted filters.
     items = items.filter(item => {
       const catMatch = categoryFilter.size === 0 || categoryFilter.has(item.categoryName);
+      const bcMatch = billingCategoryFilter.size === 0 || billingCategoryFilter.has(item.billingCategory || "");
       const delMatch = deliveryStatusFilter.size === 0 || deliveryStatusFilter.has(item.deliveryStatus);
       const poMatch = poStatusFilter.size === 0 || poStatusFilter.has(item.overallPOPaymentStatus);
-      return catMatch && delMatch && poMatch;
+      return catMatch && bcMatch && delMatch && poMatch;
     });
 
     // 3. SORT: Apply sorting if a sort key is active.
@@ -209,12 +214,13 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
     
     return items;
   }, [
-    allMaterialUsageItems, 
-    debouncedSearchTerm, 
-    fuseInstance, 
-    categoryFilter, 
-    deliveryStatusFilter, 
-    poStatusFilter, 
+    allMaterialUsageItems,
+    debouncedSearchTerm,
+    fuseInstance,
+    categoryFilter,
+    billingCategoryFilter,
+    deliveryStatusFilter,
+    poStatusFilter,
     sortConfig
   ]);
 
@@ -286,45 +292,65 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
     ? "Search item name, vendor..."
     : "Search PO, vendor, category...";
 
+  const handleExport = useCallback(() => {
+    if (activeTab === "Item Wise") {
+      handleExportCsv();
+    } else {
+      poTableRef.current?.exportCsv();
+    }
+  }, [activeTab, handleExportCsv]);
+
+  const isExportDisabled = activeTab === "Item Wise"
+    ? processedItems.length === 0
+    : (poWiseItems?.length ?? 0) === 0;
+
   return (
-    <div className="flex-1 space-y-4">
-      {/* Unified toolbar: Tabs + Search + Export */}
-      <div className="flex items-center gap-3">
-        {/* Tabs (left) */}
-        <div className="flex gap-1.5 shrink-0">
-          {tabs.map((tab) => {
-            const isActive = activeTab === tab.value;
-            return (
-              <button
-                key={tab.value}
-                onClick={() => setActiveTab(tab.value)}
-                className={`px-3 py-1.5 text-sm rounded transition-colors whitespace-nowrap
-                  ${isActive
-                    ? "bg-sky-500 text-white"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                  }`}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Search (center, fills space) */}
-        <div className="relative flex-1 max-w-md">
-          <SearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input type="search" placeholder={searchPlaceholder} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-8 h-9" />
-        </div>
-
-        {/* Export (right) — only for Item Wise tab */}
-        {activeTab === "Item Wise" && (
-          <Button onClick={handleExportCsv} variant="outline" size="sm" className="h-9 shrink-0" disabled={processedItems.length === 0}>
-            <FileUp className="mr-2 h-4 w-4" /> Export
-          </Button>
-        )}
+    <div className="flex-1 space-y-3">
+      {/* Row 1: Tab switcher */}
+      <div className="inline-flex items-center rounded-lg bg-muted p-0.5">
+        {tabs.map((tab) => {
+          const isActive = activeTab === tab.value;
+          return (
+            <button
+              key={tab.value}
+              onClick={() => setActiveTab(tab.value)}
+              className={`relative px-4 py-1.5 text-sm font-medium rounded-md transition-all duration-200
+                ${isActive
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+                }`}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
 
-      {/* Table Content based on active tab */}
+      {/* Row 2: Search + Export toolbar */}
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1 max-w-sm">
+          <SearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            type="search"
+            placeholder={searchPlaceholder}
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-8 h-9"
+          />
+        </div>
+        <Button
+          onClick={handleExport}
+          variant="outline"
+          size="sm"
+          className="h-9 shrink-0"
+          disabled={isExportDisabled}
+        >
+          <FileUp className="mr-2 h-4 w-4" />
+          Export
+        </Button>
+      </div>
+
+      {/* Table content based on active tab */}
       {activeTab === "Item Wise" ? (
         <VirtualizedMaterialTable
           items={processedItems}
@@ -332,6 +358,9 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
           categoryOptions={categoryOptions}
           categoryFilter={categoryFilter}
           onSetCategoryFilter={setCategoryFilter}
+          billingCategoryOptions={billingCategoryOptions}
+          billingCategoryFilter={billingCategoryFilter}
+          onSetBillingCategoryFilter={setBillingCategoryFilter}
           deliveryStatusOptions={deliveryStatusOptions}
           deliveryStatusFilter={deliveryStatusFilter}
           onSetDeliveryStatusFilter={setDeliveryStatusFilter}
@@ -347,6 +376,7 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
         />
       ) : (
         <POWiseMaterialTable
+          ref={poTableRef}
           items={poWiseItems || []}
           searchTerm={debouncedSearchTerm}
           projectId={projectId}
