@@ -386,6 +386,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.PROJECT_EXPENSES,
     PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
     PROJECT_PAGE_TABS.DC_MIR,
+    PROJECT_PAGE_TABS.TDS_REPOSITORY,
   ]), []);
 
   // Allowed tabs for Estimates Executive
@@ -399,6 +400,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.MATERIAL_USAGE,
     PROJECT_PAGE_TABS.ESTIMATES,
     PROJECT_PAGE_TABS.DC_MIR,
+    PROJECT_PAGE_TABS.TDS_REPOSITORY,
   ]), []);
 
   // Redirect users to allowed tab if on restricted tab
