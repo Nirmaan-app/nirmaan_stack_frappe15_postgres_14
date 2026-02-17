@@ -243,10 +243,10 @@ export const VendorMaterialOrdersTable: React.FC<
       // },
 
       {
-        accessorKey: "project",
+        accessorKey: "project_name",
 
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Project" />
+          <DataTableColumnHeader column={column} title="Project Name" />
         ),
 
         cell: ({ row }) => {
