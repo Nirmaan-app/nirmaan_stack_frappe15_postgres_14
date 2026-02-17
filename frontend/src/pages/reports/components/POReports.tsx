@@ -294,53 +294,90 @@ export default function POReports() {
 
   const exportFileName = useMemo(() => {
     const prefix = "po_report";
-    return `${prefix}${
-      selectedReportType ? `_${selectedReportType.replace(/\s+/g, "_")}` : ""
-    }`;
+    const reportTypeSuffix = selectedReportType
+      ? selectedReportType.replace(/\s+/g, "_")
+      : "po_report";
+    return `${prefix}_${reportTypeSuffix}_${formatDate(new Date())}`;
   }, [selectedReportType]);
 
   const handleCustomExport = useCallback(() => {
-    if (!fullyFilteredData || fullyFilteredData.length === 0) {
+    // We use table.getFilteredRowModel().rows here to respect current filters
+    const rowsToExport = table.getFilteredRowModel().rows.map(r => r.original);
+
+    if (!rowsToExport || rowsToExport.length === 0) {
       toast({
         title: "Export",
-        description:
-          "No data available to export for the selected report type.",
+        description: "No data available to export for the selected report type.",
         variant: "default",
       });
       return;
     }
-    const dataToExport = fullyFilteredData.map((row) => ({
-      po_id: row.name,
-      creation: formatDate(row.creation),
-      project_name: row.projectName || row.project,
-      vendor_name: row.vendorName || row.vendor,
-      total_po_amt: formatForReport(row.totalAmount),
-      total_invoice_amt: formatForReport(row.invoiceAmount),
-      amt_paid: formatForReport(row.amountPaid),
-      dispatch_date: row.originalDoc.dispatch_date
-        ? formatDate(row.originalDoc.dispatch_date)
-        : "N/A",
-      latest_delivery_date: row.originalDoc.latest_delivery_date
-        ? formatDate(row.originalDoc.latest_delivery_date)
-        : "N/A",
-      latest_payment_date: row.originalDoc.latest_payment_date
-        ? formatDate(row.originalDoc.latest_payment_date)
-        : "N/A",
-      status: row.originalDoc.status,
-    }));
+
+    const dataToExport = rowsToExport.map((row) => {
+      // Assignees Logic
+      const projectId = row.project;
+      let assignees = assignmentsLookup[projectId] || [];
+      const allowedRoles = [
+        "Nirmaan Project Manager Profile",
+        "Nirmaan Procurement Profile",
+        "Nirmaan Admin Profile",
+        "Nirmaan Accountant Profile",
+      ];
+      const roleMap: Record<string, string> = {
+        "Nirmaan Project Manager Profile": "Project Manager",
+        "Nirmaan Procurement Profile": "Procurement",
+        "Nirmaan Admin Profile": "Admin",
+        "Nirmaan Accountant Profile": "Accountant",
+      };
+
+      const formattedAssignees = assignees
+        .filter((a) => allowedRoles.includes(a.role))
+        .map((a) => `• ${a.name} (${roleMap[a.role] || a.role})`)
+        .join("\n"); // Excel supports newlines in cells
+
+      // Pending Invoice Amt Logic
+      const pendingInvoiceAmt = parseNumber(row.amountPaid) - parseNumber(row.invoiceAmount);
+
+      return {
+        po_id: row.name,
+        creation: formatDate(row.creation),
+        project_name: row.projectName || row.project,
+        assignees: formattedAssignees || "--", // New Field
+        vendor_name: row.vendorName || row.vendor,
+        total_po_amt: formatForReport(row.totalAmount),
+        total_invoice_amt: formatForReport(row.invoiceAmount),
+        amt_paid: formatForReport(row.amountPaid),
+        pending_invoice_amt: formatForReport(pendingInvoiceAmt), // New Field
+        remarks: (row.originalDoc as any).notes || "-",
+        dispatch_date: row.originalDoc.dispatch_date
+          ? formatDate(row.originalDoc.dispatch_date)
+          : "N/A",
+        latest_delivery_date: row.originalDoc.latest_delivery_date
+          ? formatDate(row.originalDoc.latest_delivery_date)
+          : "N/A",
+        latest_payment_date: row.originalDoc.latest_payment_date
+          ? formatDate(row.originalDoc.latest_payment_date)
+          : "N/A",
+        status: row.originalDoc.status,
+      };
+    });
 
     const exportColumnsConfig: ColumnDef<any, any>[] = [
       { header: "#PO", accessorKey: "po_id" },
       { header: "Date Created", accessorKey: "creation" },
       { header: "Project", accessorKey: "project_name" },
+      { header: "Assignees", accessorKey: "assignees" }, // Added
       { header: "Vendor", accessorKey: "vendor_name" },
-      { header: "Total PO Amt", accessorKey: "total_po_amt" }, // Matches export data key
+      { header: "Total PO Amt", accessorKey: "total_po_amt" },
       { header: "Total Invoice Amt", accessorKey: "total_invoice_amt" },
       { header: "Amt Paid", accessorKey: "amt_paid" },
-      { header: "PO Status", accessorKey: "status" }, // Moved before conditional dispatch date
+      { header: "Pending Invoice Amt", accessorKey: "pending_invoice_amt" }, // Added
+      { header: "Remarks", accessorKey: "remarks" }, // Added
+      { header: "PO Status", accessorKey: "status" },
       { header: "Latest Delivery Date", accessorKey: "latest_delivery_date" },
       { header: "Latest Payment Date", accessorKey: "latest_payment_date" },
     ];
+
     if (selectedReportType === "Dispatched for 1 days") {
       exportColumnsConfig.push({
         header: "Dispatched Date",
@@ -353,7 +390,7 @@ export default function POReports() {
       toast({
         title: "Export Successful",
         description: `${dataToExport.length} rows exported.`,
-        variant: "success",
+        variant: "default", // success variant might not exist in default toast, using default/null usually implies neutral or success if styled. verification: user code uses variant: "default" often or "destructive".
       });
     } catch (e) {
       console.error("Export failed:", e);
@@ -363,7 +400,7 @@ export default function POReports() {
         variant: "destructive",
       });
     }
-  }, [fullyFilteredData, exportFileName, selectedReportType]);
+  }, [table, exportFileName, selectedReportType, assignmentsLookup]);
 
   const isLoadingOverall =
     isLoadingInitialData ||
