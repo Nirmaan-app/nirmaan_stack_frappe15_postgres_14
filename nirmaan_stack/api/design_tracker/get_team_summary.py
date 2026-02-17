@@ -67,7 +67,7 @@ def _parse_assigned_designers(assigned_designers_raw):
 
 
 @frappe.whitelist()
-def get_team_summary(projects=None, deadline_from=None, deadline_to=None):
+def get_team_summary(projects=None, deadline_from=None, deadline_to=None, task_phase=None):
     """
     Get a summary of design tasks grouped by user, then by project.
 
@@ -151,6 +151,10 @@ def get_team_summary(projects=None, deadline_from=None, deadline_to=None):
                 continue
 
             for task in doc.design_tracker_task:
+                # Filter by task phase if specified
+                if task_phase and task.get("task_phase") != task_phase:
+                    continue
+
                 task_status = task.get("task_status")
 
                 # Skip "Not Applicable" tasks

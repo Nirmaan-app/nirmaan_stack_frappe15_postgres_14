@@ -19,10 +19,11 @@ export interface DesignTrackerTask {
     name: string; // Child row DocName (e.g., 'sv2jh70g8v')
     
     // Core Links/Data (Server Names)
-    design_category: string; 
+    design_category: string;
     task_name: string;
-    task_type?: string; 
-    deadline?: string; 
+    task_type?: string;
+    task_phase?: string; // "Onboarding" or "Handover"
+    deadline?: string;
     
     // JSON/Multi-Select Field: Stores an array of AssignedDesignerDetail objects, 
     // but the field type is JSON/string on the wire.
@@ -62,6 +63,7 @@ export interface ProjectDesignTracker {
     design_tracker_task: DesignTrackerTask[];
     zone?: TrackerZone[];
     hide_design_tracker?: 0 | 1;
+    handover_generated?: 0 | 1;
 }
 
 export interface MasterDataResponse {
@@ -138,6 +140,7 @@ export interface TaskPreviewFilter {
     projectIds?: string[];     // Multiple projects from filter bar (when no specific project clicked)
     deadlineFrom?: string;
     deadlineTo?: string;
+    taskPhase?: string;        // "Onboarding" or "Handover" - phase filter from parent
 }
 
 // Inline task expansion state (for TeamPerformanceSummary inline display)
@@ -175,6 +178,7 @@ export interface TaskPreviewItem {
     last_submitted?: string;
     task_status: string;
     task_sub_status?: string;
+    task_phase?: string; // "Onboarding" or "Handover"
     assigned_designers?: string; // JSON string containing designer IDs
     file_link?: string; // Design file URL (Figma, etc.)
     comments?: string;
