@@ -209,7 +209,7 @@ export const Projects: React.FC<ProjectsProps> = ({
   // const { data: CreditData } = useCredits()
   const { creditTerms: CreditData } = useProjectAllCredits(undefined);
 
-  console.log("CreditData", CreditData);
+  // console.log("CreditData", CreditData);
 
   const {
     data: poData,
