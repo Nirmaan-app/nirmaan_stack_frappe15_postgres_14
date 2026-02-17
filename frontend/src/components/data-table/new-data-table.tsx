@@ -102,7 +102,7 @@ export function DataTable<T>({
 }: DataTableProps<T>) {
 
   /* ───────── helpers ───────── */
-  const leafCols = React.useMemo(() => table.getAllLeafColumns(), [table]);
+  const leafCols = React.useMemo(() => table.getVisibleLeafColumns(), [table]);
   const colWidths = React.useMemo(
     () => leafCols.map(c => c.getSize() ?? 150), [leafCols]);
 
@@ -302,7 +302,7 @@ export function DataTable<T>({
           {/* ---- Body with padding rows ---- */}
           <TableBody>
             {isLoading ? (
-              <TableBodySkeleton rows={10} colSpan={leafCols.length + (shouldRenderIndicatorColumn ? 1 : 0) + (shouldRenderSelectionColumn ? 1 : 0)} />
+              <TableBodySkeleton rows={10} colSpan={table.getVisibleLeafColumns().length + (shouldRenderIndicatorColumn ? 1 : 0) + (shouldRenderSelectionColumn ? 1 : 0)} />
             ) : (
               <>
                 {paddingTop > 0 && (

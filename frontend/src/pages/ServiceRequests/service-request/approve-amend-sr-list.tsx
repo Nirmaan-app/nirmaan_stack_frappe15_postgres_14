@@ -16,6 +16,7 @@ import memoize from "lodash/memoize";
 // --- UI Components ---
 import { DataTable } from "@/components/data-table/new-data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { Badge } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
 
 // --- Hooks & Utils ---
@@ -272,6 +273,44 @@ export const ApproveSelectAmendSR: React.FC = () => {
         },
       },
       {
+        accessorKey: "service_category_list",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Categories" />
+        ),
+        cell: ({ row }) => {
+          const categories = row.getValue("service_category_list") as
+            | { list: { name: string }[] }
+            | undefined;
+          const categoryItems = Array.isArray(categories?.list)
+            ? categories.list
+            : [];
+          return (
+            <div className="flex flex-wrap gap-1 items-start justify-start max-w-[200px]">
+              {categoryItems.length > 0
+                ? categoryItems.map((obj) => (
+                    <Badge key={obj.name} variant="outline" className="text-xs">
+                      {obj.name}
+                    </Badge>
+                  ))
+                : "--"}
+            </div>
+          );
+        },
+        size: 180,
+        enableSorting: false,
+        meta: {
+          exportHeaderName: "Categories",
+          exportValue: (row: ServiceRequests) => {
+            const categories = row.service_category_list as
+              | { list: { name: string }[] }
+              | undefined;
+            return Array.isArray(categories?.list)
+              ? categories.list.map((c) => c.name).join(", ")
+              : "--";
+          },
+        },
+      },
+      {
         accessorKey: "owner",
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Created By" />
@@ -470,6 +509,7 @@ export const ApproveSelectAmendSR: React.FC = () => {
           dateFilterColumns={dateColumns}
           showExportButton={true} // Enable if needed
           onExport={"default"}
+          exportFileName={`Approve_Amended_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}`}
           getRowClassName={getRowClassName}
           // toolbarActions={<Button size="sm">Bulk Approve Amended...</Button>} // Placeholder
         />

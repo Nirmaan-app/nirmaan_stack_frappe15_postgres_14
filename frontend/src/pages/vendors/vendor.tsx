@@ -121,7 +121,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
     const approvedCount = approvedSRs?.length || 0;
     const finalizedCount = finalizedSRs?.length || 0;
 
-    const handleMenuClick: MenuProps["onClick"] = useCallback(e => setCurrentTab(e.key), []);
+    const handleMenuClick: MenuProps["onClick"] = useCallback((e: any) => setCurrentTab(e.key), []);
 
 
     if (vendorLoading) return <div className="p-6"><OverviewSkeleton2 /></div>;
@@ -145,6 +145,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
             case "materialOrders":
                 return <VendorMaterialOrdersTable
                     vendorId={vendorId}
+                    vendorName={vendor?.vendor_name || vendorId}
                     projectOptions={projectOptions}
                     procurementRequests={procurementRequests}
                 />;
@@ -182,8 +183,8 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                         </div>
 
                         {/* Tab Content */}
-                        {serviceOrderTab === "approved" && <ApprovedSRList for_vendor={vendorId} />}
-                        {serviceOrderTab === "finalized" && <FinalizedSRList for_vendor={vendorId} />}
+                        {serviceOrderTab === "approved" && <ApprovedSRList for_vendor={vendorId} vendorName={vendor?.vendor_name} />}
+                        {serviceOrderTab === "finalized" && <FinalizedSRList for_vendor={vendorId} vendorName={vendor?.vendor_name} />}
                     </div>
                 );
             case "vendorPayments":
@@ -194,15 +195,25 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
             case "approvedQuotes":
                 return <VendorApprovedQuotesTable
                     vendorId={vendorId}
+                    vendorName={vendor?.vendor_name || vendorId}
                 />;
             case "poVendorLedger":
                 return <POVendorLedger vendorId={vendorId} />
             case "poInvoices":
-                return <PoInvoices vendorId={vendorId} />;
+                return <PoInvoices
+                    vendorId={vendorId}
+                    vendorName={vendor?.vendor_name || vendorId}
+                />;
             case "srInvoices":
-                return <SrInvoices vendorId={vendorId} />;
+                return <SrInvoices
+                    vendorId={vendorId}
+                    vendorName={vendor?.vendor_name || vendorId}
+                />;
             case "vendorQuotes":
-                return <VendorQuotesTable vendorId={vendorId} />;
+                return <VendorQuotesTable
+                    vendorId={vendorId}
+                    vendorName={vendor?.vendor_name || vendorId}
+                />;
             default:
                 return <div>Select a tab.</div>;
         }

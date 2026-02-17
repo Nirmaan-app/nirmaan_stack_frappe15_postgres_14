@@ -50,6 +50,7 @@ import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments"; // For paid amounts
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests"; // For WP lookup
 import { ProcurementPackages } from "@/types/NirmaanStack/ProcurementPackages";
+import { Projects } from "@/types/NirmaanStack/Projects";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
@@ -273,6 +274,18 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     }
   }, [projectId, fetchPOAggregates]);
 
+  // --- Supporting Data (for display in columns/facets, not for main list filtering) ---
+  const { data: projects, isLoading: projectsLoading } =
+    useFrappeGetDocList<Projects>(
+      "Projects",
+      {
+        fields: ["name", "project_name"],
+        filters: projectId ? [["name", "=", projectId]] : [],
+        limit: projectId ? 1 : 1000,
+      },
+      `ProjectForPOSummary_${projectId || "all"}`
+    );
+
   // --- Supporting Data for Columns (Vendor Names, PR for WP, Users) ---
   const {
     data: vendors,
@@ -344,6 +357,14 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
         "--"
     ),
     [vendors]
+  );
+
+  const getProjectName = useCallback(
+    memoize(
+      (projId?: string) =>
+        projects?.find((p) => p.name === projId)?.project_name || projId || "--"
+    ),
+    [projects]
   );
 
   const getWorkPackageName = useMemo(
@@ -893,7 +914,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
           dateFilterColumns={PO_SUMMARY_DATE_COLUMNS}
           showExportButton={true}
           onExport={"default"}
-          exportFileName={`Project_PO_Summary_${projectId || "all"}`}
+          exportFileName={`Project_PO_Summary_${getProjectName(projectId) || "all"}`}
           showRowSelection={false} // No selection needed for this summary
           summaryCard={hideSummaryCard ? undefined :
             <Card>

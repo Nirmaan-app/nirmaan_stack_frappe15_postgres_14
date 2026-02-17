@@ -1,6 +1,6 @@
 import React, { useCallback, useContext, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { ColumnDef, Row } from "@tanstack/react-table";
 import {
   FrappeConfig,
@@ -10,7 +10,7 @@ import {
   FrappeDoc,
   GetDocListArgs,
 } from "frappe-react-sdk";
-import { CircleCheck, CircleX, Info, SquarePen } from "lucide-react";
+import { CircleCheck, CircleX, Info } from "lucide-react";
 
 // --- UI Components ---
 import { DataTable } from "@/components/data-table/new-data-table";
@@ -80,7 +80,7 @@ interface SelectOption {
 export const ApprovePayments: React.FC = () => {
   const { toast } = useToast();
   const { db } = useContext(FrappeContext) as FrappeConfig;
-  const { mutate } = useSWRConfig();
+  // const { mutate } = useSWRConfig();
   // --- State for Dialogs ---
   const [selectedPayment, setSelectedPayment] =
     useState<ProjectPayments | null>(null);
@@ -277,7 +277,7 @@ export const ApprovePayments: React.FC = () => {
               n.seen === "false" &&
               n.event_id === "payment:new"
           );
-          const docLink = payment.document_name?.replaceAll("/", "&=");
+          const docLink = payment.document_name?.replace(/\//g, "&=");
           return (
             <div
               role="button"
@@ -544,7 +544,7 @@ export const ApprovePayments: React.FC = () => {
     setSelectedSearchField,
     searchTerm,
     setSearchTerm,
-    isRowSelectionActive,
+    // isRowSelectionActive,
     refetch,
     columnFilters,
   } = useServerDataTable<ProjectPayments>({
@@ -625,7 +625,7 @@ export const ApprovePayments: React.FC = () => {
         await updateDoc(DOCTYPE, selectedPayment.name, {
           status: newStatus,
           amount: amount, // Already a number
-          approval_date: formatDate(new Date(), "YYYY-MM-DD"),
+          approval_date: new Date().toISOString().split("T")[0],
           ...(payment_details && {
             payment_details: JSON.stringify(payment_details),
           }), // Add UTR, Date etc.
@@ -729,6 +729,7 @@ export const ApprovePayments: React.FC = () => {
           dateFilterColumns={dateColumns}
           showExportButton={true} // Optional
           onExport={"default"}
+          exportFileName={`Approve_Payments_${formatDate(new Date())}`}
           getRowClassName={getRowClassName}
           // toolbarActions={...} // Optional
         />

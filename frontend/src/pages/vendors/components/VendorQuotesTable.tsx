@@ -15,6 +15,7 @@ import { useFacetValues } from "@/hooks/useFacetValues";
 
 interface VendorQuotesTableProps {
   vendorId: string;
+  vendorName?: string;
 }
 
 interface User {
@@ -22,7 +23,7 @@ interface User {
   full_name: string;
 }
 
-export const VendorQuotesTable: React.FC<VendorQuotesTableProps> = ({ vendorId }) => {
+export const VendorQuotesTable: React.FC<VendorQuotesTableProps> = ({ vendorId, vendorName }) => {
   // Fetch projects for name lookup
   const { data: projectsData, isLoading: projectsLoading } = useFrappeGetDocList<Projects>(
     "Projects",
@@ -109,6 +110,12 @@ export const VendorQuotesTable: React.FC<VendorQuotesTableProps> = ({ vendorId }
             </div>
           );
         },
+        meta: {
+          exportHeaderName: "Created By",
+          exportValue: (row: NirmaanAttachment) => {
+            return userMap.get(row.owner) || row.owner || "--";
+          },
+        },
         size: 150,
       },
       {
@@ -147,6 +154,12 @@ export const VendorQuotesTable: React.FC<VendorQuotesTableProps> = ({ vendorId }
               {projectMap.get(projectId) || projectId || "--"}
             </div>
           );
+        },
+        meta: {
+          exportHeaderName: "Project",
+          exportValue: (row: NirmaanAttachment) => {
+            return projectMap.get(row.project || "") || row.project || "--";
+          },
         },
         size: 200,
       },
@@ -301,6 +314,9 @@ export const VendorQuotesTable: React.FC<VendorQuotesTableProps> = ({ vendorId }
       facetFilterOptions={facetFilterOptions}
       showExportButton={true}
       onExport={"default"}
+      exportFileName={
+        vendorName ? `${vendorName}_Quotes` : "Vendor_Quotes"
+      }
     />
   );
 };

@@ -266,7 +266,7 @@ export const getTaskTableColumns = (
             size: 50,
             minSize: 40,
             maxSize: 60,
-            meta: { excludeFromExport: true },
+            meta: { exportHeaderName: "Notes" },
         },
         // Associated POs column
         {
@@ -322,7 +322,14 @@ export const getTaskTableColumns = (
             size: 80,
             minSize: 60,
             maxSize: 100,
-            meta: { excludeFromExport: true },
+            meta: { 
+                exportHeaderName: "Linked POs",
+                exportValue: (row: CriticalPOTask) => {
+                    const linkedPOs = parseAssociatedPOs(row.associated_pos);
+                    if (linkedPOs.length === 0) return "";
+                    return linkedPOs.map(po => `• ${extractPOId(po)}`).join("\n");
+                }
+            },
         },
         // Actions column (conditionally rendered based on canEdit)
         ...(canEdit

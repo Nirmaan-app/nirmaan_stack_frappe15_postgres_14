@@ -395,7 +395,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         const link = document.createElement('a');
         const url = URL.createObjectURL(blob);
         link.setAttribute('href', url);
-        link.setAttribute('download', `${formatDateToDDMMYYYY(new Date())}_payments_${tab.replace(' ', '_')}.csv`);
+        link.setAttribute('download', `New_Payments_${formatDate(new Date())}.csv`);
         link.style.visibility = 'hidden';
         document.body.appendChild(link);
         link.click();
@@ -446,6 +446,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                     dateFilterColumns={dateColumns}
                     showExportButton={true}
                     onExport={tab === "New Payments" ? handlePrepareExport : 'default'}
+                    exportFileName={`${tab.replace(/\s+/g, '_')}_${formatDate(new Date())}`}
                     showRowSelection={isRowSelectionActive}
                     getRowClassName={getRowClassName}
                 />

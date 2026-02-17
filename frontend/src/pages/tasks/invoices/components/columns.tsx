@@ -34,7 +34,7 @@ const getCommonColumns = (
             const docType = row.original.document_type;
             const docName = row.original.document_name;
             const isPO = docType === "Procurement Orders";
-            const linkDocName = isPO ? docName.replaceAll("/", "&=") : docName;
+            const linkDocName = isPO ? docName.replace(/\//g, "&=") : docName;
             const linkTo = docType === "Procurement Orders"
                 ? `/purchase-orders/${linkDocName}?tab=Dispatched+PO`
                 : `/service-requests/${linkDocName}?tab=approved-sr`;

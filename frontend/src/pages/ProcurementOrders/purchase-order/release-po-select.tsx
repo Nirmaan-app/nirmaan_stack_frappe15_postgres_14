@@ -50,6 +50,7 @@ const PODataTableWrapper: React.FC<{
     staticFiltersForTab: any[];
     facetFilterOptions: any;
     dateColumns: any;
+    exportFileName?: string;
 }> = ({
     tab,
     columns,
@@ -57,7 +58,8 @@ const PODataTableWrapper: React.FC<{
     poSearchableFieldsOptions,
     staticFiltersForTab,
     facetFilterOptions,
-    dateColumns
+    dateColumns,
+    exportFileName
 }) => {
         // Generate urlSyncKey inside the wrapper
         const dynamicUrlSyncKey = `${URL_SYNC_KEY}_${tab.toLowerCase().replace(/\s+/g, '_')}`;
@@ -132,6 +134,7 @@ const PODataTableWrapper: React.FC<{
                 dateFilterColumns={dateColumns}
                 showExportButton={true}
                 onExport={'default'}
+                exportFileName={exportFileName}
                 getRowClassName={getRowClassName}
             />
         );
@@ -573,9 +576,8 @@ export const ReleasePOSelect: React.FC = () => {
             // sortingFn: (a, b) => parseFloat(a) - parseFloat(b),
             meta: {
                 exportHeaderName: "PO Amount",
-                exportValue: (row) => {
-
-                    return formatForReport(row.original?.total_amount);
+                exportValue: (row: ProcurementOrdersType) => {
+                    return formatForReport(row?.total_amount);
                 }
             }
         },
@@ -610,7 +612,7 @@ export const ReleasePOSelect: React.FC = () => {
                     exportValue: (row: ProcurementOrdersType) => {
                         // Use Vendor Invoices lookup instead of old invoice_data JSON
                         const invoiceAmount = invoiceTotalsMap.get(row.name) ?? 0;
-                        return formatForReport(invoiceAmount || 0);
+                        return formatForReport(invoiceAmount);
                     }
                 }
             } as ColumnDef<ProcurementOrdersType>,
@@ -634,9 +636,8 @@ export const ReleasePOSelect: React.FC = () => {
             // sortingFn: (a, b) => parseFloat(a) - parseFloat(b),
             meta: {
                 exportHeaderName: "Amount Paid",
-                exportValue: (row) => {
-
-                    return formatForReport(row.original?.amount_paid);
+                exportValue: (row: ProcurementOrdersType) => {
+                    return formatForReport(row?.amount_paid);
                 }
             }
         },
@@ -746,6 +747,7 @@ export const ReleasePOSelect: React.FC = () => {
                     staticFiltersForTab={staticFiltersForTab}
                     facetFilterOptions={facetFilterOptions}
                     dateColumns={dateColumns}
+                    exportFileName={`${tab.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}`}
                 />
             );
         }

@@ -166,6 +166,11 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
 
     // --- Memoized Lookups & Calculations ---
     const projectOptions = useMemo<SelectOption[]>(() => projects?.map(p => ({ label: p.project_name, value: p.name })) || [], [projects]);
+    const projectMap = useMemo(() => {
+        const map = new Map<string, string>();
+        projects?.forEach(p => map.set(p.name, p.project_name));
+        return map;
+    }, [projects]);
     const vendorOptions = useMemo<SelectOption[]>(() => vendors?.map(v => ({ label: v.vendor_name, value: v.name })) || [], [vendors]);
     const getVendorName = useCallback(memoize((vendorId?: string) => vendors?.find(v => v.name === vendorId)?.vendor_name || vendorId || "--"), [vendors]);
 
@@ -306,15 +311,14 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         ...(!projectId ? [{ // Conditionally show Project column
             accessorKey: "project", header: "Project",
             cell: ({ row }) => {
-                const projectLabel = projects?.find(p => p.name === row.original.project)?.project_name;
+                const projectLabel = projectMap.get(row.original.project);
                 return <div className="font-medium truncate max-w-[150px]" title={projectLabel}>{projectLabel || row.original.project}</div>;
             },
             enableColumnFilter: true, size: 180,
             meta: {
                 exportHeaderName: "Project",
                 exportValue: (row: ProjectPayments) => {
-                    const projectLabel = projects?.find(p => p.name === row.project)?.project_name;
-                    return projectLabel || row.project;
+                    return projectMap.get(row.project) || row.project;
                 }
             }
         } as ColumnDef<ProjectPayments>] : []),
@@ -404,7 +408,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
             enableColumnFilter: true, size: 120
         } as ColumnDef<ProjectPayments>] : []),
 
-    ], [tab, projectId, notifications, projectOptions, vendorOptions, userList, getVendorName, getDocumentTotal, handleSeenNotification, isAdmin, handleOpenEditDialog]);
+    ], [tab, projectId, notifications, projectOptions, projectMap, vendorOptions, userList, getVendorName, getDocumentTotal, handleSeenNotification, isAdmin, handleOpenEditDialog]);
 
     // --- (Indicator) FIX: Move useServerDataTable hook here, into the parent component ---
     const {
@@ -521,6 +525,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                     dateFilterColumns={dateColumns}
                     showExportButton={true}
                     onExport={'default'}
+                    exportFileName={`${tab.replace(/\s+/g, '_')}_${formatDate(new Date())}`}
                     summaryCard={projectId || customerId ? null : <PaymentSummaryCards totalCount={totalCount} />}
                     getRowClassName={getRowClassName}
 
