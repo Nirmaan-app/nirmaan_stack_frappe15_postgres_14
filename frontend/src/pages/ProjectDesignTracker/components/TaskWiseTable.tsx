@@ -52,6 +52,7 @@ interface TaskWiseTableProps {
     user_id: string; // Recieve from parent
     isDesignExecutive: boolean; // Receive from parent
     statusFilter?: string; // New prop for status filtering
+    taskPhase?: string; // "Onboarding" or "Handover" - undefined means all phases
 }
 
 // --- COLUMN DEFINITION ---
@@ -260,7 +261,7 @@ const getTaskWiseColumns = (
 
 
 // --- MAIN COMPONENT ---
-export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_id, isDesignExecutive, statusFilter }) => {
+export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_id, isDesignExecutive, statusFilter, taskPhase }) => {
     
     const { usersList,statusOptions, subStatusOptions, categoryData,categories,FacetProjectsOptions } = useDesignMasters();
     const [editingTask, setEditingTask] = useState<FlattenedTask | null>(null);
@@ -374,13 +375,17 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_
          baseFilters.push(['Design Tracker Task Child Table', 'task_status', '=', statusFilter]);
      }
 
+     if (taskPhase) {
+         baseFilters.push(['Design Tracker Task Child Table', 'task_phase', '=', taskPhase]);
+     }
+
      return baseFilters;
-  }, [statusFilter]);
+  }, [statusFilter, taskPhase]);
     // Use the server data table hook
     const serverDataTable = useServerDataTable<FlattenedTask>({
         doctype:PARENT_DOCTYPE , // Target Tasks directly
         apiEndpoint: 'nirmaan_stack.api.design_tracker.get_task_wise_list.get_task_wise_list',
-        customParams: { user_id, is_design_executive: isDesignExecutive },
+        customParams: { user_id, is_design_executive: isDesignExecutive, ...(taskPhase ? { task_phase: taskPhase } : {}) },
         columns: useMemo(() => getTaskWiseColumns(setEditingTask, isDesignExecutive, checkIfUserAssigned), [isDesignExecutive, user_id]), 
         fetchFields: FETCH_FIELDS,
         searchableFields: [

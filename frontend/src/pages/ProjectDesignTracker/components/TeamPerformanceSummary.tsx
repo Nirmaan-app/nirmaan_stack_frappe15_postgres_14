@@ -29,6 +29,7 @@ import {
 
 interface TeamPerformanceSummaryProps {
     hasAccess: boolean;
+    taskPhase?: string; // "Onboarding" or "Handover" - undefined means all phases
 }
 
 // Status columns configuration
@@ -260,6 +261,7 @@ UserRow.displayName = 'UserRow';
 
 export const TeamPerformanceSummary: React.FC<TeamPerformanceSummaryProps> = ({
     hasAccess,
+    taskPhase,
 }) => {
     // Don't render if user doesn't have access
     if (!hasAccess) {
@@ -269,7 +271,7 @@ export const TeamPerformanceSummary: React.FC<TeamPerformanceSummaryProps> = ({
     // Filter state for team summary
     const [filters, setFilters] = useState<TeamSummaryFilters>({});
 
-    const { summaryData, isLoading, error, refetch } = useTeamSummary(filters);
+    const { summaryData, isLoading, error, refetch } = useTeamSummary(filters, taskPhase);
     const { usersList, statusOptions, subStatusOptions } = useDesignMasters();
 
     // Create a lookup map for user roles
@@ -311,6 +313,8 @@ export const TeamPerformanceSummary: React.FC<TeamPerformanceSummaryProps> = ({
         // Inherit deadline filters from summary filters
         deadlineFrom: filters.deadlineFrom,
         deadlineTo: filters.deadlineTo,
+        // Inherit phase filter
+        taskPhase,
     } : null;
 
     // Fetch filtered tasks when inline expansion is open

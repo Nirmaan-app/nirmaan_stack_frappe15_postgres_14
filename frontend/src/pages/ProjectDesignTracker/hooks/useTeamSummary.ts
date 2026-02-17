@@ -20,7 +20,7 @@ interface UseTeamSummaryReturn {
     refetch: () => void;
 }
 
-export const useTeamSummary = (filters?: TeamSummaryFilters): UseTeamSummaryReturn => {
+export const useTeamSummary = (filters?: TeamSummaryFilters, taskPhase?: string): UseTeamSummaryReturn => {
     // Extract primitive values for cache key (React best practice - avoid object references)
     const projectIds = filters?.projects?.map(p => p.value).sort().join(',') || '';
 
@@ -30,8 +30,9 @@ export const useTeamSummary = (filters?: TeamSummaryFilters): UseTeamSummaryRetu
         if (projectIds) parts.push(`projects:${projectIds}`);
         if (filters?.deadlineFrom) parts.push(`from:${filters.deadlineFrom}`);
         if (filters?.deadlineTo) parts.push(`to:${filters.deadlineTo}`);
+        if (taskPhase) parts.push(`phase:${taskPhase}`);
         return parts.join('|');
-    }, [projectIds, filters?.deadlineFrom, filters?.deadlineTo]);
+    }, [projectIds, filters?.deadlineFrom, filters?.deadlineTo, taskPhase]);
 
     // Build params object for API call
     const params = useMemo(() => {
@@ -42,8 +43,9 @@ export const useTeamSummary = (filters?: TeamSummaryFilters): UseTeamSummaryRetu
         }
         if (filters?.deadlineFrom) p.deadline_from = filters.deadlineFrom;
         if (filters?.deadlineTo) p.deadline_to = filters.deadlineTo;
+        if (taskPhase) p.task_phase = taskPhase;
         return p;
-    }, [projectIds, filters?.deadlineFrom, filters?.deadlineTo]);
+    }, [projectIds, filters?.deadlineFrom, filters?.deadlineTo, taskPhase]);
 
     const { data, isLoading, error, mutate } = useFrappeGetCall<{ message: TeamSummaryResponse }>(
         "nirmaan_stack.api.design_tracker.get_team_summary.get_team_summary",
@@ -81,7 +83,7 @@ export const useFilteredTasks = (filter: TaskPreviewFilter | null): UseFilteredT
     // Include all filter params to ensure cache key changes when filters change
     const projectsKey = filter?.projectIds?.sort().join(',') || '';
     const cacheKey = filter
-        ? `task-preview-${filter.user_id}-${filter.status}-${filter.project_id || projectsKey || 'all'}-${filter.deadlineFrom || ''}-${filter.deadlineTo || ''}`
+        ? `task-preview-${filter.user_id}-${filter.status}-${filter.project_id || projectsKey || 'all'}-${filter.deadlineFrom || ''}-${filter.deadlineTo || ''}-${filter.taskPhase || ''}`
         : null;
 
     // Build filters array for the API
@@ -111,6 +113,7 @@ export const useFilteredTasks = (filter: TaskPreviewFilter | null): UseFilteredT
                 filters: JSON.stringify(filters),
                 limit_page_length: 100,
                 order_by: "deadline asc",
+                ...(filter.taskPhase ? { task_phase: filter.taskPhase } : {}),
             }
             : undefined,
         cacheKey ?? undefined // Only fetches when cacheKey is truthy
