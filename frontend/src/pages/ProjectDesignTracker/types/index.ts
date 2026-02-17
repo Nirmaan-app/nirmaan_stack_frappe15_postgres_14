@@ -163,6 +163,7 @@ export interface TeamSummaryFilters {
     projects?: ProjectFilterOption[];  // Array of selected projects (multi-select)
     deadlineFrom?: string;             // ISO date string (YYYY-MM-DD)
     deadlineTo?: string;               // ISO date string (YYYY-MM-DD)
+    dateFilter?: import('@/components/ui/standalone-date-filter').DateFilterValue; // UI state preserving operator
 }
 
 // Task preview item (for dialog)

@@ -157,6 +157,9 @@ def get_task_wise_list(
                                 if not match_found: filter_fail = True
                             else:
                                 if row_val not in val: filter_fail = True
+                    elif op_lower == 'not in':
+                        if isinstance(val, list):
+                            if row_val in val: filter_fail = True
                     elif op_lower == 'between':
                         if isinstance(val, (list, tuple)) and len(val) == 2:
                             try:

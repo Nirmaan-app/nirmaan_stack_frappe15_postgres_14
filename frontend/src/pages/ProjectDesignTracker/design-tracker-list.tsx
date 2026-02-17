@@ -9,7 +9,7 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { TableSkeleton } from "@/components/ui/skeleton";
-import { ChevronDown, ChevronUp, Search, Filter, CirclePlus, MessageCircle, Edit, ArrowUpRight, Check, EyeOff, CheckCircle2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Search, Filter, CirclePlus, MessageCircle, Edit, ArrowUpRight, Check, EyeOff } from "lucide-react";
 import { FilesCell } from './components/FilesCell';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
@@ -392,7 +392,7 @@ export const DesignTrackerList: React.FC = () => {
     });
     */
 
-    const { projectOptions, projects, categories, categoryData, statusOptions,
+    const { projectOptions, projects, categories, categoryData,
         subStatusOptions, mutateMasters } = useDesignMasters();
 
     useEffect(() => {
@@ -894,94 +894,27 @@ export const DesignTrackerList: React.FC = () => {
                     {/* Team Performance Summary - Admin/Lead Only */}
                     <TeamPerformanceSummary hasAccess={hasEditStructureAccess} taskPhase={hasAnyHandover ? activePhaseTab : undefined} />
 
-                    {/* Status Filter Tabs - Enhanced Design */}
-                    <div className="bg-gray-50/70 rounded-lg p-3 border border-gray-200">
-                        <div className="flex items-center gap-2 mb-2">
-                            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Filter by Status</span>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                            {/* All Tasks Tab */}
+                    {/* Status Filter Tabs */}
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium text-gray-500 uppercase tracking-wider mr-1">Status</span>
+                        {([
+                            { value: 'All', label: 'All Tasks', active: 'bg-gray-800 text-white', inactive: 'text-gray-700 border-gray-300 hover:bg-gray-100' },
+                            { value: 'Pending', label: 'Pending', active: 'bg-orange-500 text-white', inactive: 'text-orange-700 border-orange-300 hover:bg-orange-50' },
+                            { value: 'Submitted', label: 'Submitted', active: 'bg-blue-600 text-white', inactive: 'text-blue-700 border-blue-300 hover:bg-blue-50' },
+                            { value: 'Approved', label: 'Approved', active: 'bg-green-600 text-white', inactive: 'text-green-700 border-green-300 hover:bg-green-50' },
+                        ] as const).map((tab) => (
                             <button
-                                onClick={() => setActiveStatusTab("All")}
-                                className={`
-                                    px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150
-                                    flex items-center gap-2
-                                    ${activeStatusTab === "All"
-                                        ? 'bg-gray-800 text-white shadow-md'
-                                        : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-100 hover:border-gray-400'
-                                    }
-                                `}
+                                key={tab.value}
+                                onClick={() => setActiveStatusTab(tab.value)}
+                                className={`px-3.5 py-1.5 rounded-md text-sm font-medium transition-all duration-150 border ${
+                                    activeStatusTab === tab.value
+                                        ? `${tab.active} shadow-sm`
+                                        : `bg-white ${tab.inactive}`
+                                }`}
                             >
-                                <span className={`w-2 h-2 rounded-full ${activeStatusTab === "All" ? 'bg-white' : 'bg-gray-400'}`} />
-                                All Tasks
+                                {tab.label}
                             </button>
-
-                            {/* Approved Tab - Green */}
-                            <button
-                                onClick={() => setActiveStatusTab("Approved")}
-                                className={`
-                                    px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150
-                                    flex items-center gap-2
-                                    ${activeStatusTab === "Approved"
-                                        ? 'bg-green-600 text-white shadow-md'
-                                        : 'bg-white text-green-700 border border-green-300 hover:bg-green-50 hover:border-green-400'
-                                    }
-                                `}
-                            >
-                                <CheckCircle2 className={`h-3.5 w-3.5 ${activeStatusTab === "Approved" ? 'text-white' : 'text-green-600'}`} />
-                                Approved
-                            </button>
-
-                            {/* Dynamic Status Tabs with status-specific colors */}
-                            {statusOptions
-                                ?.filter(s => s.value !== 'Approved' && s.value !== 'Not Applicable')
-                                .sort((a, b) => {
-                                    // Custom sort order: In Progress first, then alphabetically
-                                    if (a.value === 'In Progress') return -1;
-                                    if (b.value === 'In Progress') return 1;
-                                    if (a.value === 'Not Started') return -1;
-                                    if (b.value === 'Not Started') return 1;
-                                    return a.label.localeCompare(b.label);
-                                })
-                                .map((option) => {
-                                    const isActive = activeStatusTab === option.value;
-                                    const lowerValue = option.value.toLowerCase();
-
-                                    // Determine color scheme based on status
-                                    let activeStyles = 'bg-gray-700 text-white';
-                                    let inactiveStyles = 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50';
-                                    let dotColor = isActive ? 'bg-white' : 'bg-gray-400';
-
-                                    if (lowerValue.includes('in progress')) {
-                                        activeStyles = 'bg-blue-600 text-white';
-                                        inactiveStyles = 'bg-white text-blue-700 border-blue-300 hover:bg-blue-50 hover:border-blue-400';
-                                        dotColor = isActive ? 'bg-white' : 'bg-blue-500';
-                                    } else if (lowerValue.includes('blocked') || lowerValue.includes('on hold') || lowerValue.includes('revision') || lowerValue.includes('clarification')) {
-                                        activeStyles = 'bg-orange-500 text-white';
-                                        inactiveStyles = 'bg-white text-orange-700 border-orange-300 hover:bg-orange-50 hover:border-orange-400';
-                                        dotColor = isActive ? 'bg-white' : 'bg-orange-500';
-                                    } else if (lowerValue.includes('not started') || lowerValue.includes('todo')) {
-                                        activeStyles = 'bg-gray-600 text-white';
-                                        inactiveStyles = 'bg-white text-gray-600 border-gray-300 hover:bg-gray-100 hover:border-gray-400';
-                                        dotColor = isActive ? 'bg-white' : 'bg-gray-400';
-                                    }
-
-                                    return (
-                                        <button
-                                            key={option.value}
-                                            onClick={() => setActiveStatusTab(option.value)}
-                                            className={`
-                                                px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150
-                                                flex items-center gap-2 border
-                                                ${isActive ? `${activeStyles} shadow-md` : inactiveStyles}
-                                            `}
-                                        >
-                                            <span className={`w-2 h-2 rounded-full ${dotColor}`} />
-                                            {option.label}
-                                        </button>
-                                    );
-                                })}
-                        </div>
+                        ))}
                     </div>
 
                     {/* Task Table */}

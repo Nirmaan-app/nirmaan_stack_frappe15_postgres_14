@@ -2,12 +2,10 @@
 
 import { useMemo } from 'react';
 import { useFrappeGetDocList } from 'frappe-react-sdk';
-import { format, parseISO } from 'date-fns';
-import { DateRange } from 'react-day-picker';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FuzzySearchSelect, TokenSearchConfig } from '@/components/ui/fuzzy-search-select';
-import { MinStandaloneDateFilter } from '@/components/ui/MinStandaloneDateFilter';
+import { StandaloneDateFilter, DateFilterValue, resolveDateFilterToRange } from '@/components/ui/standalone-date-filter';
 import { ProjectDesignTracker } from '../types';
 import { TeamSummaryFilters, ProjectFilterOption } from '../types';
 
@@ -86,33 +84,16 @@ export function TeamSummaryFilterBar({
         });
     };
 
-    // Handle date range change from MinStandaloneDateFilter
-    // The component uses setDaysRange(days, range) callback
-    const handleDateRangeChange = (days: number | 'All' | 'custom', range?: DateRange) => {
-        if (days === 'All') {
-            // Clear date filters
-            onFiltersChange({
-                ...filters,
-                deadlineFrom: undefined,
-                deadlineTo: undefined,
-            });
-        } else if (range?.from && range?.to) {
-            // Apply custom date range
-            onFiltersChange({
-                ...filters,
-                deadlineFrom: format(range.from, 'yyyy-MM-dd'),
-                deadlineTo: format(range.to, 'yyyy-MM-dd'),
-            });
-        }
+    // Handle date filter change from StandaloneDateFilter
+    const handleDateFilterChange = (dateFilter: DateFilterValue | undefined) => {
+        const { from, to } = resolveDateFilterToRange(dateFilter);
+        onFiltersChange({
+            ...filters,
+            dateFilter,
+            deadlineFrom: from,
+            deadlineTo: to,
+        });
     };
-
-    // Parse date filters back to DateRange for the date picker
-    const dateRange: DateRange | undefined = (filters.deadlineFrom && filters.deadlineTo)
-        ? {
-            from: parseISO(filters.deadlineFrom),
-            to: parseISO(filters.deadlineTo),
-        }
-        : undefined;
 
     return (
         <div className="flex items-center gap-4 flex-wrap">
@@ -168,9 +149,10 @@ export function TeamSummaryFilterBar({
             {/* Deadline Filter */}
             <div className="flex items-center gap-1.5">
                 <span className="text-xs text-gray-500 font-medium">Deadline</span>
-                <MinStandaloneDateFilter
-                    dateRange={dateRange}
-                    setDaysRange={handleDateRangeChange}
+                <StandaloneDateFilter
+                    value={filters.dateFilter}
+                    onChange={handleDateFilterChange}
+                    placeholder="All Deadlines"
                 />
             </div>
 

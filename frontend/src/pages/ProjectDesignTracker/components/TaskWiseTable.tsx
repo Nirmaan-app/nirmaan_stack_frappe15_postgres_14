@@ -371,7 +371,9 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_
          ['Design Tracker Task Child Table', 'task_status', '!=', 'Not Applicable']
      ];
 
-     if (statusFilter && statusFilter !== 'All') {
+     if (statusFilter === 'Pending') {
+         baseFilters.push(['Design Tracker Task Child Table', 'task_status', 'not in', ['Submitted', 'Approved']]);
+     } else if (statusFilter && statusFilter !== 'All') {
          baseFilters.push(['Design Tracker Task Child Table', 'task_status', '=', statusFilter]);
      }
 
