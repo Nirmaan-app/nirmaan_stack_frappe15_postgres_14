@@ -271,7 +271,63 @@ function CashSheetReport() {
   const totalCount = filteredDataForSummary.length;
 
   // --- Export Logic (Updated to use tableData) ---
+  // --- Export Logic (Updated to use tableData) ---
   const exportFileName = `ProjectReport_Cash_Sheet_${formatDate(new Date())}`;
+
+  const handleCustomExport = useCallback(() => {
+    const rowsToExport = table.getSortedRowModel().rows.map((r) => r.original);
+
+    if (!rowsToExport || rowsToExport.length === 0) {
+      toast({
+        title: "Export",
+        description: "No data available to export.",
+        variant: "default",
+      });
+      return;
+    }
+
+    const dataToExport = rowsToExport.map((row: any) => ({
+      project_name: row.project_name || row.name,
+      project_value: formatValueToLakhsString(row.project_value_gst),
+      client_invoiced: formatValueToLakhsString(row.totalProjectInvoiced),
+      inflow: formatValueToLakhsString(row.totalInflow),
+      outflow: formatValueToLakhsString(row.totalOutflow),
+      liability: formatValueToLakhsString(row.totalLiabilities),
+      gap: formatValueToLakhsString(row.cashflowGap),
+      po_sr_value: formatValueToLakhsString(row.totalInvoiced),
+      po_sr_invoiced: formatValueToLakhsString(row.totalPoSrInvoiced),
+      purchase_over_credit: formatValueToLakhsString(row.TotalPurchaseOverCredit),
+    }));
+
+    const exportColumnsConfig = [
+      { header: "Project Name", accessorKey: "project_name" },
+      { header: "Value (incl. GST)", accessorKey: "project_value" },
+      { header: "Client Invoiced (incl. GST)", accessorKey: "client_invoiced" },
+      { header: "Inflow", accessorKey: "inflow" },
+      { header: "Outflow", accessorKey: "outflow" },
+      { header: "Current Liability", accessorKey: "liability" },
+      { header: "Cashflow Gap", accessorKey: "gap" },
+      { header: "Total PO+SR Value(incl. GST)", accessorKey: "po_sr_value" },
+      { header: "Total PO+SR Invoice Received", accessorKey: "po_sr_invoiced" },
+      { header: "Total Purchase Over Credit", accessorKey: "purchase_over_credit" },
+    ];
+
+    try {
+      exportToCsv(exportFileName, dataToExport, exportColumnsConfig);
+      toast({
+        title: "Export Successful",
+        description: `${dataToExport.length} rows exported.`,
+        variant: "default",
+      });
+    } catch (e) {
+      console.error("Export failed:", e);
+      toast({
+        title: "Export Error",
+        description: "Could not generate CSV file.",
+        variant: "destructive",
+      });
+    }
+  }, [table, exportFileName]);
 
   const handleClearDateFilter = useCallback(() => {
     setDateRange(undefined); // Set to undefined to disable date filtering entirely
@@ -329,7 +385,7 @@ function CashSheetReport() {
         searchTerm={searchTerm}
         onSearchTermChange={setSearchTerm}
         showExportButton={true}
-        onExport={"default"}
+        onExport={handleCustomExport}
         exportFileName={exportFileName}
         showRowSelection={false}
         getRowClassName={getRowClassName}
