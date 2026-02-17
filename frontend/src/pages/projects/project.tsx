@@ -458,6 +458,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           key: PROJECT_PAGE_TABS.PO_SUMMARY,
         },
         {
+          label: "Material Usage",
           key: PROJECT_PAGE_TABS.MATERIAL_USAGE,
         },
         {
