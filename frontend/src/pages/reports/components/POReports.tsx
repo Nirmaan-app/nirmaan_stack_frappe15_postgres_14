@@ -302,7 +302,8 @@ export default function POReports() {
 
   const handleCustomExport = useCallback(() => {
     // We use table.getFilteredRowModel().rows here to respect current filters
-    const rowsToExport = table.getFilteredRowModel().rows.map(r => r.original);
+    // Update: Use getSortedRowModel to respect sort order as well
+    const rowsToExport = table.getSortedRowModel().rows.map(r => r.original);
 
     if (!rowsToExport || rowsToExport.length === 0) {
       toast({
@@ -364,6 +365,8 @@ export default function POReports() {
 
     const exportColumnsConfig: ColumnDef<any, any>[] = [
       { header: "#PO", accessorKey: "po_id" },
+      { header: "Latest Delivery Date", accessorKey: "latest_delivery_date" },
+      { header: "Latest Payment Date", accessorKey: "latest_payment_date" },
       { header: "Date Created", accessorKey: "creation" },
       { header: "Project", accessorKey: "project_name" },
       { header: "Assignees", accessorKey: "assignees" }, // Added
@@ -374,8 +377,6 @@ export default function POReports() {
       { header: "Pending Invoice Amt", accessorKey: "pending_invoice_amt" }, // Added
       { header: "Remarks", accessorKey: "remarks" }, // Added
       { header: "PO Status", accessorKey: "status" },
-      { header: "Latest Delivery Date", accessorKey: "latest_delivery_date" },
-      { header: "Latest Payment Date", accessorKey: "latest_payment_date" },
     ];
 
     if (selectedReportType === "Dispatched for 1 days") {
