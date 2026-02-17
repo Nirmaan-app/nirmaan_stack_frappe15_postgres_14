@@ -137,9 +137,11 @@ interface NewTaskModalProps {
     existingTaskNames: string[];
     statusOptions: { label: string; value: string }[];
     activeZone: string; // Pre-filled from active tab
+    activePhase?: string; // Pre-filled from active phase tab
+    projectName?: string; // Project name for context display
 }
 
-const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onAdd, usersList, categories, statusOptions: _statusOptions, existingTaskNames, activeZone }) => {
+const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onAdd, usersList, categories, statusOptions: _statusOptions, existingTaskNames, activeZone, activePhase: phaseProp, projectName }) => {
     const initialCategoryName = categories[0]?.category_name || '';
 
     const [taskState, setTaskState] = useState<Partial<DesignTrackerTask>>({
@@ -214,6 +216,7 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onAdd
         const newTaskPayload: Partial<DesignTrackerTask> = {
             ...taskState,
             task_zone: activeZone, // Ensure zone is set from prop
+            task_phase: phaseProp || "Onboarding", // Default to Onboarding
             assigned_designers: assigned_designers_string,
         };
 
@@ -236,12 +239,33 @@ const NewTaskModal: React.FC<NewTaskModalProps> = ({ isOpen, onOpenChange, onAdd
                 </DialogHeader>
 
                 <div className="space-y-3 py-2">
-                    {/* Zone Display (Read-only) */}
-                    <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-md border border-gray-200">
-                        <span className="text-xs text-gray-500">Creating task in zone:</span>
+                    {/* Context Display (Read-only) — Zone + Phase + Project */}
+                    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 px-3 py-2 bg-gray-50 rounded-md border border-gray-200 text-xs">
                         <Badge className="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 border border-blue-200">
                             {activeZone}
                         </Badge>
+                        <span className="text-gray-400">zone</span>
+                        {phaseProp && (
+                            <>
+                                <span className="text-gray-400">for</span>
+                                <Badge className={`px-2 py-0.5 text-xs border ${
+                                    phaseProp === 'Handover'
+                                        ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                        : 'bg-green-50 text-green-700 border-green-200'
+                                }`}>
+                                    {phaseProp}
+                                </Badge>
+                                <span className="text-gray-400">phase</span>
+                            </>
+                        )}
+                        {projectName && (
+                            <>
+                                <span className="text-gray-400">of</span>
+                                <span className="font-medium text-gray-700 truncate max-w-[180px]" title={projectName}>
+                                    {projectName}
+                                </span>
+                            </>
+                        )}
                     </div>
 
                     {/* Category */}
@@ -755,6 +779,10 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
     const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
     const [zoneToRename, setZoneToRename] = useState("");
 
+    // Phase Tab State (Onboarding / Handover)
+    const [activePhase, setActivePhase] = useState<"Onboarding" | "Handover">("Onboarding");
+    const hasHandover = trackerDoc?.handover_generated === 1;
+
     // Zone Tab State
     const [activeTab, setActiveTab] = useState<string>("");
 
@@ -783,22 +811,33 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
         return [];
     }, [trackerDoc]);
 
-    // Task count per zone (includes all tasks)
+    // Task count per zone (scoped by phase when handover exists)
     const taskCountByZone = useMemo(() => {
         if (!trackerDoc?.design_tracker_task) return new Map<string, number>();
 
+        let tasks = trackerDoc.design_tracker_task;
+        // Filter by phase when handover exists
+        if (hasHandover) {
+            tasks = tasks.filter(t => t.task_phase === activePhase);
+        }
+
         const countMap = new Map<string, number>();
-        trackerDoc.design_tracker_task.forEach(task => {
+        tasks.forEach(task => {
             const zone = task.task_zone || '';
             countMap.set(zone, (countMap.get(zone) || 0) + 1);
         });
         return countMap;
-    }, [trackerDoc?.design_tracker_task]);
+    }, [trackerDoc?.design_tracker_task, hasHandover, activePhase]);
 
-    // Count tasks assigned to current user (respects active zone)
+    // Count tasks assigned to current user (respects active phase and zone)
     const myTasksCount = useMemo(() => {
         if (!trackerDoc?.design_tracker_task) return 0;
         let tasks = trackerDoc.design_tracker_task;
+
+        // Filter by phase when handover exists
+        if (hasHandover) {
+            tasks = tasks.filter(t => t.task_phase === activePhase);
+        }
 
         // Respect zone filter if active
         if (activeTab) {
@@ -806,32 +845,36 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
         }
 
         return tasks.filter(task => checkIfUserAssigned(task)).length;
-    }, [trackerDoc?.design_tracker_task, activeTab, checkIfUserAssigned]);
+    }, [trackerDoc?.design_tracker_task, hasHandover, activePhase, activeTab, checkIfUserAssigned]);
 
-    // --- Progress Calculations for Header ---
+    // --- Progress Calculations for Header (phase-scoped) ---
+    // Phase-scoped tasks for progress metrics
+    const phaseTasks = useMemo(() => {
+        if (!trackerDoc?.design_tracker_task) return [];
+        if (hasHandover) {
+            return trackerDoc.design_tracker_task.filter(t => t.task_phase === activePhase);
+        }
+        return trackerDoc.design_tracker_task;
+    }, [trackerDoc?.design_tracker_task, hasHandover, activePhase]);
+
     // Note: Exclude "Not Applicable" tasks from metrics to match backend calculation
-    const applicableTasks = trackerDoc?.design_tracker_task?.filter(
-        t => t.task_status !== 'Not Applicable'
-    ) || [];
+    const applicableTasks = phaseTasks.filter(t => t.task_status !== 'Not Applicable');
     const totalTasks = applicableTasks.length;
-    const completedTasks = applicableTasks.filter(
-        t => t.task_status === 'Approved'
-    ).length;
+    const completedTasks = applicableTasks.filter(t => t.task_status === 'Approved').length;
     const completionPercentage = totalTasks > 0
         ? Math.round((completedTasks / totalTasks) * 100)
         : 0;
 
     // Calculate status counts for breakdown (excluding "Not Applicable")
     const statusCounts = useMemo(() => {
-        if (!trackerDoc?.design_tracker_task) return {} as Record<string, number>;
-        return trackerDoc.design_tracker_task
+        return phaseTasks
             .filter(t => t.task_status !== 'Not Applicable')
             .reduce((acc, task) => {
                 const status = task.task_status || 'Unknown';
                 acc[status] = (acc[status] || 0) + 1;
                 return acc;
             }, {} as Record<string, number>);
-    }, [trackerDoc?.design_tracker_task]);
+    }, [phaseTasks]);
 
     // Color based on completion percentage
     const getProgressColor = (pct: number): string => {
@@ -850,10 +893,22 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
         }
     }, [uniqueZones, activeTab]);
 
-    // Flatten tasks from tracker document (filter by active zone tab and "My Tasks")
+    // Reset zone tab when phase changes (user action triggered state change)
+    React.useEffect(() => {
+        if (uniqueZones.length > 0) {
+            setActiveTab(uniqueZones[0] || "");
+        }
+    }, [activePhase]); // Only depend on activePhase - zones recompute per phase already
+
+    // Flatten tasks from tracker document (filter by phase, active zone tab, and "My Tasks")
     const flattenedTasks = useMemo(() => {
         if (!trackerDoc?.design_tracker_task) return [];
         let tasks = [...trackerDoc.design_tracker_task];
+
+        // Filter by phase when handover exists
+        if (hasHandover) {
+            tasks = tasks.filter(t => t.task_phase === activePhase);
+        }
 
         // Filter by active zone tab
         if (activeTab) {
@@ -866,7 +921,7 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
         }
 
         return tasks;
-    }, [trackerDoc?.design_tracker_task, activeTab, showMyTasksOnly, checkIfUserAssigned]);
+    }, [trackerDoc?.design_tracker_task, hasHandover, activePhase, activeTab, showMyTasksOnly, checkIfUserAssigned]);
 
     // Active categories in tracker
     const activeCategoriesInTracker = useMemo(() => {
@@ -1442,6 +1497,39 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
             </div>
 
             {/* ═══════════════════════════════════════════════════════════════
+                ROW 1.5: PHASE TABS - Onboarding / Handover toggle
+            ═══════════════════════════════════════════════════════════════ */}
+            {hasHandover && (
+                <div className="bg-white border-b border-gray-200 px-4 py-2 md:px-6">
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium text-gray-500 hidden md:block">Phase:</span>
+                        <div className="flex rounded-md border border-gray-300 overflow-hidden">
+                            <button
+                                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                                    activePhase === "Onboarding"
+                                        ? 'bg-primary text-white'
+                                        : 'bg-white text-gray-700 hover:bg-gray-50'
+                                }`}
+                                onClick={() => setActivePhase("Onboarding")}
+                            >
+                                Onboarding
+                            </button>
+                            <button
+                                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                                    activePhase === "Handover"
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-white text-blue-600 hover:bg-blue-50'
+                                }`}
+                                onClick={() => setActivePhase("Handover")}
+                            >
+                                Handover
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ═══════════════════════════════════════════════════════════════
                 ROW 2: ZONE NAVIGATION BAR - Zone tabs + task actions
             ═══════════════════════════════════════════════════════════════ */}
             {uniqueZones.length > 0 && (
@@ -1674,6 +1762,8 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                     categories={activeCategoriesInTracker}
                     existingTaskNames={getExistingTaskNames(trackerDoc)}
                     activeZone={activeTab}
+                    activePhase={hasHandover ? activePhase : undefined}
+                    projectName={trackerDoc.project_name}
                 />
             )}
 

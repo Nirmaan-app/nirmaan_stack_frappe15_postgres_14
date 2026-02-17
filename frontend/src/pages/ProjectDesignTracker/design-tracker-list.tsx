@@ -341,6 +341,7 @@ export const DesignTrackerList: React.FC = () => {
     const [activeTab, setActiveTab] = useState<string>(initialTab);
     const [expandedProject, setExpandedProject] = useState<string | null>(null);
     const [activeStatusTab, setActiveStatusTab] = useState<string>("All");
+    const [activePhaseTab, setActivePhaseTab] = useState<string>("Onboarding");
 
     const onClick = useCallback((value: string) => {
         if (activeTab === value || isProjectManager) return; // Disable tab switching for Project Managers
@@ -378,6 +379,8 @@ export const DesignTrackerList: React.FC = () => {
         return [];
     }, [trackerDocsData]);
     
+    const hasAnyHandover = useMemo(() => trackerDocs?.some(doc => doc.handover_generated === 1) ?? false, [trackerDocs]);
+
     // Previous DocList call commented out
     /*
     const {
@@ -455,21 +458,42 @@ export const DesignTrackerList: React.FC = () => {
     const hiddenDocs = useMemo(() =>
         filteredDocs.filter(doc => doc.hide_design_tracker === 1), [filteredDocs]);
 
-    // Calculate aggregate summary stats for the list header
+    // Calculate aggregate summary stats for the list header (phase-aware)
     const summaryStats = useMemo(() => {
         const total = trackerDocs.length;
         const active = activeDocs.length;
         const hidden = hiddenDocs.length;
 
-        // Aggregate task stats across all visible (active) trackers
-        const totalTasks = activeDocs.reduce((sum, doc) => sum + (doc.total_tasks || 0), 0);
-        const completedTasks = activeDocs.reduce((sum, doc) => sum + (doc.completed_tasks || 0), 0);
-        const overallCompletion = totalTasks > 0
-            ? Math.round((completedTasks / totalTasks) * 100)
-            : 0;
+        let onboardingProjects = 0, onboardingApproved = 0, onboardingTotal = 0;
+        let handoverProjects = 0, handoverApproved = 0, handoverTotal = 0;
 
-        return { total, active, hidden, totalTasks, completedTasks, overallCompletion };
-    }, [trackerDocs, activeDocs, hiddenDocs]);
+        activeDocs.forEach(doc => {
+            const tasks: any[] = doc.design_tracker_task || [];
+            let hasOnboarding = false, hasHandover = false;
+
+            tasks.forEach((task: any) => {
+                if (task.task_status === 'Not Applicable') return;
+                if (task.task_phase === 'Handover') {
+                    hasHandover = true;
+                    handoverTotal++;
+                    if (task.task_status === 'Approved') handoverApproved++;
+                } else {
+                    hasOnboarding = true;
+                    onboardingTotal++;
+                    if (task.task_status === 'Approved') onboardingApproved++;
+                }
+            });
+
+            if (hasOnboarding) onboardingProjects++;
+            if (hasHandover) handoverProjects++;
+        });
+
+        return {
+            total, active, hidden,
+            onboardingProjects, onboardingApproved, onboardingTotal,
+            handoverProjects, handoverApproved, handoverTotal,
+        };
+    }, [trackerDocs.length, activeDocs, hiddenDocs.length]);
 
     if (isLoading) return <TableSkeleton />;
     if (error) return <AlertDestructive error={error} />;
@@ -487,31 +511,44 @@ export const DesignTrackerList: React.FC = () => {
                         <p className="text-sm text-gray-500">Track project design progress</p>
                     </div>
 
-                    {/* Summary Pills - Only for privileged users */}
-                    <div className="flex flex-wrap items-center gap-2">
-                        {hasEditStructureAccess && (
-                            <>
-                                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-gray-50 rounded border border-gray-200">
-                                    <span className="text-xs text-gray-500">Projects:</span>
-                                    <span className="text-sm font-semibold text-gray-700">{summaryStats.active}</span>
-                                </div>
-                                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-green-50 rounded border border-green-200">
-                                    <CheckCircle2 className="h-3 w-3 text-green-600" />
-                                    <span className="text-xs text-gray-500">Tasks:</span>
-                                    <span className="text-sm font-semibold text-green-700">
-                                        {summaryStats.completedTasks}/{summaryStats.totalTasks}
-                                    </span>
-                                </div>
-                            </>
-                        )}
-                        {hasEditStructureAccess && summaryStats.hidden > 0 && (
-                            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-orange-50 rounded border border-orange-200">
-                                <EyeOff className="h-3 w-3 text-orange-600" />
-                                <span className="text-xs text-gray-500">Hidden:</span>
-                                <span className="text-sm font-semibold text-orange-700">{summaryStats.hidden}</span>
+                    {/* Summary Stats — single-row metric strip */}
+                    {hasEditStructureAccess && (
+                        <div className="flex items-stretch gap-px bg-gray-200 rounded-lg overflow-hidden border border-gray-200">
+                            {/* Projects */}
+                            <div className="flex flex-col items-center justify-center px-4 py-2 bg-white min-w-[64px]">
+                                <span className="text-lg font-bold text-gray-900 tabular-nums leading-none">{summaryStats.active}</span>
+                                <span className="text-[10px] text-gray-400 font-medium mt-1 uppercase tracking-wider">Projects</span>
                             </div>
-                        )}
-                    </div>
+
+                            {/* Onboarding Approved */}
+                            <div className="flex flex-col items-center justify-center px-4 py-2 bg-green-50/60 min-w-[64px]">
+                                <div className="flex items-baseline gap-0.5 leading-none">
+                                    <span className="text-lg font-bold text-green-700 tabular-nums">{summaryStats.onboardingApproved}</span>
+                                    <span className="text-xs text-green-600/50 font-medium">/{summaryStats.onboardingTotal}</span>
+                                </div>
+                                <span className="text-[10px] text-green-600/70 font-medium mt-1 uppercase tracking-wider">Onboarding</span>
+                            </div>
+
+                            {/* Handover Approved — conditional */}
+                            {summaryStats.handoverProjects > 0 && (
+                                <div className="flex flex-col items-center justify-center px-4 py-2 bg-blue-50/60 min-w-[64px]">
+                                    <div className="flex items-baseline gap-0.5 leading-none">
+                                        <span className="text-lg font-bold text-blue-700 tabular-nums">{summaryStats.handoverApproved}</span>
+                                        <span className="text-xs text-blue-600/50 font-medium">/{summaryStats.handoverTotal}</span>
+                                    </div>
+                                    <span className="text-[10px] text-blue-600/70 font-medium mt-1 uppercase tracking-wider">Handover</span>
+                                </div>
+                            )}
+
+                            {/* Hidden — conditional */}
+                            {summaryStats.hidden > 0 && (
+                                <div className="flex flex-col items-center justify-center px-4 py-2 bg-orange-50/60 min-w-[64px]">
+                                    <span className="text-lg font-bold text-orange-700 tabular-nums leading-none">{summaryStats.hidden}</span>
+                                    <span className="text-[10px] text-orange-600/70 font-medium mt-1 uppercase tracking-wider">Hidden</span>
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
 
                 {/* Row 2: Tab Switcher + Action Button */}
@@ -825,8 +862,37 @@ export const DesignTrackerList: React.FC = () => {
 
             {activeTab === DESIGN_TABS.TASK_WISE && (
                 <div className="space-y-5 px-4 md:px-6">
+                    {/* Phase Tabs - Only shown when handover exists */}
+                    {hasAnyHandover && (
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-gray-500">Phase:</span>
+                            <div className="flex rounded-md border border-gray-300 overflow-hidden">
+                                <button
+                                    className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                                        activePhaseTab === "Onboarding"
+                                            ? 'bg-primary text-white'
+                                            : 'bg-white text-gray-700 hover:bg-gray-50'
+                                    }`}
+                                    onClick={() => setActivePhaseTab("Onboarding")}
+                                >
+                                    Onboarding
+                                </button>
+                                <button
+                                    className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                                        activePhaseTab === "Handover"
+                                            ? 'bg-blue-600 text-white'
+                                            : 'bg-white text-blue-600 hover:bg-blue-50'
+                                    }`}
+                                    onClick={() => setActivePhaseTab("Handover")}
+                                >
+                                    Handover
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Team Performance Summary - Admin/Lead Only */}
-                    <TeamPerformanceSummary hasAccess={hasEditStructureAccess} />
+                    <TeamPerformanceSummary hasAccess={hasEditStructureAccess} taskPhase={hasAnyHandover ? activePhaseTab : undefined} />
 
                     {/* Status Filter Tabs - Enhanced Design */}
                     <div className="bg-gray-50/70 rounded-lg p-3 border border-gray-200">
@@ -926,6 +992,7 @@ export const DesignTrackerList: React.FC = () => {
                         user_id={user_id}
                         isDesignExecutive={isDesignExecutive}
                         statusFilter={activeStatusTab}
+                        taskPhase={hasAnyHandover ? activePhaseTab : undefined}
                     />
                 </div>
             )}

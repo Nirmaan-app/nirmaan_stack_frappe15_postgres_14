@@ -5,7 +5,7 @@ import { ProgressCircle } from "@/components/ui/ProgressCircle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ArrowUpRight, CheckCircle2, Eye, EyeOff, User } from "lucide-react";
-import { getUnifiedStatusStyle } from "../utils";
+import { getUnifiedStatusStyle, parseDesignersFromField } from "../utils";
 
 interface ProjectWiseCardProps {
     tracker: any;
@@ -19,10 +19,34 @@ interface ProjectWiseCardProps {
 
 export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onClick, showHiddenBadge, onHideToggle, currentUserId, isDesigner }) => {
     const isHidden = tracker.hide_design_tracker === 1;
+    const hasHandover = tracker.handover_generated === 1;
     const statusCounts = tracker.status_counts || {};
     const totalTasks = tracker.total_tasks || 0;
     const completedTasks = tracker.completed_tasks || 0;
     const completionPercentage = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+    // Compute phase-specific stats when handover exists
+    const phaseStats = useMemo(() => {
+        if (!hasHandover || !tracker.design_tracker_task) return null;
+
+        const tasks: any[] = tracker.design_tracker_task;
+        const onboarding = { total: 0, approved: 0 };
+        const handover = { total: 0, approved: 0 };
+
+        tasks.forEach((task: any) => {
+            if (task.task_status === 'Not Applicable') return;
+            if (task.task_phase === 'Handover') {
+                handover.total++;
+                if (task.task_status === 'Approved') handover.approved++;
+            } else {
+                // Default to Onboarding if task_phase is missing or "Onboarding"
+                onboarding.total++;
+                if (task.task_status === 'Approved') onboarding.approved++;
+            }
+        });
+
+        return { onboarding, handover };
+    }, [hasHandover, tracker.design_tracker_task]);
 
     // Determine color based on completion percentage
     const getProgressColor = (percentage: number): string => {
@@ -49,34 +73,23 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
     const allStatusEntries = Object.entries(statusCounts)
         .filter(([, count]) => (count as number) > 0);
 
-    // Calculate tasks assigned to current user (only for designers)
-    const myAssignedTasksCount = useMemo(() => {
-        if (!isDesigner || !currentUserId || !tracker.design_tracker_task) return 0;
+    // Calculate tasks assigned to current user with phase breakdown (only for designers)
+    const myAssignedTasks = useMemo(() => {
+        if (!isDesigner || !currentUserId || !tracker.design_tracker_task) {
+            return { onboarding: 0, handover: 0, total: 0 };
+        }
 
-        return tracker.design_tracker_task.filter((task: any) => {
-            const designerField = task.assigned_designers;
-            if (!designerField) return false;
+        let onboarding = 0;
+        let handover = 0;
 
-            let designers: { userId: string }[] = [];
+        tracker.design_tracker_task.forEach((task: any) => {
+            const designers = parseDesignersFromField(task.assigned_designers);
+            if (!designers.some(d => d.userId === currentUserId)) return;
+            if (task.task_phase === 'Handover') handover++;
+            else onboarding++;
+        });
 
-            // Parse assigned_designers (same logic as utils.tsx)
-            if (typeof designerField === 'object' && designerField !== null && 'list' in designerField) {
-                designers = designerField.list;
-            } else if (Array.isArray(designerField)) {
-                designers = designerField;
-            } else if (typeof designerField === 'string' && designerField.trim() !== '') {
-                try {
-                    const parsed = JSON.parse(designerField);
-                    if (parsed && Array.isArray(parsed.list)) {
-                        designers = parsed.list;
-                    } else if (Array.isArray(parsed)) {
-                        designers = parsed;
-                    }
-                } catch (e) { /* silent */ }
-            }
-
-            return designers.some(d => d.userId === currentUserId);
-        }).length;
+        return { onboarding, handover, total: onboarding + handover };
     }, [tracker.design_tracker_task, currentUserId, isDesigner]);
 
     return (
@@ -104,12 +117,19 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
                                 Hidden
                             </Badge>
                         )}
-                        <CardTitle
-                            className="text-base font-semibold text-gray-900 line-clamp-2 leading-snug"
-                            title={tracker.project_name}
-                        >
-                            {tracker.project_name}
-                        </CardTitle>
+                        <div className="flex items-center gap-1.5">
+                            <CardTitle
+                                className="text-base font-semibold text-gray-900 line-clamp-2 leading-snug"
+                                title={tracker.project_name}
+                            >
+                                {tracker.project_name}
+                            </CardTitle>
+                            {hasHandover && (
+                                <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-[10px] shrink-0">
+                                    Handover
+                                </Badge>
+                            )}
+                        </div>
                     </div>
 
                     {/* Progress Circle - Single indicator with color-coded progress */}
@@ -124,28 +144,71 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
             <CardContent className="flex-1 flex flex-col justify-between pt-0 pb-4">
                 {/* Completion Counter - Primary Info */}
                 <div className="mb-4">
-                    <div className="flex items-center gap-1.5 mb-1">
-                        <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
-                        <span className="text-xs text-gray-500">Drawings Approved</span>
-                    </div>
-                    <div className="flex items-baseline gap-1">
-                        <span className={`text-2xl font-bold tabular-nums ${progressColor}`}>
-                            {completedTasks}
-                        </span>
-                        <span className="text-lg text-gray-400 font-medium">/</span>
-                        <span className="text-lg text-gray-500 font-semibold tabular-nums">
-                            {totalTasks}
-                        </span>
-                    </div>
+                    {phaseStats ? (
+                        <>
+                            {/* Handover phase as primary metric */}
+                            <div className="flex items-center gap-1.5 mb-1">
+                                <CheckCircle2 className="h-3.5 w-3.5 text-blue-600" />
+                                <span className="text-xs text-gray-500">Handover Approved</span>
+                            </div>
+                            <div className="flex items-baseline gap-1">
+                                <span className={`text-2xl font-bold tabular-nums ${
+                                    phaseStats.handover.total > 0
+                                        ? getProgressColor(Math.round((phaseStats.handover.approved / phaseStats.handover.total) * 100))
+                                        : 'text-gray-400'
+                                }`}>
+                                    {phaseStats.handover.approved}
+                                </span>
+                                <span className="text-lg text-gray-400 font-medium">/</span>
+                                <span className="text-lg text-gray-500 font-semibold tabular-nums">
+                                    {phaseStats.handover.total}
+                                </span>
+                            </div>
+                            {/* Onboarding phase as secondary line */}
+                            <div className="flex items-center gap-1.5 mt-1.5 text-xs text-gray-500">
+                                <CheckCircle2 className="h-3 w-3 text-green-500" />
+                                <span>Onboarding: {phaseStats.onboarding.approved}/{phaseStats.onboarding.total} Approved</span>
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <div className="flex items-center gap-1.5 mb-1">
+                                <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+                                <span className="text-xs text-gray-500">Drawings Approved</span>
+                            </div>
+                            <div className="flex items-baseline gap-1">
+                                <span className={`text-2xl font-bold tabular-nums ${progressColor}`}>
+                                    {completedTasks}
+                                </span>
+                                <span className="text-lg text-gray-400 font-medium">/</span>
+                                <span className="text-lg text-gray-500 font-semibold tabular-nums">
+                                    {totalTasks}
+                                </span>
+                            </div>
+                        </>
+                    )}
                 </div>
 
                 {/* My Assigned Tasks - Only for designers with assigned tasks */}
-                {isDesigner && myAssignedTasksCount > 0 && (
-                    <div className="flex items-center gap-1.5 mb-3 px-2 py-1.5 bg-blue-50 rounded-md border border-blue-100">
-                        <User className="h-3 w-3 text-blue-600" />
-                        <span className="text-xs text-blue-700 font-medium">
-                            {myAssignedTasksCount} {myAssignedTasksCount === 1 ? 'task' : 'tasks'} assigned to you
-                        </span>
+                {isDesigner && myAssignedTasks.total > 0 && (
+                    <div className="mb-3 px-2 py-1.5 bg-blue-50 rounded-md border border-blue-100">
+                        <div className="flex items-center gap-1.5">
+                            <User className="h-3 w-3 text-blue-600 shrink-0" />
+                            <span className="text-xs text-blue-700 font-medium">
+                                {myAssignedTasks.total} {myAssignedTasks.total === 1 ? 'task' : 'tasks'} assigned to you
+                            </span>
+                        </div>
+                        {/* Phase breakdown — only when this tracker has handover */}
+                        {hasHandover && (
+                            <div className="flex items-center gap-3 pl-[18px] mt-0.5 text-[11px]">
+                                <span className="text-green-700">
+                                    Onboarding: <span className="font-semibold">{myAssignedTasks.onboarding}</span>
+                                </span>
+                                <span className="text-blue-700">
+                                    Handover: <span className="font-semibold">{myAssignedTasks.handover}</span>
+                                </span>
+                            </div>
+                        )}
                     </div>
                 )}
 
