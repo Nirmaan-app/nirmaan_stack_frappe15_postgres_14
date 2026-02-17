@@ -4,6 +4,24 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-02-16
+
+- feat: Add FilesCell shared component for design file + approval proof visibility across 4 table views
+- feat: Add approval proof upload/replace/remove UI in TaskEditModal
+- refactor: React best practices cleanup in TaskEditModal — primitive useEffect deps, moved status side-effects to event handlers
+- feat: Add Team Performance Summary with inline task editing via TaskEditModal and InlineTaskList drill-down
+- feat: Add Planning tab access restriction to Admin, PMO, and Estimates Executive roles
+
+---
+
+## 2026-02-14
+
+- feat: Add customer PO payment terms inline editing in project details
+- feat: Add 'Created By' column with user lookup to Vendor Quotes table
+- feat: Add Work Plan Tracker remarks column with inline edit
+
+---
+
 ## 2026-02-11
 
 - feat: Add DCs & MIRs report tab to Reports page (DC Report and MIR Report sub-types with facet filters, HoverCard item popover)

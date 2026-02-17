@@ -4,6 +4,24 @@ Changes made by Claude Code sessions.
 
 ---
 
+## 2026-02-16
+
+- feat: Add `approval_proof` Attach field to `Design Tracker Task Child Table` doctype
+- feat: Add `validate_approval_proof_for_approved()` validation in `project_design_tracker.py` — requires proof before Approved status
+- feat: Add `validate_file_link_for_submitted()` validation — requires file link before Submitted status
+- feat: Add `update_last_submitted_date()` lifecycle hook — auto-sets `last_submitted` date when task moves to Submitted
+
+---
+
+## 2026-02-14
+
+- feat: Add `customer_po_payment_terms` child table to Customer PO for structured payment tracking
+- feat: Add `critical_po_sub_category` field to Critical PO Categories for granular categorization
+- feat: Add custom TDS item support with `is_custom_tds_item` flag and `custom_tds_description` field
+- feat: Add `work_plan_remarks` Text field to Work Plan Tracker tasks
+
+---
+
 ## 2026-02-11
 
 - feat: Add `get_project_po_delivery_documents` API for project-level DC/MIR queries

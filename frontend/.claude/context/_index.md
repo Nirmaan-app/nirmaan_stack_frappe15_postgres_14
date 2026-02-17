@@ -32,6 +32,10 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | SR Form Wizard | `src/pages/ServiceRequests/sr-form/` | Step-based wizard: `schema.ts`, `constants.ts`, `steps/`, `amend/` |
 | SR Remarks | `src/pages/ServiceRequests/approved-sr/` | `hooks/useSRRemarks.ts`, `components/SRRemarks.tsx` |
 | DC/MIR Module | `src/pages/DeliveryChallansAndMirs/` | `components/UploadDCMIRDialog.tsx`, `ViewAttachmentsDialog.tsx`, `DCMIRItemSelector.tsx`, `hooks/usePODeliveryDocuments.ts` |
+| Design Tracker | `src/pages/ProjectDesignTracker/` | `types/index.ts` for interfaces, `utils.tsx` for styling, `config/taskTableColumns.tsx` for table, `components/FilesCell.tsx` for file/proof icons |
+| Team Performance | `src/pages/ProjectDesignTracker/` | `components/TeamPerformanceSummary.tsx`, inline edit with TaskEditModal, InlineTaskList drill-down |
+| Vendor Attachment for PR | `src/pages/ProcurementRequests/` | `components/VendorAttachmentForPR.tsx` for vendor quote attachments |
+| Bulk PDF Download | `src/pages/ProcurementOrders/`, `src/pages/ServiceRequests/` | Bulk PO/SR PDF download via `nirmaan_stack.api.bulk_pdf` endpoints |
 | Reports | `src/pages/reports/` | `hooks/usePO*.ts` for data, `components/columns/*.tsx` for columns, `config/*.config.ts` for table config |
 | Reports: DCs & MIRs | `src/pages/reports/` | DC Report and MIR Report sub-types with facet filters and HoverCard item popover |
 | Help Repository | `src/pages/help-repository/` | `types.ts` for schema, `utils/loom-embed.ts` for URL conversion |

@@ -68,7 +68,6 @@ Pending → Approved → Vendor Selected → Vendor Approved → Closed
 
 ### Daily Cron Jobs
 - `populate_target_rates_by_unit()` - Calculate historical rate benchmarks
-- `update_payment_term_status()` - Mark payment terms as "Scheduled" when due
 - `update_item_status()` - Sync item statuses
 
 ### Adding Scheduled Task
