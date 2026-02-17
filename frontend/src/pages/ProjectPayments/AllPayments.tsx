@@ -525,7 +525,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                     dateFilterColumns={dateColumns}
                     showExportButton={true}
                     onExport={'default'}
-                    exportFileName="All Payments"
+                    exportFileName={`${tab.replace(/\s+/g, '_')}_${formatDate(new Date())}`}
                     summaryCard={projectId || customerId ? null : <PaymentSummaryCards totalCount={totalCount} />}
                     getRowClassName={getRowClassName}
 
