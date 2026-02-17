@@ -769,7 +769,7 @@ const getCustomerPOColumns = (
             header: "PO Attachment",
             meta: { 
                 exportHeaderName: "PO Attachment",
-                exportValue: (row: CustomerPOTableRow) => row.customer_po_attachment ? `=HYPERLINK("${row.customer_po_attachment}", "Open Attachment")` : ""
+                exportValue: (row: CustomerPOTableRow) => row.customer_po_attachment 
             },
         },
         {
