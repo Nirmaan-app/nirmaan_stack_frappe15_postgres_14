@@ -292,14 +292,23 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
     ? "Search item name, vendor..."
     : "Search PO, vendor, category...";
 
-  const handleExport = useCallback(() => {
+  // const handleExport = useCallback(() => {
+  //   if (activeTab === "Item Wise") {
+  //     handleExportCsv();
+  //   } else {
+  //     poTableRef.current?.exportCsv();
+  //   }
+  // }, [activeTab, handleExportCsv]);
+  
+
+  const handleExport = () => {
     if (activeTab === "Item Wise") {
       handleExportCsv();
     } else {
       poTableRef.current?.exportCsv();
     }
-  }, [activeTab, handleExportCsv]);
-
+  };
+  
   const isExportDisabled = activeTab === "Item Wise"
     ? processedItems.length === 0
     : (poWiseItems?.length ?? 0) === 0;
