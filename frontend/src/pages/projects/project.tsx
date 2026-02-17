@@ -90,6 +90,8 @@ const ProjectDesignTrackerDetail = React.lazy(() => import("@/pages/ProjectDesig
 const NoDesignTrackerView = React.lazy(() => import("@/pages/ProjectDesignTracker/components/NoDesignTrackerView").then(module => ({ default: module.NoDesignTrackerView })));
 const CriticalPOTasksTab = React.lazy(() => import("./CriticalPOTasks/CriticalPOTasksTab").then(module => ({ default: module.CriticalPOTasksTab })));
 import { ProjectExpensesTab } from "./components/ProjectExpenseTab"; // NEW
+const ProjectDCMIRTab = React.lazy(() => import("./components/ProjectDCMIRTab").then(module => ({ default: module.ProjectDCMIRTab })));
+
 import { ProjectWorkReportTab } from "./ProjectWorkReportTab";
 import { SevenDayPlanningTab } from "./SevenDayPlanningTab";
 import { TDSRepositoryTab } from "./TDSRepository/TDSRepositoryTab";
@@ -261,6 +263,7 @@ export const PROJECT_PAGE_TABS = {
   MATERIAL_USAGE: 'projectmaterialusage',
   TDS_REPOSITORY: 'tdsrepository',
   PROJECT_EXPENSES: 'projectexpenses', // --- (Indicator) NEW TAB KEY ---
+  DC_MIR: 'projectdcmir',
 } as const;
 
 type ProjectPageTabValue = typeof PROJECT_PAGE_TABS[keyof typeof PROJECT_PAGE_TABS];
@@ -371,6 +374,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.DESIGN_TRACKER,
     PROJECT_PAGE_TABS.SR_SUMMARY,
     PROJECT_PAGE_TABS.PO_SUMMARY,
+    PROJECT_PAGE_TABS.DC_MIR,
   ]), []);
 
   // Allowed tabs for Procurement Executive
@@ -381,6 +385,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.MATERIAL_USAGE,
     PROJECT_PAGE_TABS.PROJECT_EXPENSES,
     PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
+    PROJECT_PAGE_TABS.DC_MIR,
   ]), []);
 
   // Allowed tabs for Estimates Executive
@@ -393,6 +398,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.PO_SUMMARY,
     PROJECT_PAGE_TABS.MATERIAL_USAGE,
     PROJECT_PAGE_TABS.ESTIMATES,
+    PROJECT_PAGE_TABS.DC_MIR,
   ]), []);
 
   // Redirect users to allowed tab if on restricted tab
@@ -469,6 +475,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           label: "Misc. Project Expenses",
           key: PROJECT_PAGE_TABS.PROJECT_EXPENSES,
         },
+        {
+          label: "DC & MIR",
+          key: PROJECT_PAGE_TABS.DC_MIR,
+        },
       ];
     }
 
@@ -511,6 +521,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           label: "Project Estimates",
           key: PROJECT_PAGE_TABS.ESTIMATES,
         },
+        {
+          label: "DC & MIR",
+          key: PROJECT_PAGE_TABS.DC_MIR,
+        },
       ];
     }
 
@@ -551,6 +565,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       {
         label: "PO Summary",
         key: PROJECT_PAGE_TABS.PO_SUMMARY,
+      },
+      {
+        label: "DC & MIR",
+        key: PROJECT_PAGE_TABS.DC_MIR,
       },
       {
         label: "Material Usage",
@@ -1210,6 +1228,9 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       // --- (Indicator) NEW CASE FOR THE NEW TAB ---
       case PROJECT_PAGE_TABS.PROJECT_EXPENSES:
         return <ProjectExpensesTab projectId={projectId} />;
+      // --- (Indicator) NEW CASE FOR THE NEW TAB ---
+      case PROJECT_PAGE_TABS.DC_MIR:
+        return <Suspense fallback={<LoadingFallback />}><ProjectDCMIRTab projectId={projectId} /></Suspense>;
       case PROJECT_PAGE_TABS.TDS_REPOSITORY:
         return <TDSRepositoryTab projectId={projectId} />;
       default:
@@ -1542,13 +1563,9 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
             data={allServiceRequestsData || []}
           />
         </>
-      )} */}
+      )}
 
-      {/* {activePage === "srsummary" && (
-        <Suspense fallback={<LoadingFallback />}>
-          <ProjectSRSummaryTable projectId={projectId} />
-        </Suspense>
-      )} */}
+
 
       {/* <div className="hidden">
         <div ref={componentRef} className="px-4 pb-1">
