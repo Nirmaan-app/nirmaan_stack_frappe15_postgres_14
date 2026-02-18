@@ -53,8 +53,11 @@ def export_tds_report(settings_json: str, items_json: str, project_name: str = "
         base_pdf = get_pdf(template)
         
         # Merge with attachments interleaved
-        merged_pdf = merge_pdfs_interleaved(base_pdf, items, progress_event="tds_export_progress")
+        merged_pdf, failed_items = merge_pdfs_interleaved(base_pdf, items, progress_event="tds_export_progress")
         
+        if failed_items:
+             frappe.throw(f"TDS Export failed partially. Check items: {', '.join(failed_items)}")
+
         # Clean project name for filename
         clean_name = frappe.scrub(project_name).replace('_', ' ').title().replace(' ', '_')
         
@@ -63,6 +66,8 @@ def export_tds_report(settings_json: str, items_json: str, project_name: str = "
         frappe.local.response.filecontent = merged_pdf
         frappe.local.response.type = "download"
         
+    except frappe.exceptions.ValidationError:
+        raise
     except Exception as e:
         frappe.log_error(f"export_tds_report failed: {e}")
         frappe.throw(f"PDF export failed: {str(e)}")

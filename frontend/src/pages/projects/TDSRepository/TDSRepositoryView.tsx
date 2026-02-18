@@ -190,6 +190,41 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                 })
             });
 
+            // Standard response check is insufficient because Frappe might return 200 with error messages or 417/500
+            const contentType = response.headers.get("content-type");
+            if (contentType && contentType.indexOf("application/json") !== -1) {
+                const errorData = await response.json();
+                let errorMessage = errorData.message || "Failed to generate PDF";
+
+                // Parse server messages if needed
+                if (errorData._server_messages) {
+                    try {
+                        const messages = JSON.parse(errorData._server_messages);
+                        const messageObj = JSON.parse(messages[0]);
+                        errorMessage = messageObj.message || errorMessage;
+                    } catch (e) {
+                        // Keep original errorMessage
+                    }
+                }
+                
+                // If message is still generic but we have an exception trace, try to extract relevant info
+                if (errorData.exc) {
+                     try {
+                        const exc = JSON.parse(errorData.exc);
+                        const excStr = exc[0] || "";
+                         if (excStr.includes("image") || excStr.includes("Image")) {
+                             errorMessage += ": One or more documents contain invalid images.";
+                         } else if (excStr.includes("file") || excStr.includes("File")) {
+                             errorMessage += ": Missing or corrupted file attachments.";
+                         }
+                     } catch (e) {
+                         // Ignore exc parsing error
+                     }
+                }
+                
+                throw new Error(errorMessage);
+            }
+
             if (!response.ok) throw new Error("Failed to generate PDF");
             const blob = await response.blob();
 
@@ -214,11 +249,11 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                 title: "Success", 
                 description: "Report downloaded successfully." 
             });
-        } catch (error) {
+        } catch (error: any) {
             console.error("Export failed", error);
             toast({ 
                 title: "Error", 
-                description: "Failed to download report.", 
+                description: error.message || "Failed to download report.", 
                 variant: "destructive" 
             });
         } finally {
@@ -350,9 +385,9 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
             />
 
             {/* Progress Dialog */}
-            <Dialog open={isExporting} onOpenChange={setIsExporting}>
+            <Dialog open={isExporting} onOpenChange={(open) => !isExporting && setIsExporting(open)}>
                 <DialogContent 
-                    className="sm:max-w-md"
+                    className="sm:max-w-md [&>button]:hidden"
                     onPointerDownOutside={(e) => e.preventDefault()}
                     onEscapeKeyDown={(e) => e.preventDefault()}
                 >

@@ -38,7 +38,7 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" className="w-64 justify-between border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800 transition-colors duration-200">
+          <Button variant="outline" className="w-full md:w-64 justify-between border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800 transition-colors duration-200">
             <div className="flex items-center gap-2">
               <FileDown className="h-4 w-4" />
               <span className="font-semibold">Project Bulk Download</span>
@@ -143,8 +143,12 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
       </Dialog>
 
       {/* Progress Dialog */}
-      <Dialog open={showProgress} onOpenChange={setShowProgress}>
-        <DialogContent className="sm:max-w-md">
+      <Dialog open={showProgress} onOpenChange={(open) => !loading && setShowProgress(open)}>
+        <DialogContent 
+            className="sm:max-w-md [&>button]:hidden"
+            onPointerDownOutside={(e) => e.preventDefault()}
+            onEscapeKeyDown={(e) => e.preventDefault()}
+        >
             <DialogHeader>
             <DialogTitle>Generating PDF</DialogTitle>
             <DialogDescription>

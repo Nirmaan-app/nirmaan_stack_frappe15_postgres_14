@@ -35,6 +35,7 @@ def download_all_pos(project, with_rate=1):
 
     merger = PdfWriter()
     count = 0
+    failed_docs = []
 
     total_docs = len(docs)
     for i, doc in enumerate(docs):
@@ -62,7 +63,11 @@ def download_all_pos(project, with_rate=1):
                 merger.append(io.BytesIO(final_pdf_content))
                 count += 1
         except Exception as e:
+            failed_docs.append(f"PO {doc.name} ({str(e)})")
             print(f"Failed to generate PDF for PO {doc.name}: {e}")
+
+    if failed_docs:
+        frappe.throw(f"Bulk download failed partially. Please check the following documents: {', '.join(failed_docs)}")
 
     if count == 0:
         frappe.throw("Failed to generate any PO PDFs.")
@@ -91,6 +96,7 @@ def download_all_wos(project):
     total_docs = len(docs)
     merger = PdfWriter()
     count = 0
+    failed_docs = []
 
     total_docs = len(docs)
     for i, doc in enumerate(docs):
@@ -113,7 +119,11 @@ def download_all_wos(project):
                 merger.append(io.BytesIO(pdf_content))
                 count += 1
         except Exception as e:
+            failed_docs.append(f"WO {doc.name} ({str(e)})")
             print(f"Failed to generate PDF for WO {doc.name}: {e}")
+
+    if failed_docs:
+        frappe.throw(f"Bulk download failed partially. Please check the following documents: {', '.join(failed_docs)}")
 
     if count == 0:
         frappe.throw("Failed to generate any WO PDFs.")
@@ -148,6 +158,7 @@ def download_all_dns(project):
 
     merger = PdfWriter()
     count = 0
+    failed_docs = []
 
     total_docs = len(docs)
     for i, doc in enumerate(docs):
@@ -170,7 +181,11 @@ def download_all_dns(project):
                 merger.append(io.BytesIO(pdf_content))
                 count += 1
         except Exception as e:
+            failed_docs.append(f"DN for PO {doc.name} ({str(e)})")
             print(f"Failed to generate DN PDF for PO {doc.name}: {e}")
+
+    if failed_docs:
+        frappe.throw(f"Bulk download failed partially. Please check the following documents: {', '.join(failed_docs)}")
 
     if count == 0:
         frappe.throw("Failed to generate any Delivery Note PDFs.")
@@ -215,6 +230,7 @@ def download_project_attachments(project, doc_type):
 
     merger = PdfWriter()
     count = 0
+    failed_docs = []
     total_docs = len(docs)
 
     for i, doc in enumerate(docs):
@@ -227,17 +243,28 @@ def download_project_attachments(project, doc_type):
             )
 
             if not doc.attachment:
+                failed_docs.append(f"{label} {doc.name} (No attachment linked)")
                 continue
 
             content = _fetch_attachment_content(doc.attachment)
             if not content:
+                failed_docs.append(f"{label} {doc.name} (Failed to fetch/download attachment)")
                 continue
 
-            if _merge_content(merger, content, doc.name):
-                count += 1
+            try:
+                if _merge_content(merger, content, doc.name):
+                    count += 1
+                else:
+                    failed_docs.append(f"{label} {doc.name} (Invalid PDF/Image format)")
+            except Exception as e:
+                failed_docs.append(f"{label} {doc.name} ({str(e)})")
 
         except Exception as e:
+            failed_docs.append(f"{label} {doc.name} ({str(e)})")
             print(f"Error processing {label} attachment {doc.name}: {e}")
+
+    if failed_docs:
+        frappe.throw(f"Bulk download failed partially. Please check the following documents: {', '.join(failed_docs)}")
 
     if count == 0:
         frappe.throw(f"Failed to generate any {label} PDFs.")
@@ -276,6 +303,7 @@ def _fetch_attachment_content(attachment_url):
                     return res.content
     except Exception as e:
         print(f"Failed to fetch content for {attachment_url}: {e}")
+        # Consider logging this or returning error reason if possible
     return None
 
 
@@ -302,5 +330,6 @@ def _merge_content(merger, content, doc_name):
         return True
     except Exception as e:
         print(f"Failed to convert image for {doc_name}: {e}")
+        raise e # Re-raise so caller knows it failed
     return False
 
