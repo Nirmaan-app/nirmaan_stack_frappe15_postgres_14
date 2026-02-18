@@ -1346,10 +1346,27 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                                         variant="default"
                                         size="sm"
                                         className="h-7 text-xs gap-1 bg-red-600 hover:bg-red-700 ml-auto"
-                                        onClick={() => handleDownloadReport()}
+                                         onClick={() => handleDownloadReport(undefined, true)}
                                     >
-                                        <Download className="h-3 w-3" /> Download
+                                        <Download className="h-3 w-3" /> Download Tracker
                                     </Button>
+                                    {/* <TooltipProvider>
+                                <Tooltip delayDuration={200}>
+                                    <TooltipTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-8 text-xs gap-1"
+                                            onClick={() => handleDownloadReport(undefined, true)}
+                                        >
+                                            <FileText className="h-3 w-3" /> Download Tracker
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="bottom" className="text-xs">
+                                        Download full report (Onboarding + Handover) for all zones
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider> */}
                                 </div>
                             </div>
                         </CollapsibleContent>
@@ -1481,7 +1498,7 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                                             className="h-8 text-xs gap-1"
                                             onClick={() => handleDownloadReport(undefined, true)}
                                         >
-                                            <FileText className="h-3 w-3" /> Download Tracker
+                                            <Download className="h-3 w-3" /> Download Tracker
                                         </Button>
                                     </TooltipTrigger>
                                     <TooltipContent side="bottom" className="text-xs">
