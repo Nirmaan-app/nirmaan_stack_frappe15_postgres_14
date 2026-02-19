@@ -1,7 +1,10 @@
 import { useMemo } from "react";
 import { UseFormReturn } from "react-hook-form";
-import { Store, AlertCircle, Calculator } from "lucide-react";
+import { Store, AlertCircle, Calculator, CirclePlus } from "lucide-react";
 import ReactSelect from "react-select";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { VendorSheet } from "@/pages/ProcurementRequests/VendorQuotesSelection/components/VendorSheet";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -55,6 +58,7 @@ export const VendorRatesStep: React.FC<StepProps> = ({
     vendors,
     isLoading,
 }) => {
+    const [isVendorSheetOpen, setIsVendorSheetOpen] = useState(false);
     const items = form.watch("items") || [];
     const selectedVendor = form.watch("vendor");
 
@@ -144,11 +148,30 @@ export const VendorRatesStep: React.FC<StepProps> = ({
 
     return (
         <div className="space-y-6">
-            {/* Vendor Selection */}
-            <div className="space-y-2">
+            <VendorSheet isOpen={isVendorSheetOpen} onClose={() => setIsVendorSheetOpen(false)} service={true} />
+
+            {/* Vendor Selection Header with Add Button */}
+            <div className="flex items-center justify-between">
                 <Label className="text-sm font-medium">
                     Select Vendor <span className="text-red-500">*</span>
                 </Label>
+                <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground hidden sm:inline">Not seeing your vendor?</span>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2 text-primary hover:text-primary hover:bg-primary/5 flex items-center gap-1.5"
+                        onClick={() => setIsVendorSheetOpen(true)}
+                        title="Add New Vendor"
+                    >
+                        <CirclePlus className="h-4 w-4" />
+                        <span className="text-xs font-semibold">New Vendor</span>
+                    </Button>
+                </div>
+            </div>
+
+            {/* Vendor Selection */}
+            <div className="space-y-2 mt-[-1rem]"> {/* Pull closer to custom header */}
                 <ReactSelect
                     value={selectedVendorOption}
                     options={vendorOptions}
