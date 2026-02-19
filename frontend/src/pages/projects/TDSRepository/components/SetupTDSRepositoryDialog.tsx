@@ -36,6 +36,7 @@ export interface TDSRepositoryData {
 export interface RoleData {
     name: string;
     logo: File | string | null;
+    enabled: boolean;
 }
 
 export const SetupTDSRepositoryDialog: React.FC<SetupTDSRepositoryDialogProps> = ({
@@ -46,12 +47,12 @@ export const SetupTDSRepositoryDialog: React.FC<SetupTDSRepositoryDialogProps> =
     isLoading = false
 }) => {
     const [formData, setFormData] = useState<TDSRepositoryData>({
-        client: { name: initialData?.client?.name || '', logo: initialData?.client?.logo || null },
-        projectManager: { name: initialData?.projectManager?.name || '', logo: initialData?.projectManager?.logo || null },
-        architect: { name: initialData?.architect?.name || '', logo: initialData?.architect?.logo || null },
-        consultant: { name: initialData?.consultant?.name || '', logo: initialData?.consultant?.logo || null },
-        gcContractor: { name: initialData?.gcContractor?.name || '', logo: initialData?.gcContractor?.logo || null },
-        mepContractor: { name: initialData?.mepContractor?.name || '', logo: initialData?.mepContractor?.logo || null }
+        client: { name: initialData?.client?.name || '', logo: initialData?.client?.logo || null, enabled: initialData?.client?.enabled ?? true },
+        projectManager: { name: initialData?.projectManager?.name || '', logo: initialData?.projectManager?.logo || null, enabled: initialData?.projectManager?.enabled ?? true },
+        architect: { name: initialData?.architect?.name || '', logo: initialData?.architect?.logo || null, enabled: initialData?.architect?.enabled ?? true },
+        consultant: { name: initialData?.consultant?.name || '', logo: initialData?.consultant?.logo || null, enabled: initialData?.consultant?.enabled ?? true },
+        gcContractor: { name: initialData?.gcContractor?.name || '', logo: initialData?.gcContractor?.logo || null, enabled: initialData?.gcContractor?.enabled ?? true },
+        mepContractor: { name: initialData?.mepContractor?.name || '', logo: initialData?.mepContractor?.logo || null, enabled: initialData?.mepContractor?.enabled ?? true }
     });
 
     const [errors, setErrors] = useState<Partial<Record<keyof TDSRepositoryData, string>>>({});
@@ -73,7 +74,7 @@ export const SetupTDSRepositoryDialog: React.FC<SetupTDSRepositoryDialogProps> =
         let isValid = true;
 
         (Object.keys(formData) as Array<keyof TDSRepositoryData>).forEach(key => {
-            if (!formData[key].name.trim()) {
+            if (formData[key].enabled && !formData[key].name.trim()) {
                 newErrors[key] = "Name is required";
                 isValid = false;
             }
@@ -122,6 +123,8 @@ export const SetupTDSRepositoryDialog: React.FC<SetupTDSRepositoryDialogProps> =
                             onLogoUpload={(file) => handleUpdate('client', 'logo', file)}
                             onLogoRemove={() => handleUpdate('client', 'logo', null)}
                             error={errors.client}
+                            enabled={formData.client.enabled}
+                            onEnableChange={(val) => handleUpdate('client', 'enabled', val)}
                         />
 
                         <RoleCard
@@ -134,6 +137,8 @@ export const SetupTDSRepositoryDialog: React.FC<SetupTDSRepositoryDialogProps> =
                             onLogoUpload={(file) => handleUpdate('projectManager', 'logo', file)}
                             onLogoRemove={() => handleUpdate('projectManager', 'logo', null)}
                             error={errors.projectManager}
+                            enabled={formData.projectManager.enabled}
+                            onEnableChange={(val) => handleUpdate('projectManager', 'enabled', val)}
                         />
 
                         <RoleCard
@@ -146,6 +151,8 @@ export const SetupTDSRepositoryDialog: React.FC<SetupTDSRepositoryDialogProps> =
                             onLogoUpload={(file) => handleUpdate('architect', 'logo', file)}
                             onLogoRemove={() => handleUpdate('architect', 'logo', null)}
                             error={errors.architect}
+                            enabled={formData.architect.enabled}
+                            onEnableChange={(val) => handleUpdate('architect', 'enabled', val)}
                         />
 
                         <RoleCard
@@ -158,6 +165,8 @@ export const SetupTDSRepositoryDialog: React.FC<SetupTDSRepositoryDialogProps> =
                             onLogoUpload={(file) => handleUpdate('consultant', 'logo', file)}
                             onLogoRemove={() => handleUpdate('consultant', 'logo', null)}
                             error={errors.consultant}
+                            enabled={formData.consultant.enabled}
+                            onEnableChange={(val) => handleUpdate('consultant', 'enabled', val)}
                         />
 
                         <RoleCard
@@ -170,6 +179,8 @@ export const SetupTDSRepositoryDialog: React.FC<SetupTDSRepositoryDialogProps> =
                             onLogoUpload={(file) => handleUpdate('gcContractor', 'logo', file)}
                             onLogoRemove={() => handleUpdate('gcContractor', 'logo', null)}
                             error={errors.gcContractor}
+                            enabled={formData.gcContractor.enabled}
+                            onEnableChange={(val) => handleUpdate('gcContractor', 'enabled', val)}
                         />
 
                         <RoleCard
@@ -182,6 +193,13 @@ export const SetupTDSRepositoryDialog: React.FC<SetupTDSRepositoryDialogProps> =
                             onLogoUpload={(file) => handleUpdate('mepContractor', 'logo', file)}
                             onLogoRemove={() => handleUpdate('mepContractor', 'logo', null)}
                             error={errors.mepContractor}
+                            enabled={formData.mepContractor.enabled}
+                            onEnableChange={(val) => handleUpdate('mepContractor', 'enabled', val)}
+                            helperText={
+                                <span className="text-gray-500 italic">
+                                    Default is Nirmaan logo. Upload to replace.
+                                </span>
+                            }
                         />
                     </div>
                 </div>

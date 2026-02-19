@@ -35,11 +35,17 @@ export const TDSRepositoryTab: React.FC<TDSRepositoryTabProps> = ({ projectId })
             const textData: any = {
                 tds_project_id: projectId,
                 client_name: rawData.client.name,
+                enable_client: rawData.client.enabled,
                 manager_name: rawData.projectManager.name,
+                enable_manager: rawData.projectManager.enabled,
                 architect_name: rawData.architect.name,
+                enable_architect: rawData.architect.enabled,
                 data_tjxu: rawData.consultant.name,
+                enable_consultant: rawData.consultant.enabled,
                 gc_contractor_name: rawData.gcContractor.name,
+                enable_gc_contractor: rawData.gcContractor.enabled,
                 mep_contractor_name: rawData.mepContractor.name,
+                enable_mep_contractor: rawData.mepContractor.enabled,
             };
 
             let docName = activeSetting?.name;
@@ -79,7 +85,7 @@ export const TDSRepositoryTab: React.FC<TDSRepositoryTabProps> = ({ projectId })
                          doctype: "Project TDS Setting",
                          docname: docName,
                          fieldname: field,
-                         isPrivate: false
+                         isPrivate: true
                      });
                      
                      const fileUrl = res?.file_url;
@@ -124,12 +130,12 @@ export const TDSRepositoryTab: React.FC<TDSRepositoryTabProps> = ({ projectId })
 
     // Convert backend data to frontend format for the View/Edit
     const repositoryData: TDSRepositoryData = {
-        client: { name: activeSetting.client_name, logo: activeSetting.client_logo as any },
-        projectManager: { name: activeSetting.manager_name, logo: activeSetting.mananger_logo as any },
-        architect: { name: activeSetting.architect_name, logo: activeSetting.architect_logo as any },
-        consultant: { name: activeSetting.data_tjxu, logo: activeSetting.consultant_logo as any },
-        gcContractor: { name: activeSetting.gc_contractor_name, logo: activeSetting.gc_contractor_logo as any },
-        mepContractor: { name: activeSetting.mep_contractor_name, logo: activeSetting.mep_contractorlogo as any }
+        client: { name: activeSetting.client_name, logo: activeSetting.client_logo as any, enabled: activeSetting.enable_client },
+        projectManager: { name: activeSetting.manager_name, logo: activeSetting.mananger_logo as any, enabled: activeSetting.enable_manager },
+        architect: { name: activeSetting.architect_name, logo: activeSetting.architect_logo as any, enabled: activeSetting.enable_architect },
+        consultant: { name: activeSetting.data_tjxu, logo: activeSetting.consultant_logo as any, enabled: activeSetting.enable_consultant },
+        gcContractor: { name: activeSetting.gc_contractor_name, logo: activeSetting.gc_contractor_logo as any, enabled: activeSetting.enable_gc_contractor },
+        mepContractor: { name: activeSetting.mep_contractor_name, logo: activeSetting.mep_contractorlogo as any, enabled: activeSetting.enable_mep_contractor }
     };
 
     return (

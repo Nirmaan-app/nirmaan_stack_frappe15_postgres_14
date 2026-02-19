@@ -2,6 +2,7 @@ import React, { useRef } from 'react';
 import { Upload, X } from 'lucide-react';
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
 interface RoleCardProps {
@@ -14,6 +15,9 @@ interface RoleCardProps {
     onLogoUpload: (file: File) => void;
     onLogoRemove: () => void;
     error?: string;
+    enabled: boolean;
+    onEnableChange: (enabled: boolean) => void;
+    helperText?: React.ReactNode;
 }
 
 export const RoleCard: React.FC<RoleCardProps> = ({
@@ -25,7 +29,10 @@ export const RoleCard: React.FC<RoleCardProps> = ({
     logo,
     onLogoUpload,
     onLogoRemove,
-    error
+    error,
+    enabled,
+    onEnableChange,
+    helperText
 }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -39,17 +46,28 @@ export const RoleCard: React.FC<RoleCardProps> = ({
     };
 
     const triggerFileUpload = () => {
+        if (!enabled) return;
         fileInputRef.current?.click();
     };
 
     return (
-        <div className="bg-[#f8f9fB] rounded-xl border border-gray-100 shadow-sm p-5 flex flex-col gap-4 h-full transition-all hover:shadow-md">
+        <div className={cn(
+            "bg-[#f8f9fB] rounded-xl border border-gray-200 shadow-sm p-5 flex flex-col gap-4 h-full transition-all relative overflow-hidden",
+            !enabled && "opacity-60 bg-gray-50 pointer-events-none"
+        )}>
             {/* Header */}
-            <div className="flex items-center gap-2 text-gray-700">
-                {icon}
-                <Label className="text-sm font-semibold flex items-center gap-1">
-                    {label} <span className="text-red-500">*</span>
-                </Label>
+            <div className="flex items-center justify-between gap-2 text-gray-700 pointer-events-auto">
+                <div className="flex items-center gap-2">
+                    {icon}
+                    <Label className="text-sm font-semibold flex items-center gap-1">
+                        {label} <span className="text-red-500">*</span>
+                    </Label>
+                </div>
+                <Switch 
+                    checked={enabled} 
+                    onCheckedChange={onEnableChange}
+                    className="data-[state=checked]:bg-green-500"
+                />
             </div>
 
             {/* Input */}
@@ -58,6 +76,7 @@ export const RoleCard: React.FC<RoleCardProps> = ({
                     value={value}
                     onChange={(e) => onChange(e.target.value)}
                     placeholder={placeholder}
+                    disabled={!enabled}
                     className={cn(
                         "h-10 bg-white border-gray-200 focus:border-blue-500 focus:ring-blue-500/20 transition-all",
                         error && "border-red-500 focus:border-red-500 focus:ring-red-500/20"
@@ -96,14 +115,14 @@ export const RoleCard: React.FC<RoleCardProps> = ({
                                 <p className="text-sm font-medium text-slate-700 truncate">
                                     {typeof logo === 'string' ? logo.split('/').pop() : logo.name}
                                 </p>
-                                <p className="text-xs text-blue-600 font-medium hover:underline">Change Logo</p>
+                                <p className="text-xs text-blue-600 font-medium hover:underline">Replace Logo</p>
                             </div>
-                            <button 
+                            {/* <button 
                                 onClick={(e) => { e.stopPropagation(); onLogoRemove(); }}
                                 className="p-1 hover:bg-red-50 rounded-full text-gray-400 hover:text-red-500 transition-colors"
                             >
                                 <X className="w-4 h-4" />
-                            </button>
+                            </button> */}
                         </>
                     ) : (
                         <>
@@ -116,8 +135,13 @@ export const RoleCard: React.FC<RoleCardProps> = ({
                             </div>
                         </>
                     )}
+                    </div>
+            {helperText && (
+                <div className="mt-2 text-xs text-muted-foreground text-center">
+                    {helperText}
                 </div>
-            </div>
+            )}
+        </div>
         </div>
     );
 };

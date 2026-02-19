@@ -5,9 +5,10 @@ interface ViewCardProps {
     label: string;
     name: string;
     logo?: string | File | null;
+    enabled?: boolean;
 }
 
-export const ViewCard: React.FC<ViewCardProps> = ({ label, name, logo }) => {
+export const ViewCard: React.FC<ViewCardProps> = ({ label, name, logo, enabled = true }) => {
     // Helper to get icon based on label (matching RoleCard logic roughly or just generic)
     // The design spec says "Square logo container... Fallback to neutral placeholder"
     
@@ -28,7 +29,12 @@ export const ViewCard: React.FC<ViewCardProps> = ({ label, name, logo }) => {
     const logoSrc = logo instanceof File ? URL.createObjectURL(logo) : logo;
 
     return (
-        <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-4 hover:shadow-sm transition-shadow h-full cursor-default">
+        <div className={`bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-4 hover:shadow-sm transition-shadow h-full cursor-default relative ${!enabled ? 'opacity-60 bg-gray-50' : ''}`}>
+            {!enabled && (
+                <div className="absolute top-2 right-2 px-2 py-0.5 bg-red-100 text-red-600 text-[10px] font-bold uppercase rounded-full tracking-wider">
+                    Disabled
+                </div>
+            )}
             {/* Left: Logo */}
             {logoSrc ? (
                  <div className="w-11 h-11 rounded-lg bg-gray-100 shrink-0 flex items-center justify-center overflow-hidden">
