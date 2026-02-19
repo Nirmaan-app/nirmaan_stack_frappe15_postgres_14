@@ -1,9 +1,11 @@
-import React, { useRef } from 'react';
-import { Upload, X } from 'lucide-react';
+import React, { useRef, useState, useEffect } from 'react';
+import { Upload, X, RefreshCw } from 'lucide-react';
+import { CustomAttachment } from '../../../../components/helpers/CustomAttachment';
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 interface RoleCardProps {
     label: string;
@@ -34,20 +36,35 @@ export const RoleCard: React.FC<RoleCardProps> = ({
     onEnableChange,
     helperText
 }) => {
+    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files[0]) {
-            const file = e.target.files[0];
-            if (file.type.startsWith('image/')) {
-                onLogoUpload(file);
-            }
+    useEffect(() => {
+        if (logo instanceof File) {
+            const url = URL.createObjectURL(logo);
+            setPreviewUrl(url);
+            return () => URL.revokeObjectURL(url);
+        } else if (typeof logo === 'string') {
+            setPreviewUrl(logo);
+        } else {
+            setPreviewUrl(null);
         }
-    };
+    }, [logo]);
 
-    const triggerFileUpload = () => {
+    const handleReplaceClick = () => {
         if (!enabled) return;
         fileInputRef.current?.click();
+    };
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            onLogoUpload(file);
+        }
+        // Reset the input value so the same file can be selected again
+        if (e.target) {
+            e.target.value = '';
+        }
     };
 
     return (
@@ -86,62 +103,82 @@ export const RoleCard: React.FC<RoleCardProps> = ({
             </div>
 
             {/* Logo Upload */}
-            <div className="mt-auto pt-2">
-                <div 
-                    onClick={triggerFileUpload}
-                    className={cn(
-                        "group relative border border-dashed border-gray-200 rounded-lg p-3 flex items-center gap-3 cursor-pointer hover:bg-gray-50/50 hover:border-blue-300 transition-all",
-                        logo && "border-blue-200 bg-blue-50/30"
-                    )}
-                >
-                    <input 
-                        type="file" 
-                        ref={fileInputRef} 
-                        className="hidden" 
-                        accept="image/png, image/jpeg, image/svg+xml"
-                        onChange={handleFileChange}
-                    />
-
-                    {logo ? (
-                        <>
-                            <div className="w-10 h-10 rounded-md bg-gray-100 flex items-center justify-center overflow-hidden shrink-0">
-                                <img 
-                                    src={typeof logo === 'string' ? logo : URL.createObjectURL(logo)} 
-                                    alt="Logo preview" 
-                                    className="w-full h-full object-contain p-1"
-                                />
+            <div className="mt-auto pt-2 pointer-events-auto">
+                <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileChange}
+                    accept="image/*"
+                    className="hidden"
+                />
+                {previewUrl ? (
+                    <div className="flex flex-col gap-2">
+                        <div className="flex items-center justify-between p-2 bg-accent/10 rounded-md">
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                                <a
+                                    href={previewUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-sm truncate max-w-[150px] hover:underline text-primary"
+                                >
+                                    {typeof logo === 'string' ? logo.split('/').pop() : (logo instanceof File ? logo.name : 'Selected file')}
+                                </a>
                             </div>
-                            <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-slate-700 truncate">
-                                    {typeof logo === 'string' ? logo.split('/').pop() : logo.name}
-                                </p>
-                                <p className="text-xs text-blue-600 font-medium hover:underline">Replace Logo</p>
-                            </div>
-                            {/* <button 
-                                onClick={(e) => { e.stopPropagation(); onLogoRemove(); }}
-                                className="p-1 hover:bg-red-50 rounded-full text-gray-400 hover:text-red-500 transition-colors"
+                            
+                            <button
+                                type="button"
+                                disabled={!enabled}
+                                onClick={onLogoRemove}
+                                className="p-1 rounded-full hover:bg-accent/20 transition-colors"
+                                aria-label="Remove file"
                             >
-                                <X className="w-4 h-4" />
-                            </button> */}
-                        </>
-                    ) : (
-                        <>
-                            <div className="w-10 h-10 rounded-md bg-gray-100 flex items-center justify-center shrink-0 group-hover:bg-gray-200 transition-all">
-                                <Upload className="w-4 h-4 text-gray-400 group-hover:text-blue-500 transition-colors" />
-                            </div>
-                            <div className="flex-1">
-                                <p className="text-sm font-medium text-blue-600 group-hover:underline decoration-blue-300 underline-offset-2">Upload Logo</p>
-                                <p className="text-xs text-gray-400">(Optional)</p>
-                            </div>
-                        </>
-                    )}
+                                <X className="h-4 w-4 text-destructive" aria-hidden="true" />
+                            </button>
+                        </div>
+                        <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="w-full text-xs h-8 gap-2 border-dashed border-primary/50 text-primary hover:bg-primary/5"
+                            onClick={handleReplaceClick}
+                            disabled={!enabled}
+                        >
+                            <RefreshCw className="h-3 w-3" />
+                            Replace Logo
+                        </Button>
                     </div>
-            {helperText && (
-                <div className="mt-2 text-xs text-muted-foreground text-center">
-                    {helperText}
-                </div>
-            )}
-        </div>
+                ) : helperText ? (
+                    <div className="flex flex-col gap-2">
+                        <div className="text-center">
+                            {helperText}
+                        </div>
+                        <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="w-full text-xs h-8 gap-2 border-dashed border-primary/50 text-primary hover:bg-primary/5"
+                            onClick={handleReplaceClick}
+                            disabled={!enabled}
+                        >
+                            <RefreshCw className="h-3 w-3" />
+                            Replace Logo
+                        </Button>
+                    </div>
+                ) : (
+                    <CustomAttachment
+                        selectedFile={logo as File | null}
+                        onFileSelect={(file) => {
+                            if (file) {
+                                onLogoUpload(file);
+                            } else {
+                                onLogoRemove();
+                            }
+                        }}
+                        disabled={!enabled}
+                        acceptedTypes="image/*"
+                        label="Upload Logo"
+                    />
+                )}
+            </div>
+            
         </div>
     );
 };

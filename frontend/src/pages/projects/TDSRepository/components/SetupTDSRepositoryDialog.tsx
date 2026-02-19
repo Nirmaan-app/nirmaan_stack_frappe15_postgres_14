@@ -196,7 +196,7 @@ export const SetupTDSRepositoryDialog: React.FC<SetupTDSRepositoryDialogProps> =
                             enabled={formData.mepContractor.enabled}
                             onEnableChange={(val) => handleUpdate('mepContractor', 'enabled', val)}
                             helperText={
-                                <span className="text-gray-500 italic">
+                                <span className="text-[10px] mb-2 text-red-500/90 text-center italic leading-tight">
                                     Default is Nirmaan logo. Upload to replace.
                                 </span>
                             }

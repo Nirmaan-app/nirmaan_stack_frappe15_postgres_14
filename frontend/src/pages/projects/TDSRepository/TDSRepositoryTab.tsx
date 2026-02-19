@@ -70,6 +70,14 @@ export const TDSRepositoryTab: React.FC<TDSRepositoryTabProps> = ({ projectId })
             // Safe File check helper
             const isFile = (f: any) => f instanceof File;
 
+            // Handle explicitly removed logos (null) by setting field to null in textData (or finalUpdates)
+            if (rawData.client.logo === null) finalUpdates['client_logo'] = null;
+            if (rawData.projectManager.logo === null) finalUpdates['mananger_logo'] = null;
+            if (rawData.architect.logo === null) finalUpdates['architect_logo'] = null;
+            if (rawData.consultant.logo === null) finalUpdates['consultant_logo'] = null;
+            if (rawData.gcContractor.logo === null) finalUpdates['gc_contractor_logo'] = null;
+            if (rawData.mepContractor.logo === null) finalUpdates['mep_contractorlogo'] = null;
+
             if (isFile(rawData.client.logo)) uploadQueue.push({ file: rawData.client.logo as File, field: 'client_logo' });
             if (isFile(rawData.projectManager.logo)) uploadQueue.push({ file: rawData.projectManager.logo as File, field: 'mananger_logo' });
             if (isFile(rawData.architect.logo)) uploadQueue.push({ file: rawData.architect.logo as File, field: 'architect_logo' });

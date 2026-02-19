@@ -9,6 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Ban, FileDown, ExternalLink, Loader2 } from 'lucide-react';
+import { cn } from "@/lib/utils";
 import { TDSRepositoryData } from './SetupTDSRepositoryDialog';
 
 interface TdsExportItem {
@@ -33,20 +34,33 @@ interface TdsExportDialogProps {
 }
 
 // Mini stakeholder card for the dialog
-const MiniStakeholderCard: React.FC<{ label: string; name: string; logo?: string | File | null }> = ({ label, name, logo }) => {
+const MiniStakeholderCard: React.FC<{ label: string; name: string; logo?: string | File | null; enabled: boolean }> = ({ label, name, logo, enabled }) => {
     const logoUrl = typeof logo === 'string' ? logo : null;
     
     return (
-        <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+        <div className={cn(
+            "flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200 transition-opacity",
+            !enabled && "opacity-50"
+        )}>
             <div className="w-10 h-10 bg-white rounded-md border border-gray-200 flex items-center justify-center overflow-hidden flex-shrink-0">
                 {logoUrl ? (
                     <img src={logoUrl} alt={name} className="w-full h-full object-contain" />
                 ) : (
-                    <div className="w-full h-full bg-gray-100" />
+                    <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+                         <span className="text-[10px] text-gray-400">No Logo</span>
+                    </div>
                 )}
             </div>
-            <div className="min-w-0">
-                <p className="text-[10px] text-gray-500 uppercase font-medium">{label}</p>
+            <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-1">
+                    <p className="text-[10px] text-gray-500 uppercase font-medium">{label}</p>
+                    <span className={cn(
+                        "text-[8px] px-1.5 py-0.5 rounded-full font-bold uppercase",
+                        enabled ? "bg-green-100 text-green-700 border border-green-200" : "bg-gray-200 text-gray-600 border border-gray-300"
+                    )}>
+                        {enabled ? 'Enabled' : 'Disabled'}
+                    </span>
+                </div>
                 <p className="text-sm font-semibold text-gray-900 truncate">{name || '-'}</p>
             </div>
         </div>
@@ -126,12 +140,12 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
                             </Button>
                         </div> */}
                         <div className="grid grid-cols-3 gap-3">
-                            <MiniStakeholderCard label="Client" name={settings.client.name} logo={settings.client.logo} />
-                            <MiniStakeholderCard label="Project Manager" name={settings.projectManager.name} logo={settings.projectManager.logo} />
-                            <MiniStakeholderCard label="Consultant" name={settings.consultant.name} logo={settings.consultant.logo} />
-                            <MiniStakeholderCard label="Architect" name={settings.architect.name} logo={settings.architect.logo} />
-                            <MiniStakeholderCard label="GC Contractor" name={settings.gcContractor.name} logo={settings.gcContractor.logo} />
-                            <MiniStakeholderCard label="MEP Contractor" name={settings.mepContractor.name} logo={settings.mepContractor.logo} />
+                            <MiniStakeholderCard label="Client" name={settings.client.name} logo={settings.client.logo} enabled={settings.client.enabled} />
+                            <MiniStakeholderCard label="Project Manager" name={settings.projectManager.name} logo={settings.projectManager.logo} enabled={settings.projectManager.enabled} />
+                            <MiniStakeholderCard label="Consultant" name={settings.consultant.name} logo={settings.consultant.logo} enabled={settings.consultant.enabled} />
+                            <MiniStakeholderCard label="Architect" name={settings.architect.name} logo={settings.architect.logo} enabled={settings.architect.enabled} />
+                            <MiniStakeholderCard label="GC Contractor" name={settings.gcContractor.name} logo={settings.gcContractor.logo} enabled={settings.gcContractor.enabled} />
+                            <MiniStakeholderCard label="MEP Contractor" name={settings.mepContractor.name} logo={settings.mepContractor.logo} enabled={settings.mepContractor.enabled} />
                         </div>
                     </div>
 
