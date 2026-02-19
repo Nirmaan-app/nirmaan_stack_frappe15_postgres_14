@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { VALIDATION_MESSAGES } from "./constants";
 
 /**
  * SR Form Schema
@@ -17,7 +18,7 @@ export const serviceItemSchema = z.object({
     description: z.string().min(1, { message: "Description is required" }),
     uom: z.string().min(1, { message: "Unit of measure is required" }),
     quantity: z.coerce.number().positive({ message: "Quantity must be greater than 0" }),
-    rate: z.coerce.number().nonnegative({ message: "Rate cannot be negative" }).optional(),
+    rate: z.coerce.number().optional(),
 });
 
 export type ServiceItemType = z.infer<typeof serviceItemSchema>;
@@ -80,10 +81,10 @@ export type Step1Values = z.infer<typeof step1Schema>;
  * Partial schema for Step 2 validation (vendor required)
  */
 export const step2Schema = z.object({
-    vendor: vendorRefSchema, // Required in step 2, not nullable
+    vendor: vendorRefSchema.nullable().refine((val) => val !== null, { message: VALIDATION_MESSAGES.vendorRequired }),
     items: z
         .array(serviceItemSchema.extend({
-            rate: z.coerce.number().positive({ message: "Rate is required for each item" }),
+            rate: z.coerce.number().refine((val) => val !== 0, { message: "Rate is required for each item" }),
         }))
         .min(1, { message: "At least one service item is required" }),
 });
@@ -140,22 +141,55 @@ export const createServiceItem = (
 });
 
 /**
+ * Validation result type
+ */
+export type ValidationResult = {
+    success: boolean;
+    error?: string;
+};
+
+/**
  * Validation helper for step 1
  */
-export const validateStep1 = (values: Partial<SRFormValues>): boolean => {
+export const validateStep1 = (values: Partial<SRFormValues>): ValidationResult => {
     const result = step1Schema.safeParse(values);
-    return result.success;
+    if (!result.success) {
+        return {
+            success: false,
+            error: result.error.errors[0]?.message || "Please complete all required fields.",
+        };
+    }
+    return { success: true };
 };
 
 /**
  * Validation helper for step 2
  */
-export const validateStep2 = (values: Partial<SRFormValues>): boolean => {
+export const validateStep2 = (values: Partial<SRFormValues>): ValidationResult => {
     const result = step2Schema.safeParse({
         vendor: values.vendor,
         items: values.items,
     });
-    return result.success;
+    if (!result.success) {
+        return {
+            success: false,
+            error: result.error.errors[0]?.message || "Please complete all required fields.",
+        };
+    }
+
+    // Manual check for total amount (moved from Zod schema to control timing/message)
+    const items = values.items || [];
+    const total = calculateTotal(items);
+    const allRatesSet = items.every((i) => (i.rate ?? 0) !== 0);
+    
+    if (allRatesSet && total <= 0) {
+        return {
+            success: false,
+            error: "Total Work Order amount must be greater than zero",
+        };
+    }
+
+    return { success: true };
 };
 
 /**

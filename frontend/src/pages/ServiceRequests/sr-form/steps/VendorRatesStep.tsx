@@ -106,8 +106,8 @@ export const VendorRatesStep: React.FC<StepProps> = ({
     // Calculate totals
     const totalAmount = calculateTotal(items);
 
-    // Check if all items have rates
-    const allItemsHaveRates = items.every((item) => (item.rate ?? 0) > 0);
+    // Check if all items have rates (can be negative but not 0 or undefined)
+    const allItemsHaveRates = items.every((item) => item.rate !== undefined && item.rate !== 0);
 
     // Custom components for react-select
     const CustomSingleValue = ({ data }: { data: VendorOption }) => (
@@ -276,7 +276,6 @@ export const VendorRatesStep: React.FC<StepProps> = ({
                                             <TableCell className="text-sm">
                                                 <Input
                                                     type="number"
-                                                    min={0}
                                                     step="any"
                                                     placeholder={PLACEHOLDERS.rate}
                                                     value={item.rate || ""}
@@ -288,14 +287,14 @@ export const VendorRatesStep: React.FC<StepProps> = ({
                                                     }
                                                     className="h-8 text-sm text-center"
                                                     onKeyDown={(e) => {
-                                                        if (e.key === "-" || e.key === "e") {
+                                                        if (e.key === "e") {
                                                             e.preventDefault();
                                                         }
                                                     }}
                                                 />
                                             </TableCell>
                                             <TableCell className="text-sm text-right font-medium">
-                                                {amount > 0 ? formatToIndianRupee(amount) : "--"}
+                                                {amount !== 0 ? formatToIndianRupee(amount) : "--"}
                                             </TableCell>
                                         </TableRow>
                                     );
@@ -344,15 +343,23 @@ export const VendorRatesStep: React.FC<StepProps> = ({
                             <div className="flex justify-between text-sm">
                                 <span className="text-muted-foreground">Items with Rate:</span>
                                 <span className="font-medium">
-                                    {items.filter((i) => (i.rate ?? 0) > 0).length} / {items.length}
+                                    {items.filter((i) => (i.rate ?? 0) !== 0).length} / {items.length}
                                 </span>
                             </div>
                             <div className="border-t pt-2 mt-2">
-                                <div className="flex justify-between">
+                                <div className="flex justify-between items-center">
                                     <span className="font-semibold">Total Amount:</span>
-                                    <span className="font-bold text-lg text-primary">
-                                        {formatToIndianRupee(totalAmount)}
-                                    </span>
+                                    <div className="text-right">
+                                        <span className="font-bold text-lg text-primary block">
+                                            {formatToIndianRupee(totalAmount)}
+                                        </span>
+                                        {totalAmount <= 0 && allItemsHaveRates && (
+                                            <span className="text-[10px] text-red-500 font-medium flex items-center justify-end gap-1 mt-0.5">
+                                                <AlertCircle className="h-2.5 w-2.5" />
+                                                Total must be greater than zero
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         </div>
