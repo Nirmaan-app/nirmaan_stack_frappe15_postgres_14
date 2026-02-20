@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft, Download, Loader2 } from "lucide-react";
 import { BaseItemList, BaseItem, formatCreationDate } from "./BaseItemList";
 import { WOItem } from "../useBulkDownloadWizard";
+import { FilterBar } from "../FilterBar";
+import { DateFilterValue } from "@/components/ui/standalone-date-filter";
 
 interface WOStepsProps {
     items: WOItem[];
@@ -16,15 +18,22 @@ interface WOStepsProps {
     onBack: () => void;
     onDownload: () => void;
     loading: boolean;
+    vendorOptions: { value: string; label: string }[];
+    vendorFilter: string[];
+    onToggleVendor: (v: string) => void;
+    dateFilter?: DateFilterValue;
+    onDateFilter: (v?: DateFilterValue) => void;
+    onClearFilters: () => void;
 }
 
 export const WOSteps = ({
     items, isLoading, selectedIds, onToggle, onSelectAll, onDeselectAll,
     onBack, onDownload, loading,
+    vendorOptions, vendorFilter, onToggleVendor, dateFilter, onDateFilter, onClearFilters
 }: WOStepsProps) => {
     const baseItems: BaseItem[] = items.map((wo) => ({
         name: wo.name,
-        subtitle: wo.vendor || "—",
+        subtitle: wo.vendor_name || wo.vendor || "—",
         status: wo.status,
         dateStr: formatCreationDate(wo.creation),
     }));
@@ -37,6 +46,15 @@ export const WOSteps = ({
                     {selectedIds.length === 0 ? "None selected" : `${selectedIds.length} selected`}
                 </p>
             </div>
+
+            <FilterBar
+                vendorOptions={vendorOptions}
+                vendorFilter={vendorFilter}
+                onToggleVendor={onToggleVendor}
+                dateFilter={dateFilter}
+                onDateFilter={onDateFilter}
+                onClearFilters={onClearFilters}
+            />
 
             <BaseItemList
                 items={baseItems}

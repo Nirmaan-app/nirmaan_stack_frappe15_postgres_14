@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { WizardSteps, WizardStep } from "@/components/ui/wizard-steps";
@@ -34,32 +33,35 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
         resetToTypeSelection,
         downloadedCount,
         downloadedLabel,
-        // PO
+        // Data arrays
         poList,
         posLoading,
+        woList,
+        wosLoading,
+        dnList,
+        invoicesLoading,
+        dcItems,
+        mirItems,
+        poDeliveryDocsLoading,
+        criticalTasks,
+        
+        // Filters & Derived State
         vendorOptions,
-        poVendorFilter,
+        commonVendorFilter,
         toggleVendor,
-        poDateRange,
-        handlePoDateRange,
-        clearPoFilters,
+        commonDateFilter,
+        setCommonDateFilter,
+        clearFilters,
         withRate,
         setWithRate,
         poStatuses,
+        
+        // General
         itemCounts,
-        // WO
-        woList,
-        wosLoading,
-        // Invoice
         invoiceSubType,
         setInvoiceSubType,
         filteredInvoiceItems,
-        // DC / MIR
-        dcItems,
-        mirItems,
-        attachmentsLoading,
-        // Critical tasks
-        criticalTasks,
+
         // Download/progress
         loading,
         progress,
@@ -68,9 +70,6 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
         setShowProgress,
         handleDownload,
     } = useBulkDownloadWizard(projectId, projectName);
-
-    // Compute invoice list reactively so it re-renders when subType changes
-    const invoiceItems = useMemo(() => filteredInvoiceItems(invoiceSubType), [filteredInvoiceItems, invoiceSubType]);
 
     const currentWizardStep = step === 1 ? 0 : step === 2 ? 1 : 2;
 
@@ -106,15 +105,22 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
 
             {/* Selective Wizard */}
             <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
-                <div className="px-6 pt-6 pb-2">
-                    <div className="flex items-center gap-2 mb-1">
+                <div className="px-6 pt-2 pb-2">
+                    <div className="flex justify-center items-center gap-2 mb-1">
                         <Wand2 className="h-5 w-5 text-primary" />
-                        <h3 className="text-lg font-semibold">Selective Download</h3>
+                        <h3 className="text-lg font-semibold">What would you like to download?</h3>
                     </div>
-                    <p className="text-sm text-muted-foreground">
-                        Choose specific documents and download only what you need.
+                    <p className="text-center text-sm text-muted-foreground">
+                        Choose a document type. You'll select specific items in the next step.
                     </p>
                 </div>
+                {/* <div className="text-center space-y-1">
+                <h2 className="text-2xl font-bold tracking-tight">What would you like to download?</h2>
+                <p className="text-muted-foreground text-sm">
+                    Choose a document type. You'll select specific items in the next step.
+                </p>
+            </div> */}
+
 
                 <WizardSteps
                     steps={WIZARD_STEPS}
@@ -135,11 +141,11 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                             withRate={withRate}
                             onWithRateChange={setWithRate}
                             vendorOptions={vendorOptions}
-                            poVendorFilter={poVendorFilter}
+                            poVendorFilter={commonVendorFilter}
                             onToggleVendor={toggleVendor}
-                            poDateRange={poDateRange}
-                            onPoDateRange={handlePoDateRange}
-                            onClearPoFilters={clearPoFilters}
+                            poDateFilter={commonDateFilter}
+                            setPoDateFilter={setCommonDateFilter}
+                            onClearPoFilters={clearFilters}
                             criticalTasks={criticalTasks}
                             onSelectMultipleCriticalTaskPOs={selectMultipleCriticalTaskPOs}
                             poStatuses={poStatuses}
@@ -151,16 +157,28 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                             {...sharedProps}
                             items={woList}
                             isLoading={wosLoading}
+                            vendorOptions={vendorOptions}
+                            vendorFilter={commonVendorFilter}
+                            onToggleVendor={toggleVendor}
+                            dateFilter={commonDateFilter}
+                            onDateFilter={setCommonDateFilter}
+                            onClearFilters={clearFilters}
                         />
                     )}
 
                     {step === 2 && docType === "Invoice" && (
                         <InvoiceSteps
                             {...sharedProps}
-                            items={invoiceItems}
-                            isLoading={attachmentsLoading}
+                            items={filteredInvoiceItems(invoiceSubType)}
+                            isLoading={invoicesLoading}
                             invoiceSubType={invoiceSubType}
                             onInvoiceSubTypeChange={setInvoiceSubType}
+                            vendorOptions={vendorOptions}
+                            vendorFilter={commonVendorFilter}
+                            onToggleVendor={toggleVendor}
+                            dateFilter={commonDateFilter}
+                            onDateFilter={setCommonDateFilter}
+                            onClearFilters={clearFilters}
                         />
                     )}
 
@@ -168,7 +186,13 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                         <DCSteps
                             {...sharedProps}
                             items={dcItems}
-                            isLoading={attachmentsLoading}
+                            isLoading={poDeliveryDocsLoading}
+                            vendorOptions={vendorOptions}
+                            vendorFilter={commonVendorFilter}
+                            onToggleVendor={toggleVendor}
+                            dateFilter={commonDateFilter}
+                            onDateFilter={setCommonDateFilter}
+                            onClearFilters={clearFilters}
                         />
                     )}
 
@@ -176,21 +200,27 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                         <MIRSteps
                             {...sharedProps}
                             items={mirItems}
-                            isLoading={attachmentsLoading}
+                            isLoading={poDeliveryDocsLoading}
+                            vendorOptions={vendorOptions}
+                            vendorFilter={commonVendorFilter}
+                            onToggleVendor={toggleVendor}
+                            dateFilter={commonDateFilter}
+                            onDateFilter={setCommonDateFilter}
+                            onClearFilters={clearFilters}
                         />
                     )}
 
                     {step === 2 && docType === "DN" && (
                         <DNSteps
                             {...sharedProps}
-                            items={poList}
+                            items={dnList}
                             isLoading={posLoading}
                             vendorOptions={vendorOptions}
-                            poVendorFilter={poVendorFilter}
+                            poVendorFilter={commonVendorFilter}
                             onToggleVendor={toggleVendor}
-                            poDateRange={poDateRange}
-                            onPoDateRange={handlePoDateRange}
-                            onClearPoFilters={clearPoFilters}
+                            poDateFilter={commonDateFilter}
+                            setPoDateFilter={setCommonDateFilter}
+                            onClearPoFilters={clearFilters}
                             criticalTasks={criticalTasks}
                             onSelectMultipleCriticalTaskPOs={selectMultipleCriticalTaskPOs}
                         />

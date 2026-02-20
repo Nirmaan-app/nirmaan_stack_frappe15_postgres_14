@@ -7,8 +7,7 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from "@/components/ui/popover";
-import { MinStandaloneDateFilter } from "@/components/ui/MinStandaloneDateFilter";
-import { DateRange } from "react-day-picker";
+import { StandaloneDateFilter, DateFilterValue } from "@/components/ui/standalone-date-filter";
 import { Filter, X, ChevronDown } from "lucide-react";
 
 interface VendorOption {
@@ -16,32 +15,32 @@ interface VendorOption {
     label: string;
 }
 
-interface POFiltersBarProps {
+interface FilterBarProps {
     vendorOptions: VendorOption[];
-    selectedVendors: string[];
+    vendorFilter: string[];
     onToggleVendor: (vendorId: string) => void;
-    dateRange?: DateRange;
-    onDateRange: (days: number | "All" | "custom", range?: DateRange) => void;
-    onClearAll: () => void;
+    dateFilter?: DateFilterValue;
+    onDateFilter: (val?: DateFilterValue) => void;
+    onClearFilters: () => void;
 }
 
-export const POFiltersBar = ({
+export const FilterBar = ({
     vendorOptions,
-    selectedVendors,
+    vendorFilter,
     onToggleVendor,
-    dateRange,
-    onDateRange,
-    onClearAll,
-}: POFiltersBarProps) => {
-    const hasActiveFilters = selectedVendors.length > 0 || !!dateRange?.from;
-    const activeCount = (selectedVendors.length > 0 ? 1 : 0) + (dateRange?.from ? 1 : 0);
+    dateFilter,
+    onDateFilter,
+    onClearFilters,
+}: FilterBarProps) => {
+    const hasFilters = vendorFilter.length > 0 || !!dateFilter;
+    const activeCount = (vendorFilter.length > 0 ? 1 : 0) + (dateFilter ? 1 : 0);
 
     return (
         <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1 text-muted-foreground">
                 <Filter className="h-3.5 w-3.5" />
                 <span className="text-xs font-medium">Filter</span>
-                {hasActiveFilters && (
+                {hasFilters && (
                     <Badge variant="secondary" className="h-4 px-1 text-[10px]">{activeCount}</Badge>
                 )}
             </div>
@@ -52,11 +51,11 @@ export const POFiltersBar = ({
                     <Button
                         variant="outline"
                         size="sm"
-                        className={`h-8 text-xs gap-1 ${selectedVendors.length ? "border-primary text-primary" : ""}`}
+                        className={`h-8 text-xs gap-1 ${vendorFilter.length ? "border-primary text-primary" : ""}`}
                     >
                         Vendor
-                        {selectedVendors.length > 0 && (
-                            <Badge className="h-4 px-1 text-[10px] ml-0.5">{selectedVendors.length}</Badge>
+                        {vendorFilter.length > 0 && (
+                            <Badge className="h-4 px-1 text-[10px] ml-0.5">{vendorFilter.length}</Badge>
                         )}
                         <ChevronDown className="h-3 w-3 ml-0.5" />
                     </Button>
@@ -76,7 +75,7 @@ export const POFiltersBar = ({
                                     onClick={() => onToggleVendor(value)}
                                 >
                                     <Checkbox
-                                        checked={selectedVendors.includes(value)}
+                                        checked={vendorFilter.includes(value)}
                                         onCheckedChange={() => onToggleVendor(value)}
                                         onClick={(e) => e.stopPropagation()}
                                     />
@@ -85,34 +84,36 @@ export const POFiltersBar = ({
                             ))}
                         </div>
                     )}
-                    {selectedVendors.length > 0 && (
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className="w-full mt-2 h-6 text-xs text-muted-foreground"
-                            onClick={() => selectedVendors.forEach(onToggleVendor)}
-                        >
-                            Clear vendor filter
-                        </Button>
+                    {vendorFilter.length > 0 && (
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground">Clear:</span>
+                            <Badge
+                                variant="outline"
+                                className="cursor-pointer hover:bg-destructive hover:text-destructive-foreground px-1.5 h-5 text-[10px]"
+                                onClick={() => vendorFilter.forEach(onToggleVendor)}
+                            >
+                                Vendors ({vendorFilter.length}) ✕
+                            </Badge>
+                        </div>
                     )}
                 </PopoverContent>
             </Popover>
 
             {/* Date Range */}
-            <div className={dateRange?.from ? "ring-1 ring-primary rounded-md" : ""}>
-                <MinStandaloneDateFilter
-                    dateRange={dateRange}
-                    setDaysRange={onDateRange}
+            <div className={dateFilter ? "ring-1 ring-primary rounded-md" : ""}>
+                <StandaloneDateFilter
+                    value={dateFilter}
+                    onChange={onDateFilter}
                 />
             </div>
 
             {/* Clear all */}
-            {hasActiveFilters && (
+            {hasFilters && (
                 <Button
                     variant="ghost"
                     size="sm"
                     className="h-8 text-xs text-muted-foreground gap-1 px-2"
-                    onClick={onClearAll}
+                    onClick={onClearFilters}
                 >
                     <X className="h-3 w-3" />
                     Clear

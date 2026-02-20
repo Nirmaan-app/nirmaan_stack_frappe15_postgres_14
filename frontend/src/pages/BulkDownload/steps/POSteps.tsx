@@ -10,9 +10,9 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft, Download, Loader2, AlertTriangle, Link2, CheckSquare, Square } from "lucide-react";
 import { BaseItemList, BaseItem, formatCreationDate } from "./BaseItemList";
-import { POFiltersBar } from "../POFiltersBar";
+import { FilterBar } from "../FilterBar";
 import { POItem, CriticalPOTask } from "../useBulkDownloadWizard";
-import { DateRange } from "react-day-picker";
+import { DateFilterValue } from "@/components/ui/standalone-date-filter";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 function parseLinkedPOs(raw?: string): string[] {
@@ -37,8 +37,8 @@ interface POStepsProps {
     vendorOptions: { value: string; label: string }[];
     poVendorFilter: string[];
     onToggleVendor: (v: string) => void;
-    poDateRange?: DateRange;
-    onPoDateRange: (days: number | "All" | "custom", range?: DateRange) => void;
+    poDateFilter?: DateFilterValue;
+    setPoDateFilter: (val?: DateFilterValue) => void;
     onClearPoFilters: () => void;
     // Status
     poStatuses: string[];
@@ -69,20 +69,21 @@ export const POSteps = ({
     vendorOptions,
     poVendorFilter,
     onToggleVendor,
-    poDateRange,
-    onPoDateRange,
+    poDateFilter,
+    setPoDateFilter,
     onClearPoFilters,
     poStatuses,
     criticalTasks,
     onSelectMultipleCriticalTaskPOs,
 }: POStepsProps) => {
+    const [selectedCriticalTasks, setSelectedCriticalTasks] = useState<string[]>([]);
+    const [statusFilter, setStatusFilter] = useState<string | null>(null);
+    const [activeTab, setActiveTab] = useState("all");
+
     const tasksWithPOs = useMemo(
         () => criticalTasks.filter((t) => parseLinkedPOs(t.associated_pos).length > 0),
         [criticalTasks]
     );
-
-    const [selectedCriticalTasks, setSelectedCriticalTasks] = useState<string[]>([]);
-    const [statusFilter, setStatusFilter] = useState<string | null>(null);
 
     const handleCriticalToggle = (taskName: string) => {
         setSelectedCriticalTasks((prev) => {
@@ -148,17 +149,24 @@ export const POSteps = ({
             </div>
 
             {/* Tabs */}
-            <Tabs defaultValue="all" onValueChange={() => deselectAllCritical()}>
-                <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-2">
-                    <POFiltersBar
-                        vendorOptions={vendorOptions}
-                        selectedVendors={poVendorFilter}
-                        onToggleVendor={onToggleVendor}
-                        dateRange={poDateRange}
-                        onDateRange={onPoDateRange}
-                        onClearAll={() => { onClearPoFilters(); setStatusFilter(null); }}
-                    />
-                    <div className="sm:ml-auto shrink-0">
+            <Tabs value={activeTab} onValueChange={(val) => {
+                setActiveTab(val);
+                if (val === "all") deselectAllCritical();
+            }}>
+                <div className="flex flex-col sm:flex-row sm:items-start gap-3 mb-2">
+                    <div className="flex-1">
+                        {activeTab === "all" && (
+                            <FilterBar
+                                vendorOptions={vendorOptions}
+                                vendorFilter={poVendorFilter}
+                                onToggleVendor={onToggleVendor}
+                                dateFilter={poDateFilter}
+                                onDateFilter={setPoDateFilter}
+                                onClearFilters={() => { onClearPoFilters(); setStatusFilter(null); }}
+                            />
+                        )}
+                    </div>
+                    <div className="shrink-0 pt-1">
                         <TabsList className="h-8">
                             <TabsTrigger value="all" className="text-xs h-7 px-3">
                                 All POs

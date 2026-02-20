@@ -3,21 +3,28 @@
  */
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Download, Loader2, FileText } from "lucide-react";
-import { BaseItemList, BaseItem } from "./BaseItemList";
-import { AttachmentItem, InvoiceSubType } from "../useBulkDownloadWizard";
+import { BaseItemList, BaseItem, formatCreationDate } from "./BaseItemList";
+import { InvoiceSubType } from "../useBulkDownloadWizard";
+import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
+import { FilterBar } from "../FilterBar";
+import { DateFilterValue } from "@/components/ui/standalone-date-filter";
 
 interface InvoiceStepsProps {
-    items: AttachmentItem[];
+    items: VendorInvoice[];
     isLoading: boolean;
     selectedIds: string[];
     onToggle: (id: string) => void;
-    onSelectAll: (ids: string[]) => void;
-    onDeselectAll: () => void;
     onBack: () => void;
     onDownload: () => void;
     loading: boolean;
     invoiceSubType: InvoiceSubType;
     onInvoiceSubTypeChange: (v: InvoiceSubType) => void;
+    vendorOptions: { value: string; label: string }[];
+    vendorFilter: string[];
+    onToggleVendor: (v: string) => void;
+    dateFilter?: DateFilterValue;
+    onDateFilter: (v?: DateFilterValue) => void;
+    onClearFilters: () => void;
 }
 
 const SUB_TYPES: { value: InvoiceSubType; label: string; description: string }[] = [
@@ -27,13 +34,18 @@ const SUB_TYPES: { value: InvoiceSubType; label: string; description: string }[]
 ];
 
 export const InvoiceSteps = ({
-    items, isLoading, selectedIds, onToggle, onSelectAll, onDeselectAll,
+    items, isLoading, selectedIds, onToggle,
     onBack, onDownload, loading, invoiceSubType, onInvoiceSubTypeChange,
+    vendorOptions, vendorFilter, onToggleVendor, dateFilter, onDateFilter, onClearFilters
 }: InvoiceStepsProps) => {
-    const baseItems: BaseItem[] = items.map((att) => ({
-        name: att.name,
-        subtitle: att.associated_docname || "—",
-        rightLabel: att.attachment_type === "po invoice" ? "PO Invoice" : "WO Invoice",
+    const baseItems: BaseItem[] = items.map((vi) => ({
+        name: vi.name,
+        subtitle: vi.vendor_name || vi.vendor || "—",
+        rightLabel: vi.invoice_no,
+        dateStr: vi.invoice_date ? formatCreationDate(`${vi.invoice_date} 00:00:00`) : undefined,
+        status: invoiceSubType === "All Invoices" 
+            ? (vi.document_type === "Procurement Orders" ? "PO Invoice" : vi.document_type === "Service Requests" ? "WO Invoice" : vi.document_type)
+            : undefined,
     }));
 
     return (
@@ -71,6 +83,15 @@ export const InvoiceSteps = ({
                     })}
                 </div>
             </div>
+
+            <FilterBar
+                vendorOptions={vendorOptions}
+                vendorFilter={vendorFilter}
+                onToggleVendor={onToggleVendor}
+                dateFilter={dateFilter}
+                onDateFilter={onDateFilter}
+                onClearFilters={onClearFilters}
+            />
 
             <BaseItemList
                 items={baseItems}

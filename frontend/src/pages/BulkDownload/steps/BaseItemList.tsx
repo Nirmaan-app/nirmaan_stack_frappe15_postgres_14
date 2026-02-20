@@ -75,7 +75,7 @@ export const BaseItemList = ({
             <div className="flex flex-wrap items-center gap-2 justify-between">
                 <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
                     {filtersSlot}
-                    {!hideSearch && (
+                    {/* {!hideSearch && (
                         <div className="relative w-full max-w-[220px]">
                             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                             <Input
@@ -93,7 +93,7 @@ export const BaseItemList = ({
                                 </button>
                             )}
                         </div>
-                    )}
+                    )} */}
                 </div>
                 <Button
                     variant="outline"
@@ -111,15 +111,15 @@ export const BaseItemList = ({
             {/* Count */}
             <p className="text-xs text-muted-foreground">
                 {selectedIds.length} of {filtered.length} selected
-                {search && filtered.length !== items.length && (
+                {/* {search && filtered.length !== items.length && (
                     <span className="ml-1">
                         (showing {filtered.length} of {items.length})
                     </span>
-                )}
+                )} */}
             </p>
 
             {/* List */}
-            <div className="border rounded-xl overflow-hidden">
+            <div className="border rounded-md overflow-hidden">
                 {isLoading ? (
                     <div className="flex items-center justify-center h-48">
                         <TailSpin color="red" width={32} height={32} />
@@ -127,13 +127,15 @@ export const BaseItemList = ({
                 ) : filtered.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-48 text-muted-foreground gap-2">
                         <p className="text-sm">
-                            {search ? `No results for "${search}"` : emptyMessage}
+                            {/* {search ? `No results for "${search}"` : emptyMessage} */}
+                            {emptyMessage}
                         </p>
-                        {search ? (
+                        {/* {search ? (
                             <Button variant="link" size="sm" className="text-xs" onClick={() => setSearch("")}>
                                 Clear search
                             </Button>
-                        ) : onClearFilters ? (
+                        ) :  */}
+                        {onClearFilters ? (
                             <Button variant="link" size="sm" className="text-xs" onClick={onClearFilters}>
                                 Clear filters
                             </Button>

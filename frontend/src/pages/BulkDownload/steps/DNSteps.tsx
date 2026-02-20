@@ -8,9 +8,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ArrowLeft, Download, Loader2, AlertTriangle, Link2, CheckSquare, Square } from "lucide-react";
 import { BaseItemList, BaseItem, formatCreationDate } from "./BaseItemList";
-import { POFiltersBar } from "../POFiltersBar";
+import { FilterBar } from "../FilterBar";
 import { POItem, CriticalPOTask } from "../useBulkDownloadWizard";
-import { DateRange } from "react-day-picker";
+import { DateFilterValue } from "@/components/ui/standalone-date-filter";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 function parseLinkedPOs(raw?: string): string[] {
@@ -34,8 +34,8 @@ interface DNStepsProps {
     vendorOptions: { value: string; label: string }[];
     poVendorFilter: string[];
     onToggleVendor: (v: string) => void;
-    poDateRange?: DateRange;
-    onPoDateRange: (days: number | "All" | "custom", range?: DateRange) => void;
+    poDateFilter?: DateFilterValue;
+    setPoDateFilter: (val?: DateFilterValue) => void;
     onClearPoFilters: () => void;
     criticalTasks: CriticalPOTask[];
     onSelectMultipleCriticalTaskPOs: (taskNames: string[]) => void;
@@ -45,7 +45,7 @@ export const DNSteps = ({
     items, isLoading, selectedIds, onToggle, onSelectAll, onDeselectAll,
     onBack, onDownload, loading,
     vendorOptions, poVendorFilter, onToggleVendor,
-    poDateRange, onPoDateRange, onClearPoFilters,
+    poDateFilter, setPoDateFilter, onClearPoFilters,
     criticalTasks, onSelectMultipleCriticalTaskPOs,
 }: DNStepsProps) => {
     const tasksWithPOs = useMemo(
@@ -54,6 +54,7 @@ export const DNSteps = ({
     );
 
     const [selectedCriticalTasks, setSelectedCriticalTasks] = useState<string[]>([]);
+    const [activeTab, setActiveTab] = useState("all");
 
     const handleCriticalToggle = (taskName: string) => {
         setSelectedCriticalTasks((prev) => {
@@ -93,17 +94,24 @@ export const DNSteps = ({
                 </p>
             </div>
 
-            <Tabs defaultValue="all" onValueChange={() => deselectAllCritical()}>
-                <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-2">
-                    <POFiltersBar
-                        vendorOptions={vendorOptions}
-                        selectedVendors={poVendorFilter}
-                        onToggleVendor={onToggleVendor}
-                        dateRange={poDateRange}
-                        onDateRange={onPoDateRange}
-                        onClearAll={onClearPoFilters}
-                    />
-                    <div className="sm:ml-auto shrink-0">
+            <Tabs value={activeTab} onValueChange={(val) => {
+                setActiveTab(val);
+                if (val === "all") deselectAllCritical();
+            }}>
+                <div className="flex flex-col sm:flex-row sm:items-start gap-3 mb-2">
+                    <div className="flex-1">
+                        {activeTab === "all" && (
+                            <FilterBar
+                                vendorOptions={vendorOptions}
+                                vendorFilter={poVendorFilter}
+                                onToggleVendor={onToggleVendor}
+                                dateFilter={poDateFilter}
+                                onDateFilter={setPoDateFilter}
+                                onClearFilters={onClearPoFilters}
+                            />
+                        )}
+                    </div>
+                    <div className="shrink-0 pt-1">
                         <TabsList className="h-8">
                             <TabsTrigger value="all" className="text-xs h-7 px-3">
                                 All DNs

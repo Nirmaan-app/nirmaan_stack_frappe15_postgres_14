@@ -3,8 +3,10 @@
  */
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Download, Loader2 } from "lucide-react";
-import { BaseItemList, BaseItem } from "./BaseItemList";
-import { AttachmentItem } from "../useBulkDownloadWizard";
+import { BaseItemList, BaseItem, formatCreationDate } from "./BaseItemList";
+import { PODeliveryDocuments } from "@/types/NirmaanStack/PODeliveryDocuments";
+import { FilterBar } from "../FilterBar";
+import { DateFilterValue } from "@/components/ui/standalone-date-filter";
 
 interface DCStepsProps {
     items: AttachmentItem[];
@@ -16,16 +18,24 @@ interface DCStepsProps {
     onBack: () => void;
     onDownload: () => void;
     loading: boolean;
+    vendorOptions: { value: string; label: string }[];
+    vendorFilter: string[];
+    onToggleVendor: (v: string) => void;
+    dateFilter?: DateFilterValue;
+    onDateFilter: (v?: DateFilterValue) => void;
+    onClearFilters: () => void;
 }
 
 export const DCSteps = ({
     items, isLoading, selectedIds, onToggle, onSelectAll, onDeselectAll,
     onBack, onDownload, loading,
+    vendorOptions, vendorFilter, onToggleVendor, dateFilter, onDateFilter, onClearFilters
 }: DCStepsProps) => {
     const baseItems: BaseItem[] = items.map((att) => ({
         name: att.name,
-        subtitle: att.associated_docname || "—",
+        subtitle: att.vendor_name || att.vendor || "—",
         rightLabel: "DC",
+        dateStr: att.creation ? formatCreationDate(att.creation) : undefined,
     }));
 
     return (
@@ -36,6 +46,15 @@ export const DCSteps = ({
                     {selectedIds.length === 0 ? "None selected" : `${selectedIds.length} selected`}
                 </p>
             </div>
+
+            <FilterBar
+                vendorOptions={vendorOptions}
+                vendorFilter={vendorFilter}
+                onToggleVendor={onToggleVendor}
+                dateFilter={dateFilter}
+                onDateFilter={onDateFilter}
+                onClearFilters={onClearFilters}
+            />
 
             <BaseItemList
                 items={baseItems}

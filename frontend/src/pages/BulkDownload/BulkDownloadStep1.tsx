@@ -69,13 +69,7 @@ const TYPE_CONFIG: {
 export const BulkDownloadStep1 = ({ onSelect, counts = {} }: Step1Props) => {
     return (
         <div className="flex flex-col items-center gap-8 py-4">
-            <div className="text-center space-y-1">
-                <h2 className="text-2xl font-bold tracking-tight">What would you like to download?</h2>
-                <p className="text-muted-foreground text-sm">
-                    Choose a document type. You'll select specific items in the next step.
-                </p>
-            </div>
-
+            
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 w-full">
                 {TYPE_CONFIG.map(({ type, label, description, icon: Icon, iconBg, iconColor }) => {
                     const count = counts[type];
@@ -83,7 +77,7 @@ export const BulkDownloadStep1 = ({ onSelect, counts = {} }: Step1Props) => {
                         <button
                             key={type}
                             onClick={() => onSelect(type)}
-                            className="group relative overflow-hidden rounded-2xl border-2 border-border hover:border-primary bg-card p-5 text-left shadow-sm transition-all duration-200 hover:shadow-md hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-primary"
+                            className="group relative overflow-hidden rounded-lg border-2 border-border hover:border-primary bg-card p-5 text-left shadow-sm transition-all duration-200 hover:shadow-md hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-primary"
                         >
                             <div className="flex flex-col gap-3">
                                 <div className="flex items-center justify-between">
