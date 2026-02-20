@@ -22,6 +22,7 @@ import formatToIndianRupee, {
 import { useDialogStore } from "@/zustand/useDialogStore";
 import {
   useFrappeGetDoc,
+  useFrappeGetDocList,
   useFrappePostCall,
   useFrappeUpdateDoc,
 } from "frappe-react-sdk";
@@ -36,6 +37,7 @@ import {
   Eye,
   FileText,
   Mail,
+  Paperclip,
   MessageSquare,
   Pencil,
   Phone,
@@ -95,6 +97,8 @@ import {
 import { toast } from "@/components/ui/use-toast";
 import { ValidationIndicator } from "@/components/validations/ValidationIndicator";
 import { ValidationMessages } from "@/components/validations/ValidationMessages";
+import { NirmaanAttachment } from "@/types/NirmaanStack/NirmaanAttachment";
+import SITEURL from "@/constants/siteURL";
 import { DeliveryNotePrintLayout } from "@/pages/DeliveryNotes/components/DeliveryNotePrintLayout";
 import { useReactToPrint } from "react-to-print";
 import { usePrintHistory } from "@/pages/DeliveryNotes/hooks/usePrintHistroy";
@@ -153,6 +157,23 @@ export const PODetails: React.FC<PODetailsProps> = ({
     "Procurement Requests",
     po?.procurement_request,
     po ? undefined : null
+  );
+
+  // Fetch vendor quote attachment for this PO's PR + vendor
+  const { data: vendorQuoteAttachment } = useFrappeGetDocList<NirmaanAttachment>(
+    "Nirmaan Attachments",
+    {
+      fields: ["name", "attachment", "creation"],
+      filters: [
+        ["associated_doctype", "=", "Procurement Requests"],
+        ["associated_docname", "=", po?.procurement_request],
+        ["attachment_link_docname", "=", po?.vendor],
+        ["attachment_type", "=", "Vendor Quote"],
+      ],
+      orderBy: { field: "creation", order: "desc" },
+      limit: 1,
+    },
+    po?.procurement_request && po?.vendor ? undefined : null
   );
 
   const [contactPerson, setContactPerson] = useState({
@@ -568,6 +589,18 @@ export const PODetails: React.FC<PODetailsProps> = ({
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Vendor</span>
                 <VendorHoverCard vendor_id={po?.vendor} />
+                <Separator orientation="vertical" className="h-5 hidden sm:block" />
+                {vendorQuoteAttachment?.[0]?.attachment && (
+                  <a
+                    href={`${SITEURL}${vendorQuoteAttachment[0].attachment}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-green-600 hover:text-green-800 hover:underline border border-green-200 rounded-md px-2 py-0.5"
+                  >
+                    <Paperclip className="h-3 w-3" />
+                    Vendor Quote
+                  </a>
+                )}
                 {hasVendorIssues && (
                   <ValidationIndicator
                     error={errors.find((e) => e.code === "INCOMPLETE_VENDOR")}
