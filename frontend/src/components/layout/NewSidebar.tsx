@@ -223,7 +223,7 @@ export function NewSidebar() {
             { key: "/design-packages", label: "Design Packages" },
             { key: "/tds-repository", label: "TDS Repository" },
             
-            ...(user_id == "Administrator" || role == "Nirmaan Project Lead Profile"
+            ...(user_id == "Administrator"|| role == "Nirmaan Admin Profile" || role == "Nirmaan PMO Executive Profile" || role == "Nirmaan Project Lead Profile"
               ? [{ key: "/critical-po-categories", label: "Critical PO Categories" }]
               : []),
             // { key: "/all-AQs", label: "Approved Quotations" },
