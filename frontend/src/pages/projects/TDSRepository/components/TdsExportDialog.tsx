@@ -8,8 +8,9 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Ban, FileDown, ExternalLink, Loader2 } from 'lucide-react';
+import { Ban, FileDown, ExternalLink, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 import { TDSRepositoryData } from './SetupTDSRepositoryDialog';
 
 interface TdsExportItem {
@@ -77,18 +78,100 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
 }) => {
     // Filter only approved items
     const approvedItems = useMemo(() => {
-        return historyData.filter(item => item.tds_status === 'Approved');
+        return historyData
+            .filter(item => item.tds_status === 'Approved')
+            .sort((a, b) => {
+                const catA = (a.tds_category || '').toLowerCase();
+                const catB = (b.tds_category || '').toLowerCase();
+                if (catA < catB) return -1;
+                if (catA > catB) return 1;
+                
+                const nameA = (a.tds_item_name || '').toLowerCase();
+                const nameB = (b.tds_item_name || '').toLowerCase();
+                if (nameA < nameB) return -1;
+                if (nameA > nameB) return 1;
+                
+                return 0;
+            });
     }, [historyData]);
+
+    // Track selected packages and their order
+    const [selectedPackages, setSelectedPackages] = useState<string[]>([]);
+
+    // Track collapsed package groups
+    const [collapsedPackages, setCollapsedPackages] = useState<Set<string>>(new Set());
 
     // Track selected items
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(approvedItems.map(item => item.name)));
+
+    const uniquePackages = useMemo(() => {
+        const pkgSet = new Set(approvedItems.map(item => item.tds_work_package || 'Unknown'));
+        return Array.from(pkgSet).sort();
+    }, [approvedItems]);
+
+    const filteredItems = useMemo(() => {
+        if (selectedPackages.length === 0) return approvedItems;
+        return approvedItems.filter(item => selectedPackages.includes(item.tds_work_package || 'Unknown'));
+    }, [approvedItems, selectedPackages]);
+
+    const groupedItems = useMemo(() => {
+        const groups = new Map<string, TdsExportItem[]>();
+        filteredItems.forEach(item => {
+            const pkg = item.tds_work_package || 'Unknown';
+            if (!groups.has(pkg)) groups.set(pkg, []);
+            groups.get(pkg)!.push(item);
+        });
+        
+        let sortedPackages: string[];
+        if (selectedPackages.length > 0) {
+            // Only include packages that actually have items in the current filtered view
+            sortedPackages = selectedPackages.filter(pkg => groups.has(pkg));
+        } else {
+            // If "All Packages", sort alphabetically
+            sortedPackages = Array.from(groups.keys()).sort();
+        }
+
+        return sortedPackages.map(pkg => ({
+            package: pkg,
+            items: groups.get(pkg)!
+        }));
+    }, [filteredItems, selectedPackages]);
 
     // Reset selection when dialog opens
     React.useEffect(() => {
         if (isOpen) {
             setSelectedIds(new Set(approvedItems.map(item => item.name)));
+            setSelectedPackages([]);
+            setCollapsedPackages(new Set());
         }
     }, [isOpen, approvedItems]);
+    
+    const handleToggleCollapse = (pkg: string) => {
+        setCollapsedPackages(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(pkg)) {
+                newSet.delete(pkg);
+            } else {
+                newSet.add(pkg);
+            }
+            return newSet;
+        });
+    };
+    
+    const handleTogglePackage = (pkg: string) => {
+        if (pkg === "All Packages") {
+            setSelectedPackages([]);
+            return;
+        }
+        
+        setSelectedPackages(prev => {
+            if (prev.includes(pkg)) {
+                return prev.filter(p => p !== pkg);
+            } else {
+                return [...prev, pkg];
+            }
+        });
+    };
 
     const handleToggleItem = (itemName: string) => {
         setSelectedIds(prev => {
@@ -103,19 +186,29 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
     };
 
     const handleSelectAll = () => {
-        setSelectedIds(new Set(approvedItems.map(item => item.name)));
+        setSelectedIds(prev => {
+            const newSet = new Set(prev);
+            filteredItems.forEach(item => newSet.add(item.name));
+            return newSet;
+        });
     };
 
     const handleDeselectAll = () => {
-        setSelectedIds(new Set());
+        setSelectedIds(prev => {
+            const newSet = new Set(prev);
+            filteredItems.forEach(item => newSet.delete(item.name));
+            return newSet;
+        });
     };
 
     const handleExport = () => {
-        const selectedItems = approvedItems.filter(item => selectedIds.has(item.name));
+        const selectedItems = groupedItems.flatMap(group => 
+            group.items.filter(item => selectedIds.has(item.name))
+        );
         onExport(selectedItems);
     };
 
-    const isAllSelected = selectedIds.size === approvedItems.length && approvedItems.length > 0;
+    const isAllSelected = filteredItems.length > 0 && filteredItems.every(item => selectedIds.has(item.name));
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
@@ -151,25 +244,60 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
 
                     {/* Items Selection Section */}
                     <div>
-                        <div className="flex items-center justify-between mb-3">
-                            <div className="flex items-center gap-2">
-                                <h3 className="text-sm font-semibold text-gray-900">Items to export</h3>
-                                <span className="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full">
-                                    {selectedIds.size}/{approvedItems.length} Selected
-                                </span>
+                        <div className="flex flex-col gap-4 mb-4">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <h3 className="text-sm font-semibold text-gray-900">Items to export</h3>
+                                    <span className="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full">
+                                        {filteredItems.filter(item => selectedIds.has(item.name)).length}/{filteredItems.length} Selected
+                                    </span>
+                                </div>
+                                <Button 
+                                    variant="outline" 
+                                    size="sm"
+                                    onClick={isAllSelected ? handleDeselectAll : handleSelectAll}
+                                >
+                                    {isAllSelected ? 'De-Select All' : 'Select All'}
+                                </Button>
                             </div>
-                            <Button 
-                                variant="outline" 
-                                size="sm"
-                                onClick={isAllSelected ? handleDeselectAll : handleSelectAll}
-                            >
-                                {isAllSelected ? 'De-Select All' : 'Select All'}
-                            </Button>
+                            
+                            {uniquePackages.length > 0 && (
+                                <div className="flex flex-wrap gap-2 items-center">
+                                    <span className="text-xs text-gray-500 font-medium mr-1">Packages:</span>
+                                    <Badge 
+                                        variant={selectedPackages.length === 0 ? "default" : "outline"}
+                                        className={cn(
+                                            "cursor-pointer hover:bg-primary/90 transition-colors",
+                                            selectedPackages.length === 0 && "bg-primary text-primary-foreground"
+                                        )}
+                                        onClick={() => handleTogglePackage("All Packages")}
+                                    >
+                                        All Packages
+                                    </Badge>
+                                    {uniquePackages.map(pkg => {
+                                        const selectIndex = selectedPackages.indexOf(pkg);
+                                        const isSelected = selectIndex !== -1;
+                                        return (
+                                            <Badge
+                                                key={pkg}
+                                                variant={isSelected ? "default" : "outline"}
+                                                className={cn(
+                                                    "cursor-pointer hover:bg-primary/90 transition-colors",
+                                                    isSelected && "bg-primary text-primary-foreground"
+                                                )}
+                                                onClick={() => handleTogglePackage(pkg)}
+                                            >
+                                                {isSelected ? `${selectIndex + 1}. ${pkg}` : pkg}
+                                            </Badge>
+                                        );
+                                    })}
+                                </div>
+                            )}
                         </div>
 
-                        {approvedItems.length === 0 ? (
+                        {filteredItems.length === 0 ? (
                             <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">
-                                No approved items to export.
+                                {approvedItems.length === 0 ? "No approved items to export." : "No items found for the selected package."}
                             </div>
                         ) : (
                             <div className="border rounded-lg">
@@ -186,41 +314,75 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {approvedItems.map((item) => (
-                                            <tr 
-                                                key={item.name} 
-                                                className="border-b hover:bg-gray-50 cursor-pointer"
-                                                onClick={() => handleToggleItem(item.name)}
-                                            >
-                                                <td className="p-3" onClick={(e) => e.stopPropagation()}>
-                                                    <Checkbox 
-                                                        checked={selectedIds.has(item.name)}
-                                                        onCheckedChange={() => handleToggleItem(item.name)}
-                                                        className="data-[state=checked]:bg-red-600 data-[state=checked]:border-red-600"
-                                                    />
-                                                </td>
-                                                <td className="p-3 text-gray-900">{item.tds_work_package || '-'}</td>
-                                                <td className="p-3 text-gray-700">{item.tds_category || '-'}</td>
-                                                <td className="p-3 text-gray-900">{item.tds_item_name || '-'}</td>
-                                                <td className="p-3 text-gray-500 max-w-[150px] truncate">{item.tds_description || '-'}</td>
-                                                <td className="p-3 text-gray-700">{item.tds_make || '-'}</td>
-                                                <td className="p-3">
-                                                    {item.tds_attachment ? (
-                                                        <a 
-                                                            href={item.tds_attachment} 
-                                                            target="_blank" 
-                                                            rel="noopener noreferrer"
-                                                            onClick={(e) => e.stopPropagation()}
-                                                            className="text-gray-500 hover:text-red-600"
-                                                        >
-                                                            <ExternalLink className="w-4 h-4" />
-                                                        </a>
-                                                    ) : (
-                                                        <span className="text-gray-300">-</span>
+                                        {groupedItems.map((group) => {
+                                            const selectedInGroup = group.items.filter(item => selectedIds.has(item.name)).length;
+                                            const totalInGroup = group.items.length;
+                                            const isCollapsed = collapsedPackages.has(group.package);
+                                            return (
+                                            <React.Fragment key={group.package}>
+                                                <tr 
+                                                    className={cn(
+                                                        "border-b cursor-pointer transition-colors",
+                                                        isCollapsed 
+                                                            ? "bg-gray-50 hover:bg-gray-100" 
+                                                            : "bg-red-50 hover:bg-red-100"
                                                     )}
-                                                </td>
-                                            </tr>
-                                        ))}
+                                                    onClick={() => handleToggleCollapse(group.package)}
+                                                >
+                                                    <td colSpan={7} className="px-3 py-2">
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="flex items-center gap-2">
+                                                                {isCollapsed ? (
+                                                                    <ChevronRight className="w-4 h-4 text-gray-500" />
+                                                                ) : (
+                                                                    <ChevronDown className="w-4 h-4 text-gray-500" />
+                                                                )}
+                                                                <span className="text-sm font-semibold text-gray-900">{group.package}</span>
+                                                            </div>
+                                                            <span className="text-xs bg-gray-200 text-gray-700 px-2 py-0.5 rounded-full">
+                                                                {selectedInGroup}/{totalInGroup}
+                                                            </span>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                                {!isCollapsed && group.items.map((item) => (
+                                                    <tr 
+                                                        key={item.name} 
+                                                        className="border-b hover:bg-gray-50 cursor-pointer"
+                                                        onClick={() => handleToggleItem(item.name)}
+                                                    >
+                                                        <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                                                            <Checkbox 
+                                                                checked={selectedIds.has(item.name)}
+                                                                onCheckedChange={() => handleToggleItem(item.name)}
+                                                                className="data-[state=checked]:bg-red-600 data-[state=checked]:border-red-600"
+                                                            />
+                                                        </td>
+                                                        <td className="p-3 text-gray-900">{item.tds_work_package || '-'}</td>
+                                                        <td className="p-3 text-gray-700">{item.tds_category || '-'}</td>
+                                                        <td className="p-3 text-gray-900">{item.tds_item_name || '-'}</td>
+                                                        <td className="p-3 text-gray-500 max-w-[150px] truncate" title={item.tds_description || ''}>{item.tds_description || '-'}</td>
+                                                        <td className="p-3 text-gray-700">{item.tds_make || '-'}</td>
+                                                        <td className="p-3">
+                                                            {item.tds_attachment ? (
+                                                                <a 
+                                                                    href={item.tds_attachment} 
+                                                                    target="_blank" 
+                                                                    rel="noopener noreferrer"
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                    className="text-gray-500 hover:text-red-600"
+                                                                >
+                                                                    <ExternalLink className="w-4 h-4" />
+                                                                </a>
+                                                            ) : (
+                                                                <span className="text-gray-300">-</span>
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </React.Fragment>
+                                            );
+                                        })}
                                     </tbody>
                                 </table>
                             </div>
