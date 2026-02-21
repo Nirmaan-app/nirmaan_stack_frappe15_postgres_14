@@ -375,12 +375,14 @@ import { toast } from "@/components/ui/use-toast";
 import { useFrappePostCall, useFrappeFileUpload } from "frappe-react-sdk"; 
 import { CirclePlus, Loader2, Trash2, Plus, Pencil } from "lucide-react";
 import React, { useCallback, useState, ChangeEvent, useMemo } from "react";
+import { formatDate } from "@/utils/FormatDate";
 
 // Structured payment term type
 export interface PaymentTerm {
     label: string;
     percentage: number;
     description: string;
+    expected_date?: string;
 }
 
 // Define the interface for a single row in the 'customer_po_details' child table
@@ -466,13 +468,13 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
     }, []);
 
     // Payment term: new term input state (always visible at bottom)
-    const [newTerm, setNewTerm] = useState<PaymentTerm>({ label: '', percentage: 0, description: '' });
+    const [newTerm, setNewTerm] = useState<PaymentTerm>({ label: '', percentage: 0, description: '', expected_date: '' });
     const [isEditingTerm, setIsEditingTerm] = useState(false);
 
     const handleAddTerm = useCallback(() => {
         if (!newTerm.label.trim()) return; // at least label required
         setPaymentTerms(prev => [...prev, { ...newTerm }]);
-        setNewTerm({ label: '', percentage: 0, description: '' }); // reset input for next
+        setNewTerm({ label: '', percentage: 0, description: '', expected_date: '' }); // reset input for next
         setIsEditingTerm(false);
     }, [newTerm]);
 
@@ -491,7 +493,7 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
             customer_po_attachment: '',
         });
         setPaymentTerms([]);
-        setNewTerm({ label: '', percentage: 0, description: '' });
+        setNewTerm({ label: '', percentage: 0, description: '', expected_date: '' });
         setIsEditingTerm(false);
         setLinkOrAttachmentChoice('link');
     }, []);
@@ -736,6 +738,9 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
                                     <div className="flex items-center gap-3 text-sm">
                                         <span className="font-medium">{term.label}</span>
                                         <span className="text-blue-600 font-mono whitespace-nowrap">{term.percentage}%</span>
+                                        {term.expected_date && (
+                                            <span className="text-gray-500 text-xs whitespace-nowrap">Date: {formatDate(term.expected_date)}</span>
+                                        )}
                                     </div>
                                     <div className="flex items-center gap-1 shrink-0">
                                         <Button
@@ -770,7 +775,7 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
 
                         {/* Input row — Label + % on first line, Description on second */}
                         <div className="space-y-2">
-                            <div className="grid grid-cols-[7fr_3fr] gap-2 items-end">
+                            <div className="grid grid-cols-[5fr_2fr_3fr] gap-2 items-end">
                                 <div className="space-y-1">
                                     <Label className="text-xs text-muted-foreground">Label</Label>
                                     <Input
@@ -789,6 +794,15 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
                                         placeholder="%"
                                         value={newTerm.percentage || ''}
                                         onChange={(e) => setNewTerm(prev => ({ ...prev, percentage: parseFloat(e.target.value || '0') }))}
+                                        className="h-8 text-sm"
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <Label className="text-xs text-muted-foreground">Expected Date</Label>
+                                    <Input
+                                        type="date"
+                                        value={newTerm.expected_date || ''}
+                                        onChange={(e) => setNewTerm(prev => ({ ...prev, expected_date: e.target.value }))}
                                         className="h-8 text-sm"
                                     />
                                 </div>

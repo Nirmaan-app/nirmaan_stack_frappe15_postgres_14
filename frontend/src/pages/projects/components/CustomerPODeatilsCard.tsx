@@ -680,7 +680,7 @@ const getCustomerPOColumns = (
             ),
             cell: ({ row }) => {
                 const raw = row.original.customer_po_payment_terms;
-                let terms: { label: string; percentage: number; description: string }[] = [];
+                let terms: { label: string; percentage: number; description: string; expected_date?: string }[] = [];
                 let isStructured = false;
                 try {
                     const parsed = JSON.parse(raw || '');
@@ -717,7 +717,12 @@ const getCustomerPOColumns = (
                                                 <div key={i} className="px-3 py-2">
                                                     <div className="flex items-center justify-between gap-3">
                                                         <span className="text-xs font-semibold text-gray-800">{t.label}</span>
-                                                        <span className="text-[11px] font-mono font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">{t.percentage}%</span>
+                                                        <div className="flex items-center gap-2">
+                                                            {t.expected_date && (
+                                                                <span className="text-[11px] text-gray-500">Due: {formatDate(t.expected_date)}</span>
+                                                            )}
+                                                            <span className="text-[11px] font-mono font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">{t.percentage}%</span>
+                                                        </div>
                                                     </div>
                                                     {t.description && (
                                                         <p className="text-[11px] text-gray-500 mt-1 break-words leading-relaxed">{t.description}</p>
@@ -746,7 +751,7 @@ const getCustomerPOColumns = (
                     try {
                         const parsed = JSON.parse(raw || '');
                         if (Array.isArray(parsed) && parsed.length > 0) {
-                            return parsed.map((t: any) => `• ${t.label} - ${t.percentage}%${t.description ? ` (${t.description})` : ''}`).join('\n');
+                            return parsed.map((t: any) => `• ${t.label} - ${t.percentage}%${t.expected_date ? ` (Date: ${t.expected_date})` : ''}${t.description ? ` - ${t.description}` : ''}`).join('\n');
                         }
                     } catch {
                         // ignore error
