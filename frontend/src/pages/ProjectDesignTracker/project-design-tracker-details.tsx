@@ -10,7 +10,7 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { Button } from '@/components/ui/button';
-import { Edit, Download, Plus, Check, Info, X, ChevronDown, EyeOff, CheckCircle2, User as UserIcon, Users } from 'lucide-react';
+import { Edit, Download, Plus, Check, Info, X, ChevronDown, EyeOff, CheckCircle2,FileText, User as UserIcon, Users } from 'lucide-react';
 import { ProgressCircle } from '@/components/ui/ProgressCircle';
 import {
     Collapsible,
@@ -1106,7 +1106,7 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
         setIsRenameModalOpen(true);
     };
 
-    const handleDownloadReport = async (zoneName?: string) => {
+    const handleDownloadReport = async (zoneName?: string, isFullReport: boolean = false) => {
         const printFormatName = "Project Design Tracker";
         const params = new URLSearchParams({
             doctype: DOCTYPE,
@@ -1114,6 +1114,7 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
             format: printFormatName,
             no_letterhead: "0",
             _lang: "en",
+            phase: isFullReport ? "All" : activePhase, // Pass 'All' or current phase
         });
 
         if (zoneName) {
@@ -1134,13 +1135,13 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
             const dateStr = format(now, "dd_MMM_yyyy");
             const projectNameClean = (trackerDoc?.project_name || "Project").replace(/[^a-zA-Z0-9-_]/g, "_");
 
-            let filename = `${projectNameClean}-${dateStr}-DesignTracker`;
+            let filename = `${projectNameClean}-${isFullReport ? "FullReport" : activePhase}-${dateStr}-DesignTracker`;
             if (zoneName) {
                 filename += `-${zoneName.replace(/[^a-zA-Z0-9-_]/g, "_")}`;
             }
             filename += ".pdf";
 
-            const url = window.URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+            const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
             link.setAttribute('download', filename);
@@ -1345,10 +1346,27 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                                         variant="default"
                                         size="sm"
                                         className="h-7 text-xs gap-1 bg-red-600 hover:bg-red-700 ml-auto"
-                                        onClick={() => handleDownloadReport()}
+                                         onClick={() => handleDownloadReport(undefined, true)}
                                     >
-                                        <Download className="h-3 w-3" /> Download
+                                        <Download className="h-3 w-3" /> Download Tracker
                                     </Button>
+                                    {/* <TooltipProvider>
+                                <Tooltip delayDuration={200}>
+                                    <TooltipTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-8 text-xs gap-1"
+                                            onClick={() => handleDownloadReport(undefined, true)}
+                                        >
+                                            <FileText className="h-3 w-3" /> Download Tracker
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="bottom" className="text-xs">
+                                        Download full report (Onboarding + Handover) for all zones
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider> */}
                                 </div>
                             </div>
                         </CollapsibleContent>
@@ -1446,88 +1464,111 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                     )}
 
                     {/* Row 3: Actions */}
-                    <div className="flex items-center justify-between gap-3 pt-3 mt-3 border-t border-gray-100">
-                        {/* Left: Structure Buttons */}
-                        <div className="flex items-center gap-2">
-                            {hasEditStructureAccess && !isProjectManager && (
-                                <>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="h-8 text-xs gap-1"
-                                        onClick={() => setIsAddCategoryModalOpen(true)}
-                                        disabled={availableNewCategories.length === 0}
-                                    >
-                                        <Plus className="h-3 w-3" /> Category
-                                    </Button>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="h-8 text-xs gap-1"
-                                        onClick={() => setIsAddZoneModalOpen(true)}
-                                    >
-                                        <Plus className="h-3 w-3" /> Zone
-                                    </Button>
-                                </>
-                            )}
-                        </div>
-
-                        {/* Right: Download Button */}
-                        <div className="flex items-center gap-2 ml-auto">
+                    {/* Row 3: Actions */}
+                    {hasEditStructureAccess && !isProjectManager && (
+                        <div className="flex items-center justify-between gap-3 pt-3 mt-3 border-t border-gray-100">
+                            {/* Left: Structure Buttons */}
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 text-xs gap-1"
+                                    onClick={() => setIsAddCategoryModalOpen(true)}
+                                    disabled={availableNewCategories.length === 0}
+                                >
+                                    <Plus className="h-3 w-3" /> Category
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 text-xs gap-1"
+                                    onClick={() => setIsAddZoneModalOpen(true)}
+                                >
+                                    <Plus className="h-3 w-3" /> Zone
+                                </Button>
+                            </div>
+                            
+                            {/* Right: Report Button */}
                             <TooltipProvider>
                                 <Tooltip delayDuration={200}>
                                     <TooltipTrigger asChild>
                                         <Button
-                                            variant="default"
+                                            variant="outline"
                                             size="sm"
-                                            className="h-8 text-xs gap-1 bg-red-600 hover:bg-red-700"
-                                            onClick={() => handleDownloadReport()}
+                                            className="h-8 text-xs gap-1"
+                                            onClick={() => handleDownloadReport(undefined, true)}
                                         >
                                             <Download className="h-3 w-3" /> Download Tracker
                                         </Button>
                                     </TooltipTrigger>
                                     <TooltipContent side="bottom" className="text-xs">
-                                        Download Design Tracker for all zones
+                                        Download full report (Onboarding + Handover) for all zones
                                     </TooltipContent>
                                 </Tooltip>
                             </TooltipProvider>
                         </div>
-                    </div>
+                    )}
                 </div>
             </div>
 
             {/* ═══════════════════════════════════════════════════════════════
-                ROW 1.5: PHASE TABS - Onboarding / Handover toggle
+                ROW 1.5: PHASE TABS - Onboarding / Handover toggle + Download
             ═══════════════════════════════════════════════════════════════ */}
-            {hasHandover && (
-                <div className="bg-white border-b border-gray-200 px-4 py-2 md:px-6">
+            <div className="bg-white border-b border-gray-200 px-4 py-2 md:px-6">
+                <div className="flex items-center justify-between">
+                    {/* Left: Phase Tabs (Only if Handover exists) */}
+                    <div>
+                        {hasHandover && (
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs font-medium text-gray-500 hidden md:block">Phase:</span>
+                                <div className="flex rounded-md border border-gray-300 overflow-hidden">
+                                    <button
+                                        className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                                            activePhase === "Onboarding"
+                                                ? 'bg-primary text-white'
+                                                : 'bg-white text-gray-700 hover:bg-gray-50'
+                                        }`}
+                                        onClick={() => setActivePhase("Onboarding")}
+                                    >
+                                        Onboarding
+                                    </button>
+                                    <button
+                                        className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                                            activePhase === "Handover"
+                                                ? 'bg-blue-600 text-white'
+                                                : 'bg-white text-blue-600 hover:bg-blue-50'
+                                        }`}
+                                        onClick={() => setActivePhase("Handover")}
+                                    >
+                                        Handover
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Right: Download Button */}
                     <div className="flex items-center gap-2">
-                        <span className="text-xs font-medium text-gray-500 hidden md:block">Phase:</span>
-                        <div className="flex rounded-md border border-gray-300 overflow-hidden">
-                            <button
-                                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                                    activePhase === "Onboarding"
-                                        ? 'bg-primary text-white'
-                                        : 'bg-white text-gray-700 hover:bg-gray-50'
-                                }`}
-                                onClick={() => setActivePhase("Onboarding")}
-                            >
-                                Onboarding
-                            </button>
-                            <button
-                                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                                    activePhase === "Handover"
-                                        ? 'bg-blue-600 text-white'
-                                        : 'bg-white text-blue-600 hover:bg-blue-50'
-                                }`}
-                                onClick={() => setActivePhase("Handover")}
-                            >
-                                Handover
-                            </button>
-                        </div>
+                        <TooltipProvider>
+                            <Tooltip delayDuration={200}>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        variant="default"
+                                        size="sm"
+                                        className="h-8 text-xs gap-1 bg-red-600 hover:bg-red-700"
+                                        onClick={() => handleDownloadReport()}
+                                    >
+                                        <Download className="h-3 w-3" /> Download Phase
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent side="bottom" className="text-xs">
+                                    Download report for the current phase only
+                                </TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
                     </div>
                 </div>
-            )}
+            </div>
 
             {/* ═══════════════════════════════════════════════════════════════
                 ROW 2: ZONE NAVIGATION BAR - Zone tabs + task actions

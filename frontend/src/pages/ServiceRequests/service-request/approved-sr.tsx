@@ -511,6 +511,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 onRevertFinalize={() => setRevertFinalizeDialog(true)}
                 isProcessingFinalize={isFinalizingLoading || isRevertingLoading}
                 missingGst={!orderData?.project_gst}
+                isOwner={orderData?.owner === user_id}
             />
 
             {/* Delete Confirmation Dialog */}

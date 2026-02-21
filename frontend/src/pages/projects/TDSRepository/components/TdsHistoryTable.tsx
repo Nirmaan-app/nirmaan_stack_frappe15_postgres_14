@@ -97,6 +97,7 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
             header: ({ column }) => <DataTableColumnHeader column={column} title="Work Package" />,
             cell: ({ row }) => <div title={row.getValue("tds_work_package")}>{row.getValue("tds_work_package")}</div>,
             size: 150,
+            enableSorting: true,
             filterFn: (row, id, value) => value.includes(row.getValue(id)),
         },
         {
@@ -104,6 +105,7 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
             header: ({ column }) => <DataTableColumnHeader column={column} title="Category" />,
             cell: ({ row }) => <div title={row.getValue("tds_category")}>{row.getValue("tds_category")}</div>,
             size: 120,
+            enableSorting: true,
             filterFn: (row, id, value) => value.includes(row.getValue(id)),
         },
         {
@@ -118,6 +120,7 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
             header: ({ column }) => <DataTableColumnHeader column={column} title="Item Name" />,
             cell: ({ row }) => <div className="font-medium" title={row.getValue("tds_item_name")}>{row.getValue("tds_item_name")}</div>,
             size: 150,
+            enableSorting: true,
         },
         {
             accessorKey: "tds_description",
@@ -250,7 +253,14 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
     ];
 
     const staticFilters = useMemo(() => [["tdsi_project_id", "=", projectId]], [projectId]);
-    const fieldsToFetch = ["*"]; // Fetch all fields including owner
+    const fieldsToFetch = [
+        "name", "tdsi_project_id", "tdsi_project_name",
+        "tds_work_package", "tds_request_id", "tds_category",
+        "tds_item_id", "tds_item_name", "tds_make",
+        "tds_boq_line_item", "tds_description", "tds_attachment",
+        "tds_status", "tds_rejection_reason",
+        "creation", "owner"
+    ];
 
     // --- Hook Initialization ---
     const {

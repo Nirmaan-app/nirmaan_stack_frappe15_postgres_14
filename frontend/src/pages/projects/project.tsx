@@ -93,6 +93,7 @@ const NoDesignTrackerView = React.lazy(() => import("@/pages/ProjectDesignTracke
 const CriticalPOTasksTab = React.lazy(() => import("./CriticalPOTasks/CriticalPOTasksTab").then(module => ({ default: module.CriticalPOTasksTab })));
 import { ProjectExpensesTab } from "./components/ProjectExpenseTab"; // NEW
 const ProjectDCMIRTab = React.lazy(() => import("./components/ProjectDCMIRTab").then(module => ({ default: module.ProjectDCMIRTab })));
+const BulkDownloadPage = React.lazy(() => import("@/pages/BulkDownload/BulkDownloadPage"));
 
 import { ProjectWorkReportTab } from "./ProjectWorkReportTab";
 import { SevenDayPlanningTab } from "./SevenDayPlanningTab";
@@ -272,6 +273,7 @@ export const PROJECT_PAGE_TABS = {
   TDS_REPOSITORY: 'tdsrepository',
   PROJECT_EXPENSES: 'projectexpenses', // --- (Indicator) NEW TAB KEY ---
   DC_MIR: 'projectdcmir',
+  BULK_DOWNLOAD: 'bulkdownload',
 } as const;
 
 type ProjectPageTabValue = typeof PROJECT_PAGE_TABS[keyof typeof PROJECT_PAGE_TABS];
@@ -614,6 +616,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         label: "Project Estimates",
         key: PROJECT_PAGE_TABS.ESTIMATES,
       }] : []),
+      {
+        label: "Bulk Download",
+        key: PROJECT_PAGE_TABS.BULK_DOWNLOAD,
+      },
     ];
   }, [role, isAccountant, isProcurementExecutive, isEstimatesExecutive, isPrivilegedUser]);
 
@@ -1275,6 +1281,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         return <Suspense fallback={<LoadingFallback />}><ProjectDCMIRTab projectId={projectId} /></Suspense>;
       case PROJECT_PAGE_TABS.TDS_REPOSITORY:
         return <TDSRepositoryTab projectId={projectId} />;
+      case PROJECT_PAGE_TABS.BULK_DOWNLOAD:
+        return <Suspense fallback={<LoadingFallback />}><BulkDownloadPage projectId={projectId} projectName={data?.project_name} /></Suspense>;
       default:
         return <div>Select a tab.</div>;
     }

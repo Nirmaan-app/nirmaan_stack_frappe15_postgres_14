@@ -10,6 +10,7 @@ import {
     SRFormValues,
     validateStep1,
     validateStep2,
+    ValidationResult,
 } from "../schema";
 import {
     SR_SECTIONS,
@@ -150,7 +151,7 @@ export const useSRAmendForm = ({
     /* ─────────────────────────────────────────────────────────
        STEP VALIDATION
        ───────────────────────────────────────────────────────── */
-    const validateCurrentStep = useCallback(async (): Promise<boolean> => {
+    const validateCurrentStep = useCallback(async (): Promise<ValidationResult> => {
         const formValues = getValues();
         const section = getSectionByIndex(currentStep);
 
@@ -161,9 +162,17 @@ export const useSRAmendForm = ({
                 return validateStep2(formValues);
             case "review":
                 // Full validation on review step
-                return srFormSchema.safeParse(formValues).success;
+                const result = srFormSchema.safeParse(formValues);
+                if (!result.success) {
+                    return {
+                        success: false,
+                        error: result.error.errors[0]?.message || "Please review all details.",
+                    };
+                }
+                // Also check step 2 validation logic (total > 0 etc.)
+                return validateStep2(formValues);
             default:
-                return true;
+                return { success: true };
         }
     }, [currentStep, getValues]);
 
@@ -171,15 +180,15 @@ export const useSRAmendForm = ({
        NAVIGATION HANDLERS
        ───────────────────────────────────────────────────────── */
     const handleNext = useCallback(async () => {
-        const isValid = await validateCurrentStep();
+        const validationResult = await validateCurrentStep();
 
-        if (!isValid) {
+        if (!validationResult.success) {
             // Trigger form validation to show errors
             await trigger();
             toast({
                 title: "Validation Error",
                 description:
-                    "Please complete all required fields before proceeding.",
+                    validationResult.error || "Please complete all required fields before proceeding.",
                 variant: "destructive",
             });
             return;
@@ -203,14 +212,14 @@ export const useSRAmendForm = ({
                 setCurrentStep(stepIndex);
             } else {
                 // Validate before moving forward
-                const isValid = await validateCurrentStep();
-                if (isValid && stepIndex === currentStep + 1) {
+                const validationResult = await validateCurrentStep();
+                if (validationResult.success && stepIndex === currentStep + 1) {
                     setCurrentStep(stepIndex);
-                } else if (!isValid) {
+                } else if (!validationResult.success) {
                     toast({
                         title: "Validation Error",
                         description:
-                            "Please complete all required fields before proceeding.",
+                            validationResult.error || "Please complete all required fields before proceeding.",
                         variant: "destructive",
                     });
                 }
@@ -230,7 +239,18 @@ export const useSRAmendForm = ({
         if (!validation.success) {
             toast({
                 title: "Validation Error",
-                description: "Please ensure all required fields are filled.",
+                description: validation.error.errors[0]?.message || "Please ensure all required fields are filled.",
+                variant: "destructive",
+            });
+            return;
+        }
+
+        // Additional business validation (Total > 0, etc.)
+        const step2Val = validateStep2(formValues);
+        if (!step2Val.success) {
+            toast({
+                title: "Validation Error",
+                description: step2Val.error || "Please ensure all rates are entered correctly.",
                 variant: "destructive",
             });
             return;

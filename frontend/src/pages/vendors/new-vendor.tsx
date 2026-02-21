@@ -517,12 +517,8 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
                             <SelectValue className="text-gray-200" placeholder="Select Vendor Type" />
                         </SelectTrigger>
                         <SelectContent>
-                            {!service && (
-                                <SelectItem value="Material">Material</SelectItem>
-                            )}
-                            {dynamicCategories.length === 0 && (
-                                <SelectItem value="Service">Service</SelectItem>
-                            )}
+                            <SelectItem value="Material">Material</SelectItem>
+                            <SelectItem value="Service">Service</SelectItem>
                             <SelectItem value="Material & Service">Material & Service</SelectItem>
                         </SelectContent>
                     </Select>

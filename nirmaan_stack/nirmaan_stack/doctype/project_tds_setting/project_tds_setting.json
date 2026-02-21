@@ -10,11 +10,17 @@
   "tds_project_id",
   "tds_project_name",
   "details_section",
+  "enable_client",
   "client_name",
+  "enable_manager",
   "manager_name",
+  "enable_architect",
   "architect_name",
+  "enable_consultant",
   "data_tjxu",
+  "enable_gc_contractor",
   "gc_contractor_name",
+  "enable_mep_contractor",
   "mep_contractor_name",
   "attachements_section",
   "client_logo",
@@ -22,7 +28,8 @@
   "architect_logo",
   "consultant_logo",
   "gc_contractor_logo",
-  "mep_contractorlogo"
+  "mep_contractorlogo",
+  "column_break_ynus"
  ],
  "fields": [
   {
@@ -49,9 +56,21 @@
    "label": "Details"
   },
   {
+   "default": "1",
+   "fieldname": "enable_client",
+   "fieldtype": "Check",
+   "label": "Enable Client"
+  },
+  {
    "fieldname": "client_name",
    "fieldtype": "Data",
    "label": "Client Name"
+  },
+  {
+   "default": "1",
+   "fieldname": "enable_manager",
+   "fieldtype": "Check",
+   "label": "Enable Manager"
   },
   {
    "fieldname": "manager_name",
@@ -59,9 +78,21 @@
    "label": "Manager Name"
   },
   {
+   "default": "1",
+   "fieldname": "enable_architect",
+   "fieldtype": "Check",
+   "label": "Enable Architect"
+  },
+  {
    "fieldname": "architect_name",
    "fieldtype": "Data",
    "label": "Architect Name"
+  },
+  {
+   "default": "1",
+   "fieldname": "enable_consultant",
+   "fieldtype": "Check",
+   "label": "Enable Consultant"
   },
   {
    "fieldname": "data_tjxu",
@@ -69,9 +100,21 @@
    "label": "Consultant Name"
   },
   {
+   "default": "1",
+   "fieldname": "enable_gc_contractor",
+   "fieldtype": "Check",
+   "label": "Enable GC Contractor"
+  },
+  {
    "fieldname": "gc_contractor_name",
    "fieldtype": "Data",
    "label": "GC Contractor Name"
+  },
+  {
+   "default": "1",
+   "fieldname": "enable_mep_contractor",
+   "fieldtype": "Check",
+   "label": "Enable MEP Contractor"
   },
   {
    "fieldname": "mep_contractor_name",
@@ -112,12 +155,16 @@
    "fieldname": "mep_contractorlogo",
    "fieldtype": "Attach",
    "label": "MEP ContractorLogo"
+  },
+  {
+   "fieldname": "column_break_ynus",
+   "fieldtype": "Column Break"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-17 12:23:43.788481",
+ "modified": "2026-02-18 18:43:16.965784",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project TDS Setting",

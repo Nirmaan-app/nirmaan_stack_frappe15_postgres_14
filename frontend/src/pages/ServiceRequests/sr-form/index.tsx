@@ -32,6 +32,7 @@ import {
     defaultSRFormValues,
     validateStep1,
     validateStep2,
+    ValidationResult,
 } from "./schema";
 import {
     SR_WIZARD_STEPS,
@@ -184,7 +185,7 @@ export const SRFormWizard = () => {
     /* ─────────────────────────────────────────────────────────
        STEP VALIDATION
        ───────────────────────────────────────────────────────── */
-    const validateCurrentStep = useCallback(async (): Promise<boolean> => {
+    const validateCurrentStep = useCallback(async (): Promise<ValidationResult> => {
         const currentSection = getSectionByIndex(currentStep);
         const currentFormValues = getValues();
 
@@ -195,9 +196,16 @@ export const SRFormWizard = () => {
                 return validateStep2(currentFormValues);
             case "review":
                 // Full validation on review step
-                return srFormSchema.safeParse(currentFormValues).success;
+                const result = srFormSchema.safeParse(currentFormValues);
+                if (!result.success) {
+                    return {
+                        success: false,
+                        error: result.error.errors[0]?.message || "Please review all details.",
+                    };
+                }
+                return { success: true };
             default:
-                return true;
+                return { success: true };
         }
     }, [currentStep, getValues]);
 
@@ -205,14 +213,14 @@ export const SRFormWizard = () => {
        NAVIGATION HANDLERS
        ───────────────────────────────────────────────────────── */
     const handleNext = useCallback(async () => {
-        const isValid = await validateCurrentStep();
+        const validationResult = await validateCurrentStep();
 
-        if (!isValid) {
-            // Trigger form validation to show errors
+        if (!validationResult.success) {
+            // Trigger form validation to show inline errors
             await trigger();
             toast({
                 title: "Validation Error",
-                description: "Please complete all required fields before proceeding.",
+                description: validationResult.error || "Please complete all required fields before proceeding.",
                 variant: "destructive",
             });
             return;
@@ -221,7 +229,7 @@ export const SRFormWizard = () => {
         if (currentStep < SR_SECTIONS.length - 1) {
             setCurrentStep((prev) => prev + 1);
         }
-    }, [currentStep, validateCurrentStep, trigger]);
+    }, [currentStep, validateCurrentStep, trigger, toast]);
 
     const handlePrevious = useCallback(() => {
         if (currentStep > 0) {

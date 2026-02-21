@@ -43,6 +43,7 @@ interface SRDetailsCardProps {
   onFinalize?: () => void;
   onRevertFinalize?: () => void;
   isProcessingFinalize?: boolean;
+  isOwner?: boolean;
 }
 
 /**
@@ -85,6 +86,7 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
   onFinalize,
   onRevertFinalize,
   isProcessingFinalize = false,
+  isOwner = false,
 }) => {
   // Get status badge variant
   const getStatusVariant = (status: string | undefined): "green" | "red" | "orange" | "outline" => {
@@ -267,11 +269,11 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
             SECTION 5: ACTIONS - All action buttons (hidden for PM role)
             Layout: Finalize/Revert → Preview → Content actions → Edit actions → Delete
         ═══════════════════════════════════════════════════════════════════ */}
-        {!hideActions && !hideAmounts  &&(
+        {((!hideActions && !hideAmounts) || (onDelete && !isFinalized && isOwner)) && (
           <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 sm:flex-wrap sm:justify-end">
             {/* ─── State Control Actions (First) ─── */}
             {/* Finalize Button - Primary action when available */}
-            {canFinalize && onFinalize && (
+            {!hideActions && !hideAmounts && canFinalize && onFinalize && (
               <Button
                 variant="outline"
                 size="sm"
@@ -286,7 +288,7 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
             )}
 
             {/* Revert Finalization Button - Admin action when finalized */}
-            {canRevert && onRevertFinalize && (
+            {!hideActions && !hideAmounts && canRevert && onRevertFinalize && (
               <Button
                 variant="outline"
                 size="sm"
@@ -301,7 +303,7 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
 
             {/* ─── View Action ─── */}
             {/* Preview Button */}
-            {onPreview && (
+            {!hideActions && !hideAmounts && onPreview && (
               <Button
                 variant="outline"
                 size="sm"
@@ -316,7 +318,7 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
 
             {/* ─── Content Actions (Allowed when finalized) ─── */}
             {/* Add Invoice Button */}
-            {onAddInvoice && (
+            {!hideActions && !hideAmounts && onAddInvoice && (
               <Button
                 variant="outline"
                 size="sm"
@@ -329,7 +331,7 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
             )}
 
             {/* Request Payment Button */}
-            {onRequestPayment && !summaryPage && !accountsPage && (
+            {!hideActions && !hideAmounts && onRequestPayment && !summaryPage && !accountsPage && (
               <Button
                 variant="outline"
                 size="sm"
@@ -342,7 +344,7 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
 
             {/* ─── Edit Actions (Hidden when finalized) ─── */}
             {/* Amend Button */}
-            {onAmend && !summaryPage && !accountsPage && !isFinalized && (
+            {!hideActions && !hideAmounts && onAmend && !summaryPage && !accountsPage && !isFinalized && (
               <Button
                 variant="outline"
                 size="sm"
@@ -355,7 +357,7 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
             )}
 
             {/* Edit Terms Button */}
-            {onEditTerms && !summaryPage && !accountsPage && !isFinalized && (
+            {!hideActions && !hideAmounts && onEditTerms && !summaryPage && !accountsPage && !isFinalized && (
               <Button
                 variant="outline"
                 size="sm"
@@ -368,8 +370,8 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
             )}
 
             {/* ─── Destructive Action (Last) ─── */}
-            {/* Delete Button - Hidden when finalized */}
-            {onDelete && !isFinalized && (
+            {/* Delete Button - Shown to owner or non-restricted roles if not finalized */}
+            {onDelete && !isFinalized && (isOwner || (!hideActions && !hideAmounts)) && (
               <Button
                 variant="outline"
                 size="sm"
