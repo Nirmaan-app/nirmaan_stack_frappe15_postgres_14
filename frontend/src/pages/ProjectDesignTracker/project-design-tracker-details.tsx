@@ -363,10 +363,11 @@ interface AddCategoryModalProps {
     onOpenChange: (open: boolean) => void;
     availableCategories: CategoryItem[];
     onAdd: (newTasks: Partial<DesignTrackerTask>[]) => Promise<void>;
+    hasHandover: boolean;
 }
 
 const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
-    isOpen, onOpenChange, availableCategories, onAdd
+    isOpen, onOpenChange, availableCategories, onAdd, hasHandover
 }) => {
     const [selectedCategories, setSelectedCategories] = useState<CategoryItem[]>([]);
     const [isSaving, setIsSaving] = useState(false);
@@ -419,14 +420,29 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
                         task_status: 'Not Started',
                         deadline: calculatedDeadline,
                         task_zone: zoneName,
+                        task_phase: "Onboarding",
                     });
+
+                    if (hasHandover) {
+                        const handoverDeadline = new Date();
+                        handoverDeadline.setDate(handoverDeadline.getDate() + 7);
+                        tasksToGenerate.push({
+                            task_name: taskDef.task_name,
+                            design_category: cat.category_name,
+                            task_status: 'Not Started',
+                            deadline: handoverDeadline.toISOString().split('T')[0],
+                            task_zone: zoneName,
+                            task_phase: "Handover",
+                        });
+                    }
                 });
             });
         });
 
         try {
             await onAdd(tasksToGenerate);
-            toast({ title: "Success", description: `${selectedCategories.length} categories added.`, variant: "success" });
+            const phaseMsg = hasHandover ? " in both Onboarding and Handover phases" : "";
+            toast({ title: "Success", description: `${selectedCategories.length} categories added${phaseMsg}.`, variant: "success" });
             onOpenChange(false);
         } catch (error) {
             toast({ title: "Creation Failed", description: "Failed to add categories.", variant: "destructive" });
@@ -437,9 +453,10 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
 
     // Calculate total tasks that will be created
     const existingZonesCount = trackerDoc?.zone?.length || 1;
+    const phaseMultiplier = hasHandover ? 2 : 1;
     const totalTasksToCreate = selectedCategories.reduce(
         (sum, cat) => sum + (cat.tasks?.length || 0), 0
-    ) * existingZonesCount;
+    ) * existingZonesCount * phaseMultiplier;
 
     return (
         <Dialog open={isOpen} onOpenChange={onOpenChange}>
@@ -449,6 +466,14 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
                     <p className="text-xs text-gray-500">
                         Select categories to add. Tasks will be generated for all {existingZonesCount} zone{existingZonesCount !== 1 ? 's' : ''}.
                     </p>
+                    {hasHandover && (
+                        <div className="flex items-start gap-2 px-2 py-1.5 bg-blue-50/50 rounded border border-blue-100 mt-2">
+                            <Info className="h-3.5 w-3.5 text-blue-500 mt-0.5 flex-shrink-0" />
+                            <p className="text-[11px] text-blue-700">
+                                Handover phase has been generated. New tasks will be created in both Onboarding and Handover phases.
+                            </p>
+                        </div>
+                    )}
                 </DialogHeader>
 
                 <div className="space-y-3 py-2">
@@ -536,9 +561,10 @@ interface AddZoneModalProps {
     onOpenChange: (open: boolean) => void;
     onAdd: (newMiddleware: { zones: string[] }) => Promise<void>;
     existingZones: string[];
+    hasHandover: boolean;
 }
 
-const AddZoneModal: React.FC<AddZoneModalProps> = ({ isOpen, onOpenChange, onAdd, existingZones }) => {
+const AddZoneModal: React.FC<AddZoneModalProps> = ({ isOpen, onOpenChange, onAdd, existingZones, hasHandover }) => {
     const [zoneInput, setZoneInput] = useState("");
     const [zones, setZones] = useState<string[]>([]);
     const [isSaving, setIsSaving] = useState(false);
@@ -716,6 +742,15 @@ const AddZoneModal: React.FC<AddZoneModalProps> = ({ isOpen, onOpenChange, onAdd
                             Tasks for all active categories will be generated for each new zone.
                         </p>
                     </div>
+
+                    {hasHandover && (
+                        <div className="flex items-start gap-2 px-2 py-1.5 bg-blue-50/50 rounded border border-blue-100">
+                            <Info className="h-3.5 w-3.5 text-blue-500 mt-0.5 flex-shrink-0" />
+                            <p className="text-[11px] text-blue-700">
+                                Handover phase has been generated. New zone tasks will be created in both Onboarding and Handover phases.
+                            </p>
+                        </div>
+                    )}
                 </div>
 
                 <DialogFooter className="gap-2 sm:gap-0">
@@ -1023,7 +1058,9 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
         onPaginationChange: setPagination,
         onGlobalFilterChange: setSearchTerm,
         onRowSelectionChange: setRowSelection,
-        enableRowSelection: hasEditStructureAccess || role === "Nirmaan Design Lead Profile",
+        enableRowSelection: (hasEditStructureAccess || role === "Nirmaan Design Lead Profile")
+            ? (row) => row.original.task_status !== 'Not Applicable'
+            : false,
         getCoreRowModel: getCoreRowModel(),
         getFilteredRowModel: getFilteredRowModel(),
         getSortedRowModel: getSortedRowModel(),
@@ -1076,7 +1113,21 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                         task_status: 'Not Started',
                         deadline: calculatedDeadline,
                         task_zone: zoneName,
+                        task_phase: "Onboarding",
                     });
+
+                    if (hasHandover) {
+                        const handoverDeadline = new Date();
+                        handoverDeadline.setDate(handoverDeadline.getDate() + 7);
+                        newTasks.push({
+                            task_name: taskDef.task_name,
+                            design_category: cat.category_name,
+                            task_status: 'Not Started',
+                            deadline: handoverDeadline.toISOString().split('T')[0],
+                            task_zone: zoneName,
+                            task_phase: "Handover",
+                        });
+                    }
                 });
             });
         });
@@ -1092,7 +1143,8 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                 zone: updatedZoneTable,
                 design_tracker_task: updatedTaskTable
             });
-            toast({ title: "Success", description: `${zones.length} new zone(s) added.`, variant: "success" });
+            const phaseMsg = hasHandover ? " (in both Onboarding and Handover phases)" : "";
+            toast({ title: "Success", description: `${zones.length} new zone(s) added${phaseMsg}.`, variant: "success" });
             setIsAddZoneModalOpen(false);
         } catch (e) {
             console.error(e);
@@ -1813,6 +1865,7 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                 onOpenChange={setIsAddCategoryModalOpen}
                 availableCategories={availableNewCategories}
                 onAdd={handleAddCategories}
+                hasHandover={hasHandover}
             />
 
             <AddZoneModal
@@ -1820,6 +1873,7 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                 onOpenChange={setIsAddZoneModalOpen}
                 onAdd={handleAddZone}
                 existingZones={uniqueZones}
+                hasHandover={hasHandover}
             />
 
             {trackerDoc && (
