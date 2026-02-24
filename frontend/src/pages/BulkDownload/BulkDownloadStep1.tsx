@@ -1,6 +1,7 @@
 import { FileDown, ClipboardList, ArrowRight, Receipt, Truck, ClipboardCheck, FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { BulkDocType } from "./useBulkDownloadWizard";
+import { useUserData } from "@/hooks/useUserData";
 
 interface Step1Props {
     onSelect: (type: BulkDocType) => void;
@@ -67,11 +68,19 @@ const TYPE_CONFIG: {
 ];
 
 export const BulkDownloadStep1 = ({ onSelect, counts = {} }: Step1Props) => {
+    const { role } = useUserData();
+    const isProjectManager = role === "Nirmaan Project Manager Profile";
+
+    const filteredTypeConfig = TYPE_CONFIG.filter((config) => {
+        if (isProjectManager && config.type === "Invoice") return false;
+        return true;
+    });
+
     return (
         <div className="flex flex-col items-center gap-8 py-4">
             
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 w-full">
-                {TYPE_CONFIG.map(({ type, label, description, icon: Icon, iconBg, iconColor }) => {
+                {filteredTypeConfig.map(({ type, label, description, icon: Icon, iconBg, iconColor }) => {
                     const count = counts[type];
                     return (
                         <button
