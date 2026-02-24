@@ -198,7 +198,6 @@ export const useVendorInvoices = (vendorId: string) => {
     } as GetDocListArgs<FrappeDoc<VendorInvoice>>,
     vendorKeys.invoices(vendorId)
   );
-  console.log("Fetching invoices:", vendorKeys.invoices(vendorId));
   useApiErrorLogger(response.error, {
     hook: "useVendorInvoices",
     api: "Vendor Invoices",
@@ -240,7 +239,6 @@ export const useVendorDocCount = () => {
 
 export const useLedgerVendorDoc = (vendorId: string) => {
   const response = useFrappeGetDoc<VendorDoc>('Vendors', vendorId, vendorKeys.ledgerDoc(vendorId));
-  console.log("Fetching ledgerDoc:", vendorKeys.ledgerDoc(vendorId));
   useApiErrorLogger(response.error,
     {
       hook: "useLedgerVendorDoc",
@@ -256,7 +254,6 @@ export const useLedgerData = (vendorId: string) => {
     { vendor_id: vendorId },
     vendorKeys.ledgerData(vendorId)
   );
-  console.log("Fetching ledgerData:", vendorKeys.ledgerData(vendorId));
   useApiErrorLogger(response.error, {
     hook: "useLedgerData",
     api: "get_po_ledger_data",
