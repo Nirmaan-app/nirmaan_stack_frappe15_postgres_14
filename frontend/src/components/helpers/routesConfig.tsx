@@ -206,6 +206,10 @@ export const appRoutes: RouteObject[] = [
                 path: "delivery-challans-and-mirs",
                 element: <DeliveryChallansAndMirs />,
               },
+              {
+                path: "update-inventory",
+                lazy: () => import("@/pages/remaining-items"),
+              },
 
 
             ],

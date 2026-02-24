@@ -10,6 +10,7 @@ import {
   Truck,
   PencilRuler,
   Package,
+  Warehouse,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -126,6 +127,12 @@ export const ProjectManager = () => {
             title="Upload Delivery Challans & MIR"
             icon={<ClipboardPlus className="h-8 w-8" strokeWidth={1.5} />}
             onClick={() => navigate("/prs&milestones/delivery-challans-and-mirs")}
+            variant="primary"
+          />
+          <DashboardCard
+            title="Update Inventory"
+            icon={<Warehouse className="h-8 w-8" strokeWidth={1.5} />}
+            onClick={() => navigate("/prs&milestones/update-inventory")}
             variant="primary"
           />
         </div>
