@@ -18,6 +18,7 @@ import { useCallback, useEffect, useState } from "react"
 import { TailSpin } from "react-loader-spinner"
 import { useNavigate, useParams } from "react-router-dom"
 import { ServiceItemsAccordion, type ServiceItem } from "../sr-form/components"
+import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
 export const ApproveServiceRequest: React.FC = () => {
     const { srId: id } = useParams<{ srId: string }>()
@@ -110,6 +111,7 @@ export const ApproveServiceRequest: React.FC = () => {
                 description: `SR: ${id} Approved successfully!`,
                 variant: "success",
             });
+            invalidateSidebarCounts();
 
             navigate("/service-requests?tab=approve-service-order");
 
@@ -154,6 +156,7 @@ export const ApproveServiceRequest: React.FC = () => {
                 description: `SR: ${id} Rejected successfully!`,
                 variant: "success",
             });
+            invalidateSidebarCounts();
 
             navigate("/service-requests?tab=approve-service-order");
 
@@ -202,7 +205,7 @@ export const ApproveServiceRequest: React.FC = () => {
                 </p>
                 <button
                     className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
-                    onClick={() => navigate("/service-requests?tab=approve-service-order")}
+                    onClick={() => { invalidateSidebarCounts(); navigate("/service-requests?tab=approve-service-order"); }}
                 >
                     Go Back
                 </button>

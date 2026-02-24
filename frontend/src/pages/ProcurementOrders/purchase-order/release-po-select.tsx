@@ -15,8 +15,18 @@ import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { ColumnDef, Row } from "@tanstack/react-table";
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
-import { Radio } from "antd";
 import { FrappeDoc, useFrappeGetDocList, GetDocListArgs } from "frappe-react-sdk";
+
+// --- Tab Configuration ---
+import {
+    PO_TABS,
+    PO_ADMIN_TAB_OPTIONS,
+    PO_COMMON_TAB_OPTIONS,
+    PO_ALL_TAB_OPTIONS,
+    PO_ADMIN_ROLES,
+    PO_ESTIMATES_ROLES,
+    POTabOption,
+} from "./config/poTabs.constants";
 import memoize from 'lodash/memoize';
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
@@ -151,12 +161,15 @@ export const ReleasePOSelect: React.FC = () => {
 
 
     // --- Tab State Management ---
+    const isAdmin = useMemo(() => PO_ADMIN_ROLES.includes(role), [role]);
+    const isEstimator = useMemo(() => PO_ESTIMATES_ROLES.includes(role), [role]);
+
     const initialTab = useMemo(() => {
         // Determine initial tab based on role, default to "Approved PO" if not admin/lead
-        const defaultTab = ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) ? "Approve PO" :
-            role === "Nirmaan Estimates Executive Profile" ? "All POs" : "Approved PO";
+        const defaultTab = isAdmin ? PO_TABS.APPROVE_PO :
+            isEstimator ? PO_TABS.ALL_POS : PO_TABS.APPROVED_PO;
         return getUrlStringParam("tab", defaultTab);
-    }, [role]); // Calculate only once based on role
+    }, [isAdmin, isEstimator]); // Calculate only once based on role
 
     const [tab, setTab] = useState<string>(initialTab);
 
@@ -281,14 +294,14 @@ export const ReleasePOSelect: React.FC = () => {
         // "loading_charges",
         // "freight_charges",
         "invoice_data",
-        ...(tab === "Merged POs" ? ["merged", "modified_by"] : [])
+        ...(tab === PO_TABS.MERGED_POS ? ["merged", "modified_by"] : [])
     ], [tab]);
 
     const poSearchableFieldsOptions = useMemo(() => PO_SEARCHABLE_FIELDS.concat([{ value: "owner", label: "Approved By", placeholder: "Search by Approved By..." },
-    ...(tab === "All POs" ? [
+    ...(tab === PO_TABS.ALL_POS ? [
         { value: "status", label: "Status", placeholder: "Search by Status..." },
     ] : []),
-    ...(tab === "Merged POs" ? [
+    ...(tab === PO_TABS.MERGED_POS ? [
         { value: "merged", label: "Master PO", placeholder: "Search by Master PO..." },
     ] : [])
 
@@ -296,119 +309,9 @@ export const ReleasePOSelect: React.FC = () => {
 
     const dateColumns = PO_DATE_COLUMNS;
 
-    const adminTabs = useMemo(() => [
-        ...(["Nirmaan Project Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(
-            role
-        ) ? [
-            {
-                label: (
-                    <div className="flex items-center">
-                        <span>Approve PO</span>
-                        <span className="ml-2 text-xs font-bold">
-                            {counts.pr.approve}
-                        </span>
-                    </div>
-                ),
-                value: "Approve PO",
-            },
-            {
-                label: (
-                    <div className="flex items-center">
-                        <span>Approve Amended PO</span>
-                        <span className="ml-2 text-xs font-bold">
-                            {counts.po['PO Amendment']}
-                        </span>
-                    </div>
-                ),
-                value: "Approve Amended PO",
-            },
-            {
-                label: (
-                    <div className="flex items-center">
-                        <span>Approve Sent Back PO</span>
-                        <span className="ml-2 text-xs font-bold">
-                            {counts.sb.approve}
-                        </span>
-                    </div>
-                ),
-                value: "Approve Sent Back PO",
-            },
-        ] : []),
-    ], [role, counts])
-
-    const items = useMemo(() => [
-        ...(role !== "Nirmaan Estimates Executive Profile" ? [
-            {
-                label: (
-                    <div className="flex items-center">
-                        <span>Approved PO</span>
-                        <span className="ml-2 text-xs font-bold">
-                            {counts.po['PO Approved']}
-                        </span>
-                    </div>
-                ),
-                value: "Approved PO",
-            },
-            {
-                label: (
-                    <div className="flex items-center">
-                        <span>Dispatched PO</span>
-                        <span className="ml-2 rounded text-xs font-bold">
-                            {counts.po['Dispatched']}
-                        </span>
-                    </div>
-                ),
-                value: "Dispatched PO",
-            },
-            { // Use the new state variable here
-                label: (
-                    <div className="flex items-center">
-                        <span>Partially Delivered PO</span>
-                        <span className="ml-2 rounded text-xs font-bold">
-                            {counts.po['Partially Delivered']}
-                        </span>
-                    </div>
-                ),
-                value: "Partially Delivered PO",
-            },
-            { // Use the renamed state variable here
-                label: (
-                    <div className="flex items-center">
-                        <span>Delivered PO</span>
-                        <span className="ml-2 rounded text-xs font-bold">
-                            {counts.po['Delivered']}
-                        </span>
-                    </div>
-                ),
-                value: "Delivered PO",
-            },
-        ] : [])], [role, counts])
-
-    const allTab = useMemo(() =>
-        [
-            // { label: (<div className="flex  items-center"><span>All POs</span><span className="ml-2 text-xs font-bold">{counts.po.all}</span></div>), value: "All POs" },
-            {
-                label: (
-                    // Use a single container with text-center.
-                    // The 'block' and 'md:inline' classes control the layout.
-                    <div className="text-center">
-                        <span className="block md:inline">All POs</span>
-                        <span className="block text-xs font-bold md:inline md:ml-2">
-                            {counts.po.all}
-                        </span>
-                    </div>
-                ),
-                value: "All POs"
-            },
-        ]
-        , [counts])
-
-
-    // const mergedPOsTab = useMemo(() =>
-    //     [
-    //         { label: (<div className="flex items-center"><span>Merged POs</span><span className="ml-2 text-xs font-bold">{counts.po.Merged}</span></div>), value: "Merged POs" },
-    //     ]
-    //     , [counts])
+    // --- Filter tabs based on role ---
+    const adminTabsFiltered = useMemo(() => isAdmin ? PO_ADMIN_TAB_OPTIONS : [], [isAdmin]);
+    const commonTabsFiltered = useMemo(() => !isEstimator ? PO_COMMON_TAB_OPTIONS : [], [isEstimator]);
 
     // --- Define columns using TanStack's ColumnDef ---
     const columns = useMemo<ColumnDef<ProcurementOrdersType>[]>(() => [
@@ -418,7 +321,7 @@ export const ReleasePOSelect: React.FC = () => {
             cell: ({ row }) => (
                 <>
                     <div className="flex gap-1 items-center">
-                        {(tab !== "Merged POs" && row.original.status !== "Merged") ? (
+                        {(tab !== PO_TABS.MERGED_POS && row.original.status !== "Merged") ? (
                             <Link
                                 className="font-medium underline hover:underline-offset-2 whitespace-nowrap"
                                 // Adjust the route path as needed
@@ -444,7 +347,7 @@ export const ReleasePOSelect: React.FC = () => {
                 }
             }
         },
-        ...(tab === "Merged POs" ? [
+        ...(tab === PO_TABS.MERGED_POS ? [
             {
                 accessorKey: "merged",
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Master PO" />,
@@ -536,7 +439,7 @@ export const ReleasePOSelect: React.FC = () => {
                 }
             }
         },
-        ...(tab === "Merged POs" ? [
+        ...(tab === PO_TABS.MERGED_POS ? [
             {
                 accessorKey: "modified_by",
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Merged By" />,
@@ -581,7 +484,7 @@ export const ReleasePOSelect: React.FC = () => {
                 }
             }
         },
-        ...(["Dispatched PO", "Partially Delivered PO", "Delivered PO"].includes(tab) ? [
+        ...([PO_TABS.DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO].includes(tab as any) ? [
             {
                 id: "invoice_amount",
                 header: ({ column }) => {
@@ -678,7 +581,7 @@ export const ReleasePOSelect: React.FC = () => {
                 exportValue: () => "--" // Remarks are not exported
             }
         },
-        ...(["All POs"].includes(tab) ? [
+        ...([PO_TABS.ALL_POS].includes(tab as any) ? [
             {
                 accessorKey: 'status',
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
@@ -693,7 +596,7 @@ export const ReleasePOSelect: React.FC = () => {
                 enableColumnFilter: true
             } as ColumnDef<ProcurementOrdersType>
         ] : []),
-    ],[tab, userList, vendorsList, projects, posMap, invoiceTotalsMap]); 
+    ],[tab, userList, vendorsList, projects, posMap, invoiceTotalsMap]);
     // [tab, userList, getAmountPaid, vendorsList, projects, getPOTotal, posMap, invoiceTotalsMap]);
 
     const facetFilterOptions = useMemo(() => ({
@@ -707,7 +610,7 @@ export const ReleasePOSelect: React.FC = () => {
     // --- useServerDataTable Hook Instantiation ---
     // Only instantiate if the current tab is supposed to show a data table
     const shouldShowTable = useMemo(() =>
-        ["Approved PO", "Dispatched PO", "Partially Delivered PO", "Delivered PO", "All POs", "Merged POs"].includes(tab),
+        [PO_TABS.APPROVED_PO, PO_TABS.DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO, PO_TABS.ALL_POS, PO_TABS.MERGED_POS].includes(tab as any),
         [tab]);
 
     // --- Tab Change Handler ---
@@ -722,11 +625,36 @@ export const ReleasePOSelect: React.FC = () => {
     }, [tab]);
 
 
+    // Render a single tab button
+    const renderTabButton = (option: POTabOption) => {
+        const count = option.countKey.split('.').reduce((acc: any, part: string) => acc && acc[part], counts) ?? 0;
+        const isActive = tab === option.value;
+
+        return (
+            <button
+                key={option.value}
+                type="button"
+                onClick={() => handleTabClick(option.value)}
+                className={`px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded
+                    transition-colors flex items-center gap-1.5 whitespace-nowrap
+                    ${isActive
+                        ? "bg-sky-500 text-white"
+                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    }`}
+            >
+                {option.label}
+                <span className={`text-xs font-bold ${isActive ? "opacity-90" : "opacity-70"}`}>
+                    {count}
+                </span>
+            </button>
+        );
+    };
+
     // --- Determine which view to render based on tab ---
     const renderTabView = () => {
-        if (tab === "Approve PO") return <ApproveSelectVendor />;
-        if (tab === "Approve Amended PO") return <ApproveSelectAmendPO />;
-        if (tab === "Approve Sent Back PO") return <ApproveSelectSentBack />;
+        if (tab === PO_TABS.APPROVE_PO) return <ApproveSelectVendor />;
+        if (tab === PO_TABS.APPROVE_AMENDED_PO) return <ApproveSelectAmendPO />;
+        if (tab === PO_TABS.APPROVE_SENT_BACK_PO) return <ApproveSelectSentBack />;
 
         if (shouldShowTable) {
             if (projectsLoading || vendorsListLoading || userListLoading || projectPaymentsLoading) {
@@ -765,57 +693,29 @@ export const ReleasePOSelect: React.FC = () => {
 
     return (
         <div className="flex-1 space-y-4">
-            {/* <div className="flex items-center max-md:items-start gap-4 max-md:flex-col">  */}
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+            {/* Tab Navigation - Custom Tailwind buttons */}
+            <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">
+                <div className="flex flex-nowrap sm:flex-wrap items-center gap-1.5 pb-1 sm:pb-0">
+                    {/* Admin Tabs */}
+                    {adminTabsFiltered.length > 0 && (
+                        <>
+                            {adminTabsFiltered.map(renderTabButton)}
+                            {/* Separator */}
+                            <div className="w-px h-5 sm:h-6 bg-gray-300 mx-0.5 sm:mx-1 shrink-0" />
+                        </>
+                    )}
 
-                {
-                    adminTabs && (
-                        <Radio.Group
-                            options={adminTabs}
-                            optionType="button"
-                            buttonStyle="solid"
-                            value={tab}
-                            onChange={(e) => handleTabClick(e.target.value)}
-                        />
-                    )
-                }
-                {
-                    items && (
-                        <Radio.Group
-                            options={items}
-                            // defaultValue="Approved PO"
-                            optionType="button"
-                            buttonStyle="solid"
-                            value={tab}
-                            onChange={(e) => handleTabClick(e.target.value)}
-                        />
-                    )
-                }
+                    {/* Common Tabs */}
+                    {commonTabsFiltered.length > 0 && (
+                        <>
+                            {commonTabsFiltered.map(renderTabButton)}
+                            <div className="w-px h-5 sm:h-6 bg-gray-300 mx-0.5 sm:mx-1 shrink-0" />
+                        </>
+                    )}
 
-                {/* {
-                            mergedPOsTab && (
-                                <Radio.Group
-                                    options={mergedPOsTab}
-                                    optionType="button"
-                                    buttonStyle="solid"
-                                    value={tab}
-                                    onChange={(e) => handleTabClick(e.target.value)}
-                                />
-                            )
-                        } */}
-
-                {
-                    allTab && (
-                        <Radio.Group
-                            options={allTab}
-                            optionType="button"
-                            buttonStyle="solid"
-                            value={tab}
-                            onChange={(e) => handleTabClick(e.target.value)}
-                        />
-                    )
-                }
-
+                    {/* All POs Tabs */}
+                    {PO_ALL_TAB_OPTIONS.map(renderTabButton)}
+                </div>
             </div>
 
             <Suspense fallback={<LoadingFallback />}>

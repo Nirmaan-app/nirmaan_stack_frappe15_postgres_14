@@ -24,6 +24,7 @@ import { TailSpin } from "react-loader-spinner";
 import { CustomAttachment } from "../../../components/helpers/CustomAttachment";
 import { KeyedMutator } from 'swr';
 import { safeJsonParse } from "../constants";
+import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
 interface DeliveryNoteItemsDisplayProps {
   poMutate: KeyedMutator<FrappeDoc<ProcurementOrder>>;
@@ -301,6 +302,7 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
       if (response.message.status === 200) {
         await poMutate();
         await mutate(`Nirmaan Attachments-${data?.name}`);
+        invalidateSidebarCounts();
         setShowEdit(false);
         setProceedDialog(false);
         setNewlyDeliveredQuantities({}); // Reset new state

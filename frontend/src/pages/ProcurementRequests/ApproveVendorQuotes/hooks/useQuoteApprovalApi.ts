@@ -2,6 +2,7 @@ import { useFrappePostCall, useFrappeUpdateDoc, useFrappeCreateDoc } from "frapp
 import { useCallback } from "react";
 import { useUserData } from "@/hooks/useUserData"; // Adjust path
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
+import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
 export interface ApprovePayload {
     project_id: string;
@@ -10,7 +11,7 @@ export interface ApprovePayload {
     selected_items: string[]; // Array of item names (docnames)
     selected_vendors: { [itemName: string]: string }; // Map item name to chosen vendorId
     custom: boolean;
-    payment_terms?: string; 
+    payment_terms?: string;
 }
 
 export interface SendBackPayload {
@@ -44,7 +45,9 @@ export const useQuoteApprovalApi = (prId?: string, projectId?: string) => {
         }
         if (!prId) throw new Error("PR ID is required for approval.");
         // Add validation for payload if needed
-        return await approveItemsCall(payload);
+        const result = await approveItemsCall(payload);
+        invalidateSidebarCounts();
+        return result;
     }, [approveItemsCall, prId, isCEOHold, showBlockedToast]);
 
     const sendBackSelection = useCallback(async (payload: SendBackPayload) => {
@@ -53,7 +56,9 @@ export const useQuoteApprovalApi = (prId?: string, projectId?: string) => {
             return;
         }
         if (!prId) throw new Error("PR ID is required for send back.");
-        return await sendBackItemsCall(payload);
+        const result = await sendBackItemsCall(payload);
+        invalidateSidebarCounts();
+        return result;
     }, [sendBackItemsCall, prId, isCEOHold, showBlockedToast]);
 
     // Specific function for rejecting a custom PR (no work package)
@@ -76,6 +81,7 @@ export const useQuoteApprovalApi = (prId?: string, projectId?: string) => {
             });
         }
         // No specific return value needed, success indicated by lack of error
+        invalidateSidebarCounts();
     }, [prId, updateDoc, createDoc, userData?.user_id]);
 
     return {

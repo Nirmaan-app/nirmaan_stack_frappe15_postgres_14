@@ -48,6 +48,7 @@ import { getItemListFromDocument } from "../ProcurementRequests/VendorQuotesSele
 import { useTargetRatesForItems, getTargetRateKey } from "../ProcurementRequests/VendorQuotesSelection/hooks/useTargetRatesForItems";
 import { VendorAttachmentForPR } from "@/components/common/VendorAttachmentForPR";
 import { VendorQuotesAttachmentSummaryPR } from "@/components/common/VendorQuotesAttachmentSummaryPR";
+import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
 // --- UI Imports ---
 import {
@@ -261,6 +262,7 @@ export const SBQuotesSelectionReview: React.FC = () => {
       });
 
       await mutate(`${orderData?.type} Sent Back Category`);
+      invalidateSidebarCounts();
       navigate(`/procurement-requests?tab=${orderData?.type}`);
       
     } catch (error) {

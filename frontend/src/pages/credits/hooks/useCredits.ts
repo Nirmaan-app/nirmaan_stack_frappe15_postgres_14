@@ -37,6 +37,7 @@ import {
 } from "../credits.constant";
 import { useFacetValues } from "@/hooks/useFacetValues";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
+import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
 // --- Constants ---
 const DEBOUNCE_DELAY = 500;
@@ -238,6 +239,7 @@ export const useCredits = () => {
           description: result.message.message,
           variant: "success",
         });
+        invalidateSidebarCounts();
         fetchData(); // Refetch data
       } else {
         throw new Error(result?.message?.message || "An unknown error occurred.");
@@ -315,11 +317,13 @@ export const useCredits = () => {
 
   // --- Trigger Fetch on Dependencies Change ---
   useEffect(() => {
+    invalidateSidebarCounts();
     fetchData();
   }, [fetchData]);
 
   // --- Refetch Function ---
   const refetch = useCallback(() => {
+    invalidateSidebarCounts();
     fetchData();
   }, [fetchData]);
 

@@ -129,6 +129,7 @@ import { usePrintHistory } from "@/pages/DeliveryNotes/hooks/usePrintHistroy";
 import { safeJsonParse } from "@/pages/DeliveryNotes/constants";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { PaymentTerm, POTotals, DeliveryDataType } from "@/types/NirmaanStack/ProcurementOrders";
+import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
 interface PurchaseOrderProps {
   summaryPage?: boolean;
@@ -822,6 +823,8 @@ export const PurchaseOrder = ({
         variant: "success",
       });
 
+      invalidateSidebarCounts();
+
       navigate("/purchase-orders?tab=Approved%20PO");
       setLoadingFuncName("");
     } catch (error) {
@@ -849,6 +852,7 @@ export const PurchaseOrder = ({
           description: response.message.message,
           variant: "success",
         });
+        invalidateSidebarCounts();
         navigate("/purchase-orders?tab=Approved%20PO");
       } else if (response.message.status === 400) {
         toast({
@@ -867,19 +871,19 @@ export const PurchaseOrder = ({
     }
   };
 
-   const handleDownloadDeliveryNote = async (poId: string) => {
+  const handleDownloadDeliveryNote = async (poId: string) => {
     try {
       const formatname = "PO Delivery Histroy";
       const printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Procurement%20Orders&name=${poId}&format=${encodeURIComponent(formatname)}&no_letterhead=0`;
-      
+
       const response = await fetch(printUrl);
       if (!response.ok) throw new Error("Failed to generate PDF");
-      
+
       const blob = await response.blob();
-      
+
       // Generate filename - you can customize this based on your needs
       const fileName = `PO_Delivery_${poId}_.pdf`;
-      
+
       // Create download link
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -887,22 +891,22 @@ export const PurchaseOrder = ({
       link.setAttribute('download', fileName);
       document.body.appendChild(link);
       link.click();
-      
+
       // Cleanup
       link.remove();
       window.URL.revokeObjectURL(url);
-      
-      toast({ 
-        title: "Success", 
-        description: "Delivery note downloaded successfully.", 
-        variant: "success" 
+
+      toast({
+        title: "Success",
+        description: "Delivery note downloaded successfully.",
+        variant: "success"
       });
     } catch (error) {
       console.error("Download error:", error);
-      toast({ 
-        title: "Error", 
-        description: "Failed to download delivery note.", 
-        variant: "destructive" 
+      toast({
+        title: "Error",
+        description: "Failed to download delivery note.",
+        variant: "destructive"
       });
     }
   };
@@ -1246,7 +1250,7 @@ export const PurchaseOrder = ({
           </p>
           <button
             className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
-            onClick={() => navigate("/purchase-orders?tab=Approved%20PO")}
+            onClick={() => { invalidateSidebarCounts(); navigate("/purchase-orders?tab=Approved%20PO"); }}
           >
             Go Back
           </button>
@@ -1638,18 +1642,18 @@ export const PurchaseOrder = ({
                       "Nirmaan Project Lead Profile",
                       "Nirmaan Procurement Executive Profile",
                     ].includes(userData?.role) && (
-                      <div className="flex justify-end">
-                        <Button
-                          onClick={toggleDeliveryNoteSheet}
-                          variant="outline"
-                          size="sm"
-                          className="h-8 px-3 border-primary text-primary"
-                        >
-                          <Pencil className="h-3.5 w-3.5 mr-1.5" />
-                          Update Delivery
-                        </Button>
-                      </div>
-                    )}
+                        <div className="flex justify-end">
+                          <Button
+                            onClick={toggleDeliveryNoteSheet}
+                            variant="outline"
+                            size="sm"
+                            className="h-8 px-3 border-primary text-primary"
+                          >
+                            <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                            Update Delivery
+                          </Button>
+                        </div>
+                      )}
                     <DeliveryHistoryTable
                       poId={PO?.name}
                       deliveryData={deliveryHistory.data}
@@ -1669,20 +1673,20 @@ export const PurchaseOrder = ({
           <SheetHeader className="text-start mb-4 mx-4">
             <SheetTitle className="text-primary flex flex-row items-center justify-between">
               <p>Update/View Delivery Note</p>
-             <div className="flex flex-col gap-2 w-full sm:flex-row sm:justify-end sm:items-center">
-               <Button
-                                onClick={()=>handleDownloadDeliveryNote(PO?.name)}
-                                variant="default"
-                                className="px-2"
-                                size="sm"
-                              >
-                                <Eye className="h-4 w-4 mr-2" />
-                                <span className="text-xs">Download</span>
+              <div className="flex flex-col gap-2 w-full sm:flex-row sm:justify-end sm:items-center">
+                <Button
+                  onClick={()=>handleDownloadDeliveryNote(PO?.name)}
+                  variant="default"
+                  className="px-2"
+                  size="sm"
+                >
+                  <Eye className="h-4 w-4 mr-2" />
+                  <span className="text-xs">Download</span>
                 </Button>
-              <Button variant="default" className="px-2" size="sm">
-                <Eye className="h-4 w-4 mr-2" />
-                <span className="text-xs">Preview</span>
-              </Button>
+                <Button variant="default" className="px-2" size="sm">
+                  <Eye className="h-4 w-4 mr-2" />
+                  <span className="text-xs">Preview</span>
+                </Button>
               </div>
             </SheetTitle>
           </SheetHeader>
@@ -1811,7 +1815,7 @@ export const PurchaseOrder = ({
                       {["Partially Delivered", "Delivered"].includes(PO?.status) && (
                         <td className={`text-center py-3 align-top ${
                           item?.received_quantity === item?.quantity ? "text-green-600" : "text-red-700"
-                        }`}>
+                          }`}>
                           {item?.received_quantity || 0}
                         </td>
                       )}
@@ -1869,7 +1873,7 @@ export const PurchaseOrder = ({
                       <span className="text-gray-500">Delivered:</span>
                       <span className={`font-medium ${
                         item?.received_quantity === item?.quantity ? "text-green-600" : "text-red-700"
-                      }`}>
+                        }`}>
                         {item?.received_quantity || 0} / {item.quantity}
                       </span>
                     </div>

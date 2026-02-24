@@ -40,12 +40,14 @@ export const useSBQuoteApprovalApi = (sbId?: string, projectId?: string) => {
             return;
         }
         if (!sbId) throw new Error("Sent Back ID is required for approval.");
-        return await approveItemsCall(payload);
+        const result = await approveItemsCall(payload);
+        return result;
     }, [approveItemsCall, sbId, isCEOHold, showBlockedToast]);
 
     const sendBackSelection = useCallback(async (payload: SendBackSBPayload) => {
         if (!sbId) throw new Error("Sent Back ID is required for send back.");
-        return await sendBackItemsCall(payload);
+        const result = await sendBackItemsCall(payload);
+        return result;
     }, [sendBackItemsCall, sbId]);
 
     // No need for rejectCustomPr here
