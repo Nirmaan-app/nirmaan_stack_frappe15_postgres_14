@@ -388,6 +388,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.SR_SUMMARY,
     PROJECT_PAGE_TABS.PO_SUMMARY,
     PROJECT_PAGE_TABS.DC_MIR,
+    PROJECT_PAGE_TABS.BULK_DOWNLOAD,
   ]), []);
 
   // Allowed tabs for Procurement Executive
@@ -400,6 +401,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.SEVEN_DAY_PLANNING,
     PROJECT_PAGE_TABS.DC_MIR,
     PROJECT_PAGE_TABS.TDS_REPOSITORY,
+    PROJECT_PAGE_TABS.BULK_DOWNLOAD,
   ]), []);
 
   // Allowed tabs for Estimates Executive
@@ -414,6 +416,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.ESTIMATES,
     PROJECT_PAGE_TABS.DC_MIR,
     PROJECT_PAGE_TABS.TDS_REPOSITORY,
+    PROJECT_PAGE_TABS.BULK_DOWNLOAD,
   ]), []);
 
   // Redirect users to allowed tab if on restricted tab
@@ -456,6 +459,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           label: "PO Summary",
           key: PROJECT_PAGE_TABS.PO_SUMMARY,
         },
+        {
+          label: "Bulk Download",
+          key: PROJECT_PAGE_TABS.BULK_DOWNLOAD,
+        },
       ];
     }
 
@@ -493,6 +500,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         {
           label: "DC & MIR",
           key: PROJECT_PAGE_TABS.DC_MIR,
+        },
+        {
+          label: "Bulk Download",
+          key: PROJECT_PAGE_TABS.BULK_DOWNLOAD,
         },
       ];
     }
@@ -539,6 +550,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         {
           label: "DC & MIR",
           key: PROJECT_PAGE_TABS.DC_MIR,
+        },
+        {
+          label: "Bulk Download",
+          key: PROJECT_PAGE_TABS.BULK_DOWNLOAD,
         },
       ];
     }

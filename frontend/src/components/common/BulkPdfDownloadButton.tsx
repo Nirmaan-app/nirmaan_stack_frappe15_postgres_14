@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { useBulkPdfDownload } from "@/hooks/useBulkPdfDownload";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import { Label } from "@/components/ui/label";
+import { useUserData } from "@/hooks/useUserData";
 
 interface BulkPdfDownloadButtonProps {
   projectId: string;
@@ -17,6 +18,9 @@ interface BulkPdfDownloadButtonProps {
 }
 
 export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloadButtonProps) => {
+  const { role } = useUserData();
+  const isProjectManager = role === "Nirmaan Project Manager Profile";
+
   const {
     loading,
     showProgress,
@@ -55,10 +59,12 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
             <Download className="mr-2 h-4 w-4" />
             <span>Download All WOs</span>
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={initiateInvoiceDownload} className="cursor-pointer">
-            <Download className="mr-2 h-4 w-4" />
-            <span>Download All Invoices</span>
-          </DropdownMenuItem>
+          {!isProjectManager && (
+            <DropdownMenuItem onClick={initiateInvoiceDownload} className="cursor-pointer">
+              <Download className="mr-2 h-4 w-4" />
+              <span>Download All Invoices</span>
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem onClick={() => handleBulkDownload("DC", "Delivery Challans")} className="cursor-pointer">
             <Download className="mr-2 h-4 w-4" />
             <span>Download All DCs</span>
