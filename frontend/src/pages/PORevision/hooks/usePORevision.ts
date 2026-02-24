@@ -1,7 +1,11 @@
 import { useState, useMemo, useEffect } from "react";
-import { useFrappeGetDocList, useFrappePostCall, useFrappeFileUpload } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappePostCall, useFrappeFileUpload, useFrappeGetDoc } from "frappe-react-sdk";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
+import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
+import { Category } from "@/types/NirmaanStack/Category";
+import { Items } from "@/types/NirmaanStack/Items";
+import { CategoryMakelist } from "@/types/NirmaanStack/CategoryMakelist";
 import { toast } from "@/components/ui/use-toast";
 import { 
   RevisionItem, 
@@ -85,6 +89,71 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
   }, [open, po]);
 
   // Fetch Data
+  const { data: prData } = useFrappeGetDoc<ProcurementRequest>(
+    "Procurement Requests",
+    po?.procurement_request || "",
+    po?.procurement_request ? `PR-${po.procurement_request}` : null
+  );
+
+  const workPackage = prData?.work_package;
+
+  const { data: categories } = useFrappeGetDocList<Category>(
+    "Category",
+    {
+      fields: ["name", "tax"],
+      filters: [["work_package", "in",[workPackage,"Tool & Equipments","Additional Charges"]]], 
+      limit: 0,
+    },
+    workPackage ? `Categories-WP-${workPackage}` : null
+  );
+
+  const categoryNames = useMemo(() => categories?.map(c => c.name) || [], [categories]);
+
+  const { data: itemsList } = useFrappeGetDocList<Items>(
+    "Items",
+    {
+      fields: ["name", "item_name", "category", "unit_name", "make_name"],
+      filters: categoryNames.length > 0 ? [["category", "in", categoryNames]] : [["name", "=", "INVALID"]],
+      limit: 0,
+    },
+    categoryNames.length > 0 ? `Items-Cat-${workPackage}` : null
+  );
+
+  const { data: categoryMakelist } = useFrappeGetDocList<CategoryMakelist>(
+    "Category Makelist",
+    {
+      fields: ["category", "make"],
+      filters: categoryNames.length > 0 ? [["category", "in", categoryNames]] : [["category", "=", "INVALID"]],
+      limit: 0,
+    },
+    categoryNames.length > 0 ? `CatMakelist-${workPackage}` : null
+  );
+
+  const itemOptions = useMemo(() => {
+    if (!itemsList) return [];
+    
+    // Create a map of categories to get tax easily
+    const categoryMap = new Map(categories?.map(c => [c.name, c]) || []);
+
+    const categoryMakesMap = new Map<string, string[]>();
+    categoryMakelist?.forEach(m => {
+        if (!categoryMakesMap.has(m.category)) categoryMakesMap.set(m.category, []);
+        categoryMakesMap.get(m.category)!.push(m.make);
+    });
+
+    return itemsList.map(item => ({
+      label: item.item_name,
+      value: item.name,
+      item_id: item.name,
+      item_name: item.item_name,
+      make: item.make_name || "",
+      available_makes: categoryMakesMap.get(item.category) || (item.make_name ? [item.make_name] : []),
+      unit: item.unit_name || "",
+      category: item.category,
+      tax: parseFloat(categoryMap.get(item.category)?.tax || "0")
+    }));
+  }, [itemsList, categories, categoryMakelist]);
+
   const { data: invoices } = useFrappeGetDocList<VendorInvoice>(
     "Vendor Invoices",
     {
@@ -133,7 +202,7 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
     const item = newItems[index];
 
     if (item.item_type === "Original") {
-       newItems[index] = { ...item, ...updates, item_type: "Revised" };
+       newItems[index] = { ...item, ...updates, item_type: updates.item_type || "Revised" };
     } else {
        newItems[index] = { ...item, ...updates };
     }
@@ -317,5 +386,6 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
     handleUpdateItem,
     handleRemoveItem,
     handleSave,
+    itemOptions,
   };
 };
