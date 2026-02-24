@@ -314,7 +314,7 @@ export const ProcurementRequests: React.FC = () => {
                 const eventIdForNotif = tab === PR_TABS.NEW_PR_REQUEST ? "pr:approved" : (tab === PR_TABS.IN_PROGRESS ? "pr:rfqGenerated" : "pr:general"); // Example
                 const isNew = notifications.find(n => n.docname === prId && n.seen === "false" && n.event_id === eventIdForNotif);
                 return (
-                    <div role="button" tabIndex={0} onClick={() => handleNewPRSeen(isNew)} className="font medium flex items-center gap-2 group">
+                    <div role="button" tabIndex={0} onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 group">
                         {tab !== PR_TABS.ALL_PRS ? (
                             <Link className="underline hover:underline-offset-2 whitespace-nowrap" to={`/procurement-requests/${prId}?tab=${tab}`}>
                                 {prId?.slice(-4)}

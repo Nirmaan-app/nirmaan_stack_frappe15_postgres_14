@@ -317,13 +317,11 @@ export const useCredits = () => {
 
   // --- Trigger Fetch on Dependencies Change ---
   useEffect(() => {
-    invalidateSidebarCounts();
     fetchData();
   }, [fetchData]);
 
   // --- Refetch Function ---
   const refetch = useCallback(() => {
-    invalidateSidebarCounts();
     fetchData();
   }, [fetchData]);
 
