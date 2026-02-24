@@ -151,7 +151,15 @@ def download_all_dns(project):
         frappe.throw("Project is required")
 
     dt = "Procurement Orders"
-    docs = frappe.get_all(dt, filters={"project": project, "status": ["not in", ["Merged", "Cancelled", "PO Amended", "Inactive"]]}, fields=["name"], order_by="creation desc")
+    docs = frappe.get_all(
+        dt, 
+        filters={
+            "project": project, 
+            "status": ["in", ["Delivered", "Partially Delivered"]]
+        }, 
+        fields=["name"], 
+        order_by="creation desc"
+    )
 
     if not docs:
         frappe.throw(f"No Procurement Orders found for project {project}")
@@ -218,12 +226,43 @@ def download_project_attachments(project, doc_type):
 
     config = type_map[doc_type]
     label = config["label"]
+    docs = []
     
-    docs = frappe.get_all("Nirmaan Attachments", 
-        filters={"project": project, "attachment_type": config["filter"]}, 
-        fields=["name", "attachment", "attachment_type"], 
-        order_by="creation desc"
-    )
+    if doc_type in ["PO Invoices", "WO Invoices", "All Invoices"]:
+        # Match the wizard: Only fetch attachments for "Approved" Vendor Invoices
+        vi_filters = {"project": project, "status": "Approved"}
+        if doc_type == "PO Invoices":
+            vi_filters["document_type"] = "Procurement Orders"
+        elif doc_type == "WO Invoices":
+            vi_filters["document_type"] = "Service Requests"
+            
+        vendor_invoices = frappe.get_all(
+            "Vendor Invoices", 
+            filters=vi_filters, 
+            fields=["name", "invoice_attachment"],
+            order_by="creation desc"
+        )
+        
+        valid_attachment_names = [vi.invoice_attachment for vi in vendor_invoices if vi.invoice_attachment]
+        
+        if valid_attachment_names:
+            docs = frappe.get_all(
+                "Nirmaan Attachments", 
+                filters={"name": ["in", valid_attachment_names]}, 
+                fields=["name", "attachment", "attachment_type"]
+            )
+            
+            # Preserve ordering from Vendor Invoices
+            # Map docs by name
+            doc_map = {d.name: d for d in docs}
+            docs = [doc_map[name] for name in valid_attachment_names if name in doc_map]
+    else:
+        # DC and MIR logic
+        docs = frappe.get_all("Nirmaan Attachments", 
+            filters={"project": project, "attachment_type": config["filter"]}, 
+            fields=["name", "attachment", "attachment_type"], 
+            order_by="creation desc"
+        )
 
     if not docs:
         frappe.throw(f"No {label} found for project {project}")

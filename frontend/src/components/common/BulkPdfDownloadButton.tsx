@@ -92,11 +92,15 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
               <Button 
                 variant="outline" 
                 onClick={() => handleBulkDownload("PO", "POs", { withRate: true })}
+                disabled={isProjectManager}
                 className="justify-start h-auto py-3 px-4"
               >
                 <div className="flex flex-col items-start">
                   <span className="font-semibold">With Rate</span>
                   <span className="text-xs text-muted-foreground font-normal italic lowercase">Shows prices and totals in the POs</span>
+                  {isProjectManager && (
+                    <span className="text-[10px] text-muted-foreground font-normal mt-1">Disabled for Project Managers</span>
+                  )}
                 </div>
               </Button>
               <Button 

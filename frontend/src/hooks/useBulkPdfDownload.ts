@@ -1,12 +1,16 @@
 import { useState, useContext } from "react";
 import { useToast } from "@/components/ui/use-toast";
 import { FrappeContext, FrappeConfig } from "frappe-react-sdk";
+import { useUserData } from "@/hooks/useUserData";
 
 export type DownloadType = "PO" | "WO" | "Invoice" | "DC" | "MIR" | "DN";
 
 export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
     const { toast } = useToast();
     const { socket } = useContext(FrappeContext) as FrappeConfig;
+    const { role } = useUserData();
+    const isProjectManager = role === "Nirmaan Project Manager Profile";
+
     const [loading, setLoading] = useState(false);
     const [showProgress, setShowProgress] = useState(false);
     const [progress, setProgress] = useState(0);
@@ -52,7 +56,8 @@ export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
 
             switch (type) {
                 case "PO":
-                    const rateParam = options?.withRate ? 1 : 0;
+                    const effectiveWithRate = isProjectManager ? false : !!options?.withRate;
+                    const rateParam = effectiveWithRate ? 1 : 0;
                     endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_all_pos?project=${projectId}&with_rate=${rateParam}`;
                     fileName = `${projectName || projectId}_All_POs.pdf`;
                     break;
