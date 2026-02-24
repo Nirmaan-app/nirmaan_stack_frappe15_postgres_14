@@ -33,6 +33,7 @@ const poReportOptions: { label: string; value: POReportOption }[] = [
     { label: 'Dispatched for 1+ days', value: 'Dispatched for 1 days' },
     { label: '2B Reconcile Report', value: '2B Reconcile Report' },
     { label: 'PO Attachment Reconciliation', value: 'PO Attachment Reconciliation Report' },
+    { label: 'DN > DC Quantity Report', value: 'DN > DC Quantity Report' },
 ];
 
 const srReportOptions: { label: string; value: SROption }[] = [
