@@ -219,19 +219,6 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
       return catMatch && bcMatch && delMatch && poMatch;
     });
 
-    // 3. SORT: Apply sorting if a sort key is active.
-    const { key, direction } = sortConfig;
-    if (key) {
-      // Create a mutable copy to avoid sorting the original array
-      items = [...items].sort((a, b) => {
-        const valA = (a as Record<string, any>)[key] ?? 0;
-        const valB = (b as Record<string, any>)[key] ?? 0;
-        if (valA < valB) return direction === 'asc' ? -1 : 1;
-        if (valA > valB) return direction === 'asc' ? 1 : -1;
-        return 0;
-      });
-    }
-    
     return items;
   }, [
     allMaterialUsageItems,
@@ -241,29 +228,45 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
     billingCategoryFilter,
     deliveryStatusFilter,
     poStatusFilter,
-    sortConfig
   ]);
 
-  // Merge remaining data into processedItems
+  // Merge remaining data into processedItems, then sort
   const processedItemsWithRemaining = useMemo((): MaterialUsageDisplayItem[] => {
     const remainingItems = remainingData?.message?.items;
-    if (!remainingItems || Object.keys(remainingItems).length === 0) return processedItems;
+    let items: MaterialUsageDisplayItem[];
 
-    const remainingMap = new Map(Object.entries(remainingItems));
+    if (!remainingItems || Object.keys(remainingItems).length === 0) {
+      items = processedItems;
+    } else {
+      const remainingMap = new Map(Object.entries(remainingItems));
+      items = processedItems.map((item) => {
+        const key = `${item.categoryName}_${item.itemId}`;
+        const maxQuote = Math.max(...(item.poNumbers?.map((p) => p.quote ?? 0) ?? [0]));
+        const isHighValue = maxQuote > 5000;
+        const remaining = remainingMap.get(key);
 
-    return processedItems.map((item) => {
-      const key = `${item.categoryName}_${item.itemId}`;
-      const maxQuote = Math.max(...(item.poNumbers?.map((p) => p.quote ?? 0) ?? [0]));
-      const isHighValue = maxQuote > 5000;
-      const remaining = remainingMap.get(key);
+        return {
+          ...item,
+          isHighValueItem: isHighValue,
+          remainingQuantity: isHighValue && remaining ? remaining.remaining_quantity : undefined,
+        };
+      });
+    }
 
-      return {
-        ...item,
-        isHighValueItem: isHighValue,
-        remainingQuantity: isHighValue && remaining ? remaining.remaining_quantity : undefined,
-      };
-    });
-  }, [processedItems, remainingData?.message?.items]);
+    // Sort after merge so remainingQuantity is available as a sort key
+    const { key, direction } = sortConfig;
+    if (key) {
+      items = [...items].sort((a, b) => {
+        const valA = (a as Record<string, any>)[key] ?? 0;
+        const valB = (b as Record<string, any>)[key] ?? 0;
+        if (valA < valB) return direction === 'asc' ? -1 : 1;
+        if (valA > valB) return direction === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+
+    return items;
+  }, [processedItems, remainingData?.message?.items, sortConfig]);
 
   // --- F. CSV EXPORT HANDLER ---
   // Uses the final `processedItemsWithRemaining` array to export what the user sees.
