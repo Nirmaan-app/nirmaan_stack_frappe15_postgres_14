@@ -3,6 +3,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { FrappeContext, FrappeConfig, useFrappeGetDocList } from "frappe-react-sdk";
 import { DateFilterValue } from "@/components/ui/standalone-date-filter";
 import { subDays, subMonths, subYears, startOfWeek, startOfMonth, startOfQuarter, startOfYear, isAfter, isBefore, isEqual, isWithinInterval } from "date-fns";
+import { useUserData } from "@/hooks/useUserData";
 
 export type BulkDocType = "PO" | "WO" | "Invoice" | "DC" | "MIR" | "DN";
 export type InvoiceSubType = "PO Invoices" | "WO Invoices" | "All Invoices";
@@ -49,6 +50,8 @@ function parseAssociatedPOs(raw?: string): string[] {
 export const useBulkDownloadWizard = (projectId: string, projectName?: string) => {
     const { toast } = useToast();
     const { socket } = useContext(FrappeContext) as FrappeConfig;
+    const { role } = useUserData();
+    const isProjectManager = role === "Nirmaan Project Manager Profile";
 
     // Step 1 = type selection, Step 2 = select + download, Step 3 = success
     const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -439,8 +442,9 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
 
             switch (docType) {
                 case "PO": {
-                    endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_selected_pos?project=${projectId}&names=${namesParam}&with_rate=${withRate ? 1 : 0}`;
-                    fileName = `${projectName || projectId}_Selected_POs_${withRate ? "With" : "Without"}_Rate.pdf`;
+                    const effectiveWithRate = isProjectManager ? false : withRate;
+                    endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_selected_pos?project=${projectId}&names=${namesParam}&with_rate=${effectiveWithRate ? 1 : 0}`;
+                    fileName = `${projectName || projectId}_Selected_POs_${effectiveWithRate ? "With" : "Without"}_Rate.pdf`;
                     break;
                 }
                 case "WO":

@@ -14,6 +14,7 @@ import { FilterBar } from "../FilterBar";
 import { POItem, CriticalPOTask } from "../useBulkDownloadWizard";
 import { DateFilterValue } from "@/components/ui/standalone-date-filter";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { useUserData } from "@/hooks/useUserData";
 
 function parseLinkedPOs(raw?: string): string[] {
     if (!raw) return [];
@@ -76,9 +77,15 @@ export const POSteps = ({
     criticalTasks,
     onSelectMultipleCriticalTaskPOs,
 }: POStepsProps) => {
+    const { role } = useUserData();
+    const isProjectManager = role === "Nirmaan Project Manager Profile";
+
     const [selectedCriticalTasks, setSelectedCriticalTasks] = useState<string[]>([]);
     const [statusFilter, setStatusFilter] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState("all");
+
+    // Enforce without rate for Project Managers natively
+    const effectiveWithRate = isProjectManager ? false : withRate;
 
     const tasksWithPOs = useMemo(
         () => criticalTasks.filter((t) => parseLinkedPOs(t.associated_pos).length > 0),
@@ -136,14 +143,18 @@ export const POSteps = ({
                     </p>
                 </div>
                 {/* Rate toggle */}
-                <div className="flex items-center gap-2 bg-muted/40 border rounded-lg px-3 py-2">
+                <div className={`flex items-center gap-2 border rounded-lg px-3 py-2 ${isProjectManager ? "bg-muted/70 opacity-80" : "bg-muted/40"}`}>
                     <Switch
                         id="with-rate"
-                        checked={withRate}
+                        checked={effectiveWithRate}
                         onCheckedChange={onWithRateChange}
+                        disabled={isProjectManager}
                     />
-                    <Label htmlFor="with-rate" className="text-sm cursor-pointer">
-                        {withRate ? "With Rate" : "Without Rate"}
+                    <Label htmlFor="with-rate" className={`text-sm ${isProjectManager ? "cursor-not-allowed opacity-70 flex flex-col items-start gap-0.5" : "cursor-pointer"}`}>
+                        {effectiveWithRate ? "With Rate" : "Without Rate"}
+                        {isProjectManager && (
+                           <span className="text-[10px] text-muted-foreground font-normal">Disabled for Project Managers</span>
+                        )}
                     </Label>
                 </div>
             </div>
