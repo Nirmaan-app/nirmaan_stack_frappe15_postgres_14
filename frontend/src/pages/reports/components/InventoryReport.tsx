@@ -1,5 +1,5 @@
 import { useMemo, useState, useCallback } from "react";
-import { useFrappeGetCall } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 import { ColumnDef } from "@tanstack/react-table";
 import {
   useReactTable,
@@ -94,7 +94,7 @@ const NOT_FILLED = -1;
 /** Shared formatter for remaining quantity values */
 function formatRemainingQty(val: number | null | undefined): string {
   if (val === null || val === undefined || val === NOT_FILLED) return "---";
-  if (val === 0) return "All Consumed";
+  if (val === 0) return "0.00";
   return val.toFixed(2);
 }
 
@@ -167,11 +167,27 @@ function SummaryTable({ projectId }: { projectId: string }) {
   const reportDate = latestRemaining?.report_date;
   const remainingItems = latestRemaining?.items ?? {};
 
+  // Fetch categories to exclude Tool & Equipments
+  const { data: categoryList, isLoading: isCategoryLoading } = useFrappeGetDocList("Category", {
+    fields: ["name", "work_package"],
+    limit: 0,
+  });
+
+  const toolEquipmentCategories = useMemo(() => {
+    if (!categoryList) return new Set<string>();
+    return new Set<string>(
+      categoryList
+        .filter((cat) => cat.work_package === "Tool & Equipments")
+        .map((cat) => cat.name)
+    );
+  }, [categoryList]);
+
   // Merge and filter data
   const summaryData = useMemo((): InventorySummaryRow[] => {
     if (!allMaterialUsageItems?.length) return [];
 
     return allMaterialUsageItems
+      .filter((item) => !toolEquipmentCategories.has(item.categoryName))
       .filter((item) => {
         const maxRate = Math.max(...(item.poNumbers?.map((p) => p.quote ?? 0) ?? [0]));
         return maxRate > RATE_THRESHOLD;
@@ -195,7 +211,7 @@ function SummaryTable({ projectId }: { projectId: string }) {
         const catCmp = a.category.localeCompare(b.category);
         return catCmp !== 0 ? catCmp : a.itemName.localeCompare(b.itemName);
       });
-  }, [allMaterialUsageItems, remainingItems]);
+  }, [allMaterialUsageItems, remainingItems, toolEquipmentCategories]);
 
   // Category options for faceted filter
   const categoryOptions = useMemo(() => {
@@ -307,7 +323,7 @@ function SummaryTable({ projectId }: { projectId: string }) {
     },
     {
       accessorKey: "latestDNQuantity",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Latest DN Quantity" />,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="DN Quantity" />,
       cell: ({ row }) => (
         <span className="text-sm text-right block font-mono tabular-nums">
           {row.original.latestDNQuantity.toFixed(2)}
@@ -328,9 +344,6 @@ function SummaryTable({ projectId }: { projectId: string }) {
         const formatted = formatRemainingQty(val);
         if (formatted === "---") {
           return <span className="text-muted-foreground text-right block">---</span>;
-        }
-        if (formatted === "All Consumed") {
-          return <span className="text-red-600 font-medium text-sm text-right block">All Consumed</span>;
         }
         return (
           <span className="text-sm text-right block font-mono tabular-nums">{formatted}</span>
@@ -390,7 +403,7 @@ function SummaryTable({ projectId }: { projectId: string }) {
       { header: "Category", accessorKey: "category" },
       { header: "Unit", accessorKey: "unit" },
       { header: "PO Quantity", accessorKey: "poQuantity" },
-      { header: "Latest DN Quantity", accessorKey: "latestDNQuantity" },
+      { header: "DN Quantity", accessorKey: "latestDNQuantity" },
       { header: remainingHeader, accessorKey: "remainingQty" },
     ];
 
@@ -403,7 +416,7 @@ function SummaryTable({ projectId }: { projectId: string }) {
     }
   }, [filteredData, remainingHeader]);
 
-  const isLoading = isLoadingMaterial || isLoadingRemaining;
+  const isLoading = isLoadingMaterial || isLoadingRemaining || isCategoryLoading;
 
   if (isLoading) return <LoadingFallback />;
 
@@ -446,7 +459,7 @@ const HISTORY_SEARCH_FIELDS: SearchFieldOption[] = [
 const noop = () => {};
 
 function HistoryTable({ projectId }: { projectId: string }) {
-  const { data: reportsData, isLoading, error: historyError } = useFrappeGetCall<{
+  const { data: reportsData, isLoading: isLoadingReports, error: historyError } = useFrappeGetCall<{
     message: ReportEntry[];
   }>(
     "nirmaan_stack.api.remaining_items_report.get_remaining_reports_for_project",
@@ -455,6 +468,21 @@ function HistoryTable({ projectId }: { projectId: string }) {
   );
 
   const reports = reportsData?.message ?? [];
+
+  // Fetch categories to exclude Tool & Equipments
+  const { data: categoryList, isLoading: isCategoryLoading } = useFrappeGetDocList("Category", {
+    fields: ["name", "work_package"],
+    limit: 0,
+  });
+
+  const toolEquipmentCategories = useMemo(() => {
+    if (!categoryList) return new Set<string>();
+    return new Set<string>(
+      categoryList
+        .filter((cat) => cat.work_package === "Tool & Equipments")
+        .map((cat) => cat.name)
+    );
+  }, [categoryList]);
 
   // Build dynamic date columns from report dates
   const dateColumns = useMemo(() => {
@@ -477,6 +505,7 @@ function HistoryTable({ projectId }: { projectId: string }) {
     for (const report of reports) {
       const dateKey = `remaining_${report.report_date}`;
       for (const item of report.items) {
+        if (toolEquipmentCategories.has(item.category)) continue;
         const itemKey = `${item.category}_${item.item_id}`;
         if (!rowMap.has(itemKey)) {
           rowMap.set(itemKey, {
@@ -495,7 +524,7 @@ function HistoryTable({ projectId }: { projectId: string }) {
       const catCmp = a.category.localeCompare(b.category);
       return catCmp !== 0 ? catCmp : a.item_name.localeCompare(b.item_name);
     });
-  }, [reports]);
+  }, [reports, toolEquipmentCategories]);
 
   // Build columns
   const columns = useMemo((): ColumnDef<PivotRow>[] => {
@@ -529,9 +558,6 @@ function HistoryTable({ projectId }: { projectId: string }) {
         const formatted = formatRemainingQty(numVal);
         if (formatted === "---") {
           return <span className="text-muted-foreground text-center block">---</span>;
-        }
-        if (formatted === "All Consumed") {
-          return <span className="text-red-600 font-medium text-sm text-right block font-mono tabular-nums">All Consumed</span>;
         }
         return (
           <span className="text-sm text-right block font-mono tabular-nums">{formatted}</span>
@@ -598,6 +624,8 @@ function HistoryTable({ projectId }: { projectId: string }) {
       toast({ title: "Export Error", description: "Could not generate CSV file.", variant: "destructive" });
     }
   }, [pivotData, dateColumns]);
+
+  const isLoading = isLoadingReports || isCategoryLoading;
 
   if (isLoading) return <LoadingFallback />;
 
