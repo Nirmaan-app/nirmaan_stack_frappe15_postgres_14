@@ -151,7 +151,15 @@ def download_all_dns(project):
         frappe.throw("Project is required")
 
     dt = "Procurement Orders"
-    docs = frappe.get_all(dt, filters={"project": project, "status": ["not in", ["Merged", "Cancelled", "PO Amended", "Inactive"]]}, fields=["name"], order_by="creation desc")
+    docs = frappe.get_all(
+        dt, 
+        filters={
+            "project": project, 
+            "status": ["in", ["Delivered", "Partially Delivered"]]
+        }, 
+        fields=["name"], 
+        order_by="creation desc"
+    )
 
     if not docs:
         frappe.throw(f"No Procurement Orders found for project {project}")
