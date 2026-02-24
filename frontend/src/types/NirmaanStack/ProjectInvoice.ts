@@ -5,7 +5,7 @@ export interface ProjectInvoice {
   // --- Core Invoice Fields ---
   invoice_no: string;
   invoice_date: string; // A date string, e.g., "2025-06-16"
-  amount: string;       // Monetary values are often strings to avoid float precision issues.
+  amount: number;       // Currency field type in Frappe returns numeric values.
 
   // --- Linked Documents ---
   customer: string; // The `name` of the Customer document

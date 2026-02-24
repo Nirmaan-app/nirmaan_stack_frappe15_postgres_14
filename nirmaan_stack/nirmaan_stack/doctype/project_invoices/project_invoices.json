@@ -49,7 +49,7 @@
   },
   {
    "fieldname": "amount",
-   "fieldtype": "Data",
+   "fieldtype": "Currency",
    "label": "Amount"
   },
   {
@@ -61,8 +61,8 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-13 21:00:14.751577",
- "modified_by": "Administrator",
+ "modified": "2026-02-24 12:30:19.797785",
+ "modified_by": "nitesh@nirmaan.app",
  "module": "Nirmaan Stack",
  "name": "Project Invoices",
  "owner": "Administrator",
@@ -164,21 +164,21 @@
    "write": 1
   },
   {
-   "role": "Nirmaan HR Executive",
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
+   "role": "Nirmaan HR Executive",
    "share": 1
   },
   {
-   "role": "Nirmaan PMO Executive",
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
+   "role": "Nirmaan PMO Executive",
    "share": 1
   }
  ],
