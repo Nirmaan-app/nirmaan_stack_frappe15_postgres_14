@@ -5,10 +5,11 @@ from frappe.utils import add_days, today
 @frappe.whitelist()
 def generate_handover_tasks(project_id):
 	"""
-	Generate handover copies of all applicable design tracker tasks for a project.
+	Generate handover copies of all design tracker tasks for a project.
 
-	Copies tasks where task_status != 'Not Applicable', resets status fields,
-	sets task_phase='Handover' and deadline=today+7 days.
+	Copies all non-handover tasks. Tasks with 'Not Applicable' status retain
+	that status; all others are reset to 'Not Started'.
+	Sets task_phase='Handover' and deadline=today+7 days.
 
 	Idempotent: returns early if handover_generated is already set.
 	"""
@@ -32,11 +33,11 @@ def generate_handover_tasks(project_id):
 
 	applicable_tasks = [
 		t for t in doc.design_tracker_task
-		if t.task_status != "Not Applicable" and t.task_phase != "Handover"
+		if t.task_phase != "Handover"
 	]
 
 	if not applicable_tasks:
-		return {"status": "error", "message": "No applicable tasks to copy for handover"}
+		return {"status": "error", "message": "No tasks to copy for handover"}
 
 	handover_deadline = add_days(today(), 7)
 
@@ -48,7 +49,7 @@ def generate_handover_tasks(project_id):
 			"task_name": task.task_name,
 			"task_type": task.task_type,
 			"deadline": handover_deadline,
-			"task_status": "Not Started",
+			"task_status": task.task_status if task.task_status == "Not Applicable" else "Not Started",
 			"task_sub_status": "",
 			"assigned_designers": task.assigned_designers,
 			"file_link": "",

@@ -88,3 +88,4 @@ nirmaan_stack.patches.v3_0.backfill_ceo_hold_by
 nirmaan_stack.patches.v3_0.custom_po_migrate_payment_terms_text_to_json #v1
 nirmaan_stack.patches.v3_0.backfill_design_tracker_onboarding_phase
 nirmaan_stack.patches.v3_0.sync_items_to_tds_repository #v2
+nirmaan_stack.patches.v3_0.backfill_handover_na_tasks
