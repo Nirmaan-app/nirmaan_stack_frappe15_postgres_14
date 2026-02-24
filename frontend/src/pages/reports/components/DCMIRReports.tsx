@@ -3,7 +3,7 @@ import { ColumnDef } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { DCMIRReportRowData, useDCMIRReportsData } from "../hooks/useDCMIRReportsData";
-import { getDCMIRReportColumns } from "./columns/dcmirColumns";
+import { getDCMIRReportColumns, criticalPOLabel } from "./columns/dcmirColumns";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { DCMIRReportType, useReportStore } from "../store/useReportStore";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
@@ -37,10 +37,13 @@ export default function DCMIRReports({ projectId, forcedReportType }: DCMIRRepor
     );
     const selectedReportType = forcedReportType || storeReportType;
 
-    // Determine columns based on selected report type
+    // Determine columns based on selected report type, filtering project column in project view
     const tableColumnsToDisplay = useMemo(
-        () => getDCMIRReportColumns(selectedReportType || 'DC Report'),
-        [selectedReportType]
+        () => {
+            const cols = getDCMIRReportColumns(selectedReportType || 'DC Report');
+            return projectId ? cols.filter(c => c.id !== 'project_name') : cols;
+        },
+        [selectedReportType, projectId]
     );
 
     // Filter data by type based on selected report
@@ -122,13 +125,24 @@ export default function DCMIRReports({ projectId, forcedReportType }: DCMIRRepor
         { label: "Stub", value: "Stub" },
     ], []);
 
+    const criticalPOFacetOptions = useMemo<SelectOption[]>(() => {
+        const labels = new Set<string>();
+        for (const row of currentDisplayData) {
+            for (const task of row.criticalPOTasks) {
+                labels.add(criticalPOLabel(task));
+            }
+        }
+        return Array.from(labels).sort().map((l) => ({ label: l, value: l }));
+    }, [currentDisplayData]);
+
     const facetOptionsConfig = useMemo(
         () => {
-            const baseConfig = {
+            const baseConfig: Record<string, { title: string; options: SelectOption[] }> = {
+                critical_po: { title: "Critical PO", options: criticalPOFacetOptions },
                 is_signed: { title: "Signed", options: signedFacetOptions },
                 is_stub: { title: "Status", options: stubFacetOptions },
             };
-            
+
             if (!projectId) {
                return {
                    project_name: { title: "Project", options: projectFacetOptions },
@@ -137,7 +151,7 @@ export default function DCMIRReports({ projectId, forcedReportType }: DCMIRRepor
             }
             return baseConfig;
         },
-        [projectFacetOptions, signedFacetOptions, stubFacetOptions, projectId]
+        [projectFacetOptions, criticalPOFacetOptions, signedFacetOptions, stubFacetOptions, projectId]
     );
 
     const exportFileName = useMemo(() => {
@@ -158,6 +172,7 @@ export default function DCMIRReports({ projectId, forcedReportType }: DCMIRRepor
             dc_reference: row.dc_reference || "",
             vendor: row.vendorName || row.vendor || "",
             po_number: row.procurement_order,
+            critical_po_categories: row.criticalPOTasks?.map(criticalPOLabel).join(", ") || "",
             date: row.dc_date ? formatDate(row.dc_date) : "",
             items: row.itemsSummary,
             signed: row.is_signed_by_client === 1 ? "Yes" : "No",
@@ -165,19 +180,24 @@ export default function DCMIRReports({ projectId, forcedReportType }: DCMIRRepor
             status: row.is_stub === 1 ? "Stub" : "Complete",
         }));
 
-        const exportColumnsConfig: ColumnDef<any, any>[] = [
+        const allExportColumns: ColumnDef<any, any>[] = [
             { header: "Document ID", accessorKey: "document_id" },
             { header: "Project", accessorKey: "project" },
             { header: selectedReportType === 'MIR Report' ? "MIR No." : "DC No.", accessorKey: "reference_number" },
             ...(selectedReportType === 'MIR Report' ? [{ header: "DC Ref", accessorKey: "dc_reference" } as ColumnDef<any, any>] : []),
             { header: "Vendor", accessorKey: "vendor" },
             { header: "PO No.", accessorKey: "po_number" },
+            { header: "Critical PO Categories", accessorKey: "critical_po_categories" },
             { header: "Date", accessorKey: "date" },
             { header: "Items", accessorKey: "items" },
             { header: "Signed", accessorKey: "signed" },
             { header: "Attachment", accessorKey: "attachment" },
             { header: "Status", accessorKey: "status" },
         ];
+
+        const exportColumnsConfig = projectId
+            ? allExportColumns.filter(c => (c as any).accessorKey !== "project")
+            : allExportColumns;
 
         try {
             exportToCsv(exportFileName, dataToExport, exportColumnsConfig);
@@ -186,7 +206,7 @@ export default function DCMIRReports({ projectId, forcedReportType }: DCMIRRepor
             console.error("Export failed:", e);
             toast({ title: "Export Error", description: "Could not generate CSV file.", variant: "destructive" });
         }
-    }, [fullyFilteredData, exportFileName, selectedReportType]);
+    }, [fullyFilteredData, exportFileName, selectedReportType, projectId]);
 
     const isLoadingOverall = isLoadingInitialData || projectsUiLoading || isTableHookLoading;
     const overallError = initialDataError || projectsUiError || tableHookError;

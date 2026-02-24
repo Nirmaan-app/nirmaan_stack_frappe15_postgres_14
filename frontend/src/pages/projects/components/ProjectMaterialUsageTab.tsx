@@ -257,8 +257,20 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
     const { key, direction } = sortConfig;
     if (key) {
       items = [...items].sort((a, b) => {
-        const valA = (a as Record<string, any>)[key] ?? 0;
-        const valB = (b as Record<string, any>)[key] ?? 0;
+        const rawA = (a as Record<string, any>)[key];
+        const rawB = (b as Record<string, any>)[key];
+
+        // For remainingQuantity, push N/A (undefined/null/-1) to bottom regardless of direction
+        if (key === 'remainingQuantity') {
+          const isNaA = rawA === undefined || rawA === null || rawA === -1;
+          const isNaB = rawB === undefined || rawB === null || rawB === -1;
+          if (isNaA && !isNaB) return 1;
+          if (!isNaA && isNaB) return -1;
+          if (isNaA && isNaB) return 0;
+        }
+
+        const valA = rawA ?? 0;
+        const valB = rawB ?? 0;
         if (valA < valB) return direction === 'asc' ? -1 : 1;
         if (valA > valB) return direction === 'asc' ? 1 : -1;
         return 0;
