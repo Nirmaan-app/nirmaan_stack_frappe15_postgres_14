@@ -1,6 +1,6 @@
 # Doctypes Reference
 
-60 custom doctypes organized by domain.
+84 custom doctypes organized by domain.
 
 ## Procurement Workflow (Core)
 
@@ -43,7 +43,8 @@
 | Doctype | Purpose |
 |---------|---------|
 | **Project Payments** | Payments to vendors |
-| **Project Invoices** | Vendor invoices |
+| **Vendor Invoices** | Centralized invoice store (PO + SR). Autoname: `VI-.YYYY.-.#####` |
+| **Project Invoices** | Legacy invoice tracking (being replaced by Vendor Invoices) |
 | **Project Expenses** | Project-related expenses |
 | **Project Inflows** | Revenue/cash inflows |
 | **Non Project Expenses** | Overhead expenses |
@@ -102,6 +103,48 @@ Asset Category
 ### Frontend Route
 - `/asset-management` (NOT `/assets` - conflicts with Frappe's static file serving)
 
+## Design Tracker
+
+| Doctype | Purpose |
+|---------|---------|
+| **Project Design Tracker** | Parent tracker per project with phase support (Onboarding, Handover) |
+| **Design Tracker Zone** | Child table — zones within a tracker |
+| **Design Tracker Category** | Child table — categories within zones |
+| **Design Tracker Tasks** | Tasks within categories |
+| **Design Tracker Task Child Table** | Child table — individual task entries with status, assignees, file links, approval proof |
+| **Project TDS Setting** | TDS project configuration |
+| **Project TDS Item List** | TDS item entries per project |
+| **TDS Repository** | Master TDS data with item sync from Items doctype |
+
+### Design Tracker Task Statuses
+- Not Started, In Progress, Submitted, Approved, Not Applicable
+
+### Key Fields (Design Tracker Task Child Table)
+- `status`, `assigned_designers` (JSON), `file_link`, `approval_proof` (Attach)
+- `last_submitted` (auto-set by lifecycle hook)
+
+## Critical PO
+
+| Doctype | Purpose |
+|---------|---------|
+| **Critical PO Category** | Category definitions with `critical_po_sub_category` for granular categorization |
+| **Critical PO Items** | Items linked to critical PO categories |
+| **Critical PO Tasks** | Task tracking for critical PO workflow |
+
+## BOQ (Bill of Quantities)
+
+| Doctype | Purpose |
+|---------|---------|
+| **BOQ** | Bill of quantities documents |
+| **BOQ Item** | Child table — BOQ line items |
+
+## Work Plan & Material Delivery
+
+| Doctype | Purpose |
+|---------|---------|
+| **Work Plan** | Work plan tracking with `work_plan_remarks` field |
+| **Material Delivery Plan** | Material delivery planning per project |
+
 ## Help & Training
 
 | Doctype | Purpose |
@@ -137,24 +180,49 @@ Asset Category
 - `PR Attachments` - PR-specific attachments
 - `Milestone Attachments` - Milestone documentation
 
-## Reporting
+## Inventory & Reporting
 
 | Doctype | Purpose |
 |---------|---------|
 | **Project Progress Reports** | Progress tracking |
 | **Manpower Reports** | Labor tracking |
+| **Remaining Items Report** | Inventory snapshot report per project. Autoname: `RIR-.YYYY.-.#####` |
+| **Remaining Item Entry** | Child table for Remaining Items Report — per-item quantity tracking |
 
-### Child Tables
+### Remaining Items Report Fields
+- `project` (link), `report_date` (Date), `created_by` (link to Nirmaan Users)
+- `declaration_accepted` (Check), `cooldown_bypass` (Check)
+- `items` (Remaining Item Entry child table)
+
+### Remaining Item Entry Fields
+- `item_id`, `item_name`, `unit`, `category`, `quantity` (Float)
+- Linked to parent `Remaining Items Report`
+
+### Progress Report Child Tables
 - `Project Progress Report Attachments`
 - `Project Progress Report Manpower Details`
 - `Project Progress Report Work Milestones`
 
+## Financial Planning
+
+| Doctype | Purpose |
+|---------|---------|
+| **Cashflow Plan** | Expected cash outflow/inflow planning per project |
+
+### Cashflow Plan Fields
+- `project`, `vendor`, `vendor_name` (links)
+- `id_link` (link to PO/SR), `planned_date`, `planned_amount`
+- `type` (Select: PO, WO, Misc, Inflow, New PO, New WO)
+- `items`, `estimated_price`, `remarks`
+- `critical_po_category`, `critical_po_task`
+
 ## Supporting
 
-- `Customer PO Child Table` - Customer PO details
+- `Customer PO Child Table` - Customer PO details (includes `customer_po_payment_terms` child table with expected date fields)
 - `Task` - Task management
 - `Auto Approval Counter Settings` - Auto-approval tracking
 - `Map API` - Geolocation services
+- `TDS Repository` - TDS data tracking with item sync from Items doctype (via `on_update` hook)
 
 ---
 

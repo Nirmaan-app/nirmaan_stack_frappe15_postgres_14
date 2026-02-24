@@ -8,10 +8,11 @@
 | **WIP** | Admin/PMO | Manually via UI; legacy patch set for old projects (`patches/v1_9/add_project_status.py`) |
 | **Completed** | Admin/PMO | Manually via UI |
 | **Halted** | Admin/PMO | Manually via UI |
+| **CEO Hold** | `nitesh@nirmaan.app` only | Blocks ALL operations. Backend validation in `projects.py` enforces user restriction |
 
 **Field definition:** Simple `Data` field in `projects.json:160-163` (not a `Select` with constrained options).
 
-**No automatic transitions** exist. All status changes are manual, performed only by Admin or PMO Executive roles.
+**No automatic transitions** exist. All status changes are manual. CEO Hold restricted to one authorized user (not role-based).
 
 ---
 
@@ -51,7 +52,7 @@ This is bypassed when `all={true}` prop is passed.
 ### Status Change UI (`pages/projects/project.tsx:1215-1258`)
 
 - Only Admin and PMO Executive roles see the status change popover
-- Available transitions: WIP, Completed, Halted (cannot go back to "Created")
+- Available transitions: WIP, Completed, Halted, CEO Hold (cannot go back to "Created")
 - Uses `updateDoc("Projects", projectId, { status: newStatus })` with confirmation dialog
 
 ---

@@ -21,7 +21,8 @@ Backend API endpoints in `nirmaan_stack/api/`.
 
 | File | Purpose |
 |------|---------|
-| `data-table.py` (55KB) | Data aggregation for frontend tables |
+| `data-table.py` (55KB, legacy hyphenated name) | Data aggregation for frontend tables |
+| `data_table/` (new module) | Refactored data aggregation: `search.py`, `facets.py`, `aggregations.py`, `utils.py` |
 | `sidebar_counts.py` | Badge counts for navigation |
 | `get_project_reports.py` | Report generation |
 
@@ -41,27 +42,44 @@ Backend API endpoints in `nirmaan_stack/api/`.
 - `get_all_delivery_documents()` - Get all delivery docs (for reports, with filters)
 - Shared `_enrich_delivery_docs()` helper batch-fetches child items and attachment URLs (avoids N+1 queries)
 
-### Bulk PDF Download (`api/bulk_pdf/`)
-- `get_bulk_po_pdf.py` - `get_bulk_po_pdf(po_names)` - Generate merged PDF of multiple PO documents
-- `get_bulk_sr_pdf.py` - `get_bulk_sr_pdf(sr_names)` - Generate merged PDF of multiple SR/WO documents
-- Uses Frappe print format API internally, merges with PyPDF2/pikepdf
+### Bulk PDF Download (`api/pdf_helper/`)
+- `bulk_download.py` - Unified bulk download for POs, WOs, Invoices, DCs, MIRs, DNs
+  - Supports vendor/date filtering, progress tracking, rate selection
+  - Filters POs by Delivered/Partially Delivered status
+  - Restricts PO rate visibility for Project Managers
+  - Fetches only approved invoice attachments for invoice downloads
+- `pdf_merger_api.py` - PDF merge utility with progress percentage tracking
+- `po_print.py` - PO print format generation
+- `print_integration.py` - Print format integration utilities
+
+### Remaining Items / Inventory (`api/remaining_items_report.py`)
+- `create_remaining_items_report()` - Create inventory snapshot with item quantities
+- `get_remaining_items_report()` - Fetch report with eligible items
+- Cooldown enforcement (prevents rapid successive reports)
+- Declaration acceptance required before submission
 
 ### Design Tracker (`api/design_tracker/`)
-- `get_task_wise_list.py` - `get_task_wise_list(filters)` - Task-centric queries with designer/status filtering
-- `get_team_performance_summary.py` - `get_team_performance_summary(filters)` - Designer performance metrics
+- `get_task_wise_list.py` - Task-centric queries with designer/status/phase filtering
+- `get_team_summary.py` - Designer performance metrics with unassigned task tracking
+- `generate_handover_tasks.py` - Generate handover phase tasks, preserving Not Applicable status
+
+### TDS (`api/tds/`)
+- `tds_report.py` - TDS report generation with progressive PDF percentage tracking
 
 ### Other Domains
 - `invoices/` - Invoice data APIs (PO-wise, SR-wise)
 - `payments/` - Payment processing
-- `delivery_notes/` - Delivery note updates
+- `delivery_notes/` - Delivery note updates (includes `uploaded_by` validation for Administrator)
 - `vendor/` - Vendor-specific data (POs, invoices)
 - `customers/` - Customer financials
 - `target_rates/` - Historical rate lookups
+- `data_table/search.py` - Data aggregation (sorting support prepared but not yet enabled; requires explicit field selection)
 
 ### Master Data
 - `create_vendor_and_address.py` - Vendor onboarding
 - `bank_details.py` - Banking utilities
 - `users.py` - User management (rename, etc.)
+- `items.py` - Items doctype with `on_update` hook syncing item_name and category to TDS Repository
 
 ---
 

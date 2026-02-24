@@ -9,7 +9,7 @@ Quick navigation to detailed documentation. Read only when working on related ta
 | [integrations.md](integrations.md) | Frontend-Backend | Socket.IO, Firebase, REST patterns |
 | [workflows.md](workflows.md) | Business Logic | Auto-approval, state machines, scheduled tasks |
 | [patterns.md](patterns.md) | Code Conventions | Naming, file organization, error handling |
-| [domain/procurement.md](domain/procurement.md) | Procurement | PR/PO/RFQ/Quotation workflows |
+| [domain/procurement.md](domain/procurement.md) | Procurement | PR/PO/RFQ/Quotation workflows, PO delivery documents |
 | [domain/service-requests.md](domain/service-requests.md) | Service Requests | Work Orders, finalization, SR remarks |
 | [domain/users.md](domain/users.md) | User Management | Nirmaan Users, permissions, authentication |
 | [domain/projects.md](domain/projects.md) | Projects | Project status lifecycle, status effects on features |
@@ -20,4 +20,7 @@ Quick navigation to detailed documentation. Read only when working on related ta
 |------|--------|--------------|
 | `domain/ceo-hold.md` | CEO Hold | Project hold status blocking, guard hooks, affected pages |
 | `domain/projects.md` | Projects | Frontend status behavior, ProjectSelect component |
+| `domain/customers.md` | Customers | Customer CRUD, financials, inflows |
+| `domain/invoices.md` | Invoices | PO/SR invoices, 2B reconciliation |
+| `domain/milestones.md` | Milestones | Daily progress reports, zone tracking |
 | `role-access.md` | Access Control | Role checks, sidebar visibility, page permissions |

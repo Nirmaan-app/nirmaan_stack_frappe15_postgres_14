@@ -52,7 +52,7 @@ user_id === "Administrator" || role === "Nirmaan Admin Profile" || role === "Nir
 | Feature | Admin | PMO | Proj Lead | Proj Mgr | Procurement | Accountant | Estimates | Design Lead | Design Exec | HR Exec |
 |---------|:-----:|:---:|:---------:|:--------:|:-----------:|:----------:|:---------:|:-----------:|:-----------:|:-------:|
 | Admin Options | Y | Y | - | - | - | - | - | - | - | - |
-| Critical PO Categories | Y | Y | Y | - | - | - | - | - | - | - |
+| Critical PO Categories | Y | Y | - | - | - | - | - | - | - | - |
 | PO Tracker | Y | Y | Y | Y | Y | - | - | - | - | - |
 | Projects (standalone) | - | - | Y | Y | Y | Y | - | - | - | - |
 | Products (standalone) | - | - | - | - | Y | - | - | - | - | - |
@@ -72,6 +72,8 @@ user_id === "Administrator" || role === "Nirmaan Admin Profile" || role === "Nir
 | Reports | Y | Y | Y | Y | Y | Y | - | - | - | - |
 | Design Tracker | Y | Y | Y | Y | - | - | Y | Y | - | - |
 | Planning Tab | Y | Y | - | - | - | - | Y | - | - | - |
+| Bulk Download | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| TDS Repository | Y | Y | - | - | Y | - | Y | - | - | - |
 | Help Repository | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 
 ---

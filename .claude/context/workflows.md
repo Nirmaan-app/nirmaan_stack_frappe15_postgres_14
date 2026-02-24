@@ -61,6 +61,8 @@ Pending → Approved → Vendor Selected → Vendor Approved → Closed
 - **Vendor Changes**: Auto-generate vendor categories
 - **PR/PO/SR Lifecycle**: State management + versioning
 - **Versioning**: Amendment tracking for all major documents
+- **Items on_update**: Syncs `item_name` and `category` to TDS Repository entries (added v3.0)
+- **Design Tracker Tasks**: Auto-sets `last_submitted` date on status change; validates approval proof for Approved status
 
 ---
 
@@ -90,18 +92,18 @@ scheduler_events = {
 
 ### Statuses
 ```
-Created → WIP / Completed / Halted
-                   ↕           ↕
-              Halted ←→ Completed
+Created → WIP / Completed / Halted / CEO Hold
 ```
 
 - **Created**: System-set on project creation. Cannot be reverted to.
 - **WIP/Completed/Halted**: Manual transitions by Admin/PMO Executive only.
+- **CEO Hold**: Only `nitesh@nirmaan.app` can set/unset. Blocks ALL procurement, payment, and expense operations.
 
 ### Key Behavior
 - **Halted/Completed** projects are hidden from `ProjectSelect` dropdown (used in PR/SR list filters, expense creation, etc.)
-- **No hard API guards** — PR and SR creation is NOT blocked for Halted/Completed projects
-- **Financial ops intentionally bypass** — Inflow payments and new invoices show all projects
+- **CEO Hold** actively blocks all operations (see `frontend/.claude/context/domain/ceo-hold.md`)
+- **No hard API guards** — PR and SR creation is NOT blocked for Halted/Completed projects (but IS blocked for CEO Hold)
+- **Financial ops intentionally bypass** — Inflow payments and new invoices show all projects (except CEO Hold)
 
 ---
 
