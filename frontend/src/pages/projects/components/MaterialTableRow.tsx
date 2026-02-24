@@ -109,6 +109,28 @@ export const MaterialTableRow: React.FC<MaterialTableRowProps> = ({ item, hidden
         </TableCell>
       )}
 
+      {/* Column: Remaining Quantity (Conditionally Hidden) */}
+      {!hiddenColumns.has('remainingQuantity') && (
+        <TableCell className="text-right font-mono py-2 px-3">
+          {!item.isHighValueItem ? (
+            // State 1: Ineligible — N/A
+            <span className="text-muted-foreground/50 select-none block text-center text-xs font-sans">N/A</span>
+          ) : item.remainingQuantity === null || item.remainingQuantity === undefined || item.remainingQuantity === -1 ? (
+            // State 2: Eligible but not filled — amber "Pending" indicator
+            <span className="inline-flex items-center justify-end gap-1 text-amber-600/80 dark:text-amber-400/80">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500/70 shrink-0" />
+              <span className="text-xs font-medium font-sans">Pending</span>
+            </span>
+          ) : item.remainingQuantity === 0 ? (
+            // State 3b: Zero remaining
+            <span className="tabular-nums">0</span>
+          ) : (
+            // State 3a: Normal positive value
+            <span className="tabular-nums">{item.remainingQuantity.toFixed(2)}</span>
+          )}
+        </TableCell>
+      )}
+
       {/* Column: DC Quantity (Conditionally Hidden) */}
       {!hiddenColumns.has('dcQuantity') && (
         <TableCell className="text-right font-mono py-2 px-3">

@@ -4,7 +4,7 @@
 
 **Nirmaan Stack** is a construction project management and procurement ERP built on **Frappe Framework v15+** (Python). The backend handles business logic, data persistence, workflows, and APIs consumed by a React frontend.
 
-**Core domains:** Procurement (PR/PO/RFQ), Projects, Financial Management, Vendors, Service Requests
+**Core domains:** Procurement (PR/PO/RFQ), Projects, Financial Management, Vendors, Service Requests, Design Tracking, Inventory, Bulk PDF Download
 
 ---
 
@@ -44,8 +44,8 @@ bench run-tests --app nirmaan_stack  # Run tests
 
 ```
 nirmaan_stack/
-├── nirmaan_stack/doctype/   # 60 custom doctypes
-├── api/                      # Whitelisted API endpoints (30+ files)
+├── nirmaan_stack/doctype/   # 84 custom doctypes
+├── api/                      # Whitelisted API endpoints (35+ files)
 ├── integrations/
 │   ├── controllers/          # Document lifecycle hooks (KEEP HOOKS HERE)
 │   ├── firebase/             # FCM push notifications
@@ -53,7 +53,7 @@ nirmaan_stack/
 ├── tasks/                    # Scheduled background jobs
 ├── www/                      # Web routes (frontend.html, boot API)
 ├── hooks.py                  # App configuration
-└── patches/                  # Database migrations (v1_5 - v2_7)
+└── patches/                  # Database migrations (v1_5 - v3_0)
 ```
 
 ---
@@ -147,6 +147,8 @@ For detailed context, read these files when working on related tasks:
 | **Workflows** | `.claude/context/workflows.md` | Business logic, auto-approval |
 | **Patterns** | `.claude/context/patterns.md` | Code conventions, naming |
 | **Procurement** | `.claude/context/domain/procurement.md` | PR/PO/RFQ work |
+| **Service Requests** | `.claude/context/domain/service-requests.md` | Work Orders, finalization |
+| **Projects** | `.claude/context/domain/projects.md` | Status lifecycle, effects |
 | **Users** | `.claude/context/domain/users.md` | User management |
 
 **Full index:** `.claude/context/_index.md`

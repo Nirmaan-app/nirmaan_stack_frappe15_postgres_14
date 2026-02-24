@@ -10,11 +10,13 @@ from nirmaan_stack.api.frappe_s3_attachment import get_s3_temp_url
 # // TDS  interval Merge PDfs for All Select POS 
 
 @frappe.whitelist()
-def merge_pdfs_interleaved(main_pdf_content: bytes, items: list, progress_event: str = None) -> bytes:
+def merge_pdfs_interleaved(main_pdf_content: bytes, items: list, progress_event: str = None) -> tuple:
     """
     Merge main PDF with attachments interleaved after each item's page.
+    Returns: (pdf_content: bytes, failed_items: list)
     """
     writer = PdfWriter()
+    failed_items = []
     
     # Parse items if string
     if isinstance(items, str):
@@ -33,7 +35,7 @@ def merge_pdfs_interleaved(main_pdf_content: bytes, items: list, progress_event:
         
     except Exception as e:
         frappe.log_error(f"Main PDF invalid: {e}")
-        return main_pdf_content
+        return main_pdf_content, ["Main PDF generation failed"]
     
     # Add all Start Pages (Stakeholders + Summary Table pages)
     for i in range(num_start_pages):
@@ -76,9 +78,11 @@ def merge_pdfs_interleaved(main_pdf_content: bytes, items: list, progress_event:
                                 writer.add_page(page)
                         except Exception as e:
                             frappe.log_error(f"Attachment convert failed for item {idx}: {e}")
+                            failed_items.append(f"{item.get('tds_item_name', 'Item')} (Invalid PDF/Image format)")
                             
             except Exception as e:
                 frappe.log_error(f"Attachment fetch failed for item {idx}: {e}")
+                failed_items.append(f"{item.get('tds_item_name', 'Item')} (Failed to fetch/download attachment)")
 
         # Publish Progress AFTER processing this item
         if progress_event:
@@ -101,10 +105,10 @@ def merge_pdfs_interleaved(main_pdf_content: bytes, items: list, progress_event:
         output = io.BytesIO()
         writer.write(output)
         writer.close()
-        return output.getvalue()
+        return output.getvalue(), failed_items
     except Exception as e:
         frappe.log_error(f"Interleaved PDF merge failed: {e}")
-        return main_pdf_content
+        return main_pdf_content, [f"Merge failed: {str(e)}"]
 
 # // TDS fetch they file from s3url 
 

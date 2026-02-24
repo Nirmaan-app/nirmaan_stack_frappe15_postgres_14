@@ -1,11 +1,11 @@
 import { create } from 'zustand';
 import { REPORTS_TABS } from '../constants'; // Adjust path
 
-export type ProjectReportType = 'Cash Sheet' | 'Inflow Report' | 'Outflow Report(Project)' | 'Outflow Report(Non-Project)' | 'Project Progress Report';
+export type ProjectReportType = 'Cash Sheet' | 'Inflow Report' | 'Outflow Report(Project)' | 'Outflow Report(Non-Project)' | 'Project Progress Report' | 'Inventory Report';
 
 export type VendorReportType = 'Vendor Ledger';
 // Define the specific report options for POs
-export type POReportOption = 'Pending Invoices' | 'PO with Excess Payments' | 'Dispatched for 1 days' | '2B Reconcile Report' | 'PO Attachment Reconciliation Report';
+export type POReportOption = 'Pending Invoices' | 'PO with Excess Payments' | 'Dispatched for 1 days' | '2B Reconcile Report' | 'PO Attachment Reconciliation Report' | 'DN > DC Quantity Report';
 
 // Define the specific report options for SRs (as per your request)
 // The 'value' for "Excess Payments" will be 'PO with Excess Payments'
@@ -37,6 +37,9 @@ interface ReportState {
 // Helper to get default report type based on tab and role
 const getDefaultReportTypeForTabAndRole = (tab: string, userRole?: string): ReportType => {
     if (tab === REPORTS_TABS.PROJECTS) {
+        if (userRole === "Nirmaan Project Manager Profile") {
+            return 'Inventory Report';
+        }
         // Only Admin and Accountant see Project reports
         if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(userRole || "")) {
             return 'Cash Sheet';

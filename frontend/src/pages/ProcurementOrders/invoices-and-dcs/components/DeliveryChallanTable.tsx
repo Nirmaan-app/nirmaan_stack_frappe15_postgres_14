@@ -114,7 +114,9 @@ export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({
                   </div>
                 </TableCell>
               </TableRow>
-              {expandedRow === doc.name && doc.items && doc.items.length > 0 && (
+              {expandedRow === doc.name && doc.items && doc.items.length > 0 && (() => {
+                const allQtyZero = doc.items.every((item) => !item.quantity);
+                return (
                 <TableRow>
                   <TableCell colSpan={6} className="p-0">
                     <div className="bg-muted/30 p-3">
@@ -123,8 +125,12 @@ export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({
                           <tr>
                             <th className="text-left p-2 font-medium">Item</th>
                             <th className="text-left p-2 font-medium">Category</th>
-                            <th className="text-right p-2 font-medium">Qty</th>
-                            <th className="text-left p-2 font-medium">Unit</th>
+                            {!allQtyZero && (
+                              <>
+                                <th className="text-right p-2 font-medium">Qty</th>
+                                <th className="text-left p-2 font-medium">Unit</th>
+                              </>
+                            )}
                           </tr>
                         </thead>
                         <tbody>
@@ -132,8 +138,12 @@ export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({
                             <tr key={item.name || idx} className="border-t">
                               <td className="p-2">{item.item_name}</td>
                               <td className="p-2 text-muted-foreground">{item.category || "-"}</td>
-                              <td className="p-2 text-right font-medium">{item.quantity}</td>
-                              <td className="p-2 text-muted-foreground">{item.unit}</td>
+                              {!allQtyZero && (
+                                <>
+                                  <td className="p-2 text-right font-medium">{item.quantity}</td>
+                                  <td className="p-2 text-muted-foreground">{item.unit}</td>
+                                </>
+                              )}
                             </tr>
                           ))}
                         </tbody>
@@ -141,7 +151,8 @@ export const DeliveryChallanTable: React.FC<DeliveryChallanTableProps> = ({
                     </div>
                   </TableCell>
                 </TableRow>
-              )}
+                );
+              })()}
             </React.Fragment>
           ))
         ) : (

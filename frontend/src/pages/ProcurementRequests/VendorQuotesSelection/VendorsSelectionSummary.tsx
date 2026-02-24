@@ -66,6 +66,7 @@ import { PaymentTermsDialog } from "./components/PaymentTermsDialog";
 import { PaymentTermsData, VendorPaymentTerm } from "./types/paymentTerms";
 import { getItemListFromDocument } from "./types";
 import { useTargetRatesForItems, getTargetRateKey } from "./hooks/useTargetRatesForItems";
+import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
 interface DisplayItem extends ProcurementRequestItemDetail {
   amount?: number; 
@@ -258,6 +259,7 @@ export const VendorsSelectionSummary: React.FC = () => {
           variant: "success",
         });
         await pr_mutate();
+        invalidateSidebarCounts();
         navigate(`/procurement-requests?tab=New PR Request`);
       } else {
         toast({
@@ -409,7 +411,7 @@ export const VendorsSelectionSummary: React.FC = () => {
           </p>
           <button
             className="mt-4 bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors duration-300"
-            onClick={() => navigate("/procurement-requests")}
+            onClick={() => { invalidateSidebarCounts(); navigate("/procurement-requests"); }}
           >
             Go Back to PR List
           </button>

@@ -75,6 +75,14 @@ def get_list_with_count_enhanced_impl(
             field_part = parts[0].strip("`")
             sort_order_part = parts[1].upper() if len(parts) > 1 and parts[1].upper() in ["ASC", "DESC"] else "DESC"
             safe_fields_to_sort = set(parsed_select_fields_str_list) | {"modified", "creation", "owner", "idx"}
+            # Handle wildcard: if '*' is in fetch fields, allow sorting on any valid doctype field
+            # if "*" in safe_fields_to_sort:
+            #     try:
+            #         doctype_meta = frappe.get_meta(doctype)
+            #         safe_fields_to_sort |= {df.fieldname for df in doctype_meta.fields}
+            #         safe_fields_to_sort |= {"name"}
+            #     except Exception:
+            #         pass
             if field_part in safe_fields_to_sort:
                 _formatted_order_by = f"`tab{doctype}`.`{field_part}` {sort_order_part}"
             else:

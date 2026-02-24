@@ -12,6 +12,7 @@ import {
     isNetworkError,
     startWorkflowTransaction,
 } from '@/utils/sentry';
+import { invalidateSidebarCounts } from '@/hooks/useSidebarCounts';
 import { BackendPRItemDetail, CategorySelection, ProcurementRequestItem } from '../types';
 
 interface UseSubmitProcurementRequestResult {
@@ -83,6 +84,7 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
         resetStore(); // Clear the draft state
 
         // Navigate after success
+        invalidateSidebarCounts();
         if (mode === 'create') {
             navigate("/prs&milestones/procurement-requests");
         } else {

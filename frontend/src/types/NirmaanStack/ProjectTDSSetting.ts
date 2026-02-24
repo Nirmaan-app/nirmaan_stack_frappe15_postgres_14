@@ -15,4 +15,10 @@ export interface ProjectTDSSetting {
     gc_contractor_logo: string | null;
     mep_contractor_name: string;
     mep_contractorlogo: string | null; // Note typo in backend
+    enable_client: boolean;
+    enable_manager: boolean;
+    enable_architect: boolean;
+    enable_consultant: boolean;
+    enable_gc_contractor: boolean;
+    enable_mep_contractor: boolean;
 }

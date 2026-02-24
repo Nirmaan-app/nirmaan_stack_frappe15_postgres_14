@@ -66,6 +66,7 @@ import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
 import { useSWRConfig } from "swr";
+import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
@@ -618,7 +619,7 @@ export const ApprovePayments: React.FC = () => {
       }
       const newStatus =
         actionType === DIALOG_ACTION_TYPES.APPROVE ||
-        actionType === DIALOG_ACTION_TYPES.EDIT
+          actionType === DIALOG_ACTION_TYPES.EDIT
           ? PAYMENT_STATUS.APPROVED
           : PAYMENT_STATUS.REJECTED;
       try {
@@ -632,6 +633,7 @@ export const ApprovePayments: React.FC = () => {
         });
         refetch();
         closeDialog();
+        invalidateSidebarCounts();
 
         //    mutate("payment_dashboard_stats_summary")
 
@@ -697,8 +699,8 @@ export const ApprovePayments: React.FC = () => {
         totalCount > 10
           ? "max-h-[calc(100vh-180px)]"
           : totalCount > 0
-          ? "h-auto"
-          : ""
+            ? "h-auto"
+            : ""
       )}
     >
       {isPageLoading && !data?.length ? (
@@ -731,7 +733,7 @@ export const ApprovePayments: React.FC = () => {
           onExport={"default"}
           exportFileName={`Approve_Payments_${formatDate(new Date())}`}
           getRowClassName={getRowClassName}
-          // toolbarActions={...} // Optional
+        // toolbarActions={...} // Optional
         />
       )}
 

@@ -13,6 +13,7 @@ import { toast } from "@/components/ui/use-toast";
 import { useFrappePostCall, useFrappeFileUpload } from "frappe-react-sdk";
 import { Loader2, FilePenLine, Trash2, Plus, Pencil, X } from "lucide-react";
 import React, { useCallback, useMemo, useState } from "react";
+import { formatDate } from "@/utils/FormatDate";
 import type { CustomerPODetail } from "./AddCustomerPODialog";
 import type { PaymentTerm } from "./AddCustomerPODialog";
 
@@ -59,7 +60,7 @@ export const EditCustomerPODialog: React.FC<EditCustomerPODialogProps> = ({
   );
 
   // New term input state (always visible at bottom)
-  const [newTerm, setNewTerm] = useState<PaymentTerm>({ label: '', percentage: 0, description: '' });
+  const [newTerm, setNewTerm] = useState<PaymentTerm>({ label: '', percentage: 0, description: '', expected_date: '' });
   const [isEditingTerm, setIsEditingTerm] = useState(false);
 
   const [formData, setFormData] = useState<
@@ -341,6 +342,9 @@ export const EditCustomerPODialog: React.FC<EditCustomerPODialogProps> = ({
                   <div className="flex items-center gap-3 text-sm">
                     <span className="font-medium">{term.label}</span>
                     <span className="text-blue-600 font-mono whitespace-nowrap">{term.percentage}%</span>
+                    {term.expected_date && (
+                      <span className="text-gray-500 text-xs whitespace-nowrap">Date: {formatDate(term.expected_date)}</span>
+                    )}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     <Button
@@ -375,7 +379,7 @@ export const EditCustomerPODialog: React.FC<EditCustomerPODialogProps> = ({
 
             {/* Input row — Label + % on first line, Description on second */}
             <div className="space-y-2">
-              <div className="grid grid-cols-[7fr_3fr] gap-2 items-end">
+              <div className="grid grid-cols-[5fr_2fr_3fr] gap-2 items-end">
                 <div className="space-y-1">
                   <Label className="text-xs text-muted-foreground">Label</Label>
                   <Input
@@ -394,6 +398,15 @@ export const EditCustomerPODialog: React.FC<EditCustomerPODialogProps> = ({
                     placeholder="%"
                     value={newTerm.percentage || ''}
                     onChange={(e) => setNewTerm(prev => ({ ...prev, percentage: parseFloat(e.target.value || '0') }))}
+                    className="h-8 text-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Expected Date</Label>
+                  <Input
+                    type="date"
+                    value={newTerm.expected_date || ''}
+                    onChange={(e) => setNewTerm(prev => ({ ...prev, expected_date: e.target.value }))}
                     className="h-8 text-sm"
                   />
                 </div>
@@ -416,7 +429,7 @@ export const EditCustomerPODialog: React.FC<EditCustomerPODialogProps> = ({
               onClick={() => {
                 if (!newTerm.label.trim()) return;
                 setPaymentTerms(prev => [...prev, { ...newTerm }]);
-                setNewTerm({ label: '', percentage: 0, description: '' });
+                setNewTerm({ label: '', percentage: 0, description: '', expected_date: '' });
                 setIsEditingTerm(false);
               }}
               disabled={!newTerm.label.trim()}

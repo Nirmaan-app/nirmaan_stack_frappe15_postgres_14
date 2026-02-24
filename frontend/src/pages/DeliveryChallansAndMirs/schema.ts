@@ -29,17 +29,18 @@ export const uploadDCMIRSchema = z
     items: z.array(dcItemSchema),
     isSignedByClient: z.boolean().default(true),
     clientRepresentativeName: z.string().optional(),
+    mirQuantityMode: z.enum(["yes", "no"]).optional(),
   })
   .refine(
     (data) => {
-      // At least one item must be selected with quantity > 0
-      const hasSelectedItems = data.items.some(
-        (item) => item.selected && item.quantity > 0
-      );
-      return hasSelectedItems;
+      if (data.mirQuantityMode === "no") {
+        return data.items.some((item) => item.selected);
+      }
+      // DC (mirQuantityMode=undefined) or MIR with "yes": require qty > 0
+      return data.items.some((item) => item.selected && item.quantity > 0);
     },
     {
-      message: "Select at least one item with quantity > 0",
+      message: "Select at least one item",
       path: ["items"],
     }
   )

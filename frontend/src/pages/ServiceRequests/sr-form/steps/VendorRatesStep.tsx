@@ -1,7 +1,10 @@
 import { useMemo } from "react";
 import { UseFormReturn } from "react-hook-form";
-import { Store, AlertCircle, Calculator } from "lucide-react";
+import { Store, AlertCircle, Calculator, CirclePlus } from "lucide-react";
 import ReactSelect from "react-select";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { VendorSheet } from "@/pages/ProcurementRequests/VendorQuotesSelection/components/VendorSheet";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -55,6 +58,7 @@ export const VendorRatesStep: React.FC<StepProps> = ({
     vendors,
     isLoading,
 }) => {
+    const [isVendorSheetOpen, setIsVendorSheetOpen] = useState(false);
     const items = form.watch("items") || [];
     const selectedVendor = form.watch("vendor");
 
@@ -102,8 +106,8 @@ export const VendorRatesStep: React.FC<StepProps> = ({
     // Calculate totals
     const totalAmount = calculateTotal(items);
 
-    // Check if all items have rates
-    const allItemsHaveRates = items.every((item) => (item.rate ?? 0) > 0);
+    // Check if all items have rates (can be negative but not 0 or undefined)
+    const allItemsHaveRates = items.every((item) => item.rate !== undefined && item.rate !== 0);
 
     // Custom components for react-select
     const CustomSingleValue = ({ data }: { data: VendorOption }) => (
@@ -144,11 +148,30 @@ export const VendorRatesStep: React.FC<StepProps> = ({
 
     return (
         <div className="space-y-6">
-            {/* Vendor Selection */}
-            <div className="space-y-2">
+            <VendorSheet isOpen={isVendorSheetOpen} onClose={() => setIsVendorSheetOpen(false)} service={true} />
+
+            {/* Vendor Selection Header with Add Button */}
+            <div className="flex items-center justify-between">
                 <Label className="text-sm font-medium">
                     Select Vendor <span className="text-red-500">*</span>
                 </Label>
+                <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground hidden sm:inline">Not seeing your vendor?</span>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2 text-primary hover:text-primary hover:bg-primary/5 flex items-center gap-1.5"
+                        onClick={() => setIsVendorSheetOpen(true)}
+                        title="Add New Vendor"
+                    >
+                        <CirclePlus className="h-4 w-4" />
+                        <span className="text-xs font-semibold">New Vendor</span>
+                    </Button>
+                </div>
+            </div>
+
+            {/* Vendor Selection */}
+            <div className="space-y-2 mt-[-1rem]"> {/* Pull closer to custom header */}
                 <ReactSelect
                     value={selectedVendorOption}
                     options={vendorOptions}
@@ -253,7 +276,6 @@ export const VendorRatesStep: React.FC<StepProps> = ({
                                             <TableCell className="text-sm">
                                                 <Input
                                                     type="number"
-                                                    min={0}
                                                     step="any"
                                                     placeholder={PLACEHOLDERS.rate}
                                                     value={item.rate || ""}
@@ -265,14 +287,14 @@ export const VendorRatesStep: React.FC<StepProps> = ({
                                                     }
                                                     className="h-8 text-sm text-center"
                                                     onKeyDown={(e) => {
-                                                        if (e.key === "-" || e.key === "e") {
+                                                        if (e.key === "e") {
                                                             e.preventDefault();
                                                         }
                                                     }}
                                                 />
                                             </TableCell>
                                             <TableCell className="text-sm text-right font-medium">
-                                                {amount > 0 ? formatToIndianRupee(amount) : "--"}
+                                                {amount !== 0 ? formatToIndianRupee(amount) : "--"}
                                             </TableCell>
                                         </TableRow>
                                     );
@@ -321,15 +343,23 @@ export const VendorRatesStep: React.FC<StepProps> = ({
                             <div className="flex justify-between text-sm">
                                 <span className="text-muted-foreground">Items with Rate:</span>
                                 <span className="font-medium">
-                                    {items.filter((i) => (i.rate ?? 0) > 0).length} / {items.length}
+                                    {items.filter((i) => (i.rate ?? 0) !== 0).length} / {items.length}
                                 </span>
                             </div>
                             <div className="border-t pt-2 mt-2">
-                                <div className="flex justify-between">
+                                <div className="flex justify-between items-center">
                                     <span className="font-semibold">Total Amount:</span>
-                                    <span className="font-bold text-lg text-primary">
-                                        {formatToIndianRupee(totalAmount)}
-                                    </span>
+                                    <div className="text-right">
+                                        <span className="font-bold text-lg text-primary block">
+                                            {formatToIndianRupee(totalAmount)}
+                                        </span>
+                                        {totalAmount <= 0 && allItemsHaveRates && (
+                                            <span className="text-[10px] text-red-500 font-medium flex items-center justify-end gap-1 mt-0.5">
+                                                <AlertCircle className="h-2.5 w-2.5" />
+                                                Total must be greater than zero
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         </div>

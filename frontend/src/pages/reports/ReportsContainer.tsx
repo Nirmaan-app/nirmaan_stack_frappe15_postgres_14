@@ -20,7 +20,8 @@ const projectReportOptions: { label: string; value: ProjectReportType }[] = [
     { label: 'Inflow Report', value: 'Inflow Report' },
     { label: 'Outflow Report(Project)', value: 'Outflow Report(Project)' },
     { label: 'Outflow Report(Non-Project)', value: 'Outflow Report(Non-Project)' },
-    { label: 'Project Progress Report', value: 'Project Progress Report' }
+    { label: 'Project Progress Report', value: 'Project Progress Report' },
+    { label: 'Inventory Report', value: 'Inventory Report' }
 ];
 const VendorReportOptions: { label: string; value: VendorReportType }[] = [{
     label: 'Vendor Ledger', value: 'Vendor Ledger'
@@ -32,6 +33,7 @@ const poReportOptions: { label: string; value: POReportOption }[] = [
     { label: 'Dispatched for 1+ days', value: 'Dispatched for 1 days' },
     { label: '2B Reconcile Report', value: '2B Reconcile Report' },
     { label: 'PO Attachment Reconciliation', value: 'PO Attachment Reconciliation Report' },
+    { label: 'DN > DC Quantity Report', value: 'DN > DC Quantity Report' },
 ];
 
 const srReportOptions: { label: string; value: SROption }[] = [
@@ -55,8 +57,8 @@ export default function ReportsContainer() {
     const initialTab = useMemo(() => {
         const urlTab = getUrlStringParam("tab", null);
         if (role === "Nirmaan Project Manager Profile") {
-            // PM can only see PO and SR. If URL tab is something else or null, default to PO.
-            if (urlTab === REPORTS_TABS.PO || urlTab === REPORTS_TABS.SR || urlTab === REPORTS_TABS.DCS_MIRS) return urlTab;
+            // PM can see Projects, PO, SR, and DCs & MIRs tabs.
+            if (urlTab === REPORTS_TABS.PROJECTS || urlTab === REPORTS_TABS.PO || urlTab === REPORTS_TABS.SR || urlTab === REPORTS_TABS.DCS_MIRS) return urlTab;
             return REPORTS_TABS.PO;
         }
         // Admin/Accountant default to Projects if no valid URL tab or if URL tab is Projects
@@ -135,7 +137,7 @@ export default function ReportsContainer() {
     // Define available tabs based on role
     const tabs = useMemo(() => {
         const availableTabs: { label: string; value: string }[] = [];
-        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(role)) {
+        if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role)) {
             availableTabs.push({ label: "Projects", value: REPORTS_TABS.PROJECTS });
         }
         if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(role)) {
@@ -172,6 +174,9 @@ export default function ReportsContainer() {
 
     const currentReportOptions = useMemo(() => {
         if (activeTab === REPORTS_TABS.PROJECTS) {
+            if (role === "Nirmaan Project Manager Profile") {
+                return projectReportOptions.filter(option => option.value === 'Inventory Report');
+            }
             return ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Project Lead Profile"].includes(role)
                 ? projectReportOptions
                 : [];

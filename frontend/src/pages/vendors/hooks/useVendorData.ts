@@ -1,6 +1,7 @@
 import { useFrappeGetDoc } from 'frappe-react-sdk';
 import { Vendors } from '@/types/NirmaanStack/Vendors';
 import { Address } from '@/types/NirmaanStack/Address'; // Ensure this type is defined
+import { vendorKeys } from '../data/useVendorQueries';
 
 export interface VendorDataHookResponse {
     vendor?: Vendors;
@@ -17,18 +18,28 @@ export const useVendorData = (vendorId: string): VendorDataHookResponse => {
         error: vendorError,
         isLoading: vendorLoading,
         mutate: mutateVendor,
-    } = useFrappeGetDoc<Vendors>("Vendors", vendorId, vendorId ? `Vendors ${vendorId}` : null, {
-      revalidateOnFocus: false
-      });
+    } =useFrappeGetDoc<Vendors>(
+  "Vendors",
+  vendorId,
+  vendorId ? vendorKeys.vendorDoc(vendorId) : null,
+  { revalidateOnFocus: false }
+);
+
 
     const {
         data: vendorAddress,
         error: addressError,
         isLoading: addressLoading,
         mutate: mutateVendorAddress,
-    } = useFrappeGetDoc<Address>("Address", vendor?.vendor_address || '', vendor?.vendor_address ? `Address ${vendor?.vendor_address}` : null, {
-        revalidateOnFocus: false
-    });
+    } = useFrappeGetDoc<Address>(
+  "Address",
+  vendor?.vendor_address || "",
+  vendor?.vendor_address
+    ? vendorKeys.vendorAddress(vendor.vendor_address)
+    : null,
+  { revalidateOnFocus: false }
+);
+
 
     return {
         vendor,

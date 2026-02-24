@@ -28,6 +28,7 @@ import { version } from "os";
 import { useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams } from "react-router-dom";
+import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 interface ApiResponse {
     message: {
         status: number;
@@ -73,7 +74,7 @@ const ApproveAmendPO = () => {
                     <p className="text-gray-600 text-lg">
                         The Purchase Order: <span className="font-medium text-gray-900">{po_data?.name}</span> is no longer available for amending. Its current state is <span className="font-semibold text-blue-600">{po_data?.status}</span>.
                     </p>
-                    <Button className="mt-4" onClick={() => navigate("/purchase-orders?tab=Approve Amended PO")}>Go Back</Button>
+                    <Button className="mt-4" onClick={() => { invalidateSidebarCounts(); navigate("/purchase-orders?tab=Approve Amended PO"); }}>Go Back</Button>
                 </div>
             </div>
         );
@@ -109,7 +110,7 @@ const ApproveAmendPOPage = ({ po_data, versionsData, usersList,po_mutate }: Appr
     });
 
     const { call: approveAmendItemsCall, loading: approveAmendLoading } = useFrappePostCall<ApiResponse>("nirmaan_stack.api.approve_amend_po.approve_amend_po_with_payment_terms");
-     const { call: revertFromAmendCall, loading: revert_loading } = useFrappePostCall('nirmaan_stack.api.approve_amend_po.revert_from_amend_po');
+    const { call: revertFromAmendCall, loading: revert_loading } = useFrappePostCall('nirmaan_stack.api.approve_amend_po.revert_from_amend_po');
 
 
 
@@ -122,27 +123,27 @@ const ApproveAmendPOPage = ({ po_data, versionsData, usersList,po_mutate }: Appr
         if (!versionsData || versionsData.length === 0 || !po_data) {
             return { originalItems: [], originalItemsMap: new Map(), allItemNames: new Set() };
         }
-        
+
         const latestVersion = versionsData[0];
         if (!latestVersion.data) return { originalItems: [], originalItemsMap: new Map(), allItemNames: new Set() };
 
-        
+
         const parsedVersionData = JSON.parse(latestVersion.data);
         // console.log("Amended Po version data",parsedVersionData.remove)
-        
+
         let reconstructedItems = [...po_data.items,];
 
-                // 2. Add back the items that were removed.
+        // 2. Add back the items that were removed.
         if (parsedVersionData.removed && Array.isArray(parsedVersionData.removed)) {
             const removedItemRows = parsedVersionData.removed.filter(([tableName]: any) => tableName === 'items');
             removedItemRows.forEach(([, itemData]: any) => {
                 reconstructedItems.push(itemData);
             });
         }
-        
+
         // console.log("Amended Po version data",reconstructedItems)
 
-        
+
         if (parsedVersionData.row_changed) {
             const rowChanges = parsedVersionData.row_changed.filter(([tableName]: any) => tableName === 'items');
             reconstructedItems = reconstructedItems.map((item, index) => {
@@ -157,7 +158,7 @@ const ApproveAmendPOPage = ({ po_data, versionsData, usersList,po_mutate }: Appr
                 return item;
             });
         }
-        
+
         const originalMap = new Map(reconstructedItems.map((item: any) => [item.name, item]));
         const currentNames = po_data.items.map((item:any) => item.name);
         const originalNames = reconstructedItems.map((item:any) => item.name);
@@ -182,15 +183,15 @@ const ApproveAmendPOPage = ({ po_data, versionsData, usersList,po_mutate }: Appr
                 // await updateDoc("Procurement Orders", po_data.name, { status: "PO Approved" });
                 const {message:result}=await approveAmendItemsCall({po_name: po_data.name})
                 if(result.status===200){
-            toast({ title: "Success", description: `Amende PO has been successfully ${actionType === 'approve' ? 'approved' : 'reverted'}`, variant: "success" });
+                    toast({ title: "Success", description: `Amende PO has been successfully ${actionType === 'approve' ? 'approved' : 'reverted'}`, variant: "success" });
                 }else{
                     toast({ title: "Error", description: `An error occurred while processing the action ${result.message}.`, variant: "destructive" });
                 }
-                
+
             } else {
 
                 // console.log("Reverting Amended PO",originalItems)
-                
+
                 // await updateDoc("Procurement Orders", po_data.name, {
                 //     status: "PO Approved",
                 //     items: [...originalItems], // Revert using the reconstructed list
@@ -212,7 +213,7 @@ const ApproveAmendPOPage = ({ po_data, versionsData, usersList,po_mutate }: Appr
                     toast({ title: "Error Revert", description: `An error occurred while processing the action ${result.message}.`, variant: "destructive" });
                 }
 
-                
+
 
             }
 
@@ -226,6 +227,7 @@ const ApproveAmendPOPage = ({ po_data, versionsData, usersList,po_mutate }: Appr
 
             // toast({ title: "Success", description: `Amende PO has been successfully ${actionType === 'approve' ? 'approved' : 'reverted'}`, variant: "success" });
             setIsDialogOpen(false);
+            invalidateSidebarCounts();
             navigate("/purchase-orders?tab=Approve Amended PO");
         } catch (error) {
             toast({ title: "Error", description: "An error occurred while processing the action.", variant: "destructive" });
@@ -265,7 +267,7 @@ const ApproveAmendPOPage = ({ po_data, versionsData, usersList,po_mutate }: Appr
                         {Array.from(allItemNames).map((itemName, index) => {
                             const originalItem = originalItemsMap.get(itemName);
                             const currentItem = po_data.items.find((i: any) => i.name == itemName);
-                            
+
                             // Determine item status: Added, Deleted, or Modified/Unchanged
                             const isAdded = !originalItem && currentItem;
                             const isDeleted = originalItem && !currentItem;

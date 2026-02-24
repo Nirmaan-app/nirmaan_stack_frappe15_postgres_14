@@ -14,7 +14,7 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { useServerDataTable } from "@/hooks/useServerDataTable"; // Your main hook
-import { useFrappeGetDocList, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
+import { useVendorInvoices } from "../data/useVendorQueries";
 import { formatDate } from "@/utils/FormatDate";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { parseNumber } from "@/utils/parseNumber";
@@ -79,19 +79,7 @@ export const VendorMaterialOrdersTable: React.FC<
   }, [vendorId]);
 
   // Fetch Vendor Invoices for this vendor to calculate total invoiced per PO
-  const { data: vendorInvoices } = useFrappeGetDocList<VendorInvoice>(
-    "Vendor Invoices",
-    {
-      filters: [
-        ["vendor", "=", vendorId],
-        ["document_type", "=", "Procurement Orders"],
-        ["status", "=", "Approved"],
-      ],
-      fields: ["name", "document_name", "invoice_amount"],
-      limit: 0,
-    } as GetDocListArgs<FrappeDoc<VendorInvoice>>,
-    `VendorInvoices-PO-${vendorId}`
-  );
+  const { data: vendorInvoices } = useVendorInvoices(vendorId);
 
   // Group invoice totals by PO name
   const invoiceTotalsMap = useMemo(() => {

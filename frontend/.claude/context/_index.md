@@ -8,6 +8,8 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 
 | File | Domain | When to Load |
 |------|--------|--------------|
+| [coding-standards.md](./coding-standards.md) | Standards | Date formats, react-select patterns, Radix dialog fixes |
+| [react-patterns.md](./react-patterns.md) | React | useEffect anti-patterns, TanStack Table deps, Vercel best practices |
 | [role-access.md](./role-access.md) | Access Control | Role checks, sidebar visibility, page permissions |
 | [testing.md](./testing.md) | Feature Testing | After implementing forms, dialogs, persistence, multi-step workflows |
 | [websocket.md](./websocket.md) | Real-time | Socket.IO events, notifications, publish_realtime, proxy config |
@@ -35,9 +37,12 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | Design Tracker | `src/pages/ProjectDesignTracker/` | `types/index.ts` for interfaces, `utils.tsx` for styling, `config/taskTableColumns.tsx` for table, `components/FilesCell.tsx` for file/proof icons |
 | Team Performance | `src/pages/ProjectDesignTracker/` | `components/TeamPerformanceSummary.tsx`, inline edit with TaskEditModal, InlineTaskList drill-down |
 | Vendor Attachment for PR | `src/pages/ProcurementRequests/` | `components/VendorAttachmentForPR.tsx` for vendor quote attachments |
-| Bulk PDF Download | `src/pages/ProcurementOrders/`, `src/pages/ServiceRequests/` | Bulk PO/SR PDF download via `nirmaan_stack.api.bulk_pdf` endpoints |
+| Bulk Download Wizard | `src/pages/BulkDownload/` | `BulkDownloadPage.tsx` wizard, `FilterBar.tsx` for vendor/date, step components in `steps/` (PO, WO, Invoice, DC, MIR, DN) |
+| Bulk PDF Button | `src/components/common/BulkPdfDownloadButton.tsx` | Reusable button with `useBulkPdfDownload.ts` hook |
+| Remaining Items (Inventory) | `src/pages/remaining-items/` | `index.tsx`, `components/RemainingItemsForm.tsx`, `hooks/useRemainingItemsForm.ts`, cooldown + declaration |
 | Reports | `src/pages/reports/` | `hooks/usePO*.ts` for data, `components/columns/*.tsx` for columns, `config/*.config.ts` for table config |
-| Reports: DCs & MIRs | `src/pages/reports/` | DC Report and MIR Report sub-types with facet filters and HoverCard item popover |
+| Reports: DCs & MIRs | `src/pages/reports/` | `DCMIRReports.tsx`, `InventoryReport.tsx` sub-types with facet filters, HoverCard item popover, Critical PO column |
+| Vendor Data Hooks | `src/pages/vendors/data/` | `useVendorQueries.ts`, `useVendorMutations.ts` — centralized vendor CRUD with Sentry error capturing |
 | Help Repository | `src/pages/help-repository/` | `types.ts` for schema, `utils/loom-embed.ts` for URL conversion |
 | Work Headers | `src/components/` | `workHeaderMilestones.tsx` (config component) |
 
@@ -73,10 +78,12 @@ const { role, user_id } = useUserData();
 ├── CHANGELOG.md          # Session change audit trail
 ├── settings.local.json   # Local Claude settings
 └── context/
-    ├── _index.md         # This file
-    ├── role-access.md    # Role-based access control reference
-    ├── testing.md        # Playwright browser testing guide
-    ├── websocket.md      # Socket.IO real-time events & notifications
+    ├── _index.md           # This file
+    ├── coding-standards.md # Date formats, react-select, Radix dialog patterns
+    ├── react-patterns.md   # useEffect anti-patterns, Vercel best practices
+    ├── role-access.md      # Role-based access control reference
+    ├── testing.md          # Playwright browser testing guide
+    ├── websocket.md        # Socket.IO real-time events & notifications
     └── domain/
         ├── customers.md  # Customer management & financials
         ├── invoices.md   # Invoice management & 2B reconciliation

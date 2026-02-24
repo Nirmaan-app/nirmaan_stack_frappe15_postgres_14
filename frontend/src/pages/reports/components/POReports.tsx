@@ -34,6 +34,7 @@ import { useUserData } from "@/hooks/useUserData";
 
 import PO2BReconcileReport from "./PO2BReconcileReport";
 import POAttachmentReconcileReport from "./POAttachmentReconcileReport";
+import DNDCQuantityReport from "./DNDCQuantityReport";
 import { Info } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
@@ -410,6 +411,10 @@ export default function POReports() {
     isTableHookLoading;
   const overallError =
     initialDataError || projectsUiError || vendorsUiError || tableHookError;
+
+  if (selectedReportType === 'DN > DC Quantity Report') {
+    return <DNDCQuantityReport />;
+  }
 
   // If 2B Reconcile Report is selected, render the dedicated component
   if (selectedReportType === '2B Reconcile Report') {

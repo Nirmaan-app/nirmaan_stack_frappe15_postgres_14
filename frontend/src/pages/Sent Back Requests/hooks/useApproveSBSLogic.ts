@@ -12,6 +12,7 @@ import { useSBQuoteApprovalApi, ApproveSBPayload, SendBackSBPayload } from './us
 import { v4 as uuidv4 } from "uuid";
 import { KeyedMutator } from 'swr';
 import { FrappeDoc, useFrappeGetCall } from 'frappe-react-sdk';
+import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 import {
     VendorItemDetailsToDisplay, // Reused from PR types
     VendorGroupForTable,      // Reused from PR types
@@ -54,8 +55,8 @@ export interface UseApproveSBSLogicReturn {
     handleApproveConfirm: () => Promise<void>;
     handleSendBackConfirm: () => Promise<void>;
     getVendorName: (vendorId: string | undefined) => string;
-      dynamicPaymentTerms: DynamicPaymentTerms; // ✨ EXPOSE state
-        setDynamicPaymentTerms: React.Dispatch<React.SetStateAction<DynamicPaymentTerms>>; //
+    dynamicPaymentTerms: DynamicPaymentTerms; // ✨ EXPOSE state
+    setDynamicPaymentTerms: React.Dispatch<React.SetStateAction<DynamicPaymentTerms>>; //
     // getUserName?: (userId: string | undefined) => string; // Add if needed
 }
 
@@ -78,8 +79,8 @@ export const useApproveSBSLogic = ({
     const [comment, setComment] = useState<string>("");
     const [itemIdsForTargetRateAPI, setItemIdsForTargetRateAPI] = useState<string[]>([]);
 
-      // ✨ ADD state for dynamic payment terms
-        const [dynamicPaymentTerms, setDynamicPaymentTerms] = useState<DynamicPaymentTerms>({});
+    // ✨ ADD state for dynamic payment terms
+    const [dynamicPaymentTerms, setDynamicPaymentTerms] = useState<DynamicPaymentTerms>({});
 
     useEffect(() => {
         if (initialSbData) {
@@ -119,33 +120,33 @@ export const useApproveSBSLogic = ({
         { revalidateOnFocus: false }
     );
 
- // / Define the delimiter (a non-ambiguous character)
- const KEY_DELIMITER = "::"; 
- 
- // Helper function (optional, but good practice)
- const getTargetRateKey = (itemId: string, unit: string,make:string): string => {
-      return `${itemId}${KEY_DELIMITER}${unit}${KEY_DELIMITER}${make}`;
- };
- 
- const targetRatesDataMap = useMemo(() => {
-     const map = new Map<string, TargetRateDetailFromAPI>();
-     
-     // Ensure the API response is valid and is an array (message)
-     if (targetRatesApiResponse?.message && Array.isArray(targetRatesApiResponse.message)) {
-         targetRatesApiResponse.message.forEach(tr => {
-             // Check for valid item_id and unit before creating the key
-             if (tr.item_id && tr.unit && tr.make) {
-                 // 1. Create the unique, composite key
-                 const key = getTargetRateKey(tr.item_id, tr.unit,tr.make);
-                 
-                 // 2. Set the data using the composite key
-                 map.set(key, tr);
-             }
-         });
-     }
- 
-     return map;
- }, [targetRatesApiResponse]);
+    // / Define the delimiter (a non-ambiguous character)
+    const KEY_DELIMITER = "::";
+
+    // Helper function (optional, but good practice)
+    const getTargetRateKey = (itemId: string, unit: string,make:string): string => {
+        return `${itemId}${KEY_DELIMITER}${unit}${KEY_DELIMITER}${make}`;
+    };
+
+    const targetRatesDataMap = useMemo(() => {
+        const map = new Map<string, TargetRateDetailFromAPI>();
+
+        // Ensure the API response is valid and is an array (message)
+        if (targetRatesApiResponse?.message && Array.isArray(targetRatesApiResponse.message)) {
+            targetRatesApiResponse.message.forEach(tr => {
+                // Check for valid item_id and unit before creating the key
+                if (tr.item_id && tr.unit && tr.make) {
+                    // 1. Create the unique, composite key
+                    const key = getTargetRateKey(tr.item_id, tr.unit,tr.make);
+
+                    // 2. Set the data using the composite key
+                    map.set(key, tr);
+                }
+            });
+        }
+
+        return map;
+    }, [targetRatesApiResponse]);
 
     useEffect(() => {
         if (targetRatesError) {
@@ -192,11 +193,11 @@ export const useApproveSBSLogic = ({
 
             let targetRateValue: number | undefined = undefined;
 
-           
+
             if (targetRateDetail?.rate) {
-                            const parsedTargetRate = parseNumber(targetRateDetail.rate);
-                            if (parsedTargetRate > 0) targetRateValue = parsedTargetRate;
-                        }
+                const parsedTargetRate = parseNumber(targetRateDetail.rate);
+                if (parsedTargetRate > 0) targetRateValue = parsedTargetRate;
+            }
 
             const lowestRateInOriginalRfqContext = getLowestRateFromOriginalRfqForSB(actualItemId);
 
@@ -312,7 +313,7 @@ export const useApproveSBSLogic = ({
                 sb_id: sentBackData.name,
                 selected_items: selectedItemsForPayload, // These are actual item_ids
                 selected_vendors: vendorSelectionMapForPayload, // Keys are actual item_ids
-                  // ✨ ADD dynamic payment terms to the payload
+                // ✨ ADD dynamic payment terms to the payload
                 payment_terms: JSON.stringify(dynamicPaymentTerms),
             };
             const response = await approveSBSelection(payload);
@@ -320,6 +321,7 @@ export const useApproveSBSLogic = ({
             if (response?.message?.status === 200) {
                 toast({ title: "Success!", description: response.message.message || "Items approved from SB.", variant: "success" });
                 setSelectionMap(new Map()); toggleApproveDialog(); await sbMutate();
+                invalidateSidebarCounts();
                 const allPendingInSBData = (sentBackData.order_list || []).map(i => i.item_id!);
                 if (selectedItemsForPayload.length === allPendingInSBData.length) {
                     navigate('/purchase-orders?tab=Approve Sent Back PO'); // Adjust as needed
@@ -360,11 +362,12 @@ export const useApproveSBSLogic = ({
             if (response?.message?.status === 200) {
                 toast({ title: "Success!", description: response.message.message || "Items sent back from SB.", variant: "success" });
                 setSelectionMap(new Map()); toggleSendBackDialog(); setComment(""); await sbMutate();
+                invalidateSidebarCounts();
                 const allPendingInSBData = (sentBackData.order_list || []).map(i => i.item_id!);
                 if (selectedItemsForPayload.length === allPendingInSBData.length) {
                     navigate('/purchase-orders?tab=Approve Sent Back PO'); // Adjust as needed
                 }
-            } else {  toast({ title: "SB Send Back Failed!", description: "An error occurred.", variant: "destructive" }); }
+            } else { toast({ title: "SB Send Back Failed!", description: "An error occurred.", variant: "destructive" }); }
         } catch (error: any) {
             console.error("Error sending back SB items:", error);
             toast({ title: "SB Send Back Failed!", description: error?.message || "An error occurred.", variant: "destructive" });
@@ -378,7 +381,7 @@ export const useApproveSBSLogic = ({
         comment, isLoading: isLoadingHook, isSbEditable, targetRatesDataMap,
         handleSelectionChange, handleCommentChange, toggleApproveDialog, toggleSendBackDialog,
         handleApproveConfirm, handleSendBackConfirm, getVendorName,
-          dynamicPaymentTerms, setDynamicPaymentTerms, // ✨ EXPORT state and setter
+        dynamicPaymentTerms, setDynamicPaymentTerms, // ✨ EXPORT state and setter
         // getUserName // Add if implemented
     };
 };

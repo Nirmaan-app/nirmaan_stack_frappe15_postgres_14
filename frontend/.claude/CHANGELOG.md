@@ -4,6 +4,63 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-02-25: Context Sync - 2 Week Feature Analysis
+
+**Summary:** Analyzed 122 commits (2026-02-10 to 2026-02-25) and synced insights to context documentation.
+
+### Key Frontend Changes Documented (by other developers)
+
+**Bulk Download Wizard** (`src/pages/BulkDownload/`)
+- Multi-step wizard for PO, WO, Invoice, DC, MIR, DN bulk PDF downloads
+- `FilterBar.tsx` — generic vendor/date filter replacing old `POFiltersBar`
+- `useBulkDownloadWizard.ts` — wizard state management hook
+- `BulkPdfDownloadButton.tsx` — reusable trigger button in `src/components/common/`
+- PO rate visibility restricted for Project Manager role
+- Bulk download tab added to project page (visible to all users)
+
+**Remaining Items / Inventory** (`src/pages/remaining-items/`)
+- New page with form, cooldown enforcement, declaration dialog
+- `useRemainingItemsForm.ts`, `useEligibleItems.ts` hooks
+- Inventory Report component added to Reports page
+
+**Design Tracker Handover Phase**
+- Phase-aware header analytics and card summary in `ProjectWiseCard`
+- Phase filtering in task-wise and team-summary views
+- `MinStandaloneDateFilter` replaces deadline filter with DataTable-style date filter
+- Add Category and Add Zone now phase-aware after handover generation
+
+**CSV Export Overhaul**
+- `exportMeta` config pattern: `{ header, value, exportFileName }` on column definitions
+- Applied across PO, SR, vendor, project reports, payments, credits, TDS
+- Exports respect current table sorting and column order
+- Dynamic filenames with dates
+
+**Vendor Enhancements**
+- Centralized vendor hooks: `useVendorQueries.ts`, `useVendorMutations.ts` with Sentry error capturing
+- `VendorAttachmentForPR` — reusable vendor quote attachment component with `readOnly` prop
+- Vendor Quotes tab on Vendor detail page
+- New vendor creation integrated into WO creation rates step
+
+**Material Usage & Reports**
+- Critical PO column in DC/MIR reports
+- Remaining Qty column redesign
+- Billing category filter, Rate column added
+- Project-specific DC & MIR reports tab on project page
+
+**Other UI Changes**
+- Toast viewport position moved to top-left for small screens
+- Unified button architecture for procurement tabs
+- Owner-based visibility for SR actions and WO delete button
+- Default "Signed by client" switch ON in DC/MIR upload dialog
+- MIR item quantities made optional during upload
+
+**Context Files Updated:**
+- `frontend/CLAUDE.md` — Added new page directories, bulk download, vendor hooks, design phases, CSV export
+- `frontend/.claude/context/_index.md` — Added bulk download wizard, remaining items, vendor hooks references
+- `frontend/.claude/context/role-access.md` — Added TDS Repository and Bulk Download sidebar rows
+
+---
+
 ## 2026-02-16
 
 - feat: Add FilesCell shared component for design file + approval proof visibility across 4 table views

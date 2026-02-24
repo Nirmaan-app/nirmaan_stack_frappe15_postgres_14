@@ -35,6 +35,7 @@ nirmaan_stack/doctype/procurement_requests/
 ### Lifecycle Hooks Location
 - **Keep in:** `integrations/controllers/`
 - **Doctype files:** Only for `autoname`/basic `validate`
+- **Known exception:** `Items.on_update()` in `doctype/items/items.py` syncs item changes to `TDS Repository`. This lives in the doctype file because it's tightly coupled to the Items schema and only targets one downstream doctype.
 
 ### Large Files
 - Split files >500 lines into focused modules

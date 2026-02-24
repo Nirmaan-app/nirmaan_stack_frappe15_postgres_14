@@ -31,6 +31,7 @@ import { CategoryMakelist as CategoryMakelistType } from '@/types/NirmaanStack/C
 import { ProcurementRequestItemDetail } from '@/types/NirmaanStack/ProcurementRequests';
 import { DraftItem, DraftCategory } from '@/zustand/useApproveNewPRDraftStore';
 import { parseCategoryList } from '@/utils/safeJsonParse';
+import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
 /* ─────────────────────────────────────────────────────────────
    DRAFT MANAGER INTERFACE
@@ -1619,6 +1620,7 @@ export const useApprovePRLogic = ({
             });
 
             setIsConfirmActionDialogOpen(false);
+            invalidateSidebarCounts();
             navigate("/procurement-requests?tab=Approve PR");
 
         } catch (error: any) {
@@ -1660,6 +1662,7 @@ export const useApprovePRLogic = ({
             });
 
             setIsDeletePRDialogOpen(false); // Close confirmation dialog
+            invalidateSidebarCounts();
             navigate("/procurement-requests?tab=Approve PR");
 
         } catch (error: any) {
@@ -1676,6 +1679,7 @@ export const useApprovePRLogic = ({
 
     // --- Navigation ---
     const navigateBackToList = useCallback(() => {
+        invalidateSidebarCounts();
         navigate("/procurement-requests?tab=Approve PR");
     }, [navigate]);
 

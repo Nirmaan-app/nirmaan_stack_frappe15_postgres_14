@@ -2,6 +2,7 @@ import { useFrappeGetCall, useFrappeGetDocList, FrappeDoc, GetDocListArgs } from
 import { useMemo } from 'react';
 import { Projects } from '@/types/NirmaanStack/Projects';
 import { Vendors } from '@/types/NirmaanStack/Vendors';
+import { CriticalPOTask } from '@/types/NirmaanStack/CriticalPOTasks';
 import { queryKeys } from '@/config/queryKeys';
 
 // --- Child table item interface ---
@@ -56,6 +57,7 @@ export interface DCMIRReportRowData {
     projectName: string;
     vendorName: string;
     itemsSummary: string;   // Pre-computed "Item1 (UOM x Qty), ..." for display/search
+    criticalPOTasks: CriticalPOTask[];
 }
 
 interface UseDCMIRReportsDataResult {
@@ -116,6 +118,19 @@ export const useDCMIRReportsData = (): UseDCMIRReportsDataResult => {
         allVendorsQueryKey
     );
 
+    const {
+        data: criticalTasks,
+        isLoading: tasksLoading,
+        error: tasksError,
+    } = useFrappeGetDocList<CriticalPOTask>(
+        "Critical PO Tasks",
+        {
+            fields: ["name", "critical_po_category", "item_name", "sub_category", "po_release_date", "status", "associated_pos"],
+            limit: 0,
+        },
+        ["Critical PO Tasks", "all_for_reports"]
+    );
+
     // --- Create Lookup Maps (Memoized) ---
     const projectMap = useMemo(() => {
         return projects?.reduce((acc, p) => {
@@ -131,9 +146,30 @@ export const useDCMIRReportsData = (): UseDCMIRReportsDataResult => {
         }, {} as Record<string, string>) ?? {};
     }, [vendors]);
 
+    const criticalTasksByPO = useMemo(() => {
+        const map = new Map<string, CriticalPOTask[]>();
+        if (!criticalTasks) return map;
+        for (const task of criticalTasks) {
+            try {
+                const associated = typeof task.associated_pos === "string"
+                    ? JSON.parse(task.associated_pos)
+                    : task.associated_pos;
+                const pos: string[] = associated?.pos || [];
+                for (const po of pos) {
+                    const existing = map.get(po) || [];
+                    existing.push(task);
+                    map.set(po, existing);
+                }
+            } catch {
+                // skip malformed entries
+            }
+        }
+        return map;
+    }, [criticalTasks]);
+
     // --- Transform and enrich data (Memoized) ---
     const reportData = useMemo<DCMIRReportRowData[] | null>(() => {
-        if (docsLoading || projectsLoading || vendorsLoading) {
+        if (docsLoading || projectsLoading || vendorsLoading || tasksLoading) {
             return null;
         }
 
@@ -144,8 +180,14 @@ export const useDCMIRReportsData = (): UseDCMIRReportsDataResult => {
 
         return rawDocs.map((doc) => {
             // Build items summary: "ItemName (UOM x Qty), ..."
-            const itemsSummary = (doc.items || [])
-                .map((item) => `${item.item_name} (${item.unit} x ${item.quantity})`)
+            const items = doc.items || [];
+            const allZeroQty = items.every((item) => !item.quantity);
+            const itemsSummary = items
+                .map((item) =>
+                    allZeroQty
+                        ? item.item_name
+                        : `${item.item_name} (${item.unit} x ${item.quantity})`
+                )
                 .join(', ');
 
             return {
@@ -167,17 +209,18 @@ export const useDCMIRReportsData = (): UseDCMIRReportsDataResult => {
                 projectName: projectMap[doc.project] || doc.project,
                 vendorName: doc.vendor ? (vendorMap[doc.vendor] || doc.vendor) : '',
                 itemsSummary,
+                criticalPOTasks: criticalTasksByPO.get(doc.procurement_order) || [],
             };
         });
     }, [
         deliveryDocsResponse?.message,
-        docsLoading, projectsLoading, vendorsLoading,
-        projectMap, vendorMap,
+        docsLoading, projectsLoading, vendorsLoading, tasksLoading,
+        projectMap, vendorMap, criticalTasksByPO,
     ]);
 
     // --- Consolidated Loading and Error State ---
-    const isLoading = docsLoading || projectsLoading || vendorsLoading;
-    const error = docsError || projectsError || vendorsError;
+    const isLoading = docsLoading || projectsLoading || vendorsLoading || tasksLoading;
+    const error = docsError || projectsError || vendorsError || tasksError;
 
     return {
         reportData,

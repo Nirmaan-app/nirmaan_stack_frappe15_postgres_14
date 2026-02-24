@@ -81,10 +81,15 @@ frappe.publish_realtime(
 ### Storage
 Frappe's native file attachment system
 
-### Tracking
-`Nirmaan Attachments` doctype:
+### Tracking (Dual System)
+**`PO Delivery Documents` doctype** (primary for DCs/MIRs):
+- Fields: `project`, `po`, `document_type` (DC/MIR), `file`, `items` (child table), `status`
+- Used for: Delivery Challans, Material Inspection Reports
+- Frontend: `src/pages/DeliveryChallansAndMirs/`, `hooks/usePODeliveryDocuments.ts`
+
+**`Nirmaan Attachments` doctype** (general attachments):
 - Fields: `project`, `associated_doctype`, `associated_docname`, `attachment_type`, `attachment` (file URL)
-- Used for: PRs, POs, delivery notes, BOQs, invoices, payments, milestones
+- Used for: PRs, POs, BOQs, invoices, payments, milestones, vendor quotes
 
 ### Frontend Upload
 Uploads to `/api/method/upload_file`

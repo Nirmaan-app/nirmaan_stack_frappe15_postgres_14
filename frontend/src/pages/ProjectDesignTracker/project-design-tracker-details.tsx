@@ -10,7 +10,7 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { Button } from '@/components/ui/button';
-import { Edit, Download, Plus, Check, Info, X, ChevronDown, EyeOff, CheckCircle2, User as UserIcon, Users } from 'lucide-react';
+import { Edit, Download, Plus, Check, Info, X, ChevronDown, EyeOff, CheckCircle2,FileText, User as UserIcon, Users } from 'lucide-react';
 import { ProgressCircle } from '@/components/ui/ProgressCircle';
 import {
     Collapsible,
@@ -363,10 +363,11 @@ interface AddCategoryModalProps {
     onOpenChange: (open: boolean) => void;
     availableCategories: CategoryItem[];
     onAdd: (newTasks: Partial<DesignTrackerTask>[]) => Promise<void>;
+    hasHandover: boolean;
 }
 
 const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
-    isOpen, onOpenChange, availableCategories, onAdd
+    isOpen, onOpenChange, availableCategories, onAdd, hasHandover
 }) => {
     const [selectedCategories, setSelectedCategories] = useState<CategoryItem[]>([]);
     const [isSaving, setIsSaving] = useState(false);
@@ -419,14 +420,29 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
                         task_status: 'Not Started',
                         deadline: calculatedDeadline,
                         task_zone: zoneName,
+                        task_phase: "Onboarding",
                     });
+
+                    if (hasHandover) {
+                        const handoverDeadline = new Date();
+                        handoverDeadline.setDate(handoverDeadline.getDate() + 7);
+                        tasksToGenerate.push({
+                            task_name: taskDef.task_name,
+                            design_category: cat.category_name,
+                            task_status: 'Not Started',
+                            deadline: handoverDeadline.toISOString().split('T')[0],
+                            task_zone: zoneName,
+                            task_phase: "Handover",
+                        });
+                    }
                 });
             });
         });
 
         try {
             await onAdd(tasksToGenerate);
-            toast({ title: "Success", description: `${selectedCategories.length} categories added.`, variant: "success" });
+            const phaseMsg = hasHandover ? " in both Onboarding and Handover phases" : "";
+            toast({ title: "Success", description: `${selectedCategories.length} categories added${phaseMsg}.`, variant: "success" });
             onOpenChange(false);
         } catch (error) {
             toast({ title: "Creation Failed", description: "Failed to add categories.", variant: "destructive" });
@@ -437,9 +453,10 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
 
     // Calculate total tasks that will be created
     const existingZonesCount = trackerDoc?.zone?.length || 1;
+    const phaseMultiplier = hasHandover ? 2 : 1;
     const totalTasksToCreate = selectedCategories.reduce(
         (sum, cat) => sum + (cat.tasks?.length || 0), 0
-    ) * existingZonesCount;
+    ) * existingZonesCount * phaseMultiplier;
 
     return (
         <Dialog open={isOpen} onOpenChange={onOpenChange}>
@@ -449,6 +466,14 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
                     <p className="text-xs text-gray-500">
                         Select categories to add. Tasks will be generated for all {existingZonesCount} zone{existingZonesCount !== 1 ? 's' : ''}.
                     </p>
+                    {hasHandover && (
+                        <div className="flex items-start gap-2 px-2 py-1.5 bg-blue-50/50 rounded border border-blue-100 mt-2">
+                            <Info className="h-3.5 w-3.5 text-blue-500 mt-0.5 flex-shrink-0" />
+                            <p className="text-[11px] text-blue-700">
+                                Handover phase has been generated. New tasks will be created in both Onboarding and Handover phases.
+                            </p>
+                        </div>
+                    )}
                 </DialogHeader>
 
                 <div className="space-y-3 py-2">
@@ -536,9 +561,10 @@ interface AddZoneModalProps {
     onOpenChange: (open: boolean) => void;
     onAdd: (newMiddleware: { zones: string[] }) => Promise<void>;
     existingZones: string[];
+    hasHandover: boolean;
 }
 
-const AddZoneModal: React.FC<AddZoneModalProps> = ({ isOpen, onOpenChange, onAdd, existingZones }) => {
+const AddZoneModal: React.FC<AddZoneModalProps> = ({ isOpen, onOpenChange, onAdd, existingZones, hasHandover }) => {
     const [zoneInput, setZoneInput] = useState("");
     const [zones, setZones] = useState<string[]>([]);
     const [isSaving, setIsSaving] = useState(false);
@@ -716,6 +742,15 @@ const AddZoneModal: React.FC<AddZoneModalProps> = ({ isOpen, onOpenChange, onAdd
                             Tasks for all active categories will be generated for each new zone.
                         </p>
                     </div>
+
+                    {hasHandover && (
+                        <div className="flex items-start gap-2 px-2 py-1.5 bg-blue-50/50 rounded border border-blue-100">
+                            <Info className="h-3.5 w-3.5 text-blue-500 mt-0.5 flex-shrink-0" />
+                            <p className="text-[11px] text-blue-700">
+                                Handover phase has been generated. New zone tasks will be created in both Onboarding and Handover phases.
+                            </p>
+                        </div>
+                    )}
                 </div>
 
                 <DialogFooter className="gap-2 sm:gap-0">
@@ -1023,7 +1058,9 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
         onPaginationChange: setPagination,
         onGlobalFilterChange: setSearchTerm,
         onRowSelectionChange: setRowSelection,
-        enableRowSelection: hasEditStructureAccess || role === "Nirmaan Design Lead Profile",
+        enableRowSelection: (hasEditStructureAccess || role === "Nirmaan Design Lead Profile")
+            ? (row) => row.original.task_status !== 'Not Applicable'
+            : false,
         getCoreRowModel: getCoreRowModel(),
         getFilteredRowModel: getFilteredRowModel(),
         getSortedRowModel: getSortedRowModel(),
@@ -1076,7 +1113,21 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                         task_status: 'Not Started',
                         deadline: calculatedDeadline,
                         task_zone: zoneName,
+                        task_phase: "Onboarding",
                     });
+
+                    if (hasHandover) {
+                        const handoverDeadline = new Date();
+                        handoverDeadline.setDate(handoverDeadline.getDate() + 7);
+                        newTasks.push({
+                            task_name: taskDef.task_name,
+                            design_category: cat.category_name,
+                            task_status: 'Not Started',
+                            deadline: handoverDeadline.toISOString().split('T')[0],
+                            task_zone: zoneName,
+                            task_phase: "Handover",
+                        });
+                    }
                 });
             });
         });
@@ -1092,7 +1143,8 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                 zone: updatedZoneTable,
                 design_tracker_task: updatedTaskTable
             });
-            toast({ title: "Success", description: `${zones.length} new zone(s) added.`, variant: "success" });
+            const phaseMsg = hasHandover ? " (in both Onboarding and Handover phases)" : "";
+            toast({ title: "Success", description: `${zones.length} new zone(s) added${phaseMsg}.`, variant: "success" });
             setIsAddZoneModalOpen(false);
         } catch (e) {
             console.error(e);
@@ -1106,7 +1158,7 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
         setIsRenameModalOpen(true);
     };
 
-    const handleDownloadReport = async (zoneName?: string) => {
+    const handleDownloadReport = async (zoneName?: string, isFullReport: boolean = false) => {
         const printFormatName = "Project Design Tracker";
         const params = new URLSearchParams({
             doctype: DOCTYPE,
@@ -1114,6 +1166,7 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
             format: printFormatName,
             no_letterhead: "0",
             _lang: "en",
+            phase: isFullReport ? "All" : activePhase, // Pass 'All' or current phase
         });
 
         if (zoneName) {
@@ -1134,13 +1187,13 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
             const dateStr = format(now, "dd_MMM_yyyy");
             const projectNameClean = (trackerDoc?.project_name || "Project").replace(/[^a-zA-Z0-9-_]/g, "_");
 
-            let filename = `${projectNameClean}-${dateStr}-DesignTracker`;
+            let filename = `${projectNameClean}-${isFullReport ? "FullReport" : activePhase}-${dateStr}-DesignTracker`;
             if (zoneName) {
                 filename += `-${zoneName.replace(/[^a-zA-Z0-9-_]/g, "_")}`;
             }
             filename += ".pdf";
 
-            const url = window.URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+            const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
             link.setAttribute('download', filename);
@@ -1345,10 +1398,27 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                                         variant="default"
                                         size="sm"
                                         className="h-7 text-xs gap-1 bg-red-600 hover:bg-red-700 ml-auto"
-                                        onClick={() => handleDownloadReport()}
+                                         onClick={() => handleDownloadReport(undefined, true)}
                                     >
-                                        <Download className="h-3 w-3" /> Download
+                                        <Download className="h-3 w-3" /> Download Tracker
                                     </Button>
+                                    {/* <TooltipProvider>
+                                <Tooltip delayDuration={200}>
+                                    <TooltipTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-8 text-xs gap-1"
+                                            onClick={() => handleDownloadReport(undefined, true)}
+                                        >
+                                            <FileText className="h-3 w-3" /> Download Tracker
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="bottom" className="text-xs">
+                                        Download full report (Onboarding + Handover) for all zones
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider> */}
                                 </div>
                             </div>
                         </CollapsibleContent>
@@ -1446,88 +1516,111 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                     )}
 
                     {/* Row 3: Actions */}
-                    <div className="flex items-center justify-between gap-3 pt-3 mt-3 border-t border-gray-100">
-                        {/* Left: Structure Buttons */}
-                        <div className="flex items-center gap-2">
-                            {hasEditStructureAccess && !isProjectManager && (
-                                <>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="h-8 text-xs gap-1"
-                                        onClick={() => setIsAddCategoryModalOpen(true)}
-                                        disabled={availableNewCategories.length === 0}
-                                    >
-                                        <Plus className="h-3 w-3" /> Category
-                                    </Button>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="h-8 text-xs gap-1"
-                                        onClick={() => setIsAddZoneModalOpen(true)}
-                                    >
-                                        <Plus className="h-3 w-3" /> Zone
-                                    </Button>
-                                </>
-                            )}
-                        </div>
-
-                        {/* Right: Download Button */}
-                        <div className="flex items-center gap-2 ml-auto">
+                    {/* Row 3: Actions */}
+                    {hasEditStructureAccess && !isProjectManager && (
+                        <div className="flex items-center justify-between gap-3 pt-3 mt-3 border-t border-gray-100">
+                            {/* Left: Structure Buttons */}
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 text-xs gap-1"
+                                    onClick={() => setIsAddCategoryModalOpen(true)}
+                                    disabled={availableNewCategories.length === 0}
+                                >
+                                    <Plus className="h-3 w-3" /> Category
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 text-xs gap-1"
+                                    onClick={() => setIsAddZoneModalOpen(true)}
+                                >
+                                    <Plus className="h-3 w-3" /> Zone
+                                </Button>
+                            </div>
+                            
+                            {/* Right: Report Button */}
                             <TooltipProvider>
                                 <Tooltip delayDuration={200}>
                                     <TooltipTrigger asChild>
                                         <Button
-                                            variant="default"
+                                            variant="outline"
                                             size="sm"
-                                            className="h-8 text-xs gap-1 bg-red-600 hover:bg-red-700"
-                                            onClick={() => handleDownloadReport()}
+                                            className="h-8 text-xs gap-1"
+                                            onClick={() => handleDownloadReport(undefined, true)}
                                         >
                                             <Download className="h-3 w-3" /> Download Tracker
                                         </Button>
                                     </TooltipTrigger>
                                     <TooltipContent side="bottom" className="text-xs">
-                                        Download Design Tracker for all zones
+                                        Download full report (Onboarding + Handover) for all zones
                                     </TooltipContent>
                                 </Tooltip>
                             </TooltipProvider>
                         </div>
-                    </div>
+                    )}
                 </div>
             </div>
 
             {/* ═══════════════════════════════════════════════════════════════
-                ROW 1.5: PHASE TABS - Onboarding / Handover toggle
+                ROW 1.5: PHASE TABS - Onboarding / Handover toggle + Download
             ═══════════════════════════════════════════════════════════════ */}
-            {hasHandover && (
-                <div className="bg-white border-b border-gray-200 px-4 py-2 md:px-6">
+            <div className="bg-white border-b border-gray-200 px-4 py-2 md:px-6">
+                <div className="flex items-center justify-between">
+                    {/* Left: Phase Tabs (Only if Handover exists) */}
+                    <div>
+                        {hasHandover && (
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs font-medium text-gray-500 hidden md:block">Phase:</span>
+                                <div className="flex rounded-md border border-gray-300 overflow-hidden">
+                                    <button
+                                        className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                                            activePhase === "Onboarding"
+                                                ? 'bg-primary text-white'
+                                                : 'bg-white text-gray-700 hover:bg-gray-50'
+                                        }`}
+                                        onClick={() => setActivePhase("Onboarding")}
+                                    >
+                                        Onboarding
+                                    </button>
+                                    <button
+                                        className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                                            activePhase === "Handover"
+                                                ? 'bg-blue-600 text-white'
+                                                : 'bg-white text-blue-600 hover:bg-blue-50'
+                                        }`}
+                                        onClick={() => setActivePhase("Handover")}
+                                    >
+                                        Handover
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Right: Download Button */}
                     <div className="flex items-center gap-2">
-                        <span className="text-xs font-medium text-gray-500 hidden md:block">Phase:</span>
-                        <div className="flex rounded-md border border-gray-300 overflow-hidden">
-                            <button
-                                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                                    activePhase === "Onboarding"
-                                        ? 'bg-primary text-white'
-                                        : 'bg-white text-gray-700 hover:bg-gray-50'
-                                }`}
-                                onClick={() => setActivePhase("Onboarding")}
-                            >
-                                Onboarding
-                            </button>
-                            <button
-                                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                                    activePhase === "Handover"
-                                        ? 'bg-blue-600 text-white'
-                                        : 'bg-white text-blue-600 hover:bg-blue-50'
-                                }`}
-                                onClick={() => setActivePhase("Handover")}
-                            >
-                                Handover
-                            </button>
-                        </div>
+                        <TooltipProvider>
+                            <Tooltip delayDuration={200}>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        variant="default"
+                                        size="sm"
+                                        className="h-8 text-xs gap-1 bg-red-600 hover:bg-red-700"
+                                        onClick={() => handleDownloadReport()}
+                                    >
+                                        <Download className="h-3 w-3" /> Download Phase
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent side="bottom" className="text-xs">
+                                    Download report for the current phase only
+                                </TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
                     </div>
                 </div>
-            )}
+            </div>
 
             {/* ═══════════════════════════════════════════════════════════════
                 ROW 2: ZONE NAVIGATION BAR - Zone tabs + task actions
@@ -1772,6 +1865,7 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                 onOpenChange={setIsAddCategoryModalOpen}
                 availableCategories={availableNewCategories}
                 onAdd={handleAddCategories}
+                hasHandover={hasHandover}
             />
 
             <AddZoneModal
@@ -1779,6 +1873,7 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                 onOpenChange={setIsAddZoneModalOpen}
                 onAdd={handleAddZone}
                 existingZones={uniqueZones}
+                hasHandover={hasHandover}
             />
 
             {trackerDoc && (

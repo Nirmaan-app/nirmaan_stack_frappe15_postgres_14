@@ -13,9 +13,10 @@ import type { UploadDCMIRFormValues } from "../schema";
 
 interface DCMIRItemSelectorProps {
   form: UseFormReturn<UploadDCMIRFormValues>;
+  showQuantity?: boolean;
 }
 
-export const DCMIRItemSelector = ({ form }: DCMIRItemSelectorProps) => {
+export const DCMIRItemSelector = ({ form, showQuantity = true }: DCMIRItemSelectorProps) => {
   const items = form.watch("items");
 
   const allSelected = items.length > 0 && items.every((item) => item.selected);
@@ -29,7 +30,7 @@ export const DCMIRItemSelector = ({ form }: DCMIRItemSelectorProps) => {
 
   const handleToggleItem = (index: number, checked: boolean) => {
     form.setValue(`items.${index}.selected`, checked);
-    if (!checked) {
+    if (!checked && showQuantity) {
       form.setValue(`items.${index}.quantity`, 0);
     }
   };
@@ -50,13 +51,13 @@ export const DCMIRItemSelector = ({ form }: DCMIRItemSelectorProps) => {
             <TableHead>Item Name</TableHead>
             <TableHead className="w-[80px]">Unit</TableHead>
             <TableHead className="w-[120px]">Category</TableHead>
-            <TableHead className="w-[120px]">Quantity</TableHead>
+            {showQuantity && <TableHead className="w-[120px]">Quantity</TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
           {items.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={5} className="text-center text-muted-foreground py-4">
+              <TableCell colSpan={showQuantity ? 5 : 4} className="text-center text-muted-foreground py-4">
                 No items available
               </TableCell>
             </TableRow>
@@ -79,6 +80,7 @@ export const DCMIRItemSelector = ({ form }: DCMIRItemSelectorProps) => {
                 <TableCell className="text-sm text-muted-foreground">
                   {item.category || "-"}
                 </TableCell>
+                {showQuantity && (
                 <TableCell>
                   <Input
                     type="number"
@@ -102,6 +104,7 @@ export const DCMIRItemSelector = ({ form }: DCMIRItemSelectorProps) => {
                     aria-label={`Quantity for ${item.item_name}`}
                   />
                 </TableCell>
+                )}
               </TableRow>
             ))
           )}

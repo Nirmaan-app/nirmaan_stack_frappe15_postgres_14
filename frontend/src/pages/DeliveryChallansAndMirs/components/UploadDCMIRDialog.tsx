@@ -29,6 +29,7 @@ import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { useToast } from "@/components/ui/use-toast";
 import { TailSpin } from "react-loader-spinner";
 import { FileText } from "lucide-react";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import SITEURL from "@/constants/siteURL";
 
 import { DCMIRItemSelector } from "./DCMIRItemSelector";
@@ -106,6 +107,7 @@ export const UploadDCMIRDialog = ({
       })),
       isSignedByClient: true,
       clientRepresentativeName: "",
+      mirQuantityMode: undefined,
     },
   });
 
@@ -135,6 +137,12 @@ export const UploadDCMIRDialog = ({
           }),
           isSignedByClient: !!existingDoc.is_signed_by_client,
           clientRepresentativeName: existingDoc.client_representative_name || "",
+          mirQuantityMode:
+            dcType === "Material Inspection Report"
+              ? existingDoc.items?.some((ei) => (ei.quantity || 0) > 0)
+                ? "yes"
+                : "no"
+              : undefined,
         });
       } else {
         form.reset({
@@ -152,6 +160,7 @@ export const UploadDCMIRDialog = ({
           })),
           isSignedByClient: true,
           clientRepresentativeName: "",
+          mirQuantityMode: undefined,
         });
         setSelectedFile(null);
       }
@@ -160,12 +169,23 @@ export const UploadDCMIRDialog = ({
 
   const isSubmitting = uploadLoading || createAttLoading;
   const isSignedByClient = form.watch("isSignedByClient");
+  const mirQuantityMode = form.watch("mirQuantityMode");
 
   const onSubmit = async (data: UploadDCMIRFormValues) => {
     try {
       const selectedItems = data.items
-        .filter((item) => item.selected && item.quantity > 0)
-        .map(({ selected, ...rest }) => rest);
+        .filter((item) =>
+          data.mirQuantityMode === "no"
+            ? item.selected
+            : item.selected && item.quantity > 0
+        )
+        .map(({ selected, ...rest }) => {
+          if (data.mirQuantityMode === "no") {
+            const { quantity, ...withoutQty } = rest;
+            return withoutQty;
+          }
+          return rest;
+        });
 
       if (mode === "edit" && existingDoc) {
         // Handle attachment replacement if user chose to replace
@@ -425,22 +445,58 @@ export const UploadDCMIRDialog = ({
               />
             )}
 
+            {dcType === "Material Inspection Report" && (
+              <div className="space-y-2">
+                <Label>Do you want to update MIR item quantities as well?</Label>
+                <RadioGroup
+                  value={mirQuantityMode ?? ""}
+                  onValueChange={(val) => {
+                    const newMode = val as "yes" | "no";
+                    form.setValue("mirQuantityMode", newMode, { shouldValidate: false });
+                    if (newMode === "no") {
+                      const items = form.getValues("items");
+                      items.forEach((_, index) => {
+                        form.setValue(`items.${index}.quantity`, 0);
+                      });
+                    }
+                  }}
+                  className="flex gap-4"
+                >
+                  <div className="flex items-center gap-2">
+                    <RadioGroupItem value="yes" id="mir-qty-yes" />
+                    <Label htmlFor="mir-qty-yes" className="font-normal cursor-pointer">Yes</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <RadioGroupItem value="no" id="mir-qty-no" />
+                    <Label htmlFor="mir-qty-no" className="font-normal cursor-pointer">No</Label>
+                  </div>
+                </RadioGroup>
+              </div>
+            )}
+
             <Separator />
 
             {/* Section 2: Items */}
-            <div>
-              <p className="text-sm text-muted-foreground mb-2">
-                Select items and enter delivered/inspected quantities
-              </p>
-              <DCMIRItemSelector form={form} />
-              {form.formState.errors.items && (
-                <p className="text-sm text-destructive mt-1">
-                  {typeof form.formState.errors.items === "object" && "message" in form.formState.errors.items
-                    ? (form.formState.errors.items as { message?: string }).message
-                    : "Please select at least one item"}
+            {(dcType === "Delivery Challan" || mirQuantityMode !== undefined) && (
+              <div>
+                <p className="text-sm text-muted-foreground mb-2">
+                  {mirQuantityMode === "no"
+                    ? "Select items included in this MIR"
+                    : "Select items and enter delivered/inspected quantities"}
                 </p>
-              )}
-            </div>
+                <DCMIRItemSelector
+                  form={form}
+                  showQuantity={dcType === "Delivery Challan" || mirQuantityMode === "yes"}
+                />
+                {form.formState.errors.items && (
+                  <p className="text-sm text-destructive mt-1">
+                    {typeof form.formState.errors.items === "object" && "message" in form.formState.errors.items
+                      ? (form.formState.errors.items as { message?: string }).message
+                      : "Please select at least one item"}
+                  </p>
+                )}
+              </div>
+            )}
 
             <Separator />
 

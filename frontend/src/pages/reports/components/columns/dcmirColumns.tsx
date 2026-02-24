@@ -6,23 +6,36 @@ import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
 import { Badge } from "@/components/ui/badge";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { DCMIRReportType } from "../../store/useReportStore";
-import { Paperclip } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Paperclip, AlertTriangle } from "lucide-react";
 
 // --- Items popover column cell ---
 const ItemsSummaryCell = ({ row }: { row: { original: DCMIRReportRowData } }) => {
     const items = row.original.items;
-    const summary = row.original.itemsSummary;
 
     if (!items || items.length === 0) {
         return <span className="text-gray-400 text-xs">No items</span>;
     }
 
+    const allZeroQty = items.every((item) => !item.quantity);
+
     return (
         <HoverCard>
             <HoverCardTrigger asChild>
-                <span className="text-xs cursor-pointer underline decoration-dashed underline-offset-2 line-clamp-2">
-                    {summary}
-                </span>
+                <ul className="list-disc list-inside space-y-0.5 text-xs cursor-pointer">
+                    {items.slice(0, 3).map((item, idx) => (
+                        <li key={item.name || idx}>
+                            <span className="font-medium text-gray-700">{item.item_name}</span>
+                            {!allZeroQty && item.quantity ? (
+                                <span className="text-blue-600 ml-1">({item.unit} &times; {item.quantity})</span>
+                            ) : null}
+                        </li>
+                    ))}
+                    {items.length > 3 && (
+                        <li className="text-gray-400">+{items.length - 3} more...</li>
+                    )}
+                </ul>
             </HoverCardTrigger>
             <HoverCardContent className="w-80 p-3" align="start">
                 <div className="space-y-1.5">
@@ -34,9 +47,11 @@ const ItemsSummaryCell = ({ row }: { row: { original: DCMIRReportRowData } }) =>
                             <span className="text-gray-700 font-medium truncate max-w-[180px]" title={item.item_name}>
                                 {item.item_name}
                             </span>
-                            <span className="text-gray-500 whitespace-nowrap ml-2">
-                                {item.unit} &times; {item.quantity}
-                            </span>
+                            {!allZeroQty && item.quantity ? (
+                                <span className="text-blue-600 whitespace-nowrap ml-2">
+                                    {item.unit} &times; {item.quantity}
+                                </span>
+                            ) : null}
                         </div>
                     ))}
                 </div>
@@ -73,10 +88,105 @@ const vendorColumn: ColumnDef<DCMIRReportRowData> = {
 const poColumn: ColumnDef<DCMIRReportRowData> = {
     accessorKey: "procurement_order",
     header: ({ column }) => <DataTableColumnHeader column={column} title="PO No." />,
-    cell: ({ row }) => <div className="text-xs">{row.original.procurement_order}</div>,
+    cell: ({ row }) => (
+        <Link
+            to={`/project-payments/${row.original.procurement_order.split("/").join("&=")}`}
+            className="text-xs text-blue-600 hover:text-blue-800 hover:underline font-medium"
+        >
+            {row.original.procurement_order}
+        </Link>
+    ),
     meta: {
         exportHeaderName: "PO No.",
         exportValue: (row: DCMIRReportRowData) => row.procurement_order,
+    },
+};
+
+const CriticalPOCell = ({ row }: { row: { original: DCMIRReportRowData } }) => {
+    const tasks = row.original.criticalPOTasks;
+
+    if (!tasks || tasks.length === 0) {
+        return <span className="text-gray-300 text-xs">—</span>;
+    }
+
+    return (
+        <div className="flex flex-col gap-1">
+            {tasks.map((task) => (
+                <Tooltip key={task.name}>
+                    <TooltipTrigger asChild>
+                        <span
+                            className={`
+                                inline-flex items-center gap-1.5
+                                px-2 py-0.5 rounded-md text-xs font-medium
+                                bg-gradient-to-r from-red-50 to-amber-50
+                                border border-red-200/60
+                                text-slate-700
+                                shadow-sm shadow-red-100/50
+                                cursor-default
+                            `}
+                        >
+                            <span className="relative flex h-2 w-2 shrink-0">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                            </span>
+                            <span className="truncate max-w-[120px]">
+                                {task.item_name}{task.sub_category ? ` (${task.sub_category})` : ""}
+                            </span>
+                        </span>
+                    </TooltipTrigger>
+                    <TooltipContent
+                        side="bottom"
+                        className="bg-slate-900 text-white border-slate-800 shadow-xl"
+                    >
+                        <div className="space-y-1.5 text-xs py-0.5">
+                            <div className="flex items-center gap-1.5 text-red-400 font-semibold">
+                                <AlertTriangle className="w-3 h-3" />
+                                Critical PO Task
+                            </div>
+                            <div className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 text-slate-300">
+                                <span className="text-slate-500">Category</span>
+                                <span>{task.critical_po_category}</span>
+                                {task.sub_category && (
+                                    <>
+                                        <span className="text-slate-500">Sub-category</span>
+                                        <span>{task.sub_category}</span>
+                                    </>
+                                )}
+                                <span className="text-slate-500">Deadline</span>
+                                <span className="text-amber-400">{formatDate(task.po_release_date)}</span>
+                                <span className="text-slate-500">Status</span>
+                                <span>{task.status}</span>
+                            </div>
+                        </div>
+                    </TooltipContent>
+                </Tooltip>
+            ))}
+        </div>
+    );
+};
+
+/** Build display label for a Critical PO task: "ItemName (SubCategory)" or just "ItemName" */
+export const criticalPOLabel = (t: { item_name: string; sub_category?: string }) =>
+    t.sub_category ? `${t.item_name} (${t.sub_category})` : t.item_name;
+
+const criticalPOColumn: ColumnDef<DCMIRReportRowData> = {
+    id: "critical_po",
+    accessorFn: (row) => row.criticalPOTasks?.map(criticalPOLabel).join(", ") || "",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Critical PO" />,
+    cell: ({ row }) => <CriticalPOCell row={row} />,
+    size: 180,
+    enableSorting: false,
+    filterFn: (row, _columnId, filterValue: string[]) => {
+        if (!filterValue || filterValue.length === 0) return true;
+        const tasks = row.original.criticalPOTasks;
+        if (!tasks || tasks.length === 0) return false;
+        const rowLabels = tasks.map(criticalPOLabel);
+        return filterValue.some((v) => rowLabels.includes(v));
+    },
+    meta: {
+        exportHeaderName: "Critical PO Categories",
+        exportValue: (row: DCMIRReportRowData) =>
+            row.criticalPOTasks?.map(criticalPOLabel).join(", ") || "",
     },
 };
 
@@ -195,6 +305,7 @@ export const getDCMIRReportColumns = (reportType: DCMIRReportType): ColumnDef<DC
             },
             vendorColumn,
             poColumn,
+            criticalPOColumn,
             dateColumn,
             itemsColumn,
             signedColumn,
@@ -217,6 +328,7 @@ export const getDCMIRReportColumns = (reportType: DCMIRReportType): ColumnDef<DC
         },
         vendorColumn,
         poColumn,
+        criticalPOColumn,
         dateColumn,
         itemsColumn,
         signedColumn,

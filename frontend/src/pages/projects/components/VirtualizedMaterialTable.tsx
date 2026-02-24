@@ -6,7 +6,9 @@ import { ArrowDown, ArrowUp, ChevronsUpDown, EyeOff, ListX } from 'lucide-react'
 
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { formatDate } from '@/utils/FormatDate';
 
 import { DeliveryStatus, MaterialUsageDisplayItem, OverallItemPOStatus, MaterialSortKey } from './ProjectMaterialUsageTab';
 import { MaterialTableRow } from './MaterialTableRow';
@@ -105,10 +107,12 @@ interface VirtualizedMaterialTableProps {
   // Props to control column visibility
   hiddenColumns: Set<MaterialSortKey>;
   onToggleColumnVisibility: (key: MaterialSortKey) => void;
+  remainingReportDate?: string | null;
+  remainingSubmittedBy?: string | null;
 }
 
 export const VirtualizedMaterialTable: React.FC<VirtualizedMaterialTableProps> = (props) => {
-  const { items, estimatedRowHeight = 48, hiddenColumns } = props;
+  const { items, estimatedRowHeight = 48, hiddenColumns, remainingReportDate, remainingSubmittedBy } = props;
   const parentRef = React.useRef<HTMLDivElement>(null);
 
   // --- A. VIRTUALIZATION LOGIC ---
@@ -131,7 +135,7 @@ export const VirtualizedMaterialTable: React.FC<VirtualizedMaterialTableProps> =
   
   // --- B. DYNAMIC LAYOUT CALCULATION ---
   // Calculate the number of visible columns to correctly set the `colSpan` for placeholder rows.
-  const totalColumns = 15; // Total columns: Item Name, Category, Billing Cat, Unit, Est Qty, Ordered Qty, DN Qty, DC Qty, MIR Qty, PO Amount, Delivery Status, PO Numbers, DCs, MIRs, PO Status
+  const totalColumns = 16; // Total columns: Item Name, Category, Billing Cat, Unit, Est Qty, Ordered Qty, DN Qty, Remaining Qty, DC Qty, MIR Qty, PO Amount, Delivery Status, PO Numbers, DCs, MIRs, PO Status
   const visibleColumnCount = totalColumns - hiddenColumns.size;
     
   // Helper function to bundle all sorting-related props for the SortableHeader.
@@ -170,6 +174,27 @@ export const VirtualizedMaterialTable: React.FC<VirtualizedMaterialTableProps> =
             {/* Sortable/Hideable Headers (Conditionally Rendered) */}
             {!hiddenColumns.has('orderedQuantity') && <SortableHeader {...createSortableHeaderProps('orderedQuantity')} className="text-right min-w-[140px]">Ordered Qty</SortableHeader>}
             {!hiddenColumns.has('deliveredQuantity') && <SortableHeader {...createSortableHeaderProps('deliveredQuantity')} className="text-right min-w-[160px]">Delivery Note Qty</SortableHeader>}
+            {!hiddenColumns.has('remainingQuantity') && (
+              <SortableHeader {...createSortableHeaderProps('remainingQuantity')} className="text-right min-w-[160px]">
+                <div className="flex flex-col items-end gap-0.5">
+                  <span>Remaining Qty</span>
+                  {remainingReportDate && (
+                    <TooltipProvider delayDuration={100}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="text-[10px] font-normal text-muted-foreground cursor-default">
+                            {formatDate(remainingReportDate).slice(0, 6)} · {remainingSubmittedBy?.split(' ')[0] || '—'}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          Updated on {formatDate(remainingReportDate)} by {remainingSubmittedBy || 'Unknown'}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
+                </div>
+              </SortableHeader>
+            )}
             {!hiddenColumns.has('dcQuantity') && <SortableHeader {...createSortableHeaderProps('dcQuantity')} className="text-right min-w-[120px]">DC Qty</SortableHeader>}
             {!hiddenColumns.has('mirQuantity') && <SortableHeader {...createSortableHeaderProps('mirQuantity')} className="text-right min-w-[120px]">MIR Qty</SortableHeader>}
             {!hiddenColumns.has('totalAmount') && <SortableHeader {...createSortableHeaderProps('totalAmount')} className="text-center min-w-[190px]">PO Amount(inc.GST)</SortableHeader>}

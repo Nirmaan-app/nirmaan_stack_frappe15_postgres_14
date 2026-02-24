@@ -39,8 +39,9 @@ Procurement Request
   │
   └─→ Procurement Order (PO)
         ├─→ PO Payment Terms
+        ├─→ PO Delivery Documents (DCs & MIRs, with DC Item child table)
         ├─→ Delivery Notes
-        ├─→ Project Invoice
+        ├─→ Project Invoice (Vendor Invoices)
         └─→ Project Payment
 ```
 

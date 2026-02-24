@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useCallback, useState } from "react";
+import { useMemo, useEffect, useCallback, useState, lazy } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -41,6 +41,8 @@ import { InflowReportTable } from "./InflowReportTable";
 import { OutflowReportTable } from "./outflowReportTable";
 import { NonProjectExpensesPage } from "@/pages/NonProjectExpenses/NonProjectExpensesPage";
 import { ProjectProgressReports } from "./ProjectProgressReports";
+
+const InventoryReport = lazy(() => import('./InventoryReport'));
 
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
@@ -634,6 +636,10 @@ export default function ProjectReports() {
 
   if (selectedReportType === "Project Progress Report") {
     return <ProjectProgressReports />;
+  }
+
+  if (selectedReportType === "Inventory Report") {
+    return <InventoryReport />;
   }
 
   // Default to Cash Sheet report if it's selected or if no specific project report is chosen

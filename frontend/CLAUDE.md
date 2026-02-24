@@ -51,15 +51,6 @@ yarn preview
 - **Error Tracking**: Sentry integration
 - **PWA**: vite-plugin-pwa for Progressive Web App features
 
-### Frappe Framework Integration
-
-This frontend is tightly integrated with Frappe ERPNext backend:
-
-1. **Development Mode**: Fetches boot context from `http://localhost:8000/api/method/nirmaan_stack.www.nirmaan_stack.get_context_for_dev`
-2. **Production Mode**: Uses `window.frappe.boot` injected by Frappe
-3. **Site Name**: Dynamically determined from `window.frappe.boot.sitename` or hostname
-4. **Proxy Configuration**: `proxyOptions.ts` handles routing to Frappe backend and Socket.IO server
-
 ### Directory Structure
 
 ```
@@ -75,6 +66,11 @@ src/
 │   ├── ProcurementRequests/
 │   ├── ProcurementOrders/
 │   ├── ServiceRequests/
+│   ├── BulkDownload/       # Multi-document PDF download wizard
+│   ├── DeliveryChallansAndMirs/  # DC/MIR management (PO Delivery Documents)
+│   ├── ProjectDesignTracker/     # Design tracker with handover phase
+│   ├── remaining-items/          # Inventory update page
+│   ├── reports/                  # Reports hub (PO, SR, DC/MIR, Inventory, etc.)
 │   ├── projects/
 │   ├── vendors/
 │   ├── customers/
@@ -94,164 +90,21 @@ src/
 └── constants/          # App-wide constants
 ```
 
-### Routing Architecture
+### Key Architecture Patterns
 
-Routes are defined in `src/components/helpers/routesConfig.tsx` using React Router v6's nested route structure:
+**Routing:** `src/components/helpers/routesConfig.tsx` — React Router v6 nested routes with `<ProtectedRoute />` and `<MainLayout />`
 
-- **Public routes**: `/login`, `/forgot-password`
-- **Protected routes**: All other routes wrapped with `<ProtectedRoute />`
-- **Main layout**: Most routes use `<MainLayout />` which includes sidebar, navbar, and notifications
-- **Lazy loading**: Heavy pages use React.lazy() for code splitting (imported via `lazy()` in routes)
+**State:** Zustand stores in `src/zustand/` (notifications, filters, dialogs, doc counts, drafts). Context providers: `UserProvider`, `FrappeProvider`, `ThemeProvider`, `SidebarProvider`
 
-Key route patterns:
-- PRs: `/prs&milestones/procurement-requests/:projectId/new-pr`
-- PR Summary: `/prs&milestones/procurement-requests/:prId`
-- PO Summary: `/:prId/:poId` (nested under various parent routes)
-- Service Requests: `/service-requests/:srId`
-- Projects: `/projects/:projectId`
+**Data Fetching:** frappe-react-sdk hooks (`useFrappeGetDocList`, `useFrappeGetDoc`, `useFrappePostCall`, etc.). Custom hooks per page encapsulate fetching + mutations + business logic.
 
-### State Management Strategy
+**Forms:** React Hook Form + Zod schema + shadcn/ui Form components
 
-**Zustand Stores** (`src/zustand/`):
-- `useNotificationStore` - Real-time notifications from Socket.IO
-- `useDataRefetchStore` - Trigger data refetches across components
-- `useFilterStore` - Table filter persistence
-- `useDialogStore` - Modal/dialog state management
-- `useFrappeDataStore` - Cached Frappe document data
-- `useDocCountStore` - Document count badges for sidebar
-- `useProjectDraftStore` - Draft persistence for project creation wizard
-- `useApproveNewPRDraftStore` - Draft persistence for PR approval edits
-- `useServiceRequestDraftStore` - Draft persistence for SR/WO creation
+**Tables:** TanStack Table v8 wrappers in `src/components/data-table/`. Page configs in `config/*.config.ts` files.
 
-**Context Providers**:
-- `UserProvider` (`src/utils/auth/UserProvider.tsx`) - Current user, auth state, selected project
-- `FrappeProvider` (from frappe-react-sdk) - Frappe connection, db methods, socket
-- `ThemeProvider` - Light/dark theme toggle
-- `SidebarProvider` - Sidebar collapse state
+**Real-time:** Socket.IO via `src/config/SocketInitializer.tsx` + `src/services/socketListeners.ts`. Firebase push via `src/firebase/firebaseConfig.ts`.
 
-### Real-time Updates
-
-**Socket.IO Integration** (`src/config/SocketInitializer.tsx`):
-- Initializes Socket.IO listeners on app mount
-- Listens for Frappe doctype events (create, update, delete)
-- Updates Zustand stores when documents change
-- Service: `src/services/socketListeners.ts` handles event routing
-
-**Firebase Cloud Messaging**:
-- Push notifications configured in `src/firebase/firebaseConfig.ts`
-- Service worker: `firebase-messaging-sw.js` handles background notifications
-- Foreground notifications handled in `App.tsx` via `onMessage()`
-
-### Data Fetching Patterns
-
-**frappe-react-sdk hooks**:
-- `useFrappeGetDocList()` - Fetch document lists with filters
-- `useFrappeGetDoc()` - Fetch single document
-- `useFrappeCreateDoc()` - Create new document
-- `useFrappeUpdateDoc()` - Update existing document
-- `useFrappeDeleteDoc()` - Delete document
-- `useFrappeGetCall()` - Call whitelisted Frappe methods
-- `useFrappePostCall()` - POST to Frappe methods
-
-**Custom hooks** pattern:
-- Most pages have dedicated hooks in their subdirectories (e.g., `pages/ProcurementRequests/ApproveNewPR/hooks/`)
-- Hooks encapsulate data fetching, mutations, and business logic
-- Return loading states, data, error states, and mutation functions
-
-### Form Handling
-
-Standard pattern using React Hook Form + Zod:
-```tsx
-const formSchema = z.object({...})
-const form = useForm<z.infer<typeof formSchema>>({
-  resolver: zodResolver(formSchema),
-  defaultValues: {...}
-})
-const onSubmit = (data) => { /* create/update document */ }
-```
-
-Forms use shadcn/ui Form components with controlled inputs.
-
-### Table Components
-
-Data tables use TanStack Table v8 with custom wrappers in `src/components/data-table/`:
-- Pagination, sorting, filtering built-in
-- Column visibility toggle
-- Faceted filters for enums/categories
-- Date range filters
-- Search/debounced input
-- CSV export utilities
-
-Many pages define table configs in `config/*.config.ts` files (e.g., `pages/ProcurementRequests/config/prTable.config.ts`).
-
-### Component Libraries
-
-**shadcn/ui components** (`src/components/ui/`):
-- Based on Radix UI primitives
-- Customized with Tailwind classes
-- Main components: Button, Dialog, Sheet, Card, Form, Select, Popover, etc.
-
-**Ant Design components** (direct imports):
-- Used for specific complex components like DatePicker, Steps, Progress
-- Import from `antd` package
-
-### Error Handling
-
-**Sentry Integration** (`src/instrument.ts`):
-- Initialized before React app
-- Tracks errors, performance, and console logs
-- DSN configured for production monitoring
-
-**Error Boundaries**:
-- `ErrorBoundaryWrapper` component for graceful error handling
-- Used to wrap pages/sections that may fail
-
-### Environment Variables
-
-Required in `.env`:
-- `VITE_BASE_NAME` - Base path for router (empty for root)
-- `VITE_FRAPPE_PATH` - Frappe backend URL (auto-proxied in dev)
-- `VITE_SITE_NAME` - Frappe site name (fallback to hostname)
-
-### Path Aliases
-
-TypeScript path alias `@/*` maps to `src/*`:
-```ts
-import { Button } from "@/components/ui/button"
-import { useUserData } from "@/hooks/useUserData"
-```
-
-## Common Development Tasks
-
-### Adding a New Page
-
-1. Create page component in `src/pages/[feature]/`
-2. Add route to `src/components/helpers/routesConfig.tsx`
-3. If protected, ensure it's nested under `<ProtectedRoute />`
-4. Use `<MainLayout />` parent for standard layout with sidebar/nav
-
-### Creating a New Frappe Doctype CRUD Page
-
-1. Create page with data table using TanStack Table
-2. Use `useFrappeGetDocList()` to fetch documents
-3. Create table config in `config/[doctype]Table.config.ts`
-4. Add create/edit dialogs using React Hook Form
-5. Use `useFrappeCreateDoc()` / `useFrappeUpdateDoc()` for mutations
-6. Add real-time listener in `src/services/socketListeners.ts` if needed
-
-### Adding New Zustand Store
-
-1. Create store in `src/zustand/use[Name]Store.ts`
-2. Define state and actions following existing patterns
-3. Use `create()` from zustand
-4. Import and use with `useStore()` hook in components
-
-### Updating UI Components
-
-- For shadcn/ui: Edit files in `src/components/ui/`
-- For custom components: Follow existing patterns with TypeScript props interfaces
-- Use Tailwind utility classes for styling
-- Use CVA (class-variance-authority) for variant-based component APIs
+**Path Aliases:** `@/*` maps to `src/*`
 
 ### Step-Based Wizard Architecture
 
@@ -271,65 +124,21 @@ pages/[feature]/[form-name]/
     └── ReviewStep.tsx     # Final review before submission
 ```
 
-**Key components** (in `src/components/ui/`):
-- `wizard-steps.tsx` - Visual step progress indicator
-- `draft-indicator.tsx` - Auto-save status display
-- `draft-resume-dialog.tsx` / `draft-cancel-dialog.tsx` - Draft management dialogs
+**Key components** (in `src/components/ui/`): `wizard-steps.tsx`, `draft-indicator.tsx`, `draft-resume-dialog.tsx`, `draft-cancel-dialog.tsx`
 
-**Draft persistence** (optional):
-- Use Zustand store with `persist` middleware for localStorage
-- `useProjectDraftManager` hook pattern for auto-save with debounce
-- See also: `useApproveNewPRDraftStore` for PR approval drafts, `useServiceRequestDraftStore` for SR drafts
+**Draft persistence:** Zustand store with `persist` middleware. See `useProjectDraftStore`, `useApproveNewPRDraftStore`, `useServiceRequestDraftStore`.
 
-**Editing Lock Pattern** (for concurrent edit prevention):
-For pages where only one user should edit at a time, use the Redis-based locking pattern:
-```typescript
-// Hook: src/pages/ProcurementRequests/ApproveNewPR/hooks/useEditingLock.ts
-const { lockInfo, isMyLock, canEdit, acquireLock, releaseLock } = useEditingLock({ prName, enabled: true });
+**Editing Lock Pattern:** Redis-based concurrent edit prevention via `useEditingLock` hook (`src/pages/ProcurementRequests/ApproveNewPR/hooks/useEditingLock.ts`). Auto-acquire/release, heartbeat, Socket.IO events, sendBeacon cleanup. Feature flag: `localStorage.setItem('nirmaan-lock-disabled', 'true')`.
 
-// Key features:
-// - Auto-acquire on mount, auto-release on unmount
-// - Heartbeat every 5 min to extend 15-min lock expiry
-// - Socket.IO events for real-time lock status (pr:editing:started, pr:editing:stopped)
-// - navigator.sendBeacon() for reliable release on page unload
-// - Graceful degradation: editing allowed if API fails
-// - Feature flag: localStorage.setItem('nirmaan-lock-disabled', 'true')
-```
+**Multi-select user assignment:** Store as `{label, value}[]` for react-select, create `User Permission` docs after document creation. Don't store assignees in the document — use User Permissions for access control.
 
-**Multi-select user assignment pattern:**
-When assigning multiple users to roles (e.g., project leads, managers):
-```typescript
-// Schema: Store as array of {label, value} for react-select compatibility
-assignees: z.object({
-  project_leads: z.array(z.object({ label: z.string(), value: z.string() })).optional(),
-  // ...
-}).optional()
+### Procurement Flow
 
-// Submission: Create User Permissions after document creation
-const uniqueUsers = new Set<string>();
-assignees?.project_leads?.forEach(u => uniqueUsers.add(u.value));
-for (const userId of uniqueUsers) {
-  await createDoc("User Permission", { user: userId, allow: "Projects", for_value: projectName });
-}
-```
-- Don't store assignees in the document itself - use User Permissions for access control
-- Use `ProjectCreationDialog` pattern for multi-stage progress (creating → assigning)
+1. **New PR** → 2. **Approve PR** → 3. **Select Vendors** → 4. **Vendor Quotes** → 5. **Approve Quotes** → 6. **Release PO** → 7. **Delivery Notes** → 8. **Invoices** → 9. **Payments**
 
-### Working with Procurement Flow
+Related: `pages/ProcurementRequests/`, `pages/ProcurementOrders/`
 
-The procurement flow is the core workflow:
-
-1. **New PR** (Procurement Request): Created by project managers, specifies items needed
-2. **Approve PR**: Reviewed by procurement team
-3. **Select Vendors**: Procurement team selects vendors and requests quotes
-4. **Vendor Quotes**: Vendors submit quotes (can be edited by procurement if delayed)
-5. **Approve Quotes**: Compare quotes and select winning vendor(s)
-6. **Release PO** (Purchase Order): Generate and send PO to vendor
-7. **Delivery Notes**: Track deliveries against POs
-8. **Invoices**: Record vendor invoices
-9. **Payments**: Process payments against invoices
-
-Related routes and components are organized under `pages/ProcurementRequests/`, `pages/ProcurementOrders/`, etc.
+---
 
 ## Role-Based Access Control
 
@@ -339,205 +148,26 @@ The system uses 10 role profiles for access control. Role checks use `useUserDat
 
 **Special:** `Administrator` user (user_id) has hardcoded Admin access. PMO Executive mirrors Admin access. HR Executive has Admin Options sidebar access.
 
-**Key files:**
-- `src/hooks/useUserData.ts` - Role fetching
-- `src/utils/auth/ProtectedRoute.tsx` - Route guards
-- `src/components/layout/NewSidebar.tsx` - Menu visibility
+**Key files:** `src/hooks/useUserData.ts`, `src/utils/auth/ProtectedRoute.tsx`, `src/components/layout/NewSidebar.tsx`
 
 **Common pattern:**
 ```typescript
 ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
 ```
 
-**Full documentation:** See `.claude/context/role-access.md` for:
-- Complete sidebar menu access matrix
-- Page-level access control with file:line references
-- Action capabilities by role
-- Dashboard routing
+**Full documentation:** See `.claude/context/role-access.md`
 
 ---
 
-## Coding Standards
+## Coding Standards & React Patterns
 
-### Date Format
-**All dates displayed to users must use `dd-MMM-yyyy` format** (e.g., "15-Jan-2026").
+**Date format:** All dates must use `dd-MMM-yyyy` (e.g., "15-Jan-2026"). Use `formatDate()` from `src/utils/FormatDate.ts`.
 
-- Use `formatDate()` from `src/utils/FormatDate.ts` for standard date formatting
-- Use `formatDeadlineShort()` from page-specific utils if available
-- For date-fns operations, use format pattern `dd-MMM-yyyy`
-- Never use formats like `MM/dd/yyyy`, `yyyy-MM-dd`, or ordinal formats ("15th Jan") for display
+**React-Select:** Use `FuzzySearchSelect` for dropdowns with >50 options. Use `usePortal` prop inside Radix dialogs.
 
-```typescript
-// Correct - dd-MMM-yyyy format
-import { formatDate } from "@/utils/FormatDate";
-formatDate(dateString); // Returns "15-Jan-2026"
+**React Effects:** Never use objects/arrays as useEffect deps. Never use TanStack `table` as dep. Put user-action side effects in handlers, not effects.
 
-// For manual formatting
-const day = date.toLocaleString('default', { day: '2-digit' });
-const month = date.toLocaleString('default', { month: 'short' });
-const year = date.toLocaleString('default', { year: 'numeric' });
-return `${day}-${month}-${year}`; // "15-Jan-2026"
-```
-
-### React-Select Search Pattern
-
-When using react-select for searchable dropdowns with >50 options, use `FuzzySearchSelect` from `@/components/ui/fuzzy-search-select.tsx` instead of plain ReactSelect.
-
-**Why:** Default react-select uses simple substring matching on label only. FuzzySearchSelect provides:
-- Multi-field search (label + value/ID)
-- Token-based matching ("proj 2024" finds items matching both tokens)
-- Partial word matching ("act" finds "actuators")
-- Relevance scoring and ranking
-- Field weighting (label > value)
-
-**Pattern:**
-```tsx
-import { FuzzySearchSelect, TokenSearchConfig } from "@/components/ui/fuzzy-search-select";
-
-const searchConfig: TokenSearchConfig = {
-    searchFields: ['label', 'value'],
-    partialMatch: true,
-    fieldWeights: { label: 2.0, value: 1.5 }
-};
-
-<FuzzySearchSelect
-    allOptions={options}
-    tokenSearchConfig={searchConfig}
-    onChange={handleChange}
-    // ...other react-select props
-/>
-```
-
-**Components using this pattern:**
-- `ProjectSelect` (`components/custom-select/project-select.tsx`) - Project selection dropdowns
-- `ItemSelectorControls` - Item selection in PR creation
-
-When reviewing or creating react-select components, check if FuzzySearchSelect would improve the UX.
-
-### React-Select in Radix UI Dialogs (AlertDialog/Dialog)
-
-**Problem:** When using react-select inside Radix UI AlertDialog or Dialog, the dropdown menu becomes unclickable and unscrollable. Users can type and use keyboard navigation, but mouse interaction is blocked.
-
-**Root Cause:** Radix UI dialogs set `pointer-events: none` on the `<body>` when modal to implement focus trapping. When react-select portals its menu to `document.body` via `menuPortalTarget`, those elements inherit `pointer-events: none` and become uninteractable.
-
-**Solution:** The centralized theme in `src/config/selectTheme.ts` includes `pointerEvents: 'auto'` on menu, menuPortal, menuList, and option styles to override this behavior.
-
-**Usage with ProjectSelect:**
-```tsx
-// Inside a dialog, use the usePortal prop
-<ProjectSelect
-    onChange={handleChange}
-    universal={false}
-    usePortal  // Enables menuPortalTarget={document.body} with proper pointer-events
-/>
-```
-
-**If creating a new select component:**
-```tsx
-import { getSelectStyles } from "@/config/selectTheme";
-
-// The default styles already include the pointer-events fix
-<ReactSelect
-    styles={getSelectStyles()}
-    menuPortalTarget={document.body}
-    menuPosition="fixed"
-    // ...other props
-/>
-```
-
-**Key files:**
-- `src/config/selectTheme.ts` - Centralized theme with pointer-events fix
-- `src/components/ui/fuzzy-search-select.tsx` - Applies theme automatically
-- `src/components/custom-select/project-select.tsx` - Has `usePortal` prop
-
-**References:**
-- [Radix UI Issue #2122](https://github.com/radix-ui/primitives/issues/2122) - DialogContent disables pointer events
-- [Radix UI Issue #3141](https://github.com/radix-ui/primitives/issues/3141) - Dialog and Dropdown Menu conflict
-
----
-
-## React Effect Anti-Patterns (Vercel Best Practices)
-
-These rules prevent infinite re-render loops. Reference: `~/.claude/skills/vercel-react-best-practices/`
-
-### 1. Narrow Effect Dependencies (`rerender-dependencies`)
-
-Use primitives in dependencies, not objects.
-
-```typescript
-// ❌ BAD: Object changes every render
-useEffect(() => { ... }, [dateRange]);
-useEffect(() => { ... }, [user]);
-useEffect(() => { ... }, [table]);
-
-// ✅ GOOD: Primitives only change when values change
-useEffect(() => { ... }, [dateRange?.from?.getTime(), dateRange?.to?.getTime()]);
-useEffect(() => { ... }, [user.id]);
-useEffect(() => { ... }, [filteredRowCount]);  // derived primitive
-```
-
-### 2. Don't Sync Props to State via Effect (`rerender-derived-state-no-effect`)
-
-If syncing external value to internal state, use event handlers.
-
-```typescript
-// ❌ BAD: Effect runs on every prop change
-useEffect(() => {
-  setLocalState(prop);
-}, [prop]);
-
-// ✅ GOOD: Sync in event handler
-const handleOpen = () => {
-  setLocalState(prop);  // Sync only when action happens
-  setIsOpen(true);
-};
-```
-
-### 3. User Actions Go in Event Handlers (`rerender-move-effect-to-event`)
-
-If a side effect is triggered by user action, put it in the handler.
-
-```typescript
-// ❌ BAD: Effect + state pattern
-const [didClick, setDidClick] = useState(false);
-useEffect(() => {
-  if (didClick) doSomething();
-}, [didClick]);
-
-// ✅ GOOD: Direct in handler
-const handleClick = () => {
-  doSomething();
-};
-```
-
-### 4. Never Use TanStack Table as Dependency
-
-The `table` object from `useReactTable()` changes reference every render.
-
-```typescript
-// ❌ NEVER DO THIS
-useEffect(() => { ... }, [table]);
-useEffect(() => { ... }, [table, someValue]);
-
-// ✅ Extract derived values outside, depend on primitives
-const filteredRowCount = table.getFilteredRowModel().rows.length;
-useEffect(() => { ... }, [filteredRowCount]);
-
-// ✅ For user actions, use event handlers
-const handleToggle = (checked: boolean) => {
-  table.getColumn("status")?.setFilterValue(checked ? ["active"] : undefined);
-};
-```
-
-### Quick Checklist Before Writing useEffect
-
-| Question | If YES → |
-|----------|----------|
-| Am I syncing child state from props? | Use event handler, not effect |
-| Am I responding to a user action? | Move logic to event handler |
-| Is my dependency an object/array? | Use primitive: `obj.id` not `obj` |
-| Does my effect call `setState` that affects a dependency? | You have a loop - redesign |
-| Is `table` (TanStack) in my dependency array? | Remove it, use derived primitives |
+**Full reference:** See `.claude/context/coding-standards.md` and `.claude/context/react-patterns.md`
 
 ---
 
@@ -552,3 +182,18 @@ const handleToggle = (checked: boolean) => {
 - **Project Context**: Many operations are scoped to a selected project (stored in UserContext)
 - **Customer Required for Financials**: Projects without a customer cannot have invoices or inflow payments created - UI shows validation warnings and disables forms
 - **CEO Hold Status**: Projects with "CEO Hold" status block ALL procurement, payment, and expense operations. Use `useCEOHoldGuard` hook for single-project pages, `useCEOHoldProjects` for list pages. See `.claude/context/domain/ceo-hold.md` for full documentation. **Authorization:** Only `nitesh@nirmaan.app` can set/unset CEO Hold (not role-based). The `CEO_HOLD_AUTHORIZED_USER` constant is in `src/constants/ceoHold.ts`. The `ceo_hold_by` field on Projects tracks who set the hold. Backend validation in `projects.py` enforces this restriction.
+- **Bulk Download Wizard**: `src/pages/BulkDownload/` provides a multi-step wizard for downloading POs, WOs, Invoices, DCs, MIRs, and DNs in bulk as merged PDFs. Uses `useBulkDownloadWizard.ts` hook and `FilterBar.tsx` for vendor/date filtering. PO rate visibility restricted for Project Managers.
+- **Reusable Common Components**: `src/components/common/` contains shared components used across pages:
+  - `VendorAttachmentForPR.tsx` - Vendor quote attachment viewer with read-only mode support
+  - `VendorQuotesAttachmentSummaryPR.tsx` - Attachment summary for vendor quotes
+  - `BulkPdfDownloadButton.tsx` - Button trigger for bulk PDF download
+  - `ProjectTeamHoverCard.tsx` - Project team info hover card
+  - `assigneesTableColumns.tsx` - Shared assignee column definitions for tables
+- **Centralized Vendor Hooks**: `src/pages/vendors/data/` contains `useVendorQueries.ts` and `useVendorMutations.ts` for centralized vendor data operations with Sentry API error capturing.
+- **Design Tracker Phases**: Design tracker supports Onboarding and Handover phases. Phase filtering available in task-wise and team-summary views. Approval proof (file attachment) required before task status can be set to Approved.
+- **CSV Export Pattern**: Most DataTable columns support `exportMeta` configuration with `header` (custom column name), `value` (custom formatter function), and `exportFileName` for dynamic filenames. Export respects current table sorting and column order.
+
+# currentDate
+Today's date is 2026-02-25.
+
+      IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.

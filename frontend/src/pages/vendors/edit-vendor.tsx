@@ -17,12 +17,8 @@ import { GST_REGEX, IFSC_REGEX, NAME_REGEX, PAN_REGEX } from "@/constants/vendor
 import { SERVICECATEGORIES } from "@/lib/ServiceCategories";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { zodResolver } from "@hookform/resolvers/zod";
-import {
-  useFrappeGetCall,
-  useFrappeGetDoc,
-  useFrappeGetDocList,
-  useFrappeUpdateDoc,
-} from "frappe-react-sdk";
+import { useEditVendorData, usePincodeData, useBankDetails, useExistingVendors, useCategoryList } from './data/useVendorQueries';
+import { useUpdateVendorDoc } from './data/useVendorMutations';
 import { ListChecks, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -191,17 +187,9 @@ interface SelectOption {
 export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEditSheet }) => {
 
   const { vendorId: id } = useParams<{ vendorId: string }>();
-  const { data, mutate: vendorMutate } = useFrappeGetDoc("Vendors",id,`Vendors ${id}`);
-  const { updateDoc, loading } = useFrappeUpdateDoc();
+  const { data, vendorMutate, vendorAddress, addressMutate } = useEditVendorData(id);
+  const { updateDoc, loading } = useUpdateVendorDoc();
   const { toast } = useToast();
-
-  const { data: vendorAddress, mutate: addressMutate } = useFrappeGetDoc("Address", data?.vendor_address,
-    `Address ${data?.vendor_address}`,
-    {
-      revalidateIfStale: false,
-    }
-  );
-
   const [vendorChange, setVendorChange] = useState(false)
   const [taxationType, setTaxationType] = useState<string | null>("GST")
   const [bankAndBranch, setBankAndBranch] = useState({
@@ -217,18 +205,12 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
 
   const [pincode, setPincode] = useState("");
 
-  const { data: pincode_data } = useFrappeGetDoc("Pincodes", pincode, `Pincodes ${pincode}`);
-  const[IFSC, setIFSC] = useState(data?.ifsc || "");
-  
-  const { data: bank_details } = useFrappeGetCall("nirmaan_stack.api.bank_details.generate_bank_details",
-      { ifsc_code:  IFSC},
-      IFSC && IFSC?.length === 11 ? undefined : null
-    );
-  
-  const { data: existingVendors } = useFrappeGetDocList<Vendors>("Vendors", { 
-    fields: ["vendor_gst"], 
-    filters: [["name", "!=", id]],
-    limit: 10000 }, "Vendors");
+  const { data: pincode_data } = usePincodeData(pincode);
+  const [IFSC, setIFSC] = useState(data?.ifsc || "");
+
+  const { data: bank_details } = useBankDetails(IFSC);
+
+  const { data: existingVendors } = useExistingVendors(id);
 
   const VendorFormSchema = getVendorFormSchema(data?.vendor_type === "Service" && !vendorChange, taxationType === "GST", accountNumber, confirmAccountNumber, existingVendors, bank_details, pincode_data);
 
@@ -286,11 +268,7 @@ export const EditVendor: React.FC<{toggleEditSheet: () => void}> = ({ toggleEdit
     }
   }, [data, vendorAddress]);
 
-  const { data: category_list } = useFrappeGetDocList("Category", {
-    fields: ["*"],
-    filters: [["work_package", "!=", "Services"]],
-    limit: 10000,
-  }, "Service Categories");
+  const { data: category_list } = useCategoryList();
 
   const category_options: SelectOption[] = useMemo(
     () => category_list?.map((item) => ({

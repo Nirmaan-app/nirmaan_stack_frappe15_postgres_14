@@ -4,6 +4,69 @@ Changes made by Claude Code sessions.
 
 ---
 
+## 2026-02-25: Context Sync - 2 Week Feature Analysis
+
+**Summary:** Analyzed 122 commits from 2026-02-10 to 2026-02-25. Major feature areas documented below.
+
+### Major Features Added (by other developers, documented here for context)
+
+**1. Bulk Download Suite** (commits: f0616e96, a01a0d71, 09079960, 8bf71740, 67d8e947, etc.)
+- New `api/pdf_helper/bulk_download.py` — unified bulk download for POs, WOs, Invoices, DCs, MIRs, DNs
+- Progress tracking, rate selection, vendor/date filtering
+- PO rate visibility restricted for Project Managers
+- Frontend wizard at `src/pages/BulkDownload/` with step-based document selection
+
+**2. Remaining Items / Inventory** (commits: 9cb98a14, 96ec02ba, 77d94385, 3e76c9be, 57be9615)
+- New `Remaining Items Report` and `Remaining Item Entry` doctypes
+- New `api/remaining_items_report.py` API with cooldown + declaration
+- Frontend at `src/pages/remaining-items/` with form, hooks, and components
+- Inventory Report added to project reports tab
+
+**3. Design Tracker Handover Phase** (commits: d263109e, 1e89526c, fbef66cd, c345311e, 85dcb226, a8322276, d052b21e, d70dc283)
+- Handover phase support in backend APIs (task-wise, team-summary)
+- Phase filtering in frontend task and team summary views
+- Phase-aware header analytics, card redesign, Create Task dialog
+- "Not Applicable" status preserved during handover task generation
+
+**4. TDS Repository Enhancements** (commits: 10a60c0c, ff9af0f8, 956f7708, 5ca41319, b4b61c29, 26a8cdc1)
+- Items `on_update` hook syncs item_name/category to TDS Repository
+- Enable/disable roles, logo management, progressive PDF generation
+- Package-based filtering/grouping in export dialog, column sorting
+
+**5. CSV Export Overhaul** (commits: c84a725d, 1e800a26, 1aa56907, 5409c363, fbcfc85d, 4b6b6464, 8392fbb6, 35a6c4fd, 9bddd6ed, etc.)
+- Export metadata (`exportMeta`) added to most DataTable columns across all modules
+- Custom formatters, assignee details, dynamic filenames, sorted data exports
+- Covers: PO reports, SR reports, vendor reports, project reports, payments, credits
+
+**6. Vendor Attachments & Centralized Hooks** (commits: 072d2411, 30934260, 285a6b06, 1a891e59, e72633f6)
+- Reusable `VendorAttachmentForPR` component for vendor quote viewing
+- Integrated across PR flows and Sent Back request flows
+- Vendor Quotes tab added to Vendor detail page
+- Centralized `useVendorQueries.ts` and `useVendorMutations.ts` hooks
+
+**7. Customer PO Payment Terms** (commits: 4a34155c, 92907e0b, d3a845d0)
+- Expected date field added to payment terms
+- Migration patch from text to JSON format
+- UI refinements in dialogs and display cards
+
+**8. Material Usage & DC/MIR Reports** (commits: 1a10707e, 532540cc, 1315307b, 89163749)
+- Critical PO column added to DC/MIR reports
+- Remaining Qty redesign in Material Usage table
+- Billing category filter, Rate column, layout revamp
+
+**Context Files Updated:**
+- `.claude/context/doctypes.md` — Added Remaining Items Report, Remaining Item Entry, Cashflow Plan, TDS Repository, Customer PO Payment Terms
+- `.claude/context/apis.md` — Added bulk download, remaining items, TDS, Items sync, data_table sorting note
+- `.claude/context/workflows.md` — Added Items on_update hook, design tracker task validations
+- `.claude/context/_index.md` — Added missing frontend context references
+- `.claude/context/domain/procurement.md` — Updated PO relationship tree with PO Delivery Documents
+- `CLAUDE.md` — Updated core domains, directory structure counts, patches version range
+- `frontend/CLAUDE.md` — Added new page directories, bulk download, vendor hooks, design tracker phases, CSV export pattern
+- `frontend/.claude/context/_index.md` — Added bulk download, remaining items, vendor hooks module references
+- `frontend/.claude/context/role-access.md` — Added TDS Repository and Bulk Download sidebar access
+
+---
+
 ## 2026-02-16
 
 - feat: Add `approval_proof` Attach field to `Design Tracker Task Child Table` doctype

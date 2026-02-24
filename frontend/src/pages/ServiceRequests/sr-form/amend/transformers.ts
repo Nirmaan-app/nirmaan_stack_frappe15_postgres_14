@@ -32,33 +32,35 @@ interface ProjectData {
  * @returns Array of ServiceItemType with proper numeric types
  */
 export function parseServiceOrderList(sr: ServiceRequests): ServiceItemType[] {
-    let orderList: { list: SRServiceItemType[] } | null = null;
+    let list: SRServiceItemType[] = [];
 
-    // Handle case where service_order_list is a JSON string
+    // 1. Handle string format (unparsed JSON)
     if (typeof sr.service_order_list === "string") {
         try {
-            orderList = JSON.parse(sr.service_order_list);
+            const parsed = JSON.parse(sr.service_order_list);
+            list = Array.isArray(parsed) ? parsed : (parsed?.list || []);
         } catch (e) {
-            console.error("Failed to parse service_order_list JSON:", e);
+            console.error("Failed to parse service_order_list JSON string:", e);
             return [];
         }
-    } else if (sr.service_order_list && typeof sr.service_order_list === "object") {
-        // Already an object
-        orderList = sr.service_order_list;
+    } 
+    // 2. Handle object format
+    else if (sr.service_order_list && typeof sr.service_order_list === "object") {
+        // Could be { list: [...] } or just [...]
+        if (Array.isArray(sr.service_order_list)) {
+            list = sr.service_order_list;
+        } else if (Array.isArray((sr.service_order_list as any).list)) {
+            list = (sr.service_order_list as any).list;
+        }
     }
 
-    // Validate structure
-    if (!orderList || !Array.isArray(orderList.list)) {
-        return [];
-    }
-
-    // Transform to ServiceItemType with proper numeric types
-    return orderList.list.map((item): ServiceItemType => ({
+    // 3. Transform to form type with safe defaults
+    return list.map((item): ServiceItemType => ({
         id: item.id || createServiceItem(item.category).id,
-        category: item.category,
-        description: item.description,
-        uom: item.uom,
-        quantity: typeof item.quantity === "string" ? parseFloat(item.quantity) || 0 : item.quantity,
+        category: item.category || "Unknown",
+        description: item.description || "",
+        uom: item.uom || "",
+        quantity: typeof item.quantity === "string" ? parseFloat(item.quantity) || 0 : item.quantity || 0,
         rate: item.rate !== undefined
             ? (typeof item.rate === "string" ? parseFloat(item.rate) || 0 : item.rate)
             : undefined,
@@ -130,7 +132,7 @@ export function transformFormValuesToSRPayload(values: SRFormValues): Record<str
             description: item.description,
             uom: item.uom,
             quantity: item.quantity,
-            rate: item.rate,
+            rate: item.rate || 0,
         })),
     };
 

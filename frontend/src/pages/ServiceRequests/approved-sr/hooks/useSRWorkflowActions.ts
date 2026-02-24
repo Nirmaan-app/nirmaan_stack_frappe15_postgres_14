@@ -4,6 +4,7 @@ import { useFrappeDeleteDoc, useFrappeUpdateDoc } from 'frappe-react-sdk';
 import { toast } from '@/components/ui/use-toast';
 import { ServiceRequests } from '@/types/NirmaanStack/ServiceRequests';
 import { useCEOHoldGuard } from '@/hooks/useCEOHoldGuard';
+import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
 interface UseSRWorkflowActionsProps {
     srId: string;
@@ -39,6 +40,7 @@ export const useSRWorkflowActions = ({
         try {
             await deleteDoc(srDoctype, srId);
             toast({ title: "Success", description: `Service Request ${srId} deleted.` });
+            invalidateSidebarCounts();
             onActionSuccess?.('delete');
             navigate(navigateOnDeletePath);
         } catch (error: any) {
