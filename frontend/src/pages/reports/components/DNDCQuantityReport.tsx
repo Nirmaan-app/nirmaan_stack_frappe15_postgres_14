@@ -41,6 +41,8 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { SimpleFacetedFilter } from "@/pages/projects/components/SimpleFacetedFilter";
 import { exportToCsv } from "@/utils/exportToCsv";
 import { toast } from "@/components/ui/use-toast";
+import { useProjectAssignees } from "@/hooks/useProjectAssignees";
+import type { ProjectAssignee } from "@/hooks/useProjectAssignees";
 import {
   useDNDCQuantityData,
   DNDCPORow,
@@ -117,7 +119,102 @@ function getStatusLabel(status: ReconcileStatus): string {
 }
 
 // =================================================================================
-// 2. SORTABLE HEADER (same pattern as POWiseMaterialTable)
+// 2. PROJECT TEAM STRIP
+// =================================================================================
+
+const ROLE_CONFIG: Record<
+  string,
+  { label: string; color: string; bg: string; ring: string }
+> = {
+  "Nirmaan Project Manager Profile": {
+    label: "PM",
+    color: "text-violet-700",
+    bg: "bg-violet-100",
+    ring: "ring-violet-200",
+  },
+  "Nirmaan Procurement Executive Profile": {
+    label: "Proc",
+    color: "text-sky-700",
+    bg: "bg-sky-100",
+    ring: "ring-sky-200",
+  },
+  "Nirmaan Project Lead Profile": {
+    label: "Lead",
+    color: "text-emerald-700",
+    bg: "bg-emerald-100",
+    ring: "ring-emerald-200",
+  },
+};
+
+const RELEVANT_ROLES = Object.keys(ROLE_CONFIG);
+
+function ProjectTeamStrip({
+  projectId,
+  assignmentsLookup,
+}: {
+  projectId: string;
+  assignmentsLookup: Record<string, ProjectAssignee[]>;
+}) {
+  const assignees = assignmentsLookup[projectId] || [];
+  const relevant = assignees.filter((a) => RELEVANT_ROLES.includes(a.role));
+
+  if (relevant.length === 0) return null;
+
+  // Group by role, preserving the config order
+  const grouped = RELEVANT_ROLES.reduce(
+    (acc, role) => {
+      const users = relevant.filter((a) => a.role === role);
+      if (users.length > 0) acc.push({ role, users });
+      return acc;
+    },
+    [] as { role: string; users: ProjectAssignee[] }[]
+  );
+
+  return (
+    <div className="flex items-center gap-3 px-3 py-2 rounded-md border border-gray-200 bg-gray-50/80">
+      <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider shrink-0">
+        Team
+      </span>
+      <div className="h-4 w-px bg-gray-200 shrink-0" />
+      <div className="flex items-center gap-4 flex-wrap">
+        {grouped.map(({ role, users }) => {
+          const cfg = ROLE_CONFIG[role];
+          return (
+            <div key={role} className="flex items-center gap-1.5">
+              <span
+                className={`text-[10px] font-semibold uppercase tracking-wider ${cfg.color} opacity-70`}
+              >
+                {cfg.label}
+              </span>
+              <div className="flex items-center gap-1">
+                {users.map((user) => (
+                  <div
+                    key={user.email}
+                    className={`inline-flex items-center gap-1.5 pl-0.5 pr-2 py-0.5 rounded-full ring-1 ${cfg.ring} ${cfg.bg}`}
+                  >
+                    <div
+                      className={`h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold ${cfg.color} bg-white/80 ring-1 ${cfg.ring}`}
+                    >
+                      {user.name.charAt(0).toUpperCase()}
+                    </div>
+                    <span
+                      className={`text-xs font-medium ${cfg.color} leading-none`}
+                    >
+                      {user.name}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// =================================================================================
+// 3. SORTABLE HEADER (same pattern as POWiseMaterialTable)
 // =================================================================================
 
 type SortKey =
@@ -701,6 +798,8 @@ export default function DNDCQuantityReport() {
     label: string;
   } | null>(null);
 
+  const { assignmentsLookup } = useProjectAssignees();
+
   return (
     <div className="flex flex-col gap-4">
       {/* Project selector */}
@@ -726,6 +825,14 @@ export default function DNDCQuantityReport() {
           caught up with delivery records.
         </AlertDescription>
       </Alert>
+
+      {/* Project team strip */}
+      {selectedProject && (
+        <ProjectTeamStrip
+          projectId={selectedProject.value}
+          assignmentsLookup={assignmentsLookup}
+        />
+      )}
 
       {selectedProject ? (
         <DNDCQuantityReportContent
