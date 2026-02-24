@@ -105,6 +105,7 @@ import { usePrintHistory } from "@/pages/DeliveryNotes/hooks/usePrintHistroy";
 import { UploadDCMIRDialog } from "@/pages/DeliveryChallansAndMirs/components/UploadDCMIRDialog";
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
+import { PORevisionDialog } from "@/pages/PORevision/PORevisionDialog";
 
 interface PODetailsProps {
   po: ProcurementOrder | null;
@@ -267,6 +268,8 @@ export const PODetails: React.FC<PODetailsProps> = ({
     poName: po?.name || "",
     enabled: dispatchPODialog && !!po?.project,
   });
+
+  const [openRevisionDialog, setOpenRevisionDialog] = useState(false);
 
   const handlePhoneChange = useCallback((e: any) => {
     const value = e.target.value.replace(/\D/g, "").slice(0, 10);
@@ -705,16 +708,16 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   {(totalUploadedInvoiceAmount && po?.total_amount && Math.abs(totalUploadedInvoiceAmount - po.total_amount) > 1) ? (
                       <div className="flex items-center text-xs text-red-500 bg-red-50 px-2 py-1 rounded">
                           <span className="mr-1">Total PO Amount and Total Invoice Amount is not matching. Do you want to</span>
-                          <Button
-                              variant="link"
-                              size="sm"
-                              className="text-xs h-auto p-0 text-blue-600 font-semibold underline"
-                              onClick={() => {
-                                  navigate(`/app/revision-po/new?po=${po?.name}`);
-                              }}
-                          >
-                              Revise PO
-                          </Button>
+                           <Button
+                               variant="link"
+                               size="sm"
+                               className="text-xs h-auto p-0 text-blue-600 font-semibold underline"
+                               onClick={() => {
+                                   setOpenRevisionDialog(true);
+                               }}
+                           >
+                               Revise PO
+                           </Button>
                       </div>
                   ) : (
                       <Button
@@ -722,7 +725,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                           size="sm"
                           className="text-[10px] h-auto p-0 text-blue-600 font-semibold uppercase tracking-wider"
                           onClick={() => {
-                              navigate(`/app/revision-po/new?po=${po?.name}`);
+                              setOpenRevisionDialog(true);
                           }}
                       >
                           Revision PO
@@ -1567,6 +1570,16 @@ export const PODetails: React.FC<PODetailsProps> = ({
         </div>
         {PrintableHistoryComponent}
       </div>
+
+      <PORevisionDialog 
+        open={openRevisionDialog} 
+        onClose={() => setOpenRevisionDialog(false)} 
+        po={po}
+        onSuccess={(revName) => {
+            // Success logic? Maybe redirect to the revision page if needed, 
+            // or just refresh.
+        }}
+      />
     </div>
   );
 };

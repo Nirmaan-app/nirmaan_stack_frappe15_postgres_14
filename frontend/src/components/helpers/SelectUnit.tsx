@@ -129,9 +129,15 @@ export const SelectUnit : React.FC<SelectUnitProps> = ({ value, onChange, classN
     const { UnitOptions, isunitOptionsLoading } = useNirmaanUnitOptions();
     // -----------------------------
 
+    const normalizedValue = useMemo(() => {
+        if (!value) return value;
+        const match = UnitOptions.find(opt => opt.value.toLowerCase() === value.toLowerCase());
+        return match ? match.value : value;
+    }, [value, UnitOptions]);
+
     return (
         <Select
-            value={value}
+            value={normalizedValue}
             onValueChange={(e) => onChange(e)}
             disabled={isunitOptionsLoading || rest.disabled} // Disable while loading data
             {...rest}
