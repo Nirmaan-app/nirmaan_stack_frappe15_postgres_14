@@ -76,16 +76,22 @@ export function useRemainingItemsForm(
     });
   }, []);
 
+  const filledCount = entries.filter(e => e.remaining_quantity !== null).length;
+  const totalCount = entries.length;
+
   const handleSubmit = useCallback(async () => {
-    // Validate
+    // Validate: all items must be filled
+    const unfilled = entries.filter(e => e.remaining_quantity === null);
+    if (unfilled.length > 0) {
+      toast({ title: "Incomplete", description: "All items must have a remaining quantity.", variant: "destructive" });
+      return;
+    }
+
+    // Validate: non-negative check
     const errors = new Map<string, string>();
     entries.forEach((entry, idx) => {
-      if (entry.remaining_quantity !== null) {
-        if (entry.remaining_quantity < 0) {
-          errors.set(`${idx}`, "Cannot be negative");
-        } else if (entry.remaining_quantity > entry.dn_quantity) {
-          errors.set(`${idx}`, `Cannot exceed DN qty (${entry.dn_quantity})`);
-        }
+      if (entry.remaining_quantity !== null && entry.remaining_quantity < 0) {
+        errors.set(`${idx}`, "Cannot be negative");
       }
     });
 
@@ -132,5 +138,7 @@ export function useRemainingItemsForm(
     handleSubmit,
     isSubmitting,
     validationErrors,
+    filledCount,
+    totalCount,
   };
 }

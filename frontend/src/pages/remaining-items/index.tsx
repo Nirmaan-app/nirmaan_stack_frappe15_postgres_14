@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useFrappeGetCall } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDoc } from "frappe-react-sdk";
 import ProjectSelect from "@/components/custom-select/project-select";
 import { RemainingItemsForm } from "./components/RemainingItemsForm";
 import DateMetadataBar from "./components/DateMetadataBar";
@@ -36,6 +36,8 @@ export function Component() {
 
 function UpdateInventoryContent({ projectId, projectName }: { projectId: string; projectName: string }) {
   const { eligibleItems, isLoading: itemsLoading } = useEligibleItems(projectId);
+  const { data: projectDoc } = useFrappeGetDoc("Projects", projectId);
+  const projectCity = (projectDoc as any)?.project_city || "";
 
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -48,7 +50,7 @@ function UpdateInventoryContent({ projectId, projectName }: { projectId: string;
   );
 
   const { data: latestReport } = useFrappeGetCall<{
-    message: { report_date: string | null; submitted_by: string | null; items: Record<string, any> };
+    message: { report_date: string | null; submitted_by: string | null; submitted_by_full_name: string | null; items: Record<string, any> };
   }>(
     "nirmaan_stack.api.remaining_items_report.get_latest_remaining_quantities",
     { project: projectId },
@@ -56,13 +58,33 @@ function UpdateInventoryContent({ projectId, projectName }: { projectId: string;
   );
 
   const todayExists = todayReport?.message?.exists ?? false;
+
+  const lastReportDate = latestReport?.message?.report_date;
+  const daysSinceLastReport = lastReportDate
+    ? Math.floor((new Date().setHours(0, 0, 0, 0) - new Date(lastReportDate + "T00:00:00").getTime()) / 86400000)
+    : Infinity;
+  const isWithinCooldown = !todayExists && daysSinceLastReport < 3;
+  const daysUntilNextUpdate = isWithinCooldown ? 3 - daysSinceLastReport : 0;
+
   const [mode, setMode] = useState<Mode>("create");
 
   useEffect(() => {
-    setMode(todayExists ? "summary" : "create");
-  }, [todayExists]);
+    if (todayExists) setMode("summary");
+    else if (isWithinCooldown) setMode("summary");
+    else setMode("create");
+  }, [todayExists, isWithinCooldown]);
 
   const isLoading = itemsLoading || todayLoading;
+
+  const cooldownReport = isWithinCooldown ? {
+    exists: true,
+    status: "Submitted",
+    submitted_by: latestReport?.message?.submitted_by_full_name || latestReport?.message?.submitted_by || "",
+    modified: latestReport?.message?.report_date || "",
+    items: Object.values(latestReport?.message?.items || {}).map((item: any) => ({
+      remaining_quantity: item.remaining_quantity,
+    })),
+  } : null;
 
   if (isLoading) return <LoadingFallback />;
 
@@ -73,7 +95,7 @@ function UpdateInventoryContent({ projectId, projectName }: { projectId: string;
           hasProject={true}
           lastReport={
             latestReport?.message?.report_date
-              ? { submitted_by: latestReport.message.submitted_by || "", report_date: latestReport.message.report_date }
+              ? { submitted_by_full_name: latestReport.message.submitted_by_full_name || latestReport.message.submitted_by || "", report_date: latestReport.message.report_date }
               : null
           }
           todayReportExists={todayExists}
@@ -89,21 +111,25 @@ function UpdateInventoryContent({ projectId, projectName }: { projectId: string;
         hasProject={true}
         lastReport={
           latestReport?.message?.report_date
-            ? { submitted_by: latestReport.message.submitted_by || "", report_date: latestReport.message.report_date }
+            ? { submitted_by_full_name: latestReport.message.submitted_by_full_name || latestReport.message.submitted_by || "", report_date: latestReport.message.report_date }
             : null
         }
         todayReportExists={todayExists}
       />
       {mode === "summary" ? (
         <ReportSummaryCard
-          report={todayReport?.message}
+          report={isWithinCooldown ? cooldownReport : todayReport?.message}
           totalItems={eligibleItems.length}
-          onEdit={() => setMode("edit")}
+          onEdit={isWithinCooldown ? undefined : () => setMode("edit")}
+          cooldownMessage={isWithinCooldown
+            ? `Next update available in ${daysUntilNextUpdate} day${daysUntilNextUpdate !== 1 ? "s" : ""}`
+            : undefined}
         />
       ) : (
         <RemainingItemsFormWrapper
           projectId={projectId}
           projectName={projectName}
+          projectCity={projectCity}
           eligibleItems={eligibleItems}
           existingReport={todayReport?.message}
           mutateTodayReport={mutateTodayReport}
@@ -118,6 +144,7 @@ function UpdateInventoryContent({ projectId, projectName }: { projectId: string;
 function RemainingItemsFormWrapper({
   projectId,
   projectName,
+  projectCity,
   eligibleItems,
   existingReport,
   mutateTodayReport,
@@ -126,6 +153,7 @@ function RemainingItemsFormWrapper({
 }: {
   projectId: string;
   projectName: string;
+  projectCity: string;
   eligibleItems: any[];
   existingReport?: { exists: boolean; name?: string; status?: string; items?: any[] };
   mutateTodayReport: () => Promise<any>;
@@ -138,6 +166,8 @@ function RemainingItemsFormWrapper({
     handleSubmit,
     isSubmitting,
     validationErrors,
+    filledCount,
+    totalCount,
   } = useRemainingItemsForm(projectId, eligibleItems, existingReport, async () => {
     await mutateTodayReport();
     setMode("summary");
@@ -146,12 +176,16 @@ function RemainingItemsFormWrapper({
   return (
     <RemainingItemsForm
       projectName={projectName}
+      projectCity={projectCity}
       entries={entries}
       onQuantityChange={handleQuantityChange}
       onSubmit={handleSubmit}
       isSubmitting={isSubmitting}
       validationErrors={validationErrors}
       isEditing={mode === "edit"}
+      onCancel={mode === "edit" ? () => setMode("summary") : undefined}
+      filledCount={filledCount}
+      totalCount={totalCount}
     />
   );
 }

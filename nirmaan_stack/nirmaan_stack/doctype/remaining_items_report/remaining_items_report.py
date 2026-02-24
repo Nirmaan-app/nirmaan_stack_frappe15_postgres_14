@@ -37,10 +37,6 @@ class RemainingItemsReport(Document):
                     frappe.throw(
                         f"Remaining quantity for {item.item_name} cannot be negative"
                     )
-                if item.dn_quantity is not None and item.remaining_quantity > item.dn_quantity:
-                    frappe.throw(
-                        f"Remaining quantity ({item.remaining_quantity}) for {item.item_name} cannot exceed DN quantity ({item.dn_quantity})"
-                    )
 
     def _validate_edit_window(self):
         if str(self.report_date) != today():

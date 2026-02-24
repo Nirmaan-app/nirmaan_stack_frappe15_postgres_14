@@ -1,40 +1,42 @@
-import React from "react";
+import React, { useState } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { FormEntry } from "../hooks/useRemainingItemsForm";
+import { DeclarationDialog } from "./DeclarationDialog";
 
 interface RemainingItemsFormProps {
   projectName: string;
+  projectCity: string;
   entries: FormEntry[];
   onQuantityChange: (index: number, value: string) => void;
   onSubmit: () => void;
   isSubmitting: boolean;
   validationErrors: Map<string, string>;
   isEditing: boolean;
+  onCancel?: () => void;
+  filledCount: number;
+  totalCount: number;
 }
 
 export const RemainingItemsForm: React.FC<RemainingItemsFormProps> = ({
   projectName,
+  projectCity,
   entries,
   onQuantityChange,
   onSubmit,
   isSubmitting,
   validationErrors,
   isEditing,
+  onCancel,
+  filledCount,
+  totalCount,
 }) => {
   // Group entries by category for section headers
   const categories = Array.from(new Set(entries.map((e) => e.category)));
 
-  const getStatusLabel = (entry: FormEntry) => {
-    if (entry.remaining_quantity === null || entry.remaining_quantity === undefined) {
-      return <span className="text-muted-foreground text-xs">Blank</span>;
-    }
-    if (entry.remaining_quantity === 0) {
-      return <span className="text-red-600 text-xs font-medium">All Consumed</span>;
-    }
-    return <span className="text-xs text-muted-foreground">—</span>;
-  };
+  const allFilled = filledCount === totalCount;
+  const [declarationOpen, setDeclarationOpen] = useState(false);
 
   return (
     <div className="space-y-3">
@@ -49,11 +51,8 @@ export const RemainingItemsForm: React.FC<RemainingItemsFormProps> = ({
           <TableHeader className="bg-background sticky top-0 z-10">
             <TableRow>
               <TableHead className="min-w-[200px] text-sm">Item Name</TableHead>
-              <TableHead className="min-w-[120px] text-sm">Category</TableHead>
               <TableHead className="text-center min-w-[60px] text-sm">Unit</TableHead>
-              <TableHead className="text-right min-w-[100px] text-sm">DN Qty</TableHead>
               <TableHead className="text-right min-w-[130px] text-sm">Remaining</TableHead>
-              <TableHead className="text-center min-w-[80px] text-sm">Status</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -66,7 +65,7 @@ export const RemainingItemsForm: React.FC<RemainingItemsFormProps> = ({
                 <React.Fragment key={category}>
                   <TableRow>
                     <TableCell
-                      colSpan={6}
+                      colSpan={3}
                       className="py-1.5 px-3 bg-muted/30 border-b"
                     >
                       <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
@@ -81,14 +80,8 @@ export const RemainingItemsForm: React.FC<RemainingItemsFormProps> = ({
                         <TableCell className="py-1.5 px-3 text-sm font-medium">
                           {entry.item_name || "N/A"}
                         </TableCell>
-                        <TableCell className="py-1.5 px-3 text-sm text-muted-foreground">
-                          {entry.category}
-                        </TableCell>
                         <TableCell className="py-1.5 px-3 text-sm text-center">
                           {entry.unit || "N/A"}
-                        </TableCell>
-                        <TableCell className="py-1.5 px-3 text-sm text-right font-mono tabular-nums">
-                          {entry.dn_quantity.toFixed(2)}
                         </TableCell>
                         <TableCell className="py-1.5 px-3 text-right">
                           <div className="flex flex-col items-end gap-0.5">
@@ -99,16 +92,12 @@ export const RemainingItemsForm: React.FC<RemainingItemsFormProps> = ({
                               onChange={(e) => onQuantityChange(idx, e.target.value)}
                               placeholder="—"
                               min={0}
-                              max={entry.dn_quantity}
                               step="any"
                             />
                             {error ? (
                               <span className="text-red-500 text-xs">{error}</span>
                             ) : null}
                           </div>
-                        </TableCell>
-                        <TableCell className="py-1.5 px-3 text-center">
-                          {getStatusLabel(entry)}
                         </TableCell>
                       </TableRow>
                     );
@@ -120,11 +109,25 @@ export const RemainingItemsForm: React.FC<RemainingItemsFormProps> = ({
         </Table>
       </div>
 
-      <div className="flex justify-end">
-        <Button onClick={onSubmit} disabled={isSubmitting}>
-          {isSubmitting ? "Submitting..." : "Submit Report"}
+      <div className="flex justify-end gap-2">
+        {isEditing && onCancel ? (
+          <Button variant="outline" onClick={onCancel} disabled={isSubmitting}>
+            Cancel
+          </Button>
+        ) : null}
+        <Button onClick={() => setDeclarationOpen(true)} disabled={isSubmitting || !allFilled}>
+          {`Submit Report (${filledCount}/${totalCount})`}
         </Button>
       </div>
+
+      <DeclarationDialog
+        open={declarationOpen}
+        onOpenChange={setDeclarationOpen}
+        entries={entries}
+        onConfirm={onSubmit}
+        isSubmitting={isSubmitting}
+        projectCity={projectCity}
+      />
     </div>
   );
 };
