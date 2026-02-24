@@ -4,6 +4,7 @@ import { Info, ClipboardList, Plus, Undo, Trash2, Edit3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableHeader, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
+import ReactSelect from "react-select";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { SelectUnit } from "@/components/helpers/SelectUnit";
@@ -25,6 +26,7 @@ interface Step1ReviseItemsProps {
   afterSummary: SummaryData;
   difference: DifferenceData;
   netImpact: number;
+  itemOptions?: { label: string; value: string; item_id: string; item_name: string; make: string; available_makes: string[]; unit: string; category: string; tax: number }[];
 }
 
 export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
@@ -39,6 +41,7 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
   afterSummary,
   difference,
   netImpact,
+  itemOptions = [],
 }) => {
   return (
     <div className="space-y-8">
@@ -61,12 +64,12 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
             <Plus className="h-3 w-3 mr-1" /> Add Line Item
           </Button>
         </div>
-        <div className="border rounded-md overflow-hidden bg-white">
+        <div className="border rounded-md overflow-visible bg-white pb-24">
           <Table>
             <TableHeader className="bg-gray-50 text-[11px] uppercase text-gray-500">
               <TableRow>
-                <TableHead className="w-[200px] pl-4">ITEM NAME</TableHead>
-                <TableHead>MAKE</TableHead>
+                <TableHead className="w-[350px] pl-4">ITEM NAME</TableHead>
+                <TableHead className="w-[200px]">MAKE</TableHead>
                 <TableHead className="w-[100px]">UNIT</TableHead>
                 <TableHead className="w-[100px]">QTY</TableHead>
                 <TableHead className="w-[120px]">RATE</TableHead>
@@ -84,19 +87,99 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                 return (
                   <TableRow key={idx} className={`h-16 border-b last:border-0 ${isDeleted ? "opacity-30 grayscale pointer-events-none" : "hover:bg-gray-50/50"}`}>
                     <TableCell className="pl-4">
-                      <Input 
-                        value={item.item_name} 
-                        onChange={(e) => handleUpdateItem(idx, { item_name: e.target.value })}
-                        disabled={isDeleted}
-                        className="text-xs font-semibold h-9"
+                      {item.item_type !== 'Deleted'  && item.item_type !== 'Revised' ? (
+                        <ReactSelect
+                          options={itemOptions.filter(opt => !revisionItems.some(ri => ri.item_id === opt.item_id && ri.item_type !== 'Deleted'))}
+                          value={
+                          item.item_id 
+                            ? itemOptions.find(opt => opt.item_id === item.item_id) 
+                            : item.item_name 
+                              ? { label: item.item_name, value: item.item_name, item_id: "", item_name: item.item_name, make: item.make || "", unit: item.unit || "", category: "", tax: item.tax || 0 }
+                              : null
+                        }
+                        onChange={(selected: any) => {
+                          const isOriginal = item.item_type === 'Original';
+                          let typeUpdates: Partial<RevisionItem> = {};
+                          
+                          if (selected) {
+                            if (isOriginal && selected.item_id !== item.item_id) {
+                              typeUpdates = { item_type: 'Replace', original_row_id: item.name };
+                            }
+                            handleUpdateItem(idx, { 
+                              ...typeUpdates,
+                              item_id: selected.item_id, 
+                              item_name: selected.item_name, 
+                              make: selected.make,
+                              unit: selected.unit,
+                              tax: selected.tax
+                            });
+                          } else {
+                            if (isOriginal) {
+                              typeUpdates = { item_type: 'Replace', original_row_id: item.name };
+                            }
+                            handleUpdateItem(idx, { ...typeUpdates, item_id: undefined, item_name: "", make: "", unit: "Nos", tax: 0 });
+                          }
+                        }}
+                        isDisabled={isDeleted}
+                        placeholder="Select Item..."
+                        isClearable
+                        styles={{
+                          control: (base) => ({
+                            ...base,
+                            minHeight: '36px',
+                            height: '36px',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                          }),
+                          valueContainer: (base) => ({
+                            ...base,
+                            padding: '0 8px',
+                          }),
+                          input: (base) => ({
+                            ...base,
+                            margin: 0,
+                            padding: 0,
+                          }),
+                        }}
                       />
+                      ) : (
+                        <div className="flex items-center h-9 px-3 text-xs font-semibold text-gray-700 bg-gray-50 border rounded-md cursor-not-allowed">
+                          {item.item_name}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell>
-                      <Input 
-                        value={item.make} 
-                        onChange={(e) => handleUpdateItem(idx, { make: e.target.value })}
-                        disabled={isDeleted}
-                        className="text-xs h-9"
+                      <ReactSelect
+                        options={
+                          (() => {
+                            const optionItem = itemOptions.find(opt => opt.item_id === item.item_id);
+                            const makes = optionItem?.available_makes || (item.make ? [item.make] : []);
+                            return makes.map(m => ({ label: m, value: m }));
+                          })()
+                        }
+                        value={item.make ? { label: item.make, value: item.make } : null}
+                        onChange={(selected: any) => handleUpdateItem(idx, { make: selected?.value || "" })}
+                        isDisabled={isDeleted || !item.item_id}
+                        placeholder="Make..."
+                        isClearable
+                        styles={{
+                          control: (base) => ({
+                            ...base,
+                            minHeight: '36px',
+                            height: '36px',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                          }),
+                          valueContainer: (base) => ({
+                            ...base,
+                            padding: '0 8px',
+                          }),
+                          input: (base) => ({
+                            ...base,
+                            margin: 0,
+                            padding: 0,
+                          }),
+                        }}
                       />
                     </TableCell>
                     <TableCell>
