@@ -24,6 +24,7 @@ import { useUserData } from "@/hooks/useUserData";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 import { useSRFormData } from "./hooks/useSRFormData";
+import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
 // Schema & Constants
 import {
@@ -338,6 +339,8 @@ export const SRFormWizard = () => {
                 description: `Work Order ${srName} created successfully!`,
                 variant: "success",
             });
+
+            invalidateSidebarCounts();
 
             // Navigate to service requests list after a short delay
             setTimeout(() => {

@@ -33,6 +33,7 @@ import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { CustomPRSummary } from './CustomPRSummary';
 import { PaymentTermsDialog } from '../VendorQuotesSelection/components/PaymentTermsDialog';
 import { PaymentTermsData, VendorPaymentTerm } from '@/pages/ProcurementRequests/VendorQuotesSelection/types/paymentTerms';
+import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
 // Local type definitions for this component
 interface CustomPRItem extends ProcurementItem {
@@ -62,7 +63,7 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
     fields: ["*"],
     limit: 10000,
   }, "Vendors");
-  
+
   const { data: procurement_packages, isLoading: procurementPackagesLoading } = useFrappeGetDocList("Procurement Packages", {
     fields: ["*"],
     filters: [["name", "!=", "Services"]],
@@ -151,7 +152,7 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
   useEffect(() => {
     if (resolve && prDoc && vendor_list && vendor_list.length > 0) {
       const request = prDoc;
-      
+
       const transformedOrder = (request?.order_list || []).map((item: any) => ({
         ...item,
         item: item.item_name || item.item,
@@ -160,17 +161,17 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
 
       setOrder(transformedOrder);
       setCategories(request?.category_list);
-      
+
       const amounts: { [key: string]: number } = {};
       transformedOrder.forEach(item => { amounts[item.name] = item.quote; });
       setAmounts(amounts);
-      
+
       const vendorId = request?.order_list?.[0]?.vendor;
       const vendor = vendor_list?.find(v => v.name === vendorId);
       if(vendor) {
         setSelectedvendor({ value: vendor.name, label: vendor.vendor_name, city: vendor.vendor_city || "", state: vendor.vendor_state || "" });
       }
-      
+
       if (request.payment_terms && typeof request.payment_terms === 'string') {
         try {
           const parsedData = JSON.parse(request.payment_terms);
@@ -240,6 +241,7 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
 
       if (response.message.status === 200) {
         toast({ title: "Success!", description: response.message.message, variant: "success" });
+        invalidateSidebarCounts();
         navigate("/prs&milestones/procurement-requests");
       } else {
         toast({ title: "Failed!", description: response.message.error, variant: "destructive" });
@@ -291,9 +293,9 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
     <div className="flex-1 space-y-4">
       {/* The Header Card is now only rendered here, at the top level */}
       {section === "choose-vendor" && (
-          <ProcurementHeaderCard orderData={prDoc} customPr />
+        <ProcurementHeaderCard orderData={prDoc} customPr />
       )}
-      
+
       {section === "choose-vendor" && (
         <>
           <div className="flex justify-between items-center">

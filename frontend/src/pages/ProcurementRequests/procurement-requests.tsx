@@ -2,8 +2,19 @@ import React, { Suspense, useCallback, useContext, useEffect, useMemo, useState 
 import { ColumnDef, Row } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { useFrappeGetDocList, FrappeContext, FrappeConfig, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
-import { Radio } from "antd";
 import { Trash2 } from "lucide-react";
+
+// --- Tab Configuration ---
+import {
+    PR_TABS,
+    PR_ADMIN_TAB_OPTIONS,
+    PR_EXEC_TAB_OPTIONS,
+    PR_SENTBACK_TAB_OPTIONS,
+    PR_ALL_TAB_OPTIONS,
+    PR_ADMIN_ROLES,
+    PR_EXEC_ROLES,
+    PRTabOption,
+} from "./config/prTabs.constants";
 
 // --- UI Components ---
 import { DataTable, SearchFieldOption } from '@/components/data-table/new-data-table';
@@ -73,9 +84,8 @@ const PRDataTableWrapper: React.FC<{
     notifications,
     exportFileName
 }) => {
-        // Generate urlSyncKey inside the wrapper
         const dynamicUrlSyncKey = `${URL_SYNC_KEY_BASE}_${tab.toLowerCase().replace(/\s+/g, '_')}`;
-        const eventIdForNotif = tab === "New PR Request" ? "pr:approved" : ""; // Example
+        const eventIdForNotif = tab === PR_TABS.NEW_PR_REQUEST ? "pr:approved" : ""; // Example
 
         // --- CEO Hold Row Highlighting ---
         const { ceoHoldProjectIds } = useCEOHoldProjects();
@@ -146,7 +156,7 @@ const PRDataTableWrapper: React.FC<{
             searchTerm: tableSearchTerm,
             selectedSearchField: tableSelectedSearchField,
             additionalFilters: staticFilters,
-            enabled: tab === "All PRs"
+            enabled: tab === PR_TABS.ALL_PRS
         });
 
         const combinedFacetOptions = {
@@ -154,7 +164,7 @@ const PRDataTableWrapper: React.FC<{
             project: { title: "Project", options: projectFacets },
             work_package: { title: "Package", options: wpFacets },
             owner: { title: "Created By", options: ownerFacets },
-            workflow_state: tab === "All PRs" ? { title: "Status", options: statusFacets } : facetFilterOptions.workflow_state
+            workflow_state: tab === PR_TABS.ALL_PRS ? { title: "Status", options: statusFacets } : facetFilterOptions.workflow_state
         };
 
         return (
@@ -187,11 +197,14 @@ export const ProcurementRequests: React.FC = () => {
     const { db } = useContext(FrappeContext) as FrappeConfig;
 
     // --- Tab State Management using urlStateManager ---
+    const isAdmin = useMemo(() => PR_ADMIN_ROLES.includes(role), [role]);
+    const isExec = useMemo(() => PR_EXEC_ROLES.includes(role), [role]);
+
     const initialTab = useMemo(() => {
-        const adminDefault = "Approve PR";
-        const userDefault = "New PR Request";
-        return getUrlStringParam("tab", ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) ? adminDefault : userDefault);
-    }, [role]);
+        const adminDefault = PR_TABS.APPROVE_PR;
+        const userDefault = PR_TABS.NEW_PR_REQUEST;
+        return getUrlStringParam("tab", isAdmin ? adminDefault : userDefault);
+    }, [isAdmin]);
 
     const [tab, setTab] = useState<string>(initialTab);
 
@@ -249,28 +262,10 @@ export const ProcurementRequests: React.FC = () => {
 
     const { counts } = useDocCountStore();
 
-    // --- Tab Definitions ---
-    const adminTabs = useMemo(() => (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) ? [
-        { label: (<div className="flex items-center"><span>Approve PR</span><span className="ml-2 text-xs font-bold">{counts.pr.pending}</span></div>), value: "Approve PR" },
-    ] : []), [role, counts]);
-
-    const userPRExecTabs = useMemo(() => (["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) ? [
-        { label: (<div className="flex items-center"><span>New PR Request</span><span className="ml-2 text-xs font-bold">{counts.pr.approved}</span></div>), value: "New PR Request" },
-        { label: (<div className="flex items-center"><span>In Progress</span><span className="ml-2 text-xs font-bold">{counts.pr.in_progress}</span></div>), value: "In Progress" },
-    ] : []), [role, counts]);
-
-    const sentBackTabsConfig = useMemo(() => (["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) ? [
-        { label: (<div className="flex items-center"><span>Sent Back</span><span className="ml-2 text-xs font-bold">{counts.sb.rejected.pending}</span></div>), value: "Rejected" },
-        { label: (<div className="flex items-center"><span>Skipped PR</span><span className="ml-2 rounded text-xs font-bold">{counts.sb.delayed.pending}</span></div>), value: "Delayed" },
-        { label: (<div className="flex items-center"><span>Rejected PO</span><span className="ml-2 rounded text-xs font-bold">{counts.sb.cancelled.pending}</span></div>), value: "Cancelled" },
-    ] : []), [role, counts]);
-
-    const allTabs = useMemo(() =>
-        [
-            { label: (<div className="flex items-center"><span>All PRs</span><span className="ml-2 text-xs font-bold">{counts.pr.all}</span></div>), value: "All PRs" },
-            // { label: (<div className="flex items-center"><span>All SBs</span><span className="ml-2 text-xs font-bold">{counts.sb.all}</span></div>), value: "All SBs" },
-        ]
-        , [counts, role])
+    // --- Filter tabs based on role ---
+    const adminTabsFiltered = useMemo(() => isAdmin ? PR_ADMIN_TAB_OPTIONS : [], [isAdmin]);
+    const execTabsFiltered = useMemo(() => isExec ? PR_EXEC_TAB_OPTIONS : [], [isExec]);
+    const sentBackTabsFiltered = useMemo(() => isExec ? PR_SENTBACK_TAB_OPTIONS : [], [isExec]);
 
 
     // --- Notification Handling ---
@@ -301,11 +296,11 @@ export const ProcurementRequests: React.FC = () => {
     const fieldsToFetch = useMemo(() => DEFAULT_PR_FIELDS_TO_FETCH.concat(["modified", 'creation', 'category_list', 'order_list']), [])
 
     const prSearchableFields = useMemo(() => PR_SEARCHABLE_FIELDS.concat([{ value: "owner", label: "Created By", placeholder: "Search by Created By..." },
-    ...(tab === "All PRs" ? [
+    ...(tab === PR_TABS.ALL_PRS ? [
         { value: "workflow_state", label: "Status", placeholder: "Search by Status..." },
     ] : []),
 
-    ]), []);
+    ]), [tab]);
     // --- Date Filter Columns ---
     const dateColumnsForDataTable = useMemo(() => PR_DATE_COLUMNS, []);
 
@@ -316,11 +311,11 @@ export const ProcurementRequests: React.FC = () => {
             cell: ({ row }) => {
                 const data = row.original; const prId = data.name;
                 // Determine event_id based on tab if notifications differ
-                const eventIdForNotif = tab === "New PR Request" ? "pr:approved" : (tab === "In Progress" ? "pr:rfqGenerated" : "pr:general"); // Example
+                const eventIdForNotif = tab === PR_TABS.NEW_PR_REQUEST ? "pr:approved" : (tab === PR_TABS.IN_PROGRESS ? "pr:rfqGenerated" : "pr:general"); // Example
                 const isNew = notifications.find(n => n.docname === prId && n.seen === "false" && n.event_id === eventIdForNotif);
                 return (
-                    <div role="button" tabIndex={0} onClick={() => handleNewPRSeen(isNew)} className="font-medium flex items-center gap-2 group">
-                        {tab !== "All PRs" ? (
+                    <div role="button" tabIndex={0} onClick={() => handleNewPRSeen(isNew)} className="font medium flex items-center gap-2 group">
+                        {tab !== PR_TABS.ALL_PRS ? (
                             <Link className="underline hover:underline-offset-2 whitespace-nowrap" to={`/procurement-requests/${prId}?tab=${tab}`}>
                                 {prId?.slice(-4)}
                             </Link>
@@ -410,7 +405,7 @@ export const ProcurementRequests: React.FC = () => {
             }
         },
 
-        ...(tab === "All PRs" ? [
+        ...(tab === PR_TABS.ALL_PRS ? [
             {
                 accessorKey: "workflow_state",
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
@@ -426,7 +421,7 @@ export const ProcurementRequests: React.FC = () => {
             } as ColumnDef<ProcurementRequest>
         ] : []),
         // Conditional Delete Column
-        ...((tab === "New PR Request" && ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role)) ? [{
+        ...((tab === PR_TABS.NEW_PR_REQUEST && ["Nirmaan Project Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role)) ? [{
             id: "actions", header: "Actions",
             cell: ({ row }) => (
                 <Button variant="ghost" size="sm" onClick={() => { setDeleteFlagged(row.original); toggleDeleteDialog(); }}>
@@ -466,7 +461,7 @@ export const ProcurementRequests: React.FC = () => {
 
     // --- useServerDataTable Hook Instantiation for Data Table Tabs ---
     const shouldRenderDataTable = useMemo(() =>
-        ["New PR Request", "In Progress", "All PRs"].includes(tab),
+        [PR_TABS.NEW_PR_REQUEST, PR_TABS.IN_PROGRESS, PR_TABS.ALL_PRS].includes(tab as any),
         [tab]);
 
     // --- Combined Loading & Error States ---
@@ -489,11 +484,34 @@ export const ProcurementRequests: React.FC = () => {
         }
     }, [tab]);
 
+    // Render a single tab button
+    const renderTabButton = (option: PRTabOption) => {
+        const count = option.countKey.split('.').reduce((acc: any, part: string) => acc && acc[part], counts) ?? 0;
+        const isActive = tab === option.value;
+        return (
+            <button
+                key={option.value}
+                type="button"
+                onClick={() => handleTabClick(option.value)}
+                className={`px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded
+                    transition-colors flex items-center gap-1.5 whitespace-nowrap
+                    ${isActive
+                        ? "bg-sky-500 text-white"
+                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    }`}
+            >
+                {option.label}
+                <span className={`text-xs font-bold ${isActive ? "opacity-90" : "opacity-70"}`}>
+                    {count}
+                </span>
+            </button>
+        );
+    };
 
     // --- Render Logic ---
     const renderCurrentTab = () => {
-        if (tab === "Approve PR") return <ApprovePR />; // ApprovePR now uses its own useServerDataTable
-        if (["Rejected", "Delayed", "Cancelled", "All SBs"].includes(tab)) return <SentBackRequest tab={tab} />;
+        if (tab === PR_TABS.APPROVE_PR) return <ApprovePR />; // ApprovePR now uses its own useServerDataTable
+        if ([PR_TABS.REJECTED, PR_TABS.DELAYED, PR_TABS.CANCELLED, "All SBs"].includes(tab as any)) return <SentBackRequest tab={tab} />;
 
         if (shouldRenderDataTable) {
             if (isSupportingDataLoading) return <TableSkeleton />;
@@ -520,11 +538,34 @@ export const ProcurementRequests: React.FC = () => {
     return (
         <>
             <div className="flex-1 space-y-4">
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                    <Radio.Group options={adminTabs} optionType="button" buttonStyle="solid" value={tab} onChange={(e) => handleTabClick(e.target.value)} />
-                    <Radio.Group options={userPRExecTabs} optionType="button" buttonStyle="solid" value={tab} onChange={(e) => handleTabClick(e.target.value)} />
-                    <Radio.Group options={sentBackTabsConfig} optionType="button" buttonStyle="solid" value={tab} onChange={(e) => handleTabClick(e.target.value)} />
-                    <Radio.Group options={allTabs} optionType="button" buttonStyle="solid" value={tab} onChange={(e) => handleTabClick(e.target.value)} />
+                {/* Tab Navigation - Custom Tailwind buttons */}
+                <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">
+                    <div className="flex flex-nowrap sm:flex-wrap items-center gap-1.5 pb-1 sm:pb-0">
+                        {/* Admin Tabs */}
+                        {adminTabsFiltered.length > 0 && (
+                            <>
+                                {adminTabsFiltered.map(renderTabButton)}
+                                {/* Separator between admin and exec tabs */}
+                                <div className="w-px h-5 sm:h-6 bg-gray-300 mx-0.5 sm:mx-1 shrink-0" />
+                            </>
+                        )}
+                        {/* Exec Tabs */}
+                        {execTabsFiltered.length > 0 && (
+                            <>
+                                {execTabsFiltered.map(renderTabButton)}
+                                <div className="w-px h-5 sm:h-6 bg-gray-300 mx-0.5 sm:mx-1 shrink-0" />
+                            </>
+                        )}
+                        {/* Sent Back Tabs */}
+                        {sentBackTabsFiltered.length > 0 && (
+                            <>
+                                {sentBackTabsFiltered.map(renderTabButton)}
+                                <div className="w-px h-5 sm:h-6 bg-gray-300 mx-0.5 sm:mx-1 shrink-0" />
+                            </>
+                        )}
+                        {/* All PRs Tabs */}
+                        {PR_ALL_TAB_OPTIONS.map(renderTabButton)}
+                    </div>
                 </div>
 
                 <Suspense fallback={<LoadingFallback />}>

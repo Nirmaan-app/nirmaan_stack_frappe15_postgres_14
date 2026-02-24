@@ -3,6 +3,7 @@ import { UserContext } from "@/utils/auth/UserProvider";
 import { useFrappeDeleteDoc } from "frappe-react-sdk";
 import { useContext } from "react";
 import { useNavigate } from "react-router-dom";
+import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
 export const usePRorSBDelete = (mutate : any = undefined) => {
   const { deleteDoc, loading: deleteLoading } = useFrappeDeleteDoc()
@@ -22,6 +23,7 @@ export const usePRorSBDelete = (mutate : any = undefined) => {
               if(navigation) {
                 navigate("/procurement-requests?tab=New PR Request")
               }
+            invalidateSidebarCounts();
           } catch (error) {
               console.log("error while deleting procurement request", error);
               toast({
@@ -31,7 +33,6 @@ export const usePRorSBDelete = (mutate : any = undefined) => {
               })
           }
       } 
-  
       const handleDeleteSB = async (id : string, navigation : boolean = false) => {
         try {
             await deleteDoc("Sent Back Category", id);
@@ -45,6 +46,7 @@ export const usePRorSBDelete = (mutate : any = undefined) => {
             if(navigation) {
               navigate("/procurement-requests?tab=Rejected")
             }
+            invalidateSidebarCounts();
         } catch (error) {
             console.log("error while deleting Sent Back Request", error);
             toast({
@@ -54,7 +56,6 @@ export const usePRorSBDelete = (mutate : any = undefined) => {
             })
         }
     } 
-  
 return {
   handleDeletePR,
   deleteLoading,

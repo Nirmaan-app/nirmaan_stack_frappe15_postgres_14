@@ -1,13 +1,10 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { ConfigProvider, Menu, MenuProps } from "antd";
-import { useFrappeGetDocList } from 'frappe-react-sdk';
 
 import { useVendorData } from './hooks/useVendorData';
+import { useVendorProjects, useVendorProcurementRequests, useVendorCategories, useVendorServiceRequestCounts } from './data/useVendorQueries';
 import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { Projects } from "@/types/NirmaanStack/Projects";
-import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
-import { Category } from "@/types/NirmaanStack/Category";
 import { OverviewSkeleton2 } from "@/components/ui/skeleton";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { FilePenLine } from "lucide-react";
@@ -73,19 +70,13 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
     const { vendor, vendorAddress, isLoading: vendorLoading, error: vendorError, mutateVendor } = useVendorData(vendorId);
 
     // --- Supporting Data for Tables (fetch once here, pass as props) ---
-    const { data: projects } = useFrappeGetDocList<Projects>(
-        "Projects", { fields: ["name", "project_name"], limit: 0 }
-    );
+    const { data: projects } = useVendorProjects();
     const projectOptions = useMemo(() =>
         projects?.map(p => ({ label: p.project_name, value: p.name })) || [],
         [projects]);
 
-    const { data: procurementRequests } = useFrappeGetDocList<ProcurementRequest>(
-        "Procurement Requests", { fields: ["name", "work_package"], limit: 0 } // Fetch only what's needed by tables
-    );
-    const { data: allCategories } = useFrappeGetDocList<Category>( // For VendorOverviewCard
-        "Category", { fields: ["name", "work_package", "category_name"], limit: 0 }
-    );
+    const { data: procurementRequests } = useVendorProcurementRequests();
+    const { data: allCategories } = useVendorCategories();
 
 
     const menuItems: MenuItem[] = useMemo(() => [
@@ -107,16 +98,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
     ].filter(Boolean) as MenuItem[], [vendor?.vendor_type]);
 
     // --- SR Counts Data ---
-    const { data: approvedSRs } = useFrappeGetDocList("Service Requests", {
-        filters: [["status", "=", "Approved"], ["is_finalized", "=", 0], ["vendor", "=", vendorId]],
-        fields: ["name"],
-        limit: 1000 // Upper limit for count
-    });
-    const { data: finalizedSRs } = useFrappeGetDocList("Service Requests", {
-        filters: [["status", "=", "Approved"], ["is_finalized", "=", 1], ["vendor", "=", vendorId]],
-        fields: ["name"],
-        limit: 1000
-    });
+    const { approvedSRs, finalizedSRs } = useVendorServiceRequestCounts(vendorId);
 
     const approvedCount = approvedSRs?.length || 0;
     const finalizedCount = finalizedSRs?.length || 0;

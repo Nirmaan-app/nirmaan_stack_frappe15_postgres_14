@@ -1,7 +1,8 @@
 // src/pages/vendors/components/POVendorLedger.tsx
 
 import React, { useMemo, useState, useCallback } from 'react';
-import { useFrappeGetCall, useFrappeGetDoc, useFrappeUpdateDoc } from 'frappe-react-sdk';
+import { useLedgerVendorDoc, useLedgerData } from '../data/useVendorQueries';
+import { useUpdateVendorDoc } from '../data/useVendorMutations';
 import Fuse from 'fuse.js';
 import { Radio } from 'antd';
 import { Button } from '@/components/ui/button';
@@ -28,16 +29,6 @@ interface ApiTransaction {
     payment: number; // in rupees
 }
 
-// Vendor Doc interface (all amounts in rupees)
-interface VendorDoc {
-    vendor_type: "Material" | "Service" | "Material & Service";
-    sr_amount_balance: number;
-    po_amount_balance: number;
-    invoice_balance: number;
-    payment_balance: number;
-    vendor_name: string;
-}
-
 type LedgerTab = 'poLedger' | 'srLedger' | 'invoicesLedger';
 
 export const POVendorLedger: React.FC<{ vendorId: string }> = ({ vendorId }) => {
@@ -55,16 +46,9 @@ export const POVendorLedger: React.FC<{ vendorId: string }> = ({ vendorId }) => 
     }, [user_id, role]);
 
     // Data Fetching Hooks
-    const { data: vendorDoc, isLoading: isVendorLoading, mutate: mutateVendorDoc } = useFrappeGetDoc<VendorDoc>('Vendors', vendorId, {
-        fields: ["vendor_type","po_amount_balance","po_amount_balance", "invoice_balance", "payment_balance", "vendor_name"]
-    });
-
-    const { data: apiResponse, isLoading: isLedgerLoading, error } = useFrappeGetCall<{ message: ApiTransaction[] }>(
-        'nirmaan_stack.api.vendor.get_vendor_po_invoices.get_po_ledger_data',
-        { vendor_id: vendorId },
-        `flat_ledger_data_for_vendor_${vendorId}`
-    );
-    const { updateDoc, loading: isSaving } = useFrappeUpdateDoc();
+    const { data: vendorDoc, isLoading: isVendorLoading, mutate: mutateVendorDoc } = useLedgerVendorDoc(vendorId);
+    const { data: apiResponse, isLoading: isLedgerLoading, error } = useLedgerData(vendorId);
+    const { updateDoc, loading: isSaving } = useUpdateVendorDoc();
 
     const flatTransactionsFromApi = apiResponse?.message;
     const vendorType = vendorDoc?.vendor_type;
@@ -521,4 +505,3 @@ export default POVendorLedger;
 // };
 
 // export default POVendorLedger;
-
