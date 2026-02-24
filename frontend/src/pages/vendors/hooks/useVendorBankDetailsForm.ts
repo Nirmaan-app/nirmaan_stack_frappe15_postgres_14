@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useFrappePostCall, useFrappeUpdateDoc } from 'frappe-react-sdk';
+import { useFrappePostCall } from 'frappe-react-sdk';
 import { toast } from "@/components/ui/use-toast";
 import { Vendors } from '@/types/NirmaanStack/Vendors';
 import { debounce } from 'lodash';
+import { useUpdateVendorDoc } from '../data/useVendorMutations';
 
 interface BankDetailsFormState {
     account_name: string;
@@ -30,7 +31,7 @@ export const useVendorBankDetailsForm = (
     const [ifscError, setIfscError] = useState("");
     const [isIFSCValid, setIsIFSCValid] = useState(false);
 
-    const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
+    const { updateDoc, loading: updateLoading } = useUpdateVendorDoc();
     const {
         call: fetchBankDetails,
         loading: bankApiLoading,

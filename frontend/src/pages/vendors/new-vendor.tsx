@@ -11,7 +11,9 @@ import { GST_REGEX, IFSC_REGEX, NAME_REGEX, PAN_REGEX } from "@/constants/vendor
 import { SERVICECATEGORIES } from "@/lib/ServiceCategories"
 import { Vendors } from "@/types/NirmaanStack/Vendors"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList, useFrappePostCall, useSWRConfig } from "frappe-react-sdk"
+import { useSWRConfig } from "frappe-react-sdk"
+import { usePincodeData, useExistingVendors, useBankDetails, useCategoryList } from './data/useVendorQueries'
+import { useCreateVendorAndAddress } from './data/useVendorMutations'
 import { ListChecks, ListRestart } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
@@ -192,15 +194,9 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
     const [IFSC, setIFSC] = useState<string>("");
     const [pincode, setPincode] = useState<string>("")
 
-    const { data: pincode_data } = useFrappeGetDoc("Pincodes", pincode, pincode.length >= 6 ? undefined : null)
-
-    const { data: existingVendors } = useFrappeGetDocList<Vendors>("Vendors", { fields: ["vendor_gst"], limit: 10000 }, "Vendors");
-
-    const { data: bank_details } = useFrappeGetCall(
-        "nirmaan_stack.api.bank_details.generate_bank_details",
-        { ifsc_code:  IFSC},
-        IFSC && IFSC?.length === 11 ? undefined : null
-      );
+    const { data: pincode_data } = usePincodeData(pincode)
+    const { data: existingVendors } = useExistingVendors();
+    const { data: bank_details } = useBankDetails(IFSC);
 
     useEffect(() => {
         if (bank_details && !bank_details.message.error) {
@@ -221,15 +217,7 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
         reValidateMode: 'onChange',
     })
 
-    const { data: category_list } = useFrappeGetDocList("Category",
-        {
-            fields: ["*"],
-            filters: [["work_package", "!=", "Services"]],
-            orderBy: { field: 'work_package', order: 'asc' },
-            limit: 10000
-        },
-        "Category"
-    );
+    const { data: category_list } = useCategoryList({ field: 'work_package', order: 'asc' });
 
     useEffect(() => {
         if (service) {
@@ -241,8 +229,7 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
 
     const { mutate } = useSWRConfig()
     const { toast } = useToast()
-
-    const {call : createVendorAndAddress, loading: createVendorAndAddressLoading } = useFrappePostCall("nirmaan_stack.api.create_vendor_and_address.create_vendor_and_address")
+    const { call: createVendorAndAddress, loading: createVendorAndAddressLoading } = useCreateVendorAndAddress()
 
     const [categories, setCategories] = useState<SelectOption[]>([])
 
@@ -339,16 +326,16 @@ export const NewVendor : React.FC<NewVendorProps> = ({ dynamicCategories = [], n
                 service: service,
               });
 
-              if (response.message.status === 200) {
+                if (response.message.status === 200) {
                 if (service) {
                   await mutate('Service Vendors');
                 } else {
                   await mutate('Material Vendors');
                 }
       
-                toast({
-                  title: 'Success!',
-                  description: response.message.message,
+                    toast({
+                        title: 'Success!',
+                        description: response.message.message,
                   variant: 'success',
                 });
       
