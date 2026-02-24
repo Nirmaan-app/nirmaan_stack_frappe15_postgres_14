@@ -1,6 +1,7 @@
 // components/tabs/ProjectMaterialUsageTab.tsx (Full, Refactored File)
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFrappeGetCall } from 'frappe-react-sdk';
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
 import { VirtualizedMaterialTable } from './VirtualizedMaterialTable';
@@ -27,7 +28,7 @@ export type DeliveryStatus = "Fully Delivered" | "Partially Delivered" | "Pendin
 export type OverallItemPOStatus = POStatus | "N/A";
 
 // Defines which columns can be sorted and hidden.
-export type MaterialSortKey = 'deliveredQuantity' | 'orderedQuantity' | 'totalAmount' | 'dcQuantity' | 'mirQuantity';
+export type MaterialSortKey = 'deliveredQuantity' | 'orderedQuantity' | 'totalAmount' | 'dcQuantity' | 'mirQuantity' | 'remainingQuantity';
 
 // Shared type for DC/MIR document references in the Material Usage table
 export interface DeliveryDocumentInfo {
@@ -83,6 +84,8 @@ export interface MaterialUsageDisplayItem {
   mirCount?: number;
   mirs?: DeliveryDocumentInfo[];
   isOrphanDCItem?: boolean;  // true when item comes from DC/MIR but has no matching PO item
+  remainingQuantity?: number | null;
+  isHighValueItem?: boolean;
 }
 
 export interface ProjectMaterialUsageTabProps {
@@ -111,6 +114,23 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
     deliveryStatusOptions,
     poStatusOptions
   } = useMaterialUsageData(projectId, projectPayments);
+
+  // --- Remaining Quantities Data ---
+  const { data: remainingData } = useFrappeGetCall<{
+    message: {
+      report_date: string | null;
+      submitted_by: string | null;
+      submitted_by_full_name: string | null;
+      items: Record<string, { remaining_quantity: number | null; dn_quantity: number | null }>;
+    };
+  }>(
+    "nirmaan_stack.api.remaining_items_report.get_latest_remaining_quantities",
+    { project: projectId },
+    projectId ? `remaining_qty_${projectId}` : undefined
+  );
+
+  const remainingReportDate = remainingData?.message?.report_date ?? null;
+  const remainingSubmittedBy = remainingData?.message?.submitted_by_full_name ?? null;
 
   // --- A2. TAB STATE & REFS ---
   const poTableRef = useRef<POWiseMaterialTableHandle>(null);
@@ -204,8 +224,8 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
     if (key) {
       // Create a mutable copy to avoid sorting the original array
       items = [...items].sort((a, b) => {
-        const valA = a[key] ?? 0; // Default null/undefined to 0 for consistent sorting
-        const valB = b[key] ?? 0;
+        const valA = (a as Record<string, any>)[key] ?? 0;
+        const valB = (b as Record<string, any>)[key] ?? 0;
         if (valA < valB) return direction === 'asc' ? -1 : 1;
         if (valA > valB) return direction === 'asc' ? 1 : -1;
         return 0;
@@ -224,10 +244,31 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
     sortConfig
   ]);
 
+  // Merge remaining data into processedItems
+  const processedItemsWithRemaining = useMemo((): MaterialUsageDisplayItem[] => {
+    const remainingItems = remainingData?.message?.items;
+    if (!remainingItems || Object.keys(remainingItems).length === 0) return processedItems;
+
+    const remainingMap = new Map(Object.entries(remainingItems));
+
+    return processedItems.map((item) => {
+      const key = `${item.categoryName}_${item.itemId}`;
+      const maxQuote = Math.max(...(item.poNumbers?.map((p) => p.quote ?? 0) ?? [0]));
+      const isHighValue = maxQuote > 5000;
+      const remaining = remainingMap.get(key);
+
+      return {
+        ...item,
+        isHighValueItem: isHighValue,
+        remainingQuantity: isHighValue && remaining ? remaining.remaining_quantity : undefined,
+      };
+    });
+  }, [processedItems, remainingData?.message?.items]);
+
   // --- F. CSV EXPORT HANDLER ---
-  // Uses the final `processedItems` array to export what the user sees.
+  // Uses the final `processedItemsWithRemaining` array to export what the user sees.
   const handleExportCsv = useCallback(() => {
-    if (processedItems.length === 0) {
+    if (processedItemsWithRemaining.length === 0) {
       toast({ title: "No Data", description: "No data to export based on current filters.", variant: "default" });
       return;
     }
@@ -240,6 +281,7 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
       { header: 'Est. Qty', accessor: (item: MaterialUsageDisplayItem) => item.estimatedQuantity?.toFixed(2) || "N/A" },
       { header: 'Ordered Qty', accessor: (item: MaterialUsageDisplayItem) => item.orderedQuantity.toFixed(2) },
       { header: 'Delivery Note Qty', accessor: (item: MaterialUsageDisplayItem) => item.deliveredQuantity.toFixed(2) },
+      { header: 'Remaining Qty', accessor: (item: MaterialUsageDisplayItem) => item.remainingQuantity !== null && item.remainingQuantity !== undefined && item.remainingQuantity !== -1 ? item.remainingQuantity.toFixed(2) : "N/A" },
       { header: 'DC Qty', accessor: (item: MaterialUsageDisplayItem) => item.dcQuantity.toFixed(2) },
       { header: 'MIR Qty', accessor: (item: MaterialUsageDisplayItem) => item.mirQuantity.toFixed(2) },
       { header: 'Total Amount', accessor: (item: MaterialUsageDisplayItem) => item.totalAmount?.toFixed(2) || "0.00" },
@@ -250,7 +292,7 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
       { header: 'Overall PO Status', accessor: (item: MaterialUsageDisplayItem) => item.overallPOPaymentStatus },
     ];
 
-    const dataToExport = processedItems.map(item =>
+    const dataToExport = processedItemsWithRemaining.map(item =>
         exportColumns.reduce((acc, col) => {
             acc[col.header] = col.accessor(item);
             return acc;
@@ -259,7 +301,7 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
 
     exportToCsv(`project_${projectId}_item_wise_usage.csv`, dataToExport, exportColumns.map(c => ({header: c.header, accessorKey: c.header})));
     toast({ title: "Export Successful", description: `${dataToExport.length} rows exported.`, variant: "success"});
-  }, [processedItems, projectId]);
+  }, [processedItemsWithRemaining, projectId]);
 
 
  // === MODIFIED: Skeleton loader is now used during the loading state ===
@@ -362,7 +404,9 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
       {/* Table content based on active tab */}
       {activeTab === "Item Wise" ? (
         <VirtualizedMaterialTable
-          items={processedItems}
+          items={processedItemsWithRemaining}
+          remainingReportDate={remainingReportDate}
+          remainingSubmittedBy={remainingSubmittedBy}
           estimatedRowHeight={48}
           categoryOptions={categoryOptions}
           categoryFilter={categoryFilter}
