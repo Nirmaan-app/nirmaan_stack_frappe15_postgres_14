@@ -141,7 +141,9 @@ export const ViewAttachmentsDialog = ({
           </div>
 
           {/* Expandable items list */}
-          {doc.items && doc.items.length > 0 && (
+          {doc.items && doc.items.length > 0 && (() => {
+            const allQtyZero = doc.items.every((item) => !item.quantity);
+            return (
             <Accordion type="single" collapsible className="mt-2">
               <AccordionItem value="items" className="border-0">
                 <AccordionTrigger className="py-1 text-xs text-muted-foreground hover:no-underline">
@@ -154,8 +156,12 @@ export const ViewAttachmentsDialog = ({
                         <tr>
                           <th className="text-left p-2 font-medium">Item</th>
                           <th className="text-left p-2 font-medium">Category</th>
-                          <th className="text-right p-2 font-medium">Qty</th>
-                          <th className="text-left p-2 font-medium">Unit</th>
+                          {!allQtyZero && (
+                            <>
+                              <th className="text-right p-2 font-medium">Qty</th>
+                              <th className="text-left p-2 font-medium">Unit</th>
+                            </>
+                          )}
                         </tr>
                       </thead>
                       <tbody>
@@ -165,12 +171,16 @@ export const ViewAttachmentsDialog = ({
                             <td className="p-2 text-muted-foreground">
                               {item.category || "-"}
                             </td>
-                            <td className="p-2 text-right font-medium">
-                              {item.quantity}
-                            </td>
-                            <td className="p-2 text-muted-foreground">
-                              {item.unit}
-                            </td>
+                            {!allQtyZero && (
+                              <>
+                                <td className="p-2 text-right font-medium">
+                                  {item.quantity}
+                                </td>
+                                <td className="p-2 text-muted-foreground">
+                                  {item.unit}
+                                </td>
+                              </>
+                            )}
                           </tr>
                         ))}
                       </tbody>
@@ -179,7 +189,8 @@ export const ViewAttachmentsDialog = ({
                 </AccordionContent>
               </AccordionItem>
             </Accordion>
-          )}
+            );
+          })()}
         </CardContent>
       </Card>
     );
