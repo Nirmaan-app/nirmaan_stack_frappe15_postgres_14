@@ -402,6 +402,21 @@ export function NewSidebar() {
         },
       ]
       : []),
+    ...(user_id == "Administrator" || [
+      "Nirmaan Admin Profile",
+      "Nirmaan PMO Executive Profile",
+      "Nirmaan Project Lead Profile",
+      "Nirmaan Project Manager Profile",
+      "Nirmaan Procurement Executive Profile"
+    ].includes(role)
+      ? [
+        {
+          key: "/po-revisions-approval",
+          icon: ClipboardCheck,
+          label: "PO Revisions Approval",
+        },
+      ]
+      : []),
     ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
       ? [
 
@@ -589,6 +604,7 @@ export function NewSidebar() {
     // "approve-payments",
     "procurement-requests",
     "purchase-orders",
+    "po-revisions-approval",
     "sent-back-requests",
     "service-requests",
     "service-requests-list",
@@ -632,6 +648,7 @@ export function NewSidebar() {
     "/procurement-requests": ["procurement-requests", "prs&milestones", "sent-back-requests"],
     "/service-requests": ["service-requests", "service-requests-list"],
     "/purchase-orders": ["purchase-orders"],
+    "/po-revisions-approval": ["po-revisions-approval"],
     "/project-payments": ["project-payments"],
     "/credits": ["credits"],
     "/in-flow-payments": ["in-flow-payments"],
@@ -723,7 +740,7 @@ export function NewSidebar() {
               >
                 <SidebarMenuItem>
 
-                  {new Set(["Dashboard", "Item Price Search", "TDS Repository", "Procurement Requests", "Purchase Orders", "Project Payments", "Credit Payments", "Sent Back Requests", "Projects", "Work Orders", "In-Flow Payments", "Invoice Recon", "Reports",
+                  {new Set(["Dashboard", "Item Price Search", "TDS Repository", "Procurement Requests", "Purchase Orders", "PO Revisions Approval", "Project Payments", "Credit Payments", "Sent Back Requests", "Projects", "Work Orders", "In-Flow Payments", "Invoice Recon", "Reports",
                     "Design Tracker", "PO Tracker", "Work Plan Tracker", "Material Plan Tracker", "Cashflow Plan Tracker", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses", "Users", "Assets", "Vendors", "Customers", "Products", "TDS Approval"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
