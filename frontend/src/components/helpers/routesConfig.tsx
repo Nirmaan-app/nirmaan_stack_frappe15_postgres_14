@@ -100,6 +100,10 @@ import CashflowPlanTrackerDetail from "@/pages/CashflowPlanTracker/cashflow-plan
 import TDSApprovalList from "@/pages/tds/TDSApprovalList";
 import TDSApprovalDetail from "@/pages/tds/TDSApprovalDetail";
 
+// PO Revisions Approval
+import PORevisionsApprovalList from "@/pages/PORevision/PORevisionsApprovalList";
+import PORevisionsApprovalDetail from "@/pages/PORevision/PORevisionsApprovalDetail";
+
 //Help Repository
 import HelpRepositoryPage from "@/pages/help-repository/HelpRepositoryPage";
 
@@ -273,6 +277,13 @@ export const appRoutes: RouteObject[] = [
               { index: true, element: <ReleasePOSelect /> },
               // { index : true, element: <ProcurementOrdersTesting />},
               { path: ":id", element: <RenderPurchaseOrdersTab /> }, // :poId might be clearer if it's always PO ID
+            ],
+          },
+          {
+            path: "po-revisions-approval",
+            children: [
+              { index: true, element: <PORevisionsApprovalList /> },
+              { path: ":id", element: <PORevisionsApprovalDetail /> },
             ],
           },
           {
