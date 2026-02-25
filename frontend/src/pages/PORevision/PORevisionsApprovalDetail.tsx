@@ -102,7 +102,7 @@ export default function PORevisionsApprovalDetail() {
             
             <p className="items-center text-sm border-b pb-4 text-slate-500 ml-11">
                 Review changes requested for Purchase Order{" "}
-                <Link to={`/purchase-orders/${revisionDoc.revised_po?.split("/").join("&=")}?tab=${originalPO?.status || "Approved%20PO"}`} className="font-medium text-blue-600 hover:underline inline-flex items-center gap-1">
+                <Link to={`/purchase-orders/${revisionDoc.revised_po?.replaceAll("/", "&=")}?tab=${originalPO?.status || "Approved%20PO"}`} className="font-medium text-blue-600 hover:underline inline-flex items-center gap-1">
                     #{revisionDoc.revised_po}
                     <ExternalLink className="w-3 h-3" />
                 </Link>
