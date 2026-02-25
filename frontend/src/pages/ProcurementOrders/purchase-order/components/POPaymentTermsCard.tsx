@@ -60,6 +60,7 @@ import { Controller, useFieldArray, useForm } from "react-hook-form";
 import { TailSpin } from "react-loader-spinner";
 import { v4 as uuidv4 } from "uuid";
 import { ApiResponse } from "@/types/NirmaanStack/ApiResponse";
+import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
 // =================================================================================
 // PROPS & TYPE DEFINITIONS
@@ -977,6 +978,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
           description: `${result.message.message}`,
           variant: "success",
         });
+        invalidateSidebarCounts();
       }
       poMutate();
       projectPaymentsMutate();
