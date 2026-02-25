@@ -1,5 +1,4 @@
 import { ProcurementOrder, PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders";
-export { ProcurementOrder };
 
 export type RevisionItemType = "Original" | "New" | "Revised" | "Replace" | "Deleted";
 

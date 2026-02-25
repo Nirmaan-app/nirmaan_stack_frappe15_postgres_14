@@ -2,6 +2,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import formatCurrency from "@/utils/FormatPrice";
 import { formatDate } from "@/utils/FormatDate";
 import { ReceiptText } from "lucide-react";
+import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
+import { useCallback } from "react";
 
 interface PORevisionInvoicesProps {
     invoices: any[];
@@ -9,6 +11,15 @@ interface PORevisionInvoicesProps {
 }
 
 export default function PORevisionInvoices({ invoices, isLoading }: PORevisionInvoicesProps) {
+    const { data: usersList } = useUsersList();
+
+    const getUserName = useCallback((id: string | undefined): string => {
+        if (!id) return "--";
+        if (id === "Administrator") return "Administrator";
+        const user = usersList?.find(u => u.name === id);
+        return user?.full_name || id;
+    }, [usersList]);
+
     if (isLoading) return <div className="text-sm text-slate-500 p-4 border rounded-md">Loading invoices...</div>;
 
     if (!invoices || invoices.length === 0) {
@@ -47,7 +58,7 @@ export default function PORevisionInvoices({ invoices, isLoading }: PORevisionIn
                                         {inv.status || "Approved"}
                                     </span>
                                 </TableCell>
-                                <TableCell>System</TableCell>
+                                <TableCell>{getUserName(inv.uploaded_by || inv.owner) || "System"}</TableCell>
                             </TableRow>
                         ))}
                     </TableBody>

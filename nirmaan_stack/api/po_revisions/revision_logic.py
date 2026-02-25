@@ -104,7 +104,7 @@ def on_approval_revision(revision_name):
         revision_doc.save(ignore_permissions=True)
         
         # Step 4: Unlock the original PO (if we locked it)
-        frappe.db.set_value("Procurement Orders", revision_doc.revised_po, "is_under_revision", 0)
+        # frappe.db.set_value("Procurement Orders", revision_doc.revised_po)
         
         frappe.db.commit()
         return "Success"
@@ -113,6 +113,19 @@ def on_approval_revision(revision_name):
         frappe.db.rollback()
         frappe.log_error(frappe.get_traceback(), "PO Revision Approval Error")
         frappe.throw(_("Approval failed: {0}").format(str(e)))
+
+
+def _get_item_metadata(item_id):
+    """
+    Fetches category and procurement_package based on item_id.
+    """
+    if not item_id:
+        return None, None
+    category = frappe.db.get_value("Items", item_id, "category")
+    package = None
+    if category:
+        package = frappe.db.get_value("Category", category, "work_package")
+    return category, package
 
 
 def sync_original_po_items(revision_doc):
@@ -142,6 +155,11 @@ def sync_original_po_items(revision_doc):
             new_row.make = rev_item.revision_make
             new_row.tax_amount = (new_row.amount * new_row.tax) / 100
             new_row.total_amount = new_row.amount + new_row.tax_amount
+            
+            # Fetch and assign metadata
+            cat, pkg = _get_item_metadata(new_row.item_id)
+            new_row.category = cat
+            new_row.procurement_package = pkg
             
             rev_item.item_status = "Approved"
 
@@ -204,8 +222,8 @@ def sync_original_po_items(revision_doc):
 
 def process_positive_increase(revision_doc):
     """
-    Handles when total_amount_difference > 0.
-    Expects: { "list": { "type": "Payment Terms", "Details": [ { "return_type": "Payment-terms", ... } ] } }
+    Handles cost increases: Updates existing terms, appends new ones,
+    and recalculates percentages for ALL terms based on the new PO total.
     """
     data = revision_doc.payment_return_details
     if isinstance(data, str):
@@ -220,12 +238,60 @@ def process_positive_increase(revision_doc):
     block = data.get("list")
     if isinstance(block, dict) and block.get("type") == "Payment Terms":
         block["status"] = "Approved"
-        # Approve individual entries
+        
+        # 1. Load Original PO & Refresh Totals to get the new Grand Total
+        original_po = frappe.get_doc("Procurement Orders", revision_doc.revised_po)
+        original_po.calculate_totals_from_items()
+        new_total = flt(original_po.total_amount)
+        
         details = block.get("Details", [])
         if isinstance(details, list):
             for entry in details:
                 if isinstance(entry, dict):
                     entry["status"] = "Approved"
+                    
+                    submitted_terms = entry.get("terms", [])
+                    if isinstance(submitted_terms, list):
+                        # Map existing terms for reconciliation
+                        existing_terms = {t.name: t for t in original_po.get("payment_terms", [])}
+
+                        # Get existing payment type from the first term if available
+                        existing_payment_type = None
+                        if original_po.payment_terms:
+                            existing_payment_type = original_po.payment_terms[0].payment_type
+
+                        for st in submitted_terms:
+                            term_id = st.get("id")
+                            if term_id and term_id in existing_terms:
+                                # Update existing term
+                                target = existing_terms[term_id]
+                                target.amount = flt(st.get("amount"))
+                                target.label = st.get("label")
+                            else:
+                                # Append new term
+                                original_po.append("payment_terms", {
+                                    "label": st.get("label"),
+                                    "amount": flt(st.get("amount")),
+                                    "vendor": original_po.vendor,
+                                    "project": original_po.project,
+                                    "term_status": "Created",
+                                    "payment_type": existing_payment_type
+                                })
+
+                        # 2. Recalculate percentages for ALL terms on the PO based on final grand total
+                        if new_total > 0:
+                            for term in original_po.get("payment_terms", []):
+                                # Field is 'Data', but we store numeric percentage for consistency
+                                term.percentage = flt((flt(term.amount) / new_total) * 100, 2)
+                        
+                        # 3. Synchronize percentages back to the Revision JSON
+                        for st in submitted_terms:
+                            if new_total > 0:
+                                st["percentage"] = flt((flt(st.get("amount")) / new_total) * 100, 2)
+        
+        # 4. Save original PO with reconciled terms and percentages
+        # original_po.flags.ignore_validate_update_after_submit = True
+        original_po.save(ignore_permissions=True)
             
     revision_doc.payment_return_details = json.dumps(data)
 
