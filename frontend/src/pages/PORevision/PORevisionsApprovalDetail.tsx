@@ -19,9 +19,31 @@ export default function PORevisionsApprovalDetail() {
         invoices,
         isLoading,
         isContextLoading,
+        isApproving,
+        isRejecting,
         approveRevision,
         rejectRevision
     } = usePORevisionsApprovalDetail(id);
+
+    const handleApprove = async () => {
+        try {
+            await approveRevision();
+            // Success - Redirect back to the list
+            navigate("/po-revisions-approval");
+        } catch (err) {
+            alert("Failed to approve revision. Please try again.");
+        }
+    };
+
+    const handleReject = async () => {
+        try {
+            await rejectRevision();
+            // Success - Redirect back to the list
+            navigate("/po-revisions-approval");
+        } catch (err) {
+            alert("Failed to reject revision. Please try again.");
+        }
+    };
 
     if (isLoading) {
         return <div className="p-8 text-center text-slate-500">Loading PO Revision details...</div>;
@@ -41,27 +63,37 @@ export default function PORevisionsApprovalDetail() {
     }
 
     // Calculate totals for Impact Summary
-    const beforeExclGst = Number(originalPO?.amount || 0);
-    const beforeInclGst = Number(originalPO?.total_amount || 0);
+    const beforeExclGst = parsedItems.reduce((acc, item) => {
+        if (item.item_type === "New") return acc;
+        const amount = Number(item.original_amount || (Number(item.original_qty || 0) * Number(item.original_rate || 0)) || 0);
+        return acc + amount;
+    }, 0);
+
+    const beforeInclGst = parsedItems.reduce((acc, item) => {
+        if (item.item_type === "New") return acc;
+        const amount = Number(item.original_amount || (Number(item.original_qty || 0) * Number(item.original_rate || 0)) || 0);
+        const tax = Number(item.original_tax || 0);
+        return acc + (amount * (1 + tax / 100));
+    }, 0);
     
     // Calculate the 'After' state by iterating through items (excluding Deleted)
     const afterExclGst = parsedItems.reduce((acc, item) => {
         if (item.item_type === "Deleted") return acc;
-        const amount = (item.item_type === "Original") 
-            ? (item.original_amount || (Number(item.original_qty || 0) * Number(item.original_rate || 0)) || 0)
-            : (item.revision_amount || (Number(item.revision_qty || 0) * Number(item.revision_rate || 0)) || item.original_amount || 0);
-        return acc + Number(amount);
+        const amount = (item.item_type === "Original")
+            ? Number(item.original_amount || (Number(item.original_qty || 0) * Number(item.original_rate || 0)) || 0)
+            : Number(item.revision_amount || (Number(item.revision_qty || 0) * Number(item.revision_rate || 0)) || 0);
+        return acc + amount;
     }, 0);
 
     const afterInclGst = parsedItems.reduce((acc, item) => {
         if (item.item_type === "Deleted") return acc;
-        const amount = (item.item_type === "Original") 
-            ? (item.original_amount || (Number(item.original_qty || 0) * Number(item.original_rate || 0)) || 0)
-            : (item.revision_amount || (Number(item.revision_qty || 0) * Number(item.revision_rate || 0)) || item.original_amount || 0);
+        const amount = (item.item_type === "Original")
+            ? Number(item.original_amount || (Number(item.original_qty || 0) * Number(item.original_rate || 0)) || 0)
+            : Number(item.revision_amount || (Number(item.revision_qty || 0) * Number(item.revision_rate || 0)) || 0);
         const tax = (item.item_type === "Original")
-            ? (item.original_tax || 0)
-            : (item.revision_tax ?? item.original_tax ?? 0);
-        return acc + (Number(amount) * (1 + (Number(tax) / 100)));
+            ? Number(item.original_tax || 0)
+            : Number(item.revision_tax ?? item.original_tax ?? 0);
+        return acc + (amount * (1 + tax / 100));
     }, 0);
 
     return (
@@ -90,11 +122,20 @@ export default function PORevisionsApprovalDetail() {
                 {/* Actions */}
                 {revisionDoc.status === "Pending" && (
                     <div className="flex items-center gap-3">
-                        <Button variant="outline" className="text-red-500 border-red-500 hover:bg-red-50 hover:text-red-600" onClick={rejectRevision}>
-                            Reject Revision
+                        <Button 
+                            variant="outline" 
+                            className="text-red-500 border-red-500 hover:bg-red-50 hover:text-red-600" 
+                            onClick={handleReject}
+                            disabled={isApproving || isRejecting}
+                        >
+                            {isRejecting ? "Rejecting..." : "Reject Revision"}
                         </Button>
-                        <Button className="bg-red-600 hover:bg-red-700 text-white" onClick={approveRevision}>
-                            Approve Revision
+                        <Button 
+                            className="bg-red-600 hover:bg-red-700 text-white" 
+                            onClick={handleApprove}
+                            disabled={isApproving || isRejecting}
+                        >
+                            {isApproving ? "Approving..." : "Approve Revision"}
                         </Button>
                     </div>
                 )}
