@@ -68,12 +68,75 @@ def make_po_revisions(po_id, justification, revision_items, total_amount_differe
 
             rev_po.append("revision_items", row_data)
             
-        rev_po.save(ignore_permissions=True)
+        rev_po.insert(ignore_permissions=True)  # Must insert to get name for payments
+
+        # Upfront negative flow logic has been disabled per request.
+        # All Project Payments and Terms will be handled strictly upon Approval.
+                    
         return rev_po.name
 
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Make PO Revisions API Error")
         frappe.throw(str(e))
+
+
+    
+    # Also store a master list of created payments for easy deletion
+    if not hasattr(rev_po, 'created_project_payments'):
+        rev_po.db_set('revision_justification', rev_po.revision_justification) # dummy to force update 
+    
+    rev_po.save(ignore_permissions=True)
+
+def _split_target_po_term(target_po_id, transfer_amount, payment_name, source_po_id):
+    """
+    Finds the first available 'Created' term on the Target PO, reduces it,
+    and inserts a new 'Credit' term right below it linked to the payment.
+    """
+    target_po = frappe.get_doc("Procurement Orders", target_po_id)
+    if not target_po.payment_terms: return
+
+    credit_remaining = transfer_amount
+    new_terms = []
+    
+    for term in target_po.payment_terms:
+        # If we still have credit to apply and this term is unpaid
+        if credit_remaining > 0 and term.term_status == "Created":
+            term_amount = flt(term.amount)
+            # We can only deduct up to what the term currently holds
+            reduction = min(term_amount, credit_remaining)
+            
+            if reduction > 0:
+                # Reduce the original term
+                term.amount = term_amount - reduction
+                new_terms.append(term.as_dict())
+                
+                # Create the new split reserved term
+                split_term = {
+                    "label": f"{term.label} (Credit from PO {source_po_id})",
+                    "amount": reduction,
+                    "percentage": 0, # Percentage will be recalculated on approval if needed, keep 0 for draft
+                    "term_status": "Paid", # Keeps it un-usable by regular GRNs
+                    "payment_type": term.payment_type,
+                    "project_payment": payment_name
+                }
+                new_terms.append(split_term)
+                credit_remaining -= reduction
+            else:
+                new_terms.append(term.as_dict())
+        else:
+            new_terms.append(term.as_dict())
+            
+    # Set and save the newly cascaded terms
+    target_po.set("payment_terms", new_terms)
+    
+    # Recalculate percentages for regular terms to keep UI balanced
+    target_po.calculate_totals_from_items()
+    target_total = flt(target_po.total_amount)
+    if target_total > 0:
+        for t in target_po.payment_terms:
+            t.percentage = (flt(t.amount) / target_total) * 100
+            
+    target_po.save(ignore_permissions=True)
 
 
 @frappe.whitelist()
@@ -111,6 +174,49 @@ def on_approval_revision(revision_name):
 
     except Exception as e:
         frappe.db.rollback()
+        
+        # Cleanup: Delete any Project Payments that were generated before the error occurred
+        # Since it rolled back, the PO terms are safe, but standalone Docs might persist.
+        try:
+            target_pos = [revision_doc.revised_po]
+            
+            # Try to extract target POs from JSON
+            if revision_doc.payment_return_details:
+                try:
+                    data = json.loads(revision_doc.payment_return_details) if isinstance(revision_doc.payment_return_details, str) else revision_doc.payment_return_details
+                    block = data.get("list", {})
+                    if block.get("type") == "Refund Adjustment":
+                        for entry in block.get("Details", []):
+                            if entry.get("return_type") == "Against-po":
+                                for target in entry.get("target_pos", []):
+                                    t_po_id = target.get("po_number")
+                                    if t_po_id:
+                                        target_pos.append(t_po_id)
+                except Exception:
+                    pass
+
+            # Calculate 5 minutes ago to strictly target freshly generated payments
+            import datetime
+            minutes_ago = frappe.utils.now_datetime() - datetime.timedelta(minutes=1)
+
+            stray_payments = frappe.get_all(
+                "Project Payments", 
+                filters={
+                    "creation": [">", minutes_ago],
+                    "document_name": ["in", target_pos]
+                },
+                fields=["name"]
+            )
+            
+            # Combine dynamically found stray payments with the strictly tracked ones
+            tracked_payments = getattr(frappe.local, 'rollback_payments', [])
+            all_payments_to_delete = set([p.name for p in stray_payments] + tracked_payments)
+
+            for pay_name in all_payments_to_delete:
+                frappe.delete_doc("Project Payments", pay_name, force=1, ignore_permissions=True)
+        except Exception:
+            pass # Keep original rollback error primary
+            
         frappe.log_error(frappe.get_traceback(), "PO Revision Approval Error")
         frappe.throw(_("Approval failed: {0}").format(str(e)))
 
@@ -296,10 +402,106 @@ def process_positive_increase(revision_doc):
     revision_doc.payment_return_details = json.dumps(data)
 
 
+def _create_project_payment(po_id, project, vendor, amt, status):
+    """Internal helper to create a Project Payment record without appending terms."""
+    pay = frappe.new_doc("Project Payments")
+    pay.document_type = "Procurement Orders"
+    pay.document_name = po_id
+    pay.project = project
+    pay.vendor = vendor
+    pay.amount = amt
+    pay.status = status
+    pay.payment_date = nowdate()
+    pay.flags.ignore_amount_validation = True # Bypass basic manual payment validation for internal adjustments
+    pay.save(ignore_permissions=True)
+    
+    # Store reference so rollback can delete it if approval fails halfway 
+    if not hasattr(frappe.local, 'rollback_payments'):
+        frappe.local.rollback_payments = []
+    frappe.local.rollback_payments.append(pay.name)
+    
+    return pay
+
+def _append_return_payment_term(po_doc, payment_doc, term_label, amt):
+    """Internal helper to add a Return/Adjustment term row to the existing PO in memory."""
+    existing_payment_type = "Cash"
+    if po_doc.payment_terms:
+        existing_payment_type = po_doc.payment_terms[0].payment_type
+
+    # If amount is negative (money going out), status = Return. If positive (money coming in), status = Paid.
+    conditional_status = "Return" if flt(amt) < 0 else "Paid"
+
+    po_doc.append("payment_terms", {
+        "label": term_label,
+        "amount": amt, # Keep the sign true to what was passed so it reflects on the UI accurately per user request
+        "percentage": 0.0,
+        "term_status": conditional_status,
+        "payment_type": existing_payment_type,
+        "project_payment": payment_doc.name
+    })
+
+def _reduce_payment_terms_lifo(original_po, reduction_needed, new_total):
+    """Reduces modifiable terms bottom-up strictly according to reduction needed."""
+    locked_terms = [t for t in original_po.payment_terms if t.term_status in ["Paid", "Requested", "Approved"] and "Return" not in (t.label or "")]
+    modifiable_terms = [t for t in original_po.payment_terms if t.term_status in ["Created"] and "Return" not in (t.label or "")]
+    locked_amount = sum(flt(t.amount) for t in locked_terms)
+    
+    # Calculate negative return terms manually appended
+    return_amount = sum(flt(t.amount) for t in original_po.payment_terms if "Return" in (t.label or "") and flt(t.amount) < 0)
+
+    # Validation: Ensure we don't reduce below what is already locked (Paid/Requested), offsetting the return
+    if new_total < (locked_amount + return_amount):
+        frappe.throw(f"Revision calculation reduces amount below already paid/requested terms. Revert not possible.")
+
+    locked_term_dicts = [t.as_dict() for t in locked_terms]
+    modifiable_term_dicts = [t.as_dict() for t in modifiable_terms]
+
+    # The appended 'Return' terms already account for a portion (or all) of the reduction.
+    # We only need to reduce the modifiable terms by the remaining gap (if any).
+    reduction_needed_for_terms = max(0, reduction_needed - abs(return_amount))
+
+    # Apply LIFO reduction to modifiable terms
+    for term_dict in reversed(modifiable_term_dicts):
+        if reduction_needed_for_terms <= 0.01: break
+        
+        term_amount = flt(term_dict.get("amount", 0))
+        amount_to_deduct = min(term_amount, reduction_needed_for_terms)
+        
+        term_dict["amount"] = term_amount - amount_to_deduct
+        reduction_needed_for_terms -= amount_to_deduct
+    
+    # Preserve locked terms, reduced modifiable terms (> 0), and any Return terms
+    return_terms = [t.as_dict() for t in original_po.payment_terms if "Return" in (t.label or "")]
+    final_modifiable_terms = [d for d in modifiable_term_dicts if flt(d.get("amount")) > 0.01]
+    
+    # Reset child table with the corrected list
+    original_po.set("payment_terms", locked_term_dicts + final_modifiable_terms + return_terms)
+
+    # Final Adjustment for floating point drift
+    # Here we MUST include Return terms because Frappe validates that the sum of all terms == new_total
+    current_payment_sum = sum(flt(t.amount) for t in original_po.payment_terms)
+    discrepancy = new_total - current_payment_sum
+    
+    if abs(discrepancy) > 0.01:
+        last_adjustable_term = next((t for t in reversed(original_po.payment_terms) if t.term_status not in ["Paid", "Requested", "Approved"] and "Return" not in (t.label or "")), None)
+        if last_adjustable_term:
+            last_adjustable_term.amount = flt(last_adjustable_term.amount) + discrepancy
+
+    # Assign percentages cleanly based strictly on new_total
+    for term in original_po.payment_terms:
+        # If it's a "Return/Refund" tracking term we appended, leave percentage at 0
+        if "Return" in (term.label or "") or new_total <= 0:
+            term.percentage = 0.0
+        else:
+            term.percentage = (flt(term.amount) / new_total) * 100
+
+
+
 def process_negative_returns(revision_doc):
     """
-    Handles when total_amount_difference < 0.
-    Expects: { "list": { "type": "Refund Adjustment", "Details": [...] } }
+    Handles when total_amount_difference < 0 upon Approval.
+    Creates all necessary Project Payments (Out and In), splits Target PO terms,
+    and appends Return terms on the Original PO only upon Approval.
     """
     data = revision_doc.payment_return_details
     if isinstance(data, str):
@@ -308,17 +510,17 @@ def process_negative_returns(revision_doc):
         except Exception as e:
             frappe.throw(_("Invalid JSON in Payment Return Details: {0}").format(str(e)))
         
-    if not isinstance(data, dict):
-        return
-        
+    if not isinstance(data, dict): return
     block = data.get("list")
-    if not isinstance(block, dict) or block.get("type") != "Refund Adjustment":
-        return
-        
+    if not isinstance(block, dict) or block.get("type") != "Refund Adjustment": return
+    
     entries = block.get("Details", [])
     if not isinstance(entries, list):
         entries = [entries] if entries else []
         
+    original_po = frappe.get_doc("Procurement Orders", revision_doc.revised_po)
+
+    # Process each JSON entry and Create Paid Payments
     for entry in entries:
         if not isinstance(entry, dict) or entry.get("status") != "Pending":
             continue
@@ -326,72 +528,87 @@ def process_negative_returns(revision_doc):
         r_type = entry.get("return_type")
         amount = abs(flt(entry.get("amount", 0)))
         
-        # Helper to create payment records
-        def _create_payment(po_id, project, amt, payment_nature, remarks):
-            pay = frappe.new_doc("Project Payments")
-            pay.document_type = "Procurement Orders"
-            pay.document_name = po_id
-            pay.project = project
-            pay.vendor = revision_doc.vendor
-            pay.amount = amt
-            pay.payment_nature = payment_nature 
-            pay.remarks = remarks
-            pay.status = "Requested"
-            pay.payment_date = nowdate()
-            pay.save(ignore_permissions=True)
-            return pay
-
-        # A. Against-po (formerly Adjustment PO)
+        # A. Against-po
         if r_type == "Against-po":
             for target in entry.get("target_pos", []):
-                t_po_id = target.get("po_number")
                 t_amount = abs(flt(target.get("amount", 0)))
+                t_po_id = target.get("po_number")
                 if not t_po_id or t_amount <= 0: continue
                 
-                _create_payment(
-                    revision_doc.revised_po, revision_doc.project, -t_amount, 
-                    "Adjustment Out", f"Transfer to {t_po_id} via Revision {revision_doc.name}"
+                # CREATE Adjustment Out NOW
+                pay_out = _create_project_payment(
+                    po_id=revision_doc.revised_po, project=revision_doc.project, vendor=revision_doc.vendor,
+                    amt=-t_amount, status="Paid"
                 )
-                _create_payment(
-                    t_po_id, revision_doc.project, t_amount, 
-                    "Adjustment In", f"Transfer from {revision_doc.revised_po} via Revision {revision_doc.name}"
-                )
+                _append_return_payment_term(original_po, pay_out, f"Return - Against PO {t_po_id}", -t_amount)
 
-        # B. Vendor-has-refund (formerly Bank Refund)
+                # CREATE Adjustment In NOW
+                pay_in = _create_project_payment(
+                    po_id=t_po_id, project=revision_doc.project, vendor=revision_doc.vendor,
+                    amt=t_amount, status="Paid"
+                )
+                # Split Target PO Term NOW
+                _split_target_po_term(t_po_id, t_amount, pay_in.name, revision_doc.revised_po)
+
+        # B. Vendor-has-refund
         elif r_type == "Vendor-has-refund":
-            remarks = f"Bank Return via Revision {revision_doc.name}"
-            if entry.get("refund_date"):
-                remarks += f". Date: {entry.get('refund_date')}"
-            _create_payment(
-                revision_doc.revised_po, revision_doc.project, -amount, 
-                "Return/Refund", remarks
+            # CREATE Return/Refund NOW
+            pay_refund = _create_project_payment(
+                po_id=revision_doc.revised_po, project=revision_doc.project, vendor=revision_doc.vendor,
+                amt=-amount, status="Paid"
             )
+            _append_return_payment_term(original_po, pay_refund, "Return - Vendor Refund", -amount)
 
-        # C. Ad-hoc (formerly Adjustment Ad-hoc)
+        # C. Ad-hoc
         elif r_type == "Ad-hoc":
             desc = entry.get("ad-hoc_dexription", "")
-            comment = entry.get("comment", "")
-            remarks = f"Ad-hoc: {desc}. {comment}".strip()
-            _create_payment(
-                revision_doc.revised_po, revision_doc.project, -amount, 
-                "Ad-hoc Adjustment", remarks or f"Adjusted via Revision {revision_doc.name}"
+            # CREATE Ad-hoc NOW
+            pay_adhoc = _create_project_payment(
+                po_id=revision_doc.revised_po, project=revision_doc.project, vendor=revision_doc.vendor,
+                amt=-amount, status="Paid"
             )
+            _append_return_payment_term(original_po, pay_adhoc, f"Return - Adhoc {desc}", -amount)
 
-        # D. Payment-terms (if present in negative flow)
-        elif r_type == "Payment-terms":
-            # Typically positive, but if in negative flow, we just approve it
-            pass
-
-        # Update status
         entry["status"] = "Approved"
 
-    # Update overall block status
     block["status"] = "Approved"
-
-    # Save back
     revision_doc.payment_return_details = json.dumps(data)
+    
+    # Handle Original PO Term LIFO Reduction
+    original_po.calculate_totals_from_items()
+    new_total = flt(original_po.total_amount)
+    reduction_needed = abs(flt(revision_doc.total_amount_difference))
+
+    if original_po.payment_terms and reduction_needed > 0:
+        _reduce_payment_terms_lifo(original_po, reduction_needed, new_total)
+
+    # Sync modified timestamp from DB to bypass TimestampMismatchError caused by backend Project Payments
+    original_po.modified = frappe.db.get_value("Procurement Orders", original_po.name, "modified")
+    original_po.save(ignore_permissions=True)
 
 
+@frappe.whitelist()
+def on_reject_revision(revision_name):
+    """
+    Handles the rejection or cancellation of a PO Revision.
+    Since payments and terms are no longer created upfront, this just marks the revision rejected.
+    """
+    revision_doc = frappe.get_doc("PO Revisions", revision_name)
+    
+    if revision_doc.status in ["Approved", "Rejected"]:
+        frappe.throw(_("This revision cannot be rejected in its current state."))
+
+    frappe.db.begin()
+    try:
+        revision_doc.status = "Rejected"
+        revision_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        return "Success"
+
+    except Exception as e:
+        frappe.db.rollback()
+        frappe.log_error(frappe.get_traceback(), "PO Revision Rejection Error")
+        frappe.throw(_("Rejection failed: {0}").format(str(e)))
 
 @frappe.whitelist()
 def get_adjustment_candidate_pos(vendor, current_po):

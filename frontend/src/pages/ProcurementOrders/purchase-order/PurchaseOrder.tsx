@@ -130,6 +130,7 @@ import { safeJsonParse } from "@/pages/DeliveryNotes/constants";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { PaymentTerm, POTotals, DeliveryDataType } from "@/types/NirmaanStack/ProcurementOrders";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
+import { PORevisionWarning } from "@/pages/PORevision/PORevisionWarning";
 
 interface PurchaseOrderProps {
   summaryPage?: boolean;
@@ -1278,6 +1279,7 @@ export const PurchaseOrder = ({
 
   return (
     <div className="flex-1 space-y-4">
+      <PORevisionWarning poId={poId} />
       {MERGEPOVALIDATIONS && (
         <>
           <Alert variant="warning" className="">
