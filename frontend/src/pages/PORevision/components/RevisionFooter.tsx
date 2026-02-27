@@ -17,6 +17,7 @@ export const RevisionFooter: React.FC<RevisionFooterProps> = ({
   onNext,
   onSubmit,
   loading,
+  differenceAmount,
 }) => {
   return (
     <div className="border-t pt-6 mt-8 flex flex-col gap-4">
@@ -31,9 +32,9 @@ export const RevisionFooter: React.FC<RevisionFooterProps> = ({
           <Button 
             className="bg-[#D94444] hover:bg-[#C13D3D] text-white gap-2 px-8 font-bold border-none shadow-none"
             onClick={onNext}
-            disabled={loading}
+            disabled={loading || (step === 1 && differenceAmount === 0)}
           >
-            Continue <ArrowRight className="h-4 w-4" />
+            {step === 1 ? "Go to Payment Rectification" : "Continue"} <ArrowRight className="h-4 w-4" />
           </Button>
         ) : (
           <Button 
