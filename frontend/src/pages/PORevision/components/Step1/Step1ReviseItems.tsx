@@ -58,10 +58,10 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <ClipboardList className="h-4 w-4 text-red-600" />
-            <h3 className="font-bold text-[13px] text-gray-700 uppercase tracking-tight">Line Item Revision</h3>
+            <h3 className="font-bold text-[13px] text-gray-700 uppercase tracking-tight"> Item Revision</h3>
           </div>
           <Button variant="outline" size="sm" onClick={handleAddItem} className="text-red-500 border-red-500 hover:bg-red-50 text-[11px] h-8 font-bold px-4">
-            <Plus className="h-3 w-3 mr-1" /> Add Line Item
+            <Plus className="h-3 w-3 mr-1" /> Add New Item
           </Button>
         </div>
         <div className="border rounded-md overflow-visible bg-white pb-24">
