@@ -1,255 +1,126 @@
-# PO Revision Creation Data Structure & Logic Flow
+# PO Revision Architecture Documentation
 
-This document provides a comprehensive overview of the PO Revision creation process, detailing the logic for data fetching, step-by-step rendering, and backend integration.
+This document outlines the architecture and workflows associated with the PO Revision feature.
 
-## Table of Contents
-1. [Core Components](#core-components)
-2. [Data Flow & State Management](#data-flow--state-management)
-3. [Step-by-Step Logic](#step-by-step-logic)
-4. [Financial Calculations](#financial-calculations)
-5. [Backend Integration](#backend-integration)
+## 1. PO Revision Warning Logic
 
----
+The PO Revision Warning is a critical UI component that prevents concurrent modifications to a Procurement Order (PO) when a revision is already in progress.
 
-```markdown
-## Core Components
+### Frontend Component
+* **Component Name:** `PORevisionWarning` (`frontend/src/pages/PORevision/PORevisionWarning.tsx`)
+* **Usage:** Imported and used in `frontend/src/pages/ProcurementOrders/purchase-order/PurchaseOrder.tsx`
+* **Purpose:** Displays a red alert banner at the top of the Purchase Order detail page if the PO is locked. It informs the user why it's locked and provides a quick link to view the pending revision.
+* **Mechanism:** 
+  * It accepts the `poId` as a prop.
+  * On mount or when `poId` changes, it makes a POST request to the backend API.
+  * If the response indicates the PO `is_locked`, it renders the alert with the specific `role` (Original or Target) and a link to the `revision_id`.
 
-The PO Revision module is structured into three main layers:
+### Backend API
+* **API Endpoint:** `nirmaan_stack.api.po_revisions.revision_po_check.check_po_in_pending_revisions`
+* **File Location:** `nirmaan_stack/api/po_revisions/revision_po_check.py`
+* **Logic:**
+  The backend performs two specific checks to determine if a PO is locked:
+  
+  1. **Check 1: As Original PO (`_check_pending_as_original`)**
+     * It queries the `PO Revisions` doctype to see if there is any document with `status = "Pending"` where the `revised_po` field matches the given `po_id`.
+     * **Reasoning:** If a PO is currently being revised, we cannot allow other users to make standard payments or amendments to it until the draft revision is resolved (Approved/Rejected), as it would cause financial desynchronization.
 
-- **Orchestrator (`PORevisionDialog.tsx`)**: Manages the high-level step transitions and layouts.
-- **State Manager (`usePORevision.ts`)**: A custom hook that centralizes all revision state, financial calculations, and API calls.
-- **Step Components**:
-  - **`Step1ReviseItems`**: Line item editing and justification.
-  - **`Step2PositiveFlow`**: Allocation of extra costs to payment terms.
-  - **`Step2NegativeFlow`**: Mixed adjustment handling for refunds (Adhoc, Vendor Refund, PO Adjustment).
-  - **`Step3Summary`**: Final review of all changes and impacts.
+  2. **Check 2: As Target PO (`_check_pending_as_target`)**
+     * It iterates through all `Pending` PO Revisions and inspects their JSON payload (`payment_return_details`).
+     * It looks specifically for a "Negative Flow" refund adjustment where the `return_type` is `"Against-po"`.
+     * It parses the JSON to see if the given `po_id` is listed in the `target_pos` array.
+     * **Reasoning:** Even if a PO isn't the one being actively revised, it might be slated to receive transferred credit from *another* PO's revision. If so, it must be locked to prevent users from accidentally paying off terms that are about to be covered by the incoming credit transfer once the revision is approved.
 
----
-```
+===============================================================================================
+===============================================================================================
 
-## Data Flow & State Management
+## 2. Revise PO Button Logic
 
-The entire module revolves around the `difference.inclGst` calculation, which determines whether the revision is a **Positive Flow** (Cost Increase) or a **Negative Flow** (Refund/Cost Decrease).
+The "Revise PO" button initiates the PO Revision workflow from the Procurement Orders module.
 
-- `difference`: Object containing `exclGst` and `inclGst` deltas. This object is the "Brain" of the module; it dictates whether Step 2 shows the **Positive** or **Negative** flow.
+### Frontend Component
+* **Component Name:** `PODetails` (`frontend/src/pages/ProcurementOrders/purchase-order/components/PODetails.tsx`)
+* **Location in UI:** Rendered within the "Invoices" section of the main PODetails card (around line 705).
+* **Visibility Conditions:**
+  The "Revise PO" button is highly conditional and only appears if **ALL** of the following base constraints are met:
+  1. **Valid Status:** The PO's status must be `"Dispatched"`, `"Partially Delivered"`, or `"Delivered"`.
+  2. **Not Locked:** The PO must *not* currently be locked by an existing pending revision (`isLocked === false`).
 
-### Data Fetching Logic
-To support revisions, the `usePORevision` hook reactively fetches related data:
+  If the base constraints are met, the button renders if there is a discrepancy between the PO amount and uploaded invoices:
 
-- **Vendor Invoices**: Fetched for the current PO to show payment/invoice context in Step 1.
-- **Candidate POs (`adjCandidatePOs`)**: Fetched for **Negative Flows** to allow adjustments against other balances.
-  - **Source**: `Procurement Orders`
-  - **Filters**:
-    1. `vendor`: Must match the vendor of the PO being revised.
-    2. `status`: Must be `PO Approved`.
-  - **Fields**: `name`, `total_amount`, `amount_paid`.
-  - **Usage**: Used in `Step2NegativeFlow` to calculate `maxPayableForThisPO = (total_amount - amount_paid)`.
+  **The Red Warning Banner 🔴 (When Amounts Don't Match)**
+  * **When it shows:** If the total amount of all Invoices uploaded for this PO is different from the actual PO's total amount (by more than ₹1).
+  * **Why it shows this way:** This serves as a prominent alert to the user. Since the invoices they've received are charging a different amount than what the PO says, they likely *need* to revise the PO to match the new charged amount.
+  * **What it looks like:** A red alert box saying: *"Total PO Amount and Total Invoice Amount is not matching. Revise the PO to handle this amount change? [Revise PO]"*
 
-## Logic Flow Diagrams
+### Example Scenarios
 
-### High-Level Orchestration
-```mermaid
-graph TD
-    classDef startFlow fill:#eff6ff,stroke:#2563eb,stroke-width:2px;
-    classDef stepNode fill:#fff,stroke:#e2e8f0,stroke-width:1px;
-    classDef decisionNode fill:#fef3c7,stroke:#d97706,stroke-width:2px;
-    classDef endFlow fill:#f0fdf4,stroke:#16a34a,stroke-width:2px;
+To make it perfectly clear when and how the Revise PO button appears, here are 4 real-world examples:
 
-    Start([Dialog Opens]):::startFlow --> Init[Initialize State & Fetch Data]:::stepNode
-    Init --> Step1[Step 1: Item Revision & Justification]:::stepNode
-    Step1 --> Calc{Calculate Impact}:::decisionNode
-    
-    Calc -- "Difference > 0 (Positive)" --> Step2Pos[Step 2: Payment Terms Allocation]:::stepNode
-    Calc -- "Difference < 0 (Negative)" --> Step2Neg[Step 2: Mixed Adjustment Methods]:::stepNode
-    
-    Step2Pos --> Step3[Step 3: Verification & Summary]:::stepNode
-    Step2Neg --> Step3
-    
-    Step3 --> Submit([Submit to Backend]):::endFlow
-```
+**Example 1: The Invoice Overcharge (Shows Red Warning Banner)**
+* **Scenario:** A PO is *"Partially Delivered"*, not locked. The total PO amount was approved at ₹10,000. However, the vendor sent invoices totaling ₹12,000.
+* **Result:** Because of the ₹2,000 mismatch (>₹1 difference), the system displays the prominent red warning banner: **"Total PO Amount and Total Invoice Amount is not matching"**. A revision is heavily encouraged to fix the discrepancy.
 
-### Item Revision Logic (Step 1)
-When an item is modified, the `item_type` transitions as follows:
-- **Modified Original**: `Original` → `Revised` (Maintains `original_row_id` for backend diffing).
-- **Removed Original**: `Original` → `Deleted` (Hidden in UI, but sent to backend for removal).
-- **Added Item**: `New` (New row with no original reference).
-- **Cancelled Revision**: `Deleted` → `Original` (If the user undoes a deletion).
+**Example 2: Locked by Another Revision (Hidden Completely)**
+* **Scenario:** A PO is *"Delivered"*. A manager clicked "Revise PO" yesterday and submitted a revision request which is still pending approval from the CEO.
+* **Result:** The PO is now locked (`isLocked = true`). The Revise PO button **completely disappears** until that pending revision is either approved or rejected, to prevent conflicting revisions.
 
-### Mixed Adjustment Interaction (Step 2 Negative)
-The interaction logic ensures that the strategy is consistent and clear:
+**Example 3: Too Early to Revise (Hidden Completely)**
+* **Scenario:** A PO has just been *"PO Approved"* but nothing has been shipped or dispatched yet.
+* **Result:** Because the status is not Dispatched, Partially Delivered, or Delivered, the Revise PO button is **completely hidden**. (Revisions shouldn't happen before goods begin moving).
 
-```mermaid
-graph TD
-    classDef tabNode fill:#f8fafc,stroke:#cbd5e1;
-    classDef ruleNode fill:#fff7ed,stroke:#ea580c,stroke-width:1px;
-    classDef featureNode fill:#f0f9ff,stroke:#0369a1,stroke-width:1px;
+**Example 4: Locked as a Target for Credit (Hidden Completely)**
+* **Scenario:** A PO is *"Dispatched"* and seems perfectly fine. *However*, another PO for the exact same vendor is currently being revised downward, and the user chose to transfer the resulting credit/refund into *this* PO.
+* **Result:** Because this PO is flagged as a "Target PO" in a pending negative revision, it is locked (`isLocked = true`). The Revise PO button **completely disappears** to protect the impending financial credit transfer.
 
-    subgraph Tabs ["Adjustment Method Tabs"]
-        T1["Another PO"]:::tabNode
-        T2["Adhoc Credit"]:::tabNode
-        T3["Vendor Refund"]:::tabNode
-    end
+===============================================================================================
+===============================================================================================
 
-    TabSwitch{Tab Switched?}:::ruleNode
-    T1 & T2 & T3 --> TabSwitch
-    TabSwitch -- "Yes" --> Clear[Clear Adjustment State]:::ruleNode
+## 3. PO Revision Dialog Workflow
 
-    subgraph POLogic ["PO Adjustment Flow Logic"]
-        SelectPO[Select PO ID]:::featureNode
-        LockTabs[Disable Adhoc/Refund Tabs]:::ruleNode
-        CheckBal{Balance Remaining?}:::ruleNode
-        AddOther[Show 'Add Another' Link]:::featureNode
-        
-        SelectPO --> LockTabs
-        SelectPO --> CheckBal
-        CheckBal -- "Yes" --> AddOther
-    end
+The `PORevisionDialog` (`PORevisionDialog.tsx`) is a multi-step modal form that handles the entire process of drafting and submitting a PO Revision. 
 
-    T1 --> POLogic
-```
+### Frontend Components Used
+The dialog orchestrates several sub-components to handle the complex state of a revision:
+* **`usePORevision.ts` (Custom Hook):** Acts as the "brain" of the dialog. It handles all state management (items, justification, payment terms, refund adjustments), calculations (before/after amounts, difference), and backend API communications.
+* **`RevisionHeader` & `RevisionFooter`:** Manages the stepper UI indicating progress (Items -> Adjustment -> Summary) and the action buttons (Cancel, Next, Submit).
+* **`Step1ReviseItems`:** The interface for adding, editing, or deleting items from the PO. It calculates the financial impact of these changes.
+* **`Step2PositiveFlow`:** Shown only if the revised PO amount is *higher* than the original. It forces the user to allocate the extra cost into new or modified Payment Terms.
+* **`Step2NegativeFlow`:** Shown only if the revised PO amount is *lower* than the original. It forces the user to define how the vendor will refund the difference (e.g., Transfer to "Another PO", "Adhoc" expense, or "Refunded" with proof attached).
+* **`Step3Summary`:** A final confirmation screen showing the net impact and chosen allocation before submission.
 
----
+### Backend APIs & Data Fetching
+The dialog relies heavily on Frappe React SDK hooks (`useFrappeGetDocList`, `useFrappeGetDoc`, `useFrappePostCall`, `useFrappeFileUpload`) to fetch necessary context and submit the draft:
 
-## Step-by-Step Logic
+1. **Context Fetching (Dropdowns & Validation):**
+   * `Procurement Requests`: Fetches the PR to determine the Work Package.
+   * `Category`, `Items`, & `Category Makelist`: Fetches valid categories, items, taxes, and makes allowed for this specific Work Package to populate the "Add/Edit Item" dropdowns.
+   * `Vendor Invoices`: Fetches all invoices linked to the PO to help the user reference them while revising.
+   * `Procurement Orders` (Candidate POs): Fetches all other "Approved" POs for this specific vendor. This is used in Step 2 (Negative Flow) to allow the user to select a target PO to transfer credit to.
+2. **File Uploads:**
+   * Uses the `upload()` function to attach proof/receipt documents if the user selects the "Refunded" method in Step 2.
+3. **Submission Endpoint:**
+   * **Endpoint:** `nirmaan_stack.api.po_revisions.revision_logic.make_po_revisions`
+   * **Payload:** Sends the `po_id`, text `justification`, JSON string of `revision_items` (containing both original and new state), `total_amount_difference`, and JSON string of `payment_return_details` (Step 2 allocations).
 
-### Step 1: Revise Items
-Users can Add, Edit, or Delete line items.
-- **Deletion**: Original items are marked as `item_type: "Deleted"` rather than being removed from state to maintain history.
-- **New Items**: Items added during revision are marked as `item_type: "New"`.
-- **Validation**: Requires a non-empty `justification` to proceed.
+### Step-by-Step Logic
+1. **Step 1 (Items & Justification):**
+   * The user opens the dialog. Original PO items are loaded into state.
+   * The user modifies quantities, rates, or adds/removes items.
+   * **Received Quantity Constraints:** If an original PO item has already been partially or fully received (`received_quantity > 0`), strict locks are applied to prevent data corruption:
+     * The **Item Name** cannot be changed.
+     * The **Unit** cannot be changed.
+     * The **Delete Icon** is disabled.
+     * The **Quantity** cannot be reduced below the already `received_quantity` (e.g., if 7 items were received, the user can revise the quantity to 8 or 10, but not 6).
+   * **Validation:** To proceed to Step 2, the user *must* provide a text `justification`.
+2. **Step 2 (Financial Adjustment):**
+   * **Validation (Positive Flow):** If the amount increased, the sum of all newly allocated Payment Terms *must* exactly equal the difference amount to proceed (`Math.abs(totalAllocated - Math.abs(difference.inclGst)) < 1`).
+   * **Validation (Negative Flow):** If the amount decreased and "Another PO" is selected, the total refund allocated to target POs *must* exactly equal the refund amount.
+3. **Step 3 (Summary & Submit):**
+   * Displays the Before/After totals.
+   * Clicking Submit triggers `handleSave()`.
+   * `handleSave()` prepares the complex JSON payloads and calls the backend `make_po_revisions` API.
+   * Displays a success toast with the newly created Revision ID (e.g., `REV-PO-0001`) and closes the dialog.
 
-### Step 2: Allocation & Adjustments
-Based on the `difference.inclGst`:
-
-#### Positive Flow (`difference.inclGst > 0`)
-The extra amount must be fully allocated to new or existing payment terms. Validation ensures `totalPaymentTerms === difference.inclGst`.
-
-#### Negative Flow (`difference.inclGst < 0`)
-Supports simultaneous adjustment methods:
-1.  **Another PO**: Adjust against outstanding balances of other approved POs for the same vendor.
-2.  **Ad-hoc Credit**: Create a credit note for internal tracking (e.g., price correction).
-3.  **Vendor Refund**: Track direct refunds with date and file proof.
-
-**Logic Highlights**:
-- Tabs for "Adhoc" and "Refund" are disabled if a PO is currently selected to maintain flow consistency.
-- Switching primary tabs resets the adjustment state to prevent data leakage.
-- Mixed methods are added via the "Add Another Adjustment Method" dialog when a balance remains.
-
-### Step 3: Summary
-A read-only view that aggregates:
-- Changed line items with "Original → Revised" diffs.
-- Detailed financial impact (Subtotal, GST, Total).
-- Allocation/Adjustment details for transparency.
-
----
-
-## Financial Calculations
-
-Calculations are memoized in `usePORevision` to ensure real-time UI updates:
-- **`beforeSummary`**: Pre-revision totals.
-- **`afterSummary`**: Totals based on current `revisionItems`.
-- **`difference`**: `afterSummary - beforeSummary`.
-- **`totalAdjustmentAllocated`**: Sum of all `refundAdjustments`.
-
----
-
-### Backend Submission Structure
-The `handleSave` function in `usePORevision` transforms the state into a strictly defined JSON structure for the Frappe backend.
-
-- **`revision_items`**: A flat list of items where each entry contains both current values and original values for server-side delta processing.
-  - **`item_type` logic**:
-    - `Original`: No changes; used as a baseline.
-    - `Revised`: Rate, quantity, or other attributes changed.
-    - `New`: Completely new line item.
-    - `Deleted`: Item removed in revision (not yet removed from DB).
-
-## Backend Creation Logic
-
-When `make_po_revisions` is called, the backend executes the following steps to create the **PO Revision** record:
-
-### 1. Document Initialization
-Creates a new `PO Revisions` draft linked to the original `Procurement Orders`. It copies over metadata like Project and Vendor.
-
-### 2. Item Processing (`revision_items`)
-The backend iterates through the items sent from the frontend. The `item_type` determines how fields are mapped:
-
-| Item Type | Original Data Populated? | Revision Data Populated? | Backend Action (on Approval) |
-| :--- | :--- | :--- | :--- |
-| **Original** | Yes | No | None (Baseline reference) |
-| **New** | No | Yes | Appends new row to Original PO |
-| **Revised** | Yes | Yes | Updates existing row in Original PO |
-| **Deleted** | Yes | No | Removes row from Original PO |
-
-### 3. Financial Payload (`payment_return_details`)
-The JSON structure is saved directly to the `payment_return_details` field. On **Approval**, the backend parses this JSON to:
-- Create **Project Payments** for Negative flows (Adjustments/Refunds).
-- Update and approve **Payment Terms** for Positive flows.
-
-## Approval Flow (Financial Impact)
-Upon approval, the backend creates "ledger entries" in the form of `Project Payments`:
-- **Adjustment Out/In**: Created when using `Against-po`.
-- **Return/Refund**: Created for direct bank refunds.
-- **Ad-hoc Adjustment**: Created for internal credit notes.
-
-## JSON Schema: payment_return_details
-
-The following examples show the exact structure of the `payment_return_details` field for different flows.
-
-### 1. Positive Flow (Payment Terms)
-Used when the revision results in a cost increase.
-```json
-{
-  "list": {
-    "type": "Payment Terms",
-    "Details": [
-      {
-        "return_type": "Payment-terms",
-        "status": "Pending",
-        "amount": 5000,
-        "terms": [
-          { "label": "Advance Payment", "amount": 2000 },
-          { "label": "On Delivery", "amount": 3000 }
-        ]
-      }
-    ]
-  }
-}
-```
-
-### 2. Negative Flow (Refund Adjustments)
-Used when the revision results in a cost decrease. This can contain multiple mixed methods.
-```json
-{
-  "list": {
-    "type": "Refund Adjustment",
-    "Details": [
-      {
-        "return_type": "Against-po",
-        "status": "Pending",
-        "amount": 1500,
-        "target_pos": [
-          { "po_number": "PO/123/0001", "amount": 1500 }
-        ]
-      },
-      {
-        "return_type": "Ad-hoc",
-        "status": "Pending",
-        "amount": 500,
-        "ad-hoc_tyep": "expense",
-        "ad-hoc_dexription": "material_damage",
-        "comment": "Damaged goods in transit"
-      },
-      {
-        "return_type": "Vendor-has-refund",
-        "status": "Pending",
-        "amount": 1000,
-        "refund_date": "2024-02-24",
-        "refund_attachment": "/private/files/refund_receipt.pdf"
-      }
-    ]
-  }
-}
-```
-
-> [!NOTE]
-> For Vendor Refunds, files are uploaded via `useFrappeFileUpload` before the final submission, and the resulting file URLs are included in the `payment_return_details`.
+===============================================================================================
+===============================================================================================
