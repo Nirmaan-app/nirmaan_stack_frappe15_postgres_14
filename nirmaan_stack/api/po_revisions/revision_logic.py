@@ -229,6 +229,12 @@ def on_approval_revision(revision_name):
 
             for pay_name in all_payments_to_delete:
                 frappe.delete_doc("Project Payments", pay_name, force=1, ignore_permissions=True)
+                
+            # Cleanup stray Project Expenses
+            tracked_expenses = getattr(frappe.local, 'rollback_expenses', [])
+            for exp_name in tracked_expenses:
+                frappe.delete_doc("Project Expenses", exp_name, force=1, ignore_permissions=True)
+                
         except Exception:
             pass # Keep original rollback error primary
             
@@ -636,12 +642,33 @@ def process_negative_returns(revision_doc):
         # C. Ad-hoc
         elif r_type == "Ad-hoc":
             desc = entry.get("ad-hoc_dexription", "")
+            expense_type = entry.get("ad-hoc_tyep", "")
             # CREATE Ad-hoc NOW
             pay_adhoc = _create_project_payment(
                 po_id=revision_doc.revised_po, project=revision_doc.project, vendor=revision_doc.vendor,
                 amt=-amount, status="Paid"
             )
             _append_return_payment_term(original_po, pay_adhoc, f"Return - Adhoc {desc}", -amount)
+            
+            # CREATE PROJECT EXPENSE
+            if expense_type:
+                expense = frappe.new_doc("Project Expenses")
+                expense.projects = revision_doc.project
+                expense.type = expense_type
+                expense.vendor = revision_doc.vendor
+                expense.description = desc
+                expense.amount = amount  # Positive amount for expense
+                expense.payment_date = nowdate()
+                expense.payment_by = revision_doc.owner
+                comment_text = entry.get("comment", "").strip()
+                po_prefix = f"PO {revision_doc.revised_po}"
+                expense.comment = f"{po_prefix}\n{comment_text}" if comment_text else po_prefix
+                
+                expense.save(ignore_permissions=True)
+                
+                if not hasattr(frappe.local, 'rollback_expenses'):
+                    frappe.local.rollback_expenses = []
+                frappe.local.rollback_expenses.append(expense.name)
 
         entry["status"] = "Approved"
 
