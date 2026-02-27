@@ -120,7 +120,7 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                             handleUpdateItem(idx, { ...typeUpdates, item_id: undefined, item_name: "", make: "", unit: "Nos", tax: 0 });
                           }
                         }}
-                        isDisabled={isDeleted}
+                        isDisabled={isDeleted || (item.item_type !== 'New' && (item.received_quantity || 0) > 0)}
                         placeholder="Select Item..."
                         isClearable
                         styles={{
@@ -186,15 +186,25 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                       <SelectUnit 
                         value={item.unit || ""} 
                         onChange={(v) => handleUpdateItem(idx, { unit: v })}
-                        disabled={isDeleted}
+                        disabled={isDeleted || (item.item_type !== 'New' && (item.received_quantity || 0) > 0)}
                         className="text-xs h-9"
                       />
                     </TableCell>
                     <TableCell>
                       <Input 
                         type="number"
+                        min={item.item_type !== 'New' && (item.received_quantity || 0) > 0 ? item.received_quantity : 0}
                         value={item.quantity} 
-                        onChange={(e) => handleUpdateItem(idx, { quantity: parseFloat(e.target.value) || 0 })}
+                        onChange={(e) => {
+                           const val = parseFloat(e.target.value) || 0;
+                           const minQty = (item.item_type !== 'New' && item.received_quantity) ? item.received_quantity : 0;
+                           if (val < minQty) {
+                               // Optional: could toast a warning here, but simply ignoring the invalid input or capping it works best
+                               handleUpdateItem(idx, { quantity: minQty });
+                           } else {
+                               handleUpdateItem(idx, { quantity: val });
+                           }
+                        }}
                         disabled={isDeleted}
                         className="text-xs font-bold h-9"
                       />
@@ -238,9 +248,11 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                           size="sm" 
                           onClick={(e) => {
                               e.stopPropagation();
+                              if (item.item_type !== "New" && (item.received_quantity || 0) > 0) return;
                               handleRemoveItem(idx);
                           }} 
-                          className={`p-0 h-8 w-8 rounded-lg ${isDeleted ? "text-blue-600 bg-blue-50" : "text-gray-300 hover:text-red-500 hover:bg-red-50"}`}
+                          disabled={item.item_type !== "New" && (item.received_quantity || 0) > 0 && !isDeleted}
+                          className={`p-0 h-8 w-8 rounded-lg ${isDeleted ? "text-blue-600 bg-blue-50" : "text-red-500 hover:text-red-600 hover:bg-red-50"} disabled:opacity-50 disabled:cursor-not-allowed`}
                       >
                         {isDeleted ? <Undo className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
                       </Button>

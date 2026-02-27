@@ -258,6 +258,7 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
           original_item_name: original?.item_name,
           original_make: original?.make,
           original_qty: original?.quantity,
+          original_received_qty: original?.received_quantity,
           original_unit: original?.unit,
           original_rate: original?.quote,
           original_amount: original?.amount,
