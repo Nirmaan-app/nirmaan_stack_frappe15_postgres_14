@@ -101,7 +101,74 @@ The dialog relies heavily on Frappe React SDK hooks (`useFrappeGetDocList`, `use
    * Uses the `upload()` function to attach proof/receipt documents if the user selects the "Refunded" method in Step 2.
 3. **Submission Endpoint:**
    * **Endpoint:** `nirmaan_stack.api.po_revisions.revision_logic.make_po_revisions`
-   * **Payload:** Sends the `po_id`, text `justification`, JSON string of `revision_items` (containing both original and new state), `total_amount_difference`, and JSON string of `payment_return_details` (Step 2 allocations).
+   * **What it does:** It takes the drafted changes from the frontend and creates a new document in the `PO Revisions` doctype with a status of "Pending". It does **not** modify the original PO yet. The original PO remains locked while this draft is pending manager approval.
+   * **Payload Structure:** 
+     Sends `po_id`, `justification`, `total_amount_difference`, and two heavily structured JSON strings:
+     
+     **1. `revision_items` Payload:**
+     An array documenting the delta of every item line.
+     ```json
+     [
+       {
+         "item_type": "Original | New | Revised | Replace | Deleted",
+         "original_row_id": "string (if modifying/deleting existing)",
+         
+         // New/Revised Details
+         "item_id": "string", "item_name": "string", "make": "string",
+         "quantity": 10, "unit": "Nos", "quote": 150.0,
+         "amount": 1500.0, "tax": 18,
+         
+         // Snapshot of Original Details (for diff comparison)
+         "original_item_id": "string", "original_qty": 5,
+         "original_received_qty": 2, // Used to enforce received locks// only for frontend , we don't need this in while creation Revison POs 
+         "original_rate": 100.0, "original_tax": 18
+       }
+     ]
+     ```
+
+     **2. `payment_return_details` Payload:**
+     Dictates the financial flow change.
+
+     *Positive Flow (Difference > 0):*
+     ```json
+     {
+       "list": {
+         "type": "Payment Terms",
+         "Details": [{
+           "return_type": "Payment-terms",
+           "status": "Pending",
+           "amount": 5000.0,
+           "terms": [
+             { "label": "Milestone 1", "amount": 2500.0 },
+             { "label": "Milestone 2", "amount": 2500.0 }
+           ]
+         }]
+       }
+     }
+     ```
+
+     *Negative Flow (Difference < 0):*
+     ```json
+     {
+       "list": {
+         "type": "Refund Adjustment",
+         "Details": [{
+           "status": "Pending",
+           "amount": 2000.0,
+           "return_type": "Against-po" | "Ad-hoc" | "Vendor-has-refund",
+           
+           // If Against-po:
+           "target_pos": [{ "po_number": "PO-002", "amount": 2000.0 }],
+           
+           // If Ad-hoc:
+           "ad-hoc_tyep": "expense", "ad-hoc_dexription": "reason",
+           
+           // If Vendor-has-refund
+           "refund_date": "2026-02-27", "refund_attachment": "/files/receipt.pdf"
+         }]
+       }
+     }
+     ```
 
 ### Step-by-Step Logic
 1. **Step 1 (Items & Justification):**
@@ -124,3 +191,99 @@ The dialog relies heavily on Frappe React SDK hooks (`useFrappeGetDocList`, `use
 
 ===============================================================================================
 ===============================================================================================
+
+## 4. Backend Logic: Making a PO Revision
+
+When the frontend submits the revision request, it hits the `make_po_revisions` Python function in `revision_logic.py`. This function serves as the safe "drafting" mechanism.
+
+### API Endpoint details:
+* **Method:** `POST`
+* **Endpoint:** `nirmaan_stack.api.po_revisions.revision_logic.make_po_revisions`
+
+### What it Receives (Parameters):
+1. `po_id` (string): The Original Procurement Order ID.
+2. `justification` (string): The reason for the revision.
+3. `revision_items` (JSON string): The array of all items with their structural changes.
+4. `total_amount_difference` (float): The net financial impact (+ or -).
+5. `payment_return_details` (JSON string): The allocation of the difference.
+
+### How it works behind the scenes (Step-by-Step):
+
+1. **Original PO Safety Check:**
+   It starts by fetching the original `Procurement Orders` document using the provided `po_id`. *Crucially, it only reads this document to extract the Project and Vendor names. It does not modify or save the original PO at this stage.*
+
+2. **Draft Document Creation:**
+   It initiates a completely new, blank document in the `PO Revisions` doctype (`frappe.new_doc("PO Revisions")`). 
+   It links this new draft back to the original PO by setting `revised_po_id = po_id`.
+   It copies over the `project` and `vendor` fields from the original PO to ensure the draft is categorized correctly in lists and reports.
+   It sets the status of this draft firmly to **`"Pending"`**.
+
+3. **Item Parsing & Transformation:**
+   It iterates through the received `revision_items` JSON array. For every single item, it creates a new row in the `revision_items` child table of the draft document.
+   * **If the item is "Original" or "Deleted":** It copies over only the `original_` fields (e.g., `original_qty`, `original_rate`) to establish a baseline. It leaves the revision fields blank.
+   * **If the item is "New":** It skips the original fields and only populates the `revision_` fields.
+   * **If the item is "Revised" or "Replace":** It populates *both* the `original_` fields and the `revision_` fields side-by-side. This allows the system to later calculate exactly what changed on a row-by-row basis.
+
+4. **Financial Storage:**
+   The `payment_return_details` JSON payload is taken exactly as-is and saved into a Text field on the draft document. No actual Project Payments or Payment Terms are created yet.
+
+5. **Insertion (`ignore_permissions=True`):**
+   Finally, it calls `.insert(ignore_permissions=True)` on the new draft object.
+   * **What it does:** This forces Frappe to save the document directly to the database, bypassing standard user role-based access checks (like checking if the specific user has "Create" rights on the `PO Revisions` doctype).
+   * **Why we need it here:** By design, any user who can *view* a Purchase Order (like a site engineer receiving invoices) should be able to *request* a revision. However, we intentionally strict-lock the `PO Revisions` doctype in Frappe's role settings so that only central Managers/Finance can finalize them. `ignore_permissions=True` allows a low-permission user to successfully submit the "Pending" draft request via the API without being blocked by Frappe's strict backend role checks.
+
+   This commits the "Pending" revision to the database, generates a new Revision ID (e.g., `REV-PO-0005`), and returns that ID to the frontend to show the succcess toast.
+
+**Summary:** This function acts purely as a staging ground. By creating a separate "Pending" document, it allows managers to review the proposed Item changes and Financial changes side-by-side against the original snapshot, all without corrupting or editing the live, approved Purchase Order until it is approved.
+
+===============================================================================================
+===============================================================================================
+
+## 5. Backend Logic: Approving a PO Revision--
+
+Once a Manager reviews the "Pending" `PO Revisions` document and decides to approve it, the system triggers the `on_approval_revision` Python function. This is the mechanism that commits the drafted changes to the live system.
+
+### API Endpoint details:
+* **Method:** `POST` (or triggered via Document Hook)
+* **Endpoint:** `nirmaan_stack.api.po_revisions.revision_logic.on_approval_revision`
+
+### What it Receives (Parameters):
+1. `revision_name` (string): The ID of the `PO Revisions` document (e.g., `REV-PO-0005`) that is being approved.
+
+### How it works behind the scenes (Step-by-Step):
+
+1. **Transaction Initialization:**
+   The very first thing it does is call `frappe.db.begin()`. This starts a SQL database transaction. If any step fails below, the entire database state can be rolled back to protect data integrity.
+
+2. **Step 1: Syncing Items (`sync_original_po_items`)**
+   It reads the `revision_items` table from the draft and applies the delta to the Original Purchase Order.
+   * It deletes old rows, adds new rows, and updates changed rows.
+   * *Crucially*, when saving the Original PO in this step, it temporarily sets `original_po.flags.ignore_validate_update_after_submit = True` and calls `.save(ignore_permissions=True)`. Because a standard Frappe PO is "Submitted" (locked), Frappe normally blocks all edits. These flags force Frappe to skip the standard "update after submit" validation hooks, allowing our controlled API to edit the locked document.
+
+3. **Step 2: Handling Financial Flow**
+   It checks `total_amount_difference`.
+   * **If > 0 (Positive Flow):** It calls `process_positive_increase`. This function handles cost increases by strictly manipulating the Payment Terms table on the Original PO:
+     1. **Recalculate Totals:** It re-fetches the Original PO and calls `.calculate_totals_from_items()` to get the new `Grand Total` including the synced items.
+     2. **Update/Append Terms:** It parses the `payment_return_details` JSON from the draft.
+        * If an submitted term ID matches an existing term on the PO, it updates that term's `amount` and `description`.
+        * If it is a completely new term, it first scans existing PO payment terms for one with `"Created"` status (unpaid). If found, it intelligently *merges* the new amount into that existing term (and smartly combines their descriptions).
+        * If no `"Created"` term exists, it instead appends a brand new row to the PO's `payment_terms` table, carefully inheriting the `payment_type` from existing terms and setting status to `"Created"`. If the inherited payment type is `"Credit"`, it additionally sets the `due_date` of this new term to `today + 2 days`.
+     3. **Percentage Rebalancing:** Because the PO's total has increased, it loops through *all* payment terms (old and new) and forcefully recalculates their `percentage` field (`(amount / new_total) * 100`) so they precisely sum to 100%.
+     4. **Save Draft Changes:** Finally, it updates the JSON payload in the draft to reflect the newly calculated percentages, and saves the Original PO (again, using `ignore_validate_update_after_submit = True`).
+   * **If < 0 (Negative Flow):** It calls `process_negative_returns`. This either generates a new Ad-hoc Expense Payment, logs a Vendor Refund, or creates a contra Target PO Payment row.
+
+4. **Step 3: Finalizing the Draft**
+   It changes the `PO Revisions` document status to `"Approved"` and calls `.save(ignore_permissions=True)` to confirm the draft is executed.
+
+5. **Commit Configuration:**
+   If all steps succeed, it calls `frappe.db.commit()` to permanently save all database changes simultaneously.
+
+### Rollback & Error Handling (`except Exception:`)
+If any piece of code fails (e.g., a validation error while creating a Project Payment), the system immediately jumps to the `except` block:
+1. **`frappe.db.rollback()`**: This violently undoes all database changes made since `frappe.db.begin()`. The Original PO's items revert to normal, and the draft goes back to "Pending".
+2. **Stray Document Cleanup**: While `rollback()` reverts database rows attached to the current transaction, certain standalone Frappe documents (like freshly minted `Project Payments`) might persist in extreme edge cases or if they bypassed the transaction. The error handler implements a targeted cleanup sweep:
+   * It parses the `payment_return_details` JSON to find target POs.
+   * It queries the database for any `Project Payments` created strictly within the last `1 minute` linked to those POs.
+   * It forcefully deletes them (`force=1`, `ignore_permissions=True`) to guarantee no phantom financial records are left behind from a failed approval attempt.
+
+**Summary:** The Approval function is a highly controlled, high-stakes database transaction. It uses specific Frappe flags to bypass standard document locks, applies the drafted changes, and relies on aggressive rollback procedures to ensure the system is never left in a partially-updated, corrupt state.
