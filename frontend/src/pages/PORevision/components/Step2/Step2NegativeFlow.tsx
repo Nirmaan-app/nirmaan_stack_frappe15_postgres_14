@@ -1,7 +1,7 @@
 import React from "react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+
 import { Badge } from "@/components/ui/badge";
 import { Wallet, Plus, Info, CheckCircle2, Trash2, CreditCard, Undo2 } from "lucide-react";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
@@ -9,6 +9,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from "@/components/ui/button";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { RefundAdjustment, AdjustmentMethodType, DifferenceData, ProcurementOrder } from "../../types";
+import { useFrappeGetDocList } from "frappe-react-sdk";
+import ReactSelect from "react-select";
+import { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
+import { queryKeys, getProjectExpenseTypeListOptions } from "@/config/queryKeys";
 
 interface Step2NegativeFlowProps {
   adjustmentMethod: AdjustmentMethodType;
@@ -32,6 +36,11 @@ export const Step2NegativeFlow: React.FC<Step2NegativeFlowProps> = ({
   poName,
 }) => {
   const [isMethodDialogOpen, setIsMethodDialogOpen] = React.useState(false);
+  
+  const expenseTypeFetchOptions = React.useMemo(() => getProjectExpenseTypeListOptions(), []);
+  const { data: expenseTypesData, isLoading: expenseTypesLoading } = useFrappeGetDocList<ExpenseType>("Expense Type", expenseTypeFetchOptions as any, queryKeys.expenseTypes.list(expenseTypeFetchOptions));
+  const expenseTypeOptions = React.useMemo(() => expenseTypesData?.map(et => ({ value: et.name, label: et.expense_name })) || [], [expenseTypesData]);
+
   const remainingToAdjust = Math.abs(difference.inclGst) - totalAdjustmentAllocated;
 
   const isPOSelected = refundAdjustments.some(a => a.type === "Another PO");
@@ -45,8 +54,8 @@ export const Step2NegativeFlow: React.FC<Step2NegativeFlowProps> = ({
             id, 
             type, 
             amount: Math.max(0, remainingToAdjust),
-            adhoc_type: type === "Adhoc" ? "expense" : undefined,
-            description: type === "Adhoc" ? "" : undefined,
+            adhoc_type: type === "Adhoc" ? "" : undefined,
+            description: type === "Adhoc" ? `${poName} and ad-hoc : ` : undefined,
             date: type === "Refunded" ? new Date().toISOString().split('T')[0] : undefined
         }]);
     }
@@ -66,71 +75,70 @@ export const Step2NegativeFlow: React.FC<Step2NegativeFlowProps> = ({
   const refundAdjustmentsItems = refundAdjustments.filter(a => a.type === "Refunded");
 
   return (
-    <div className="space-y-6">
-      <div className="bg-blue-50/50 p-6 rounded-3xl border border-blue-100/50">
-        {/* ... (Existing amount totals section) */}
-            <div className="flex items-center justify-between relative overflow-hidden">
+    <div className="space-y-4">
+      <div className="bg-blue-50/50 p-6 rounded-xl border border-blue-100/50">
+            <div className="flex items-center justify-between">
                 <div className="flex items-center gap-6">
                     <div className="h-14 w-14 rounded-2xl bg-white shadow-sm border border-blue-100 flex items-center justify-center">
                         <Wallet className="h-7 w-7 text-blue-600" />
                     </div>
-                    <div className="grid grid-cols-2 gap-8">
-                        <div className="space-y-1">
-                            <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest pl-1">Total Refund Amount</p>
-                            <p className="text-3xl font-black text-slate-900 leading-none tracking-tight">{formatToIndianRupee(Math.abs(difference.inclGst))}</p>
-                        </div>
-                        <div className="flex flex-col items-end justify-center">
-                             <div className="flex items-center gap-2 mb-1">
-                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">PO ID:</span>
-                                <span className="text-[10px] font-black text-slate-600 uppercase tracking-tight">{poName}</span>
-                             </div>
-                             <Badge variant="outline" className="bg-blue-100 text-blue-700 border-none font-black text-[9px] px-2 py-0.5 uppercase tracking-widest shadow-sm">Awaiting Adjustment</Badge>
-                        </div>
+                    <div className="space-y-1">
+                        <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest pl-1">Total Refund Amount</p>
+                        <p className="text-3xl font-black text-slate-900 leading-none tracking-tight">{formatToIndianRupee(Math.abs(difference.inclGst))}</p>
                     </div>
+                </div>
+                <div className="flex flex-col items-end justify-center">
+                     <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">PO ID:</span>
+                        <span className="text-[10px] font-black text-slate-600 uppercase tracking-tight">{poName}</span>
+                     </div>
+                     <Badge variant="outline" className="bg-blue-100 text-blue-700 border-none font-black text-[9px] px-2 py-0.5 uppercase tracking-widest shadow-sm">Awaiting Adjustment</Badge>
                 </div>
             </div>
+      </div>
 
-            {remainingToAdjust > 0 && (
-                <div className="bg-orange-50/50 border border-orange-100 p-4 rounded-2xl flex items-center justify-between animate-in slide-in-from-top-2 duration-300">
-                    <div className="flex items-center gap-3">
-                       <div className="h-8 w-8 rounded-full bg-orange-100 flex items-center justify-center">
-                          <Info className="h-4 w-4 text-orange-600" />
-                       </div>
-                       <p className="text-sm font-bold text-orange-800 tracking-tight">Remaining Balance to Adjust</p>
-                    </div>
-                    <p className="text-xl font-black text-orange-700 tracking-tight">{formatToIndianRupee(remainingToAdjust)}</p>
+      <div className={`p-4 rounded-xl flex items-center justify-between border ${remainingToAdjust <= 0 ? "bg-green-50/50 border-green-100" : "bg-orange-50/50 border-orange-100"}`}>
+          <div className="flex items-center gap-3">
+             <div className={`h-8 w-8 rounded-full flex items-center justify-center ${remainingToAdjust <= 0 ? "bg-green-100" : "bg-orange-100"}`}>
+                <Info className={`h-4 w-4 ${remainingToAdjust <= 0 ? "text-green-600" : "text-orange-600"}`} />
+             </div>
+             <p className={`text-sm font-bold tracking-tight ${remainingToAdjust <= 0 ? "text-green-800" : "text-orange-800"}`}>Remaining Balance to Adjust</p>
+          </div>
+          <p className={`text-xl font-black tracking-tight ${remainingToAdjust <= 0 ? "text-green-700" : "text-orange-700"}`}>{formatToIndianRupee(Math.max(0, remainingToAdjust))}</p>
+      </div>
+
+      <div className="flex flex-col items-start gap-2 w-full mb-6">
+                <label className="text-[11px] font-black text-gray-700">Adjustment Method</label>
+                <div className="grid grid-cols-3 gap-2 w-full">
+                    <button 
+                      onClick={() => {
+                          setAdjustmentMethod("Another PO");
+                          setRefundAdjustments([]); // Clear previous adjustments on tab switch
+                      }}
+                      className={`flex flex-row justify-center items-center py-[9px] px-[13px] gap-[9px] h-[36px] rounded-[4px] font-medium text-xs transition-colors flex-1 ${adjustmentMethod === "Another PO" ? "bg-[#336CE7] text-white" : "bg-[#F9F9F9] text-[#4B5563] hover:bg-gray-100"}`}>
+                        Adjustment against another PO
+                    </button>
+                    <button 
+                      disabled={isPOSelected}
+                      onClick={() => {
+                          setAdjustmentMethod("Adhoc");
+                          // Clear and add fresh adhoc adjustment
+                          setRefundAdjustments([{ id: Math.random().toString(), type: "Adhoc", amount: Math.abs(difference.inclGst), adhoc_type: "", description: `${poName} and ad-hoc : ` }]);
+                      }}
+                      className={`flex flex-row justify-center items-center py-[9px] px-[13px] gap-[9px] h-[36px] rounded-[4px] font-medium text-xs transition-colors flex-1 ${isPOSelected ? "opacity-50 cursor-not-allowed" : ""} ${adjustmentMethod === "Adhoc" ? "bg-[#336CE7] text-white" : "bg-[#F9F9F9] text-[#4B5563] hover:bg-gray-100"}`}>
+                        Adjustment against adhoc purchase
+                    </button>
+                    <button 
+                      disabled={isPOSelected}
+                      onClick={() => {
+                          setAdjustmentMethod("Refunded");
+                          // Clear and add fresh refund adjustment
+                          setRefundAdjustments([{ id: Math.random().toString(), type: "Refunded", amount: Math.abs(difference.inclGst), date: new Date().toISOString().split('T')[0] }]);
+                      }}
+                      className={`flex flex-row justify-center items-center py-[9px] px-[13px] gap-[9px] h-[36px] rounded-[4px] font-medium text-xs transition-colors flex-1 ${isPOSelected ? "opacity-50 cursor-not-allowed" : ""} ${adjustmentMethod === "Refunded" ? "bg-[#336CE7] text-white" : "bg-[#F9F9F9] text-[#4B5563] hover:bg-gray-100"}`}>
+                        Vendor has refunded
+                    </button>
                 </div>
-            )}
-
-            <div className="flex gap-2">
-                <button 
-                  onClick={() => {
-                      setAdjustmentMethod("Another PO");
-                      setRefundAdjustments([]); // Clear previous adjustments on tab switch
-                  }}
-                  className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-bold text-sm transition-all duration-200 border-2 ${adjustmentMethod === "Another PO" ? "bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-100 scale-[1.02]" : "bg-gray-50 border-transparent text-gray-500 hover:bg-white hover:border-gray-200"}`}>
-                    Adjustment against another PO
-                </button>
-                <button 
-                  disabled={isPOSelected}
-                  onClick={() => {
-                      setAdjustmentMethod("Adhoc");
-                      // Clear and add fresh adhoc adjustment
-                      setRefundAdjustments([{ id: Math.random().toString(), type: "Adhoc", amount: Math.abs(difference.inclGst), adhoc_type: "expense", description: "" }]);
-                  }}
-                  className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-bold text-sm transition-all duration-200 border-2 ${isPOSelected ? "opacity-50 cursor-not-allowed bg-gray-100/50" : ""} ${adjustmentMethod === "Adhoc" ? "bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-100 scale-[1.02]" : "bg-gray-50 border-transparent text-gray-500 hover:bg-white hover:border-gray-200"}`}>
-                    Adjustment against adhoc purchase
-                </button>
-                <button 
-                  disabled={isPOSelected}
-                  onClick={() => {
-                      setAdjustmentMethod("Refunded");
-                      // Clear and add fresh refund adjustment
-                      setRefundAdjustments([{ id: Math.random().toString(), type: "Refunded", amount: Math.abs(difference.inclGst), date: new Date().toISOString().split('T')[0] }]);
-                  }}
-                  className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-bold text-sm transition-all duration-200 border-2 ${isPOSelected ? "opacity-50 cursor-not-allowed bg-gray-100/50" : ""} ${adjustmentMethod === "Refunded" ? "bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-100 scale-[1.02]" : "bg-gray-50 border-transparent text-gray-500 hover:bg-white hover:border-gray-200"}`}>
-                    Vendor has refunded
-                </button>
             </div>
 
             {hasAnotherPO && (
@@ -204,43 +212,53 @@ export const Step2NegativeFlow: React.FC<Step2NegativeFlowProps> = ({
             {!hasAnotherPO && (
                  <div className="space-y-4">
                      {adhocAdjustments.map((adj) => adjustmentMethod === "Adhoc" && (
-                         <div key={adj.id} className="bg-white rounded-3xl border border-gray-100 shadow-sm p-8 space-y-8">
-                             {/* Primary Adhoc UI - keeping it clean */}
+                         <div key={adj.id} className="bg-[#F9F9F9] rounded-lg border border-gray-200 p-6 space-y-5">
+                             {/* Header */}
                              <div className="flex items-center justify-between">
-                                <h4 className="text-[11px] font-black text-gray-900 uppercase tracking-[0.2em]">Adjustment against adhoc purchase</h4>
-                                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-none font-bold text-[10px] px-3 py-1">
-                                    Adjusted via AdHoc {formatToIndianRupee(adj.amount || 0)}
+                                <h4 className="text-sm font-bold text-gray-900">Adjustment against adhoc purchase</h4>
+                                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 font-semibold text-xs px-3 py-1">
+                                    Adjusted via AdHoc  {formatToIndianRupee(adj.amount || 0)}
                                 </Badge>
                              </div>
-                             <div className="space-y-6">
-                                <div className="space-y-3">
-                                    <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest pl-1">Type<span className="text-red-500">*</span></label>
-                                    <Select value={adj.adhoc_type} onValueChange={(val: string) => updateAdjustment(adj.id, { adhoc_type: val })}>
-                                        <SelectTrigger className="h-12 bg-white border rounded-2xl focus:ring-blue-100"><SelectValue placeholder="Select an expense type" /></SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="expense">General Expense</SelectItem>
-                                            <SelectItem value="marketing">Marketing</SelectItem>
-                                            <SelectItem value="office_supplies">Office Supplies</SelectItem>
-                                            <SelectItem value="transport">Transport</SelectItem>
-                                        </SelectContent>
-                                    </Select>
+                             {/* Form Fields */}
+                             <div className="space-y-4">
+                                <div className="space-y-1.5">
+                                    <label className="text-sm font-bold text-gray-900">Type<span className="text-red-500">*</span></label>
+                                    <ReactSelect
+                                        options={expenseTypeOptions}
+                                        value={expenseTypeOptions.find(opt => opt.value === adj.adhoc_type) || null}
+                                        onChange={(opt: any) => updateAdjustment(adj.id, { adhoc_type: opt?.value || "" })}
+                                        isLoading={expenseTypesLoading}
+                                        placeholder="Select an expense type"
+                                        className="react-select-container text-sm"
+                                        classNamePrefix="react-select"
+                                        styles={{
+                                            control: (base) => ({
+                                                ...base,
+                                                minHeight: '2.5rem',
+                                                borderRadius: '6px',
+                                                borderColor: '#e5e7eb',
+                                                backgroundColor: '#fff',
+                                                boxShadow: 'none',
+                                                '&:hover': { borderColor: '#d1d5db' },
+                                            })
+                                        }}
+                                    />
                                 </div>
-                                <div className="space-y-3">
-                                    <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest pl-1">Description<span className="text-red-500">*</span></label>
-                                    <Select value={adj.description} onValueChange={(val: string) => updateAdjustment(adj.id, { description: val })}>
-                                        <SelectTrigger className="h-12 bg-white border rounded-2xl focus:ring-blue-100"><SelectValue placeholder="Select a breakdown" /></SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="material_damage">Material Damage</SelectItem>
-                                            <SelectItem value="price_correction">Price Correction</SelectItem>
-                                            <SelectItem value="quantity_mismatch">Quantity Mismatch</SelectItem>
-                                            <SelectItem value="discount">Special Discount</SelectItem>
-                                        </SelectContent>
-                                    </Select>
+                                <div className="space-y-1.5">
+                                    <label className="text-sm font-bold text-gray-900">Description<span className="text-red-500">*</span></label>
+                                    <Textarea value={adj.description || ""} onChange={(e) => updateAdjustment(adj.id, { description: e.target.value })} className="min-h-[80px] bg-white border border-gray-200 rounded-md p-3 text-sm resize-none placeholder:text-gray-400" placeholder="Write Description...." />
                                 </div>
-                                <div className="space-y-3">
-                                    <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest pl-1">Comment</label>
-                                    <Textarea value={adj.comment || ""} placeholder="Write Comment...." className="min-h-[140px] bg-white border rounded-2xl focus-visible:ring-blue-100 p-5 text-gray-700 text-sm font-medium resize-none" onChange={(e) => updateAdjustment(adj.id, { comment: e.target.value })} />
+                                <div className="space-y-1.5">
+                                    <label className="text-sm font-bold text-gray-900">Comment</label>
+                                    <Textarea value={adj.comment || ""} placeholder="Write Comment...." className="min-h-[80px] bg-white border border-gray-200 rounded-md p-3 text-sm resize-none placeholder:text-gray-400" onChange={(e) => updateAdjustment(adj.id, { comment: e.target.value })} />
                                 </div>
+                             </div>
+                             {/* Delete */}
+                             <div className="flex justify-end pt-2">
+                                 <Button variant="outline" size="sm" onClick={() => removeAdjustment(adj.id)} className="text-red-600 border-red-200 hover:bg-red-50 rounded-md gap-2 h-9 px-4 text-xs font-semibold">
+                                     <Trash2 className="h-3.5 w-3.5" /> Delete
+                                 </Button>
                              </div>
                          </div>
                      ))}
@@ -274,50 +292,53 @@ export const Step2NegativeFlow: React.FC<Step2NegativeFlowProps> = ({
             {/* Render Additional Blocks (Secondary) */}
             <div className="space-y-6">
                 {adhocAdjustments.map((adj) => adjustmentMethod !== "Adhoc" && (
-                    <div key={adj.id} className="bg-gray-50/50 rounded-3xl border border-gray-100 shadow-sm p-8 space-y-8 relative group">
+                    <div key={adj.id} className="bg-[#F9F9F9] rounded-lg border border-gray-200 p-6 space-y-5 relative group">
                         <div className="flex items-center justify-between">
-                            <h4 className="text-[11px] font-black text-gray-900 uppercase tracking-[0.2em]">Adjustment against adhoc purchase</h4>
-                            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-none font-bold text-[10px] px-3 py-1">
-                                 Adjusted via AdHoc {formatToIndianRupee(adj.amount || 0)}
+                            <h4 className="text-sm font-bold text-gray-900">Adjustment against adhoc purchase</h4>
+                            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 font-semibold text-xs px-3 py-1">
+                                 Adjusted via AdHoc  {formatToIndianRupee(adj.amount || 0)}
                             </Badge>
                         </div>
 
-                        <div className="space-y-6">
-                            <div className="space-y-3">
-                                <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest pl-1">Type<span className="text-red-500">*</span></label>
-                                <Select value={adj.adhoc_type} onValueChange={(val: string) => updateAdjustment(adj.id, { adhoc_type: val })}>
-                                    <SelectTrigger className="h-12 bg-white border rounded-2xl focus:ring-blue-100"><SelectValue placeholder="Select an expense type" /></SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="expense">General Expense</SelectItem>
-                                        <SelectItem value="marketing">Marketing</SelectItem>
-                                        <SelectItem value="office_supplies">Office Supplies</SelectItem>
-                                        <SelectItem value="transport">Transport</SelectItem>
-                                    </SelectContent>
-                                </Select>
+                        <div className="space-y-4">
+                            <div className="space-y-1.5">
+                                <label className="text-sm font-bold text-gray-900">Type<span className="text-red-500">*</span></label>
+                                <ReactSelect
+                                    options={expenseTypeOptions}
+                                    value={expenseTypeOptions.find(opt => opt.value === adj.adhoc_type) || null}
+                                    onChange={(opt: any) => updateAdjustment(adj.id, { adhoc_type: opt?.value || "" })}
+                                    isLoading={expenseTypesLoading}
+                                    placeholder="Select an expense type"
+                                    className="react-select-container text-sm"
+                                    classNamePrefix="react-select"
+                                    styles={{
+                                        control: (base) => ({
+                                            ...base,
+                                            minHeight: '2.5rem',
+                                            borderRadius: '6px',
+                                            borderColor: '#e5e7eb',
+                                            backgroundColor: '#fff',
+                                            boxShadow: 'none',
+                                            '&:hover': { borderColor: '#d1d5db' },
+                                        })
+                                    }}
+                                />
                             </div>
 
-                            <div className="space-y-3">
-                                <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest pl-1">Description<span className="text-red-500">*</span></label>
-                                <Select value={adj.description} onValueChange={(val: string) => updateAdjustment(adj.id, { description: val })}>
-                                    <SelectTrigger className="h-12 bg-white border rounded-2xl focus:ring-blue-100"><SelectValue placeholder="Select a breakdown" /></SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="material_damage">Material Damage</SelectItem>
-                                        <SelectItem value="price_correction">Price Correction</SelectItem>
-                                        <SelectItem value="quantity_mismatch">Quantity Mismatch</SelectItem>
-                                        <SelectItem value="discount">Special Discount</SelectItem>
-                                    </SelectContent>
-                                </Select>
+                            <div className="space-y-1.5">
+                                <label className="text-sm font-bold text-gray-900">Description<span className="text-red-500">*</span></label>
+                                <Textarea value={adj.description || ""} onChange={(e) => updateAdjustment(adj.id, { description: e.target.value })} className="min-h-[80px] bg-white border border-gray-200 rounded-md p-3 text-sm resize-none placeholder:text-gray-400" placeholder="Write Description...." />
                             </div>
 
-                            <div className="space-y-3">
-                                <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest pl-1">Comment</label>
-                                <Textarea value={adj.comment || ""} placeholder="Write Comment...." className="min-h-[140px] bg-white border rounded-2xl focus-visible:ring-blue-100 p-5 text-gray-700 text-sm font-medium resize-none" onChange={(e) => updateAdjustment(adj.id, { comment: e.target.value })} />
+                            <div className="space-y-1.5">
+                                <label className="text-sm font-bold text-gray-900">Comment</label>
+                                <Textarea value={adj.comment || ""} placeholder="Write Comment...." className="min-h-[80px] bg-white border border-gray-200 rounded-md p-3 text-sm resize-none placeholder:text-gray-400" onChange={(e) => updateAdjustment(adj.id, { comment: e.target.value })} />
                             </div>
                         </div>
 
-                        <div className="flex justify-end pt-4 border-t border-gray-50">
-                            <Button variant="outline" size="sm" onClick={() => removeAdjustment(adj.id)} className="text-red-600 border-red-100 hover:bg-red-50 rounded-xl gap-2 h-10 px-4">
-                                <Trash2 className="h-4 w-4" /> Delete
+                        <div className="flex justify-end pt-2">
+                            <Button variant="outline" size="sm" onClick={() => removeAdjustment(adj.id)} className="text-red-600 border-red-200 hover:bg-red-50 rounded-md gap-2 h-9 px-4 text-xs font-semibold">
+                                <Trash2 className="h-3.5 w-3.5" /> Delete
                             </Button>
                         </div>
                     </div>
@@ -383,7 +404,6 @@ export const Step2NegativeFlow: React.FC<Step2NegativeFlowProps> = ({
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-        </div>
     </div>
   );
 };

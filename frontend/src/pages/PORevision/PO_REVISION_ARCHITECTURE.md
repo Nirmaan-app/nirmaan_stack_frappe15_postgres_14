@@ -276,7 +276,8 @@ Once a Manager reviews the "Pending" `PO Revisions` document and decides to appr
         * It appends a tracking row to the Original PO's `payment_terms` table with the negative amount, and explicitly sets its status to **`"Return"`**. It labels this row `"Return - Vendor Refund"` to visibly track this on the PO level.
      2. **`Ad-hoc` (Expense Offset):** 
         * Similar to a refund, it creates a `"Paid"` `Project Payment` against the current PO for the negative amount.
-        * It appends a tracking term labeled `"Return - Adhoc [description]"` with a negative amount and status **`"Return"`**.
+        * It also instantiates a new `"Project Expenses"` document tracking this exact expense amount, attributing it to the original Vendor, current Project, and associating the user-selected `Expense Type` and description.
+        * Finally, it appends a tracking term labeled `"Return - Adhoc [description]"` with a negative amount and status **`"Return"`**.
      3. **`Against-po` (Contra Credit Transfer):** 
         This is the most complex flow. It moves the negative credit from the revised PO to effectively "pay off" future milestones on a completely different open PO for the exact same vendor.
         
