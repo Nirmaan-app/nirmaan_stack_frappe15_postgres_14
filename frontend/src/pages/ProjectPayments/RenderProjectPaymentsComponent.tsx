@@ -162,30 +162,32 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
             <Suspense fallback={
                 <LoadingFallback />
             }>
-                {tab === PP_TABS.APPROVE_PAYMENTS ? (
-                    <>
-                        {!canApprovePayments && (
-                            <Alert variant="default" className="border-blue-200 bg-blue-50 mb-4">
-                                <Info className="h-4 w-4 text-blue-600" />
-                                <AlertDescription className="text-sm text-blue-800">
-                                    These payments are pending approval from an admin. Contact an admin for urgent cases.
-                                </AlertDescription>
-                            </Alert>
-                        )}
-                        <ApprovePayments readOnly={!canApprovePayments} />
-                    </>
-                ) :
-
-                    [PP_TABS.NEW_PAYMENTS].includes(tab as any) ?
-                        (
-                            <AccountantTabs />
-                        ) : [PP_TABS.PAYMENTS_PENDING, PP_TABS.PAYMENTS_DONE, PP_TABS.ALL_PAYMENTS].includes(tab as any) ? (
-                            <AllPayments tab={tab} />
-                        )
-                            : (
-                                <ProjectPaymentsList />
+                {
+                    tab === PP_TABS.APPROVE_PAYMENTS ? (
+                        <>
+                            {!canApprovePayments && (
+                                <Alert variant="default" className="border-blue-200 bg-blue-50 mb-4">
+                                    <Info className="h-4 w-4 text-blue-600" />
+                                    <AlertDescription className="text-sm text-blue-800">
+                                        These payments are pending approval from an admin. Contact an admin for urgent cases.
+                                    </AlertDescription>
+                                </Alert>
                             )}
-            </Suspense>
-        </div>
+                            <ApprovePayments readOnly={!canApprovePayments} />
+                        </>
+                    ) :
+
+                        [PP_TABS.NEW_PAYMENTS].includes(tab as any) ?
+                            (
+                                <AccountantTabs />
+                            ) : [PP_TABS.PAYMENTS_PENDING, PP_TABS.PAYMENTS_DONE, PP_TABS.ALL_PAYMENTS].includes(tab as any) ? (
+                                <AllPayments tab={tab} />
+                            )
+                                : (
+                                    <ProjectPaymentsList />
+                                )
+                }
+            </Suspense >
+        </div >
     );
 };
