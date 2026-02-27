@@ -56,6 +56,12 @@ export const PORevisionDialog: React.FC<PORevisionDialogProps> = (props) => {
         setStep(2);
     } else if (step === 2) {
         if (difference.inclGst > 0) {
+            const hasInvalidTerm = paymentTerms.some(t => !t.term.trim() || t.amount <= 0);
+            if (hasInvalidTerm) {
+                toast({ title: "Incomplete Payment Terms", description: "Please ensure all added payment terms have a description and an amount greater than 0.", variant: "destructive" });
+                return;
+            }
+
             const totalAllocated = paymentTerms.reduce((s,t) => s+t.amount, 0);
             if (Math.abs(totalAllocated - Math.abs(difference.inclGst)) > 1) {
                 toast({ title: "Allocation Mismatch", description: "Please allocate the full difference amount to payment terms.", variant: "destructive" });
