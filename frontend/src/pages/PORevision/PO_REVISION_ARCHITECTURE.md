@@ -270,8 +270,33 @@ Once a Manager reviews the "Pending" `PO Revisions` document and decides to appr
         * If no `"Created"` term exists, it instead appends a brand new row to the PO's `payment_terms` table, carefully inheriting the `payment_type` from existing terms and setting status to `"Created"`. If the inherited payment type is `"Credit"`, it additionally sets the `due_date` of this new term to `today + 2 days`.
      3. **Percentage Rebalancing:** Because the PO's total has increased, it loops through *all* payment terms (old and new) and forcefully recalculates their `percentage` field (`(amount / new_total) * 100`) so they precisely sum to 100%.
      4. **Save Draft Changes:** Finally, it updates the JSON payload in the draft to reflect the newly calculated percentages, and saves the Original PO (again, using `ignore_validate_update_after_submit = True`).
-   * **If < 0 (Negative Flow):** It calls `process_negative_returns`. This either generates a new Ad-hoc Expense Payment, logs a Vendor Refund, or creates a contra Target PO Payment row.
-
+   * **If < 0 (Negative Flow):** It calls `process_negative_returns`. This function is strictly responsible for routing the "excess" money that the vendor now owes us back onto the books. It parses `payment_return_details` for `"Refund Adjustment"`. Depending on the `return_type` selected on the frontend, it executes one of three paths:
+     1. **`Vendor-has-refund` (Direct Refund):** 
+        * It creates a real `"Paid"` `Project Payments` document against the current PO for a *negative* amount (representing cash coming back).
+        * It appends a tracking row to the Original PO's `payment_terms` table with the negative amount, and explicitly sets its status to **`"Return"`**. It labels this row `"Return - Vendor Refund"` to visibly track this on the PO level.
+     2. **`Ad-hoc` (Expense Offset):** 
+        * Similar to a refund, it creates a `"Paid"` `Project Payment` against the current PO for the negative amount.
+        * It appends a tracking term labeled `"Return - Adhoc [description]"` with a negative amount and status **`"Return"`**.
+     3. **`Against-po` (Contra Credit Transfer):** 
+        This is the most complex flow. It moves the negative credit from the revised PO to effectively "pay off" future milestones on a completely different open PO for the exact same vendor.
+        
+        * **What happens to the ORIGINAL PO (The one being revised):**
+          * It generates a real `Project Payment` record for a *negative* amount against this Original PO to represent the credit note out.
+          * It appends a tracking term to the Original PO's `payment_terms` table labeled `"Return - Against PO [Target PO ID]"`. Its amount is negative and its status is **`"Return"`**. This visibly closes the loop on the Original PO UI to show exactly where the credit went.
+          
+        * **What happens to the TARGET PO (The one receiving the credit):**
+          * It generates a real, positive `"Paid"` `Project Payment` assigned directly to this Target PO to represent the credit "arriving".
+          * **Target PO Payment Term Split (`_split_target_po_term`):** It physically opens the Target PO document and actively applies the credit to its future milestones:
+             1. It loops through the Target PO's `payment_terms` from top to bottom.
+             2. It targets terms where `term_status == "Created"` (unpaid future milestones).
+             3. When it finds one, it **reduces** that term's `amount` by the credit limit.
+             4. Immediately beneath it, it **inserts a new row** labeled `"[Original Label] (Credit from PO [Source Original PO])"`. It sets this new row's status strictly to **`"Paid"`** and permanently links it to the positive Project Payment. This effectively "reserves" and pays off that chunk of the milestone early, so a future Goods Receipt doesn't try to bill for it again.
+             5. If there is still credit leftover, it cascades down the list to the next `"Created"` term and repeats the split.
+             6. Finally, it forcefully recalculates the percentages on the Target PO so they gracefully sum back to 100%, and saves the Target PO to the database.
+             
+        * Note: If any piece of the `Against-po` transfer fails (for instance, if the Target PO happens to be locked, or doesn't actually have enough unpaid terms left to absorb the credit limit), the *entire* approval transaction safely rolls back, protecting both the Original and Target POs from partial corruption.
+     
+     **Final Negative Step (LIFO Reduction):** After routing the return money, the API loops back to the Original PO. Because the overall PO essentially costs less now, it executes a Last-In, First-Out (LIFO) reduction (`_reduce_payment_terms_lifo`). It takes the unpaid `"Created"` payment terms starting from the bottom of the list and shrinks them until they perfectly account for the new, cheaper `Grand Total`, preserving the percentages.
 4. **Step 3: Finalizing the Draft**
    It changes the `PO Revisions` document status to `"Approved"` and calls `.save(ignore_permissions=True)` to confirm the draft is executed.
 
