@@ -20,8 +20,8 @@ export const Step2PositiveFlow: React.FC<Step2PositiveFlowProps> = ({
   difference,
   poName,
 }) => {
-  const totalAllocated = paymentTerms.reduce((s, t) => s + t.amount, 0);
-  const remainingToAllocate = Math.abs(difference.inclGst) - totalAllocated;
+  const totalAllocated = Math.round(paymentTerms.reduce((s, t) => s + t.amount, 0) * 100) / 100;
+  const remainingToAllocate = Math.round((Math.abs(difference.inclGst) - totalAllocated) * 100) / 100;
   const isFullyAllocated = Math.abs(remainingToAllocate) < 1;
 
   return (
@@ -48,18 +48,24 @@ export const Step2PositiveFlow: React.FC<Step2PositiveFlowProps> = ({
         </div>
 
         {/* Remaining Balance Banner */}
-        <div className="bg-amber-50/80 p-4 rounded-xl border border-amber-100 flex items-center justify-between">
-            <div className="flex items-center gap-3 pl-2">
-                <div className="h-5 w-5 rounded-full bg-amber-100 flex items-center justify-center">
-                    <Info className="h-3 w-3 text-amber-600" />
+        <div className="bg-amber-50/80 p-4 rounded-xl border border-amber-100 space-y-2">
+            <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3 pl-2">
+                    <div className="h-5 w-5 rounded-full bg-amber-100 flex items-center justify-center">
+                        <Info className="h-3 w-3 text-amber-600" />
+                    </div>
+                    <p className="text-sm font-bold text-amber-800 tracking-tight">Remaining Balance to Allocate</p>
                 </div>
-                <p className="text-sm font-bold text-amber-800 tracking-tight">Remaining Balance to Allocate</p>
+                <p className="text-xl font-black text-amber-700 pr-4">
+                    {formatToIndianRupee(remainingToAllocate)}
+                </p>
             </div>
-            <p className="text-xl font-black text-amber-700 pr-4">
-                {formatToIndianRupee(remainingToAllocate)}
-            </p>
+            <div className="flex items-center gap-6 pl-10 text-[11px]">
+                <span className="text-amber-700/70">Diff (Excl. GST): <span className="font-semibold text-amber-900">{formatToIndianRupee(Math.abs(difference.exclGst))}</span></span>
+                <span className="text-amber-700/70">Diff (Incl. GST): <span className="font-semibold text-amber-900">{formatToIndianRupee(Math.abs(difference.inclGst))}</span></span>
+                <span className="text-amber-700/70">Total Allocated: <span className="font-semibold text-amber-900">{formatToIndianRupee(totalAllocated)}</span></span>
+            </div>
         </div>
-
         <div className="space-y-4">
             <div className="flex items-center justify-between">
                 <h3 className="font-bold text-[14px] text-gray-800">Payment Rectification</h3>
@@ -102,10 +108,17 @@ export const Step2PositiveFlow: React.FC<Step2PositiveFlowProps> = ({
                                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">₹</span>
                                         <Input
                                             type="number"
+                                            min={0}
+                                            step="0.01"
                                             value={term.amount || ""}
                                             onChange={(e) => {
+                                                const val = parseFloat(e.target.value) || 0;
+                                                const rounded = Math.round(val * 100) / 100;
+                                                const otherAllocated = Math.round(paymentTerms.reduce((s, t, i) => i === index ? s : s + t.amount, 0) * 100) / 100;
+                                                const maxAllowed = Math.round((Math.abs(difference.inclGst) - otherAllocated) * 100) / 100;
+                                                const clamped = Math.min(Math.max(0, rounded), maxAllowed);
                                                 const newTerms = [...paymentTerms];
-                                                newTerms[index].amount = parseFloat(e.target.value) || 0;
+                                                newTerms[index].amount = clamped;
                                                 setPaymentTerms(newTerms);
                                             }}
                                             className="h-9 pl-6 bg-white border-slate-100 text-xs font-bold text-slate-900 rounded-lg focus:ring-blue-100 focus:border-blue-200"
