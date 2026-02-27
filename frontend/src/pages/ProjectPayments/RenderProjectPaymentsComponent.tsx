@@ -20,9 +20,11 @@ const PaymentSummaryCards = React.lazy(() => import("./PaymentSummaryCards"));
 
 export const RenderProjectPaymentsComponent: React.FC = () => {
 
-    const { role } = useUserData();
+    const { role, user_id } = useUserData();
 
     const { counts } = useDocCountStore()
+
+    const canApprovePayments = user_id === "Administrator" || role === "Nirmaan Admin Profile";
 
     // --- Tab State Management ---
     const isAdmin = useMemo(() => PP_ADMIN_ROLES.includes(role), [role]);

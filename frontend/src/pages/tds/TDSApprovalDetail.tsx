@@ -254,8 +254,7 @@ export const TDSApprovalDetail: React.FC = () => {
 
     const ALLOWED_APPROVER_ROLES = [
         "Nirmaan Admin Profile",
-        "Nirmaan Project Lead Profile", 
-        "Nirmaan PMO Executive Profile",
+        "Nirmaan Project Lead Profile",
     ];
 
     const canApprove = user_id === "Administrator" || (!!role && ALLOWED_APPROVER_ROLES.includes(role));
