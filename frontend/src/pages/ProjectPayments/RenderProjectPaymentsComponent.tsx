@@ -7,6 +7,8 @@ import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { Radio } from "antd";
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useFrappeGetCall } from "frappe-react-sdk";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Info } from "lucide-react";
 
 
 const ApprovePayments = React.lazy(() => import("./approve-payments/ApprovePayments"));
@@ -17,9 +19,11 @@ const PaymentSummaryCards = React.lazy(() => import("./PaymentSummaryCards"));
 
 export const RenderProjectPaymentsComponent: React.FC = () => {
 
-    const { role } = useUserData();
+    const { role, user_id } = useUserData();
 
     const { counts } = useDocCountStore()
+
+    const canApprovePayments = user_id === "Administrator" || role === "Nirmaan Admin Profile";
 
     // --- Tab State Management ---
     const initialTab = useMemo(() => {
@@ -27,7 +31,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
         const accountantDefault = "New Payments";
         const userDefault = "Payments Done";
         const remDefault = "PO Wise";
-        return getUrlStringParam("tab", (role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile") ? adminDefault : role === "Nirmaan Accountant Profile" ? accountantDefault : ["Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role) ? userDefault : remDefault);
+        return getUrlStringParam("tab", role === "Nirmaan Admin Profile" ? adminDefault : role === "Nirmaan Accountant Profile" ? accountantDefault : ["Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role) ? userDefault : remDefault);
     }, [role]); // Calculate only once based on role
 
     const [tab, setTab] = useState<string>(initialTab);
@@ -62,20 +66,18 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
     }, [tab]);
 
     const adminTabs = useMemo(() => [
-        ...(["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role) ? [
-            {
-                label: (
-                    <div className="flex items-center">
-                        <span>Approve Payments</span>
-                        <span className="ml-2 text-xs font-bold">
-                            {counts.pay.requested}
-                        </span>
-                    </div>
-                ),
-                value: "Approve Payments",
-            },
-        ] : [])
-    ], [role, counts])
+        {
+            label: (
+                <div className="flex items-center">
+                    <span>Approve Payments</span>
+                    <span className="ml-2 text-xs font-bold">
+                        {counts.pay.requested}
+                    </span>
+                </div>
+            ),
+            value: "Approve Payments",
+        },
+    ], [counts])
 
     const items = useMemo(() => [
         ...(["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile"].includes(role) ? [
@@ -200,7 +202,17 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                 <LoadingFallback />
             }>
                 {tab === "Approve Payments" ? (
-                    <ApprovePayments />
+                    <>
+                        {!canApprovePayments && (
+                            <Alert variant="default" className="border-blue-200 bg-blue-50 mb-4">
+                                <Info className="h-4 w-4 text-blue-600" />
+                                <AlertDescription className="text-sm text-blue-800">
+                                    These payments are pending approval from an admin. Contact an admin for urgent cases.
+                                </AlertDescription>
+                            </Alert>
+                        )}
+                        <ApprovePayments readOnly={!canApprovePayments} />
+                    </>
                 ) :
 
                     ["New Payments"].includes(tab) ?
