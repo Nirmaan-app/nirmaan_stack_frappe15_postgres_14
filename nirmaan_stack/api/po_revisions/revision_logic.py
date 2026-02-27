@@ -398,20 +398,41 @@ def process_positive_increase(revision_doc):
                         for st in submitted_terms:
                             term_id = st.get("id")
                             if term_id and term_id in existing_terms:
-                                # Update existing term
+                                # Update existing term (if passed explicitly)
                                 target = existing_terms[term_id]
                                 target.amount = flt(st.get("amount"))
                                 target.label = st.get("label")
                             else:
-                                # Append new term
-                                original_po.append("payment_terms", {
-                                    "label": st.get("label"),
-                                    "amount": flt(st.get("amount")),
-                                    "vendor": original_po.vendor,
-                                    "project": original_po.project,
-                                    "term_status": "Created",
-                                    "payment_type": existing_payment_type
-                                })
+                                # Try to merge into an existing 'Created' term first
+                                merge_target = None
+                                for term in original_po.get("payment_terms", []):
+                                    if term.term_status == "Created":
+                                        merge_target = term
+                                        break
+                                
+                                if merge_target:
+                                    # Merge into the existing unpaid term
+                                    merge_target.amount += flt(st.get("amount"))
+                                    # Update label intelligently
+                                    new_label = st.get("label", "").strip()
+                                    if new_label and new_label.lower() not in (merge_target.label or "").lower():
+                                        merge_target.label = f"{merge_target.label} + {new_label}"
+                                else:
+                                    # Fallback: Append a brand new term
+                                    new_term_data = {
+                                        "label": st.get("label"),
+                                        "amount": flt(st.get("amount")),
+                                        "vendor": original_po.vendor,
+                                        "project": original_po.project,
+                                        "term_status": "Created",
+                                        "payment_type": existing_payment_type
+                                    }
+                                    
+                                    # If the inherited payment type is Credit, set due_date to today + 2 days
+                                    if existing_payment_type == "Credit":
+                                        new_term_data["due_date"] = frappe.utils.add_days(frappe.utils.nowdate(), 2)
+                                        
+                                    original_po.append("payment_terms", new_term_data)
 
                         # 2. Recalculate percentages for ALL terms on the PO based on final grand total
                         if new_total > 0:
