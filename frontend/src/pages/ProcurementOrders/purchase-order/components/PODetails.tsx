@@ -763,19 +763,19 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       {/* Total Amount of Invoices Uploaded */}
                       <div className="space-y-0.5">
-                          <p className="text-xs text-gray-500">Total Invoices Uploaded</p>
+                          <p className="text-xs text-gray-500">Overall Invoices Amount</p>
                           <p className="text-sm font-semibold">{totalUploadedInvoiceAmount ? formatToRoundedIndianRupee(totalUploadedInvoiceAmount) : "--"}</p>
                       </div>
 
                       {/* Invoices Pending Approval */}
                       <div className="space-y-0.5">
-                          <p className="text-xs text-gray-500">Invoices Pending Approval</p>
+                          <p className="text-xs text-gray-500">Invoices Amount Approval Pending</p>
                           <p className="text-sm font-semibold">{totalPendingInvoiceAmount ? formatToRoundedIndianRupee(totalPendingInvoiceAmount) : "--"}</p>
                       </div>
 
                       {/* Total Invoices Approved */}
                       <div className="space-y-0.5">
-                          <p className="text-xs text-gray-500">Total Invoices Approved</p>
+                          <p className="text-xs text-gray-500">Invoices Amount Approved</p>
                           <p className="text-sm font-semibold">{totalApprovedInvoiceAmount ? formatToRoundedIndianRupee(totalApprovedInvoiceAmount) : "--"}</p>
                       </div>
                   </div>
