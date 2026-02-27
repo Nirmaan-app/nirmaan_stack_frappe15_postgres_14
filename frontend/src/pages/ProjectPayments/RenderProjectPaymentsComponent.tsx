@@ -8,9 +8,8 @@ import React, { Suspense, useCallback, useEffect, useMemo, useState } from "reac
 import { useFrappeGetCall } from "frappe-react-sdk";
 // --- Tab Configuration ---
 import {
-    PP_TABS,PP_ADMIN_TAB_OPTIONS,PP_NEW_PAYMENTS_TAB_OPTIONS,PP_REM_TAB_OPTIONS,PP_ALL_TAB_OPTIONS,PP_ADMIN_ROLES,PP_ACCOUNTANT_ROLES,PP_PROJECT_ROLES,PPTabOption,
+    PP_TABS, PP_ADMIN_TAB_OPTIONS, PP_NEW_PAYMENTS_TAB_OPTIONS, PP_REM_TAB_OPTIONS, PP_ALL_TAB_OPTIONS, PP_ADMIN_ROLES, PP_ACCOUNTANT_ROLES, PP_PROJECT_ROLES, PPTabOption,
 } from "./config/ppTabs.constants";
-
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Info } from "lucide-react";
 
