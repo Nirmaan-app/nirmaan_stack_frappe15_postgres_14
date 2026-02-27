@@ -8,6 +8,11 @@ def make_po_revisions(po_id, justification, revision_items, total_amount_differe
     """
     Creates a new draft 'PO Revisions' entry from an existing 'Procurement Orders'
     and populates it with revision data.
+
+    Use Case: Called when a user submits "Revise PO" on the frontend.
+    What it does: Safely stores requested item changes (New, Revised, Replace, Deleted)
+    and financial adjustments as a 'Pending' revision, without modifying the original,
+    locked Procurement Order.
     """
     try:
         po = frappe.get_doc("Procurement Orders", po_id)
@@ -91,6 +96,10 @@ def _split_target_po_term(target_po_id, transfer_amount, payment_name, source_po
     """
     Finds the first available 'Created' term on the Target PO, reduces it,
     and inserts a new 'Credit' term right below it linked to the payment.
+
+    Use Case: Used during the negative revision flow when excess credit is transferred "Against-po".
+    What it does: Accurately reduces the target PO's pending payments by the credit amount
+    from the revised source PO.
     """
     target_po = frappe.get_doc("Procurement Orders", target_po_id)
     if not target_po.payment_terms: return
@@ -144,6 +153,12 @@ def on_approval_revision(revision_name):
     """
     Handles the actual application of changes to the Original PO and financials.
     Triggered when the manager Approves the PO Revision.
+
+    Use Case: Executed when a manager clicks "Approve" on a pending PO Revision.
+    What it does: Orchestrates the application of changes:
+    1. Syncs item edits back to the original PO.
+    2. Calls positive flow logic if the total cost increased (asking for more money).
+    3. Calls negative flow logic if the total cost decreased (processing refunds/credits).
     """
     revision_doc = frappe.get_doc("PO Revisions", revision_name)
     
@@ -224,6 +239,10 @@ def on_approval_revision(revision_name):
 def _get_item_metadata(item_id):
     """
     Fetches category and procurement_package based on item_id.
+
+    Use Case: Helper function used when adding new items to a PO during a revision.
+    What it does: Retrieves necessary metadata (category, work package) for a new item 
+    so it can be correctly tracked on the original PO.
     """
     if not item_id:
         return None, None
@@ -237,6 +256,11 @@ def _get_item_metadata(item_id):
 def sync_original_po_items(revision_doc):
     """
     Mirrors item changes (Original, New, Revised, Replace, Deleted) back to the Original PO.
+
+    Use Case: Step 1 of the Approval process.
+    What it does: Matches up the revision items with the original PO items and applies
+    the actual modifications (updating values, adding new rows, deleting rows) to the 
+    original Procurement Order.
     """
     original_po = frappe.get_doc("Procurement Orders", revision_doc.revised_po)
     
@@ -330,6 +354,11 @@ def process_positive_increase(revision_doc):
     """
     Handles cost increases: Updates existing terms, appends new ones,
     and recalculates percentages for ALL terms based on the new PO total.
+
+    Use Case: Step 2 of the Approval process (Positive Flow).
+    What it does: When a revision makes the PO more expensive, it recalculates the grand total,
+    adds newly agreed-upon payment terms for the extra cost, and rebalances the percentages of 
+    all existing terms to sum to 100%.
     """
     data = revision_doc.payment_return_details
     if isinstance(data, str):
@@ -396,14 +425,20 @@ def process_positive_increase(revision_doc):
                                 st["percentage"] = flt((flt(st.get("amount")) / new_total) * 100, 2)
         
         # 4. Save original PO with reconciled terms and percentages
-        # original_po.flags.ignore_validate_update_after_submit = True
+        original_po.flags.ignore_validate_update_after_submit = True
         original_po.save(ignore_permissions=True)
             
     revision_doc.payment_return_details = json.dumps(data)
 
 
 def _create_project_payment(po_id, project, vendor, amt, status):
-    """Internal helper to create a Project Payment record without appending terms."""
+    """
+    Internal helper to create a Project Payment record without appending terms.
+
+    Use Case: Helper function used during the negative revision flow (refunds/credits).
+    What it does: Creates standalone Project Payment records to track money moving 
+    in (refunds) or out (credits transferred to other POs).
+    """
     pay = frappe.new_doc("Project Payments")
     pay.document_type = "Procurement Orders"
     pay.document_name = po_id
@@ -423,7 +458,13 @@ def _create_project_payment(po_id, project, vendor, amt, status):
     return pay
 
 def _append_return_payment_term(po_doc, payment_doc, term_label, amt):
-    """Internal helper to add a Return/Adjustment term row to the existing PO in memory."""
+    """
+    Internal helper to add a Return/Adjustment term row to the existing PO in memory.
+
+    Use Case: Helper function used during the negative revision flow.
+    What it does: Appends a specific tracking row ("Return" or "Paid") to the PO's 
+    payment terms to reflect refunds or credits explicitly on the UI.
+    """
     existing_payment_type = "Cash"
     if po_doc.payment_terms:
         existing_payment_type = po_doc.payment_terms[0].payment_type
@@ -441,7 +482,14 @@ def _append_return_payment_term(po_doc, payment_doc, term_label, amt):
     })
 
 def _reduce_payment_terms_lifo(original_po, reduction_needed, new_total):
-    """Reduces modifiable terms bottom-up strictly according to reduction needed."""
+    """
+    Reduces modifiable terms bottom-up strictly according to reduction needed.
+
+    Use Case: Helper function used during the negative revision flow.
+    What it does: Adjusts the original PO's un-paid payment terms from the bottom up 
+    (Last-In, First-Out), essentially canceling out future payments that are no longer 
+    needed due to items being made cheaper or removed.
+    """
     locked_terms = [t for t in original_po.payment_terms if t.term_status in ["Paid", "Requested", "Approved"] and "Return" not in (t.label or "")]
     modifiable_terms = [t for t in original_po.payment_terms if t.term_status in ["Created"] and "Return" not in (t.label or "")]
     locked_amount = sum(flt(t.amount) for t in locked_terms)
@@ -502,6 +550,11 @@ def process_negative_returns(revision_doc):
     Handles when total_amount_difference < 0 upon Approval.
     Creates all necessary Project Payments (Out and In), splits Target PO terms,
     and appends Return terms on the Original PO only upon Approval.
+
+    Use Case: Step 2 of the Approval process (Negative Flow).
+    What it does: Handles complex accounting when a PO becomes cheaper. It can create a direct 
+    refund, transfer credit to another open PO for the exact same vendor, and adjust the 
+    original PO's future payment terms downwards.
     """
     data = revision_doc.payment_return_details
     if isinstance(data, str):
@@ -592,6 +645,10 @@ def on_reject_revision(revision_name):
     """
     Handles the rejection or cancellation of a PO Revision.
     Since payments and terms are no longer created upfront, this just marks the revision rejected.
+
+    Use Case: Executed when a manager clicks "Reject" on a PO Revision.
+    What it does: Cancels the revision request simply by marking its status as "Rejected". 
+    Since financial/item changes are deferred until approval, no complex rollback is needed.
     """
     revision_doc = frappe.get_doc("PO Revisions", revision_name)
     
@@ -615,6 +672,10 @@ def get_adjustment_candidate_pos(vendor, current_po):
     """
     Returns a list of approved POs for the same vendor that could potentially 
     receive a payment adjustment 'In'.
+
+    Use Case: Used by the frontend dropdown during a Negative Revision.
+    What it does: Fetches a list of other active, approved Procurement Orders for the 
+    same vendor where excess credit from a revision could be transferred.
     """
     return frappe.get_all("Procurement Orders", 
         filters={
