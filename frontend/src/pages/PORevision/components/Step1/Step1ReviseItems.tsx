@@ -1,6 +1,8 @@
 import React from "react";
+import { useToast } from "@/components/ui/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Info, ClipboardList, Plus, Undo, Trash2, Edit3 } from "lucide-react";
+import { Info, ClipboardList, Plus, Undo, Trash2, Edit3, Eye } from "lucide-react";
+import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableHeader, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
@@ -43,6 +45,8 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
   netImpact,
   itemOptions = [],
 }) => {
+  const { toast } = useToast();
+
   return (
     <div className="space-y-8">
       <Alert className="bg-blue-50 border-blue-100 py-3">
@@ -68,7 +72,8 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
           <Table>
             <TableHeader className="bg-gray-50 text-[11px] uppercase text-gray-500">
               <TableRow>
-                <TableHead className="w-[350px] pl-4">ITEM NAME</TableHead>
+                <TableHead className="w-[40px] pl-3"></TableHead>
+                <TableHead className="w-[340px]">ITEM NAME</TableHead>
                 <TableHead className="w-[200px]">MAKE</TableHead>
                 <TableHead className="w-[100px]">UNIT</TableHead>
                 <TableHead className="w-[100px]">QTY</TableHead>
@@ -86,7 +91,40 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
 
                 return (
                   <TableRow key={idx} className={`h-16 border-b last:border-0 ${isDeleted ? "opacity-30 grayscale pointer-events-none" : "hover:bg-gray-50/50"}`}>
-                    <TableCell className="pl-4">
+                    <TableCell className="pl-3 pr-0">
+                      <HoverCard openDelay={100} closeDelay={100}>
+                        <HoverCardTrigger asChild>
+                          <button className="p-1 rounded hover:bg-gray-100 transition-colors">
+                            <Eye className="h-3.5 w-3.5 text-red-500" />
+                          </button>
+                        </HoverCardTrigger>
+                        <HoverCardContent side="right" align="start" className="w-64 p-3 text-xs space-y-2">
+                          <p className="font-bold text-gray-900 text-[11px] uppercase tracking-wide">Item Info</p>
+                          <div className="space-y-1.5 text-gray-600">
+                            <div className="flex justify-between"><span>Type:</span><span className="font-semibold text-gray-900">{item.item_type}</span></div>
+                            <div className="flex justify-between"><span>Received Qty:</span><span className="font-semibold text-gray-900">{item.received_quantity || 0}</span></div>
+                            <div className="flex justify-between"><span>Min Qty Allowed:</span><span className="font-semibold text-gray-900">{(item.item_type !== 'New' && item.received_quantity) ? item.received_quantity : 0}</span></div>
+                            <div className="flex justify-between"><span>Current Qty:</span><span className="font-semibold text-gray-900">{item.quantity || 0}</span></div>
+                          </div>
+                          {(item.received_quantity || 0) > 0 && (
+                            <div className="bg-yellow-50 border border-yellow-100 rounded p-2 text-[10px] text-yellow-800">
+                              <strong>⚠ Partially delivered.</strong> Item name, unit cannot be changed. Qty cannot go below {item.received_quantity}. So,Delete is disabled.
+                            </div>
+                          )}
+                          {isDeleted && (
+                            <div className="bg-red-50 border border-red-100 rounded p-2 text-[10px] text-red-700">
+                              <strong>✖ Marked for deletion.</strong> This item will be removed from the PO.
+                            </div>
+                          )}
+                          {item.item_type === 'New' && (
+                            <div className="bg-green-50 border border-green-100 rounded p-2 text-[10px] text-green-700">
+                              <strong>✚ New item.</strong> All fields are editable. Can be freely deleted.
+                            </div>
+                          )}
+                        </HoverCardContent>
+                      </HoverCard>
+                    </TableCell>
+                    <TableCell>
                       {item.item_type !== 'Deleted'  && item.item_type !== 'Revised' ? (
                         <ReactSelect
                           options={itemOptions.filter(opt => !revisionItems.some(ri => ri.item_id === opt.item_id && ri.item_type !== 'Deleted'))}
@@ -199,8 +237,12 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                            const val = parseFloat(e.target.value) || 0;
                            const minQty = (item.item_type !== 'New' && item.received_quantity) ? item.received_quantity : 0;
                            if (val < minQty) {
-                               // Optional: could toast a warning here, but simply ignoring the invalid input or capping it works best
                                handleUpdateItem(idx, { quantity: minQty });
+                               toast({
+                                 title: "Minimum Qty Reached",
+                                 description: `Qty cannot go below ${minQty} (already delivered). Check the 👁 eye icon for details.`,
+                                 variant: "destructive",
+                               });
                            } else {
                                handleUpdateItem(idx, { quantity: val });
                            }
