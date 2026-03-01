@@ -1,0 +1,101 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-02-21 13:44:37.543083",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "reference_links_section",
+  "revised_po",
+  "project",
+  "vendor",
+  "section_break_jaet",
+  "revision_justification",
+  "total_amount_difference",
+  "status",
+  "revision_items",
+  "payment_return_details"
+ ],
+ "fields": [
+  {
+   "fieldname": "revised_po",
+   "fieldtype": "Link",
+   "label": "Revised PO",
+   "options": "Procurement Orders"
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Projects"
+  },
+  {
+   "fieldname": "vendor",
+   "fieldtype": "Link",
+   "label": "Vendor",
+   "options": "Vendors"
+  },
+  {
+   "fieldname": "reference_links_section",
+   "fieldtype": "Section Break",
+   "label": "Reference Links"
+  },
+  {
+   "fieldname": "section_break_jaet",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "revision_justification",
+   "fieldtype": "Text",
+   "label": "Revision Justification"
+  },
+  {
+   "fieldname": "total_amount_difference",
+   "fieldtype": "Currency",
+   "label": "Total Amount Difference"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Data",
+   "label": "Status"
+  },
+  {
+   "fieldname": "revision_items",
+   "fieldtype": "Table",
+   "label": "Revision Items",
+   "options": "PO Revisions Items"
+  },
+  {
+   "fieldname": "payment_return_details",
+   "fieldtype": "JSON",
+   "label": "Payment Return Details"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-02-21 13:51:29.949270",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "PO Revisions",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -130,6 +130,7 @@ import { safeJsonParse } from "@/pages/DeliveryNotes/constants";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { PaymentTerm, POTotals, DeliveryDataType } from "@/types/NirmaanStack/ProcurementOrders";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
+import { PORevisionWarning } from "@/pages/PORevision/PORevisionWarning";
 
 interface PurchaseOrderProps {
   summaryPage?: boolean;
@@ -1141,7 +1142,25 @@ export const PurchaseOrder = ({
   );
 
   const totalInvoiceAmount = useMemo(
-    () => getTotalVendorInvoiceAmount(vendorInvoices),
+    () =>
+      vendorInvoices
+        ?.reduce((sum, inv) => sum + (inv.invoice_amount || 0), 0) || 0,
+    [vendorInvoices]
+  );
+
+  const totalPendingInvoiceAmount = useMemo(
+    () =>
+      vendorInvoices
+        ?.filter((inv) => inv.status === "Pending")
+        .reduce((sum, inv) => sum + (inv.invoice_amount || 0), 0) || 0,
+    [vendorInvoices]
+  );
+
+  const totalApprovedInvoiceAmount = useMemo(
+    () =>
+      vendorInvoices
+        ?.filter((inv) => inv.status === "Approved")
+        .reduce((sum, inv) => sum + (inv.invoice_amount || 0), 0) || 0,
     [vendorInvoices]
   );
 
@@ -1260,6 +1279,7 @@ export const PurchaseOrder = ({
 
   return (
     <div className="flex-1 space-y-4">
+      <PORevisionWarning poId={poId} />
       {MERGEPOVALIDATIONS && (
         <>
           <Alert variant="warning" className="">
@@ -1553,6 +1573,9 @@ export const PurchaseOrder = ({
         togglePoPdfSheet={togglePoPdfSheet}
         // getTotal={getTotal}
         totalInvoice={totalInvoiceAmount}
+        totalUploadedInvoiceAmount={totalInvoiceAmount}
+        totalPendingInvoiceAmount={totalPendingInvoiceAmount}
+        totalApprovedInvoiceAmount={totalApprovedInvoiceAmount}
         amountPaid={PO?.amount_paid}
         poMutate={poMutate}
       />

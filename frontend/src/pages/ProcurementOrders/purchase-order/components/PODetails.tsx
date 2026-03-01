@@ -56,7 +56,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import React, { useCallback, useRef, useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate } from "react-router-dom";
 import { VendorHoverCard } from "@/components/helpers/vendor-hover-card";
@@ -105,6 +105,7 @@ import { usePrintHistory } from "@/pages/DeliveryNotes/hooks/usePrintHistroy";
 import { UploadDCMIRDialog } from "@/pages/DeliveryChallansAndMirs/components/UploadDCMIRDialog";
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
+import { PORevisionDialog } from "@/pages/PORevision/PORevisionDialog";
 
 interface PODetailsProps {
   po: ProcurementOrder | null;
@@ -118,9 +119,12 @@ interface PODetailsProps {
     totalAmt: number
   }
   amountPaid: number
-  totalInvoice?: number
-  poMutate: any
-  toggleRequestPaymentDialog: () => void
+  totalInvoice?: number;
+  poMutate: any;
+  toggleRequestPaymentDialog: () => void;
+  totalUploadedInvoiceAmount?: number;
+  totalPendingInvoiceAmount?: number;
+  totalApprovedInvoiceAmount?: number;
 }
 
 
@@ -136,6 +140,9 @@ export const PODetails: React.FC<PODetailsProps> = ({
   totalInvoice,
   poMutate,
   toggleRequestPaymentDialog,
+  totalUploadedInvoiceAmount,
+  totalPendingInvoiceAmount,
+  totalApprovedInvoiceAmount,
 }) => {
   if (!po) return <div>No PO ID Provided</div>;
 
@@ -182,10 +189,34 @@ export const PODetails: React.FC<PODetailsProps> = ({
     number: "",
   });
 
+
   const [phoneNumber, setPhoneNumber] = useState("");
   const [email, setEmail] = useState("");
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
+
+  // PO Revision Lock status fetch
+  const [isLocked, setIsLocked] = useState(false);
+
+  const { call: fetchRevisionStatus } = useFrappePostCall(
+    "nirmaan_stack.api.po_revisions.revision_po_check.check_po_in_pending_revisions"
+  );
+
+  useEffect(() => {
+    if (po?.name) {
+      fetchRevisionStatus({ po_id: po.name })
+        .then((res) => {
+          if (res.message && res.message.is_locked) {
+            setIsLocked(true);
+          } else {
+            setIsLocked(false);
+          }
+        })
+        .catch((err) => console.error("Error fetching revision status:", err));
+    }
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [po?.name]);
 
   const [inactiveDialog, setInactiveDialog] = useState(false);
 
@@ -261,6 +292,8 @@ export const PODetails: React.FC<PODetailsProps> = ({
     poName: po?.name || "",
     enabled: dispatchPODialog && !!po?.project,
   });
+
+  const [openRevisionDialog, setOpenRevisionDialog] = useState(false);
 
   const handlePhoneChange = useCallback((e: any) => {
     const value = e.target.value.replace(/\D/g, "").slice(0, 10);
@@ -690,6 +723,62 @@ export const PODetails: React.FC<PODetailsProps> = ({
                     {po?.po_amount_delivered ? formatToRoundedIndianRupee(po?.po_amount_delivered) : "--"}
                   </p>
                 </div>
+              </div>
+
+              {/* Invoice Statistics Row */}
+              <div className="flex  items-center mb-2 mt-4 pt-3 border-t border-dashed border-gray-200">
+                  <p className="text-[10px] mr-5 font-semibold text-gray-400 uppercase tracking-wider">Invoices</p>
+              {/* Conditional Revision Warning or Standard Link */}
+              {["Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) && !isLocked && (
+                  (totalUploadedInvoiceAmount  && po?.total_amount && Math.abs(totalUploadedInvoiceAmount - po.total_amount) > 1) ? (
+                      <div className="flex items-center text-xs text-red-500 bg-red-50 px-2 py-1 rounded">
+                          <span className="mr-1">Total PO Amount and Total Invoice Amount is not matching. Revise the PO to handle this amount change?</span>
+                           <Button
+                               variant="link"
+                               size="sm"
+                               className="text-xs h-auto p-0 text-blue-600 font-semibold underline"
+                               onClick={() => {
+                                   setOpenRevisionDialog(true);
+                               }}
+                           >
+                               Revise PO
+                           </Button>
+                      </div>
+                  ) : (
+                      // <Button
+                      //     variant="link"
+                      //     size="sm"
+                      //     className="text-[10px] h-auto p-0 text-blue-600 font-semibold uppercase tracking-wider"
+                      //     onClick={() => {
+                      //         setOpenRevisionDialog(true);
+                      //     }}
+                      // >
+                      //     Revision PO
+                      // </Button> 
+                      ""
+                  )
+              )}
+              </div>
+              <div className="">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      {/* Total Amount of Invoices Uploaded */}
+                      <div className="space-y-0.5">
+                          <p className="text-xs text-gray-500">Overall Invoices Amount</p>
+                          <p className="text-sm font-semibold">{totalUploadedInvoiceAmount ? formatToRoundedIndianRupee(totalUploadedInvoiceAmount) : "--"}</p>
+                      </div>
+
+                      {/* Invoices Pending Approval */}
+                      <div className="space-y-0.5">
+                          <p className="text-xs text-gray-500">Invoices Amount Approval Pending</p>
+                          <p className="text-sm font-semibold">{totalPendingInvoiceAmount ? formatToRoundedIndianRupee(totalPendingInvoiceAmount) : "--"}</p>
+                      </div>
+
+                      {/* Total Invoices Approved */}
+                      <div className="space-y-0.5">
+                          <p className="text-xs text-gray-500">Invoices Amount Approved</p>
+                          <p className="text-sm font-semibold">{totalApprovedInvoiceAmount ? formatToRoundedIndianRupee(totalApprovedInvoiceAmount) : "--"}</p>
+                      </div>
+                  </div>
               </div>
             </div>
           )}
@@ -1508,6 +1597,16 @@ export const PODetails: React.FC<PODetailsProps> = ({
         </div>
         {PrintableHistoryComponent}
       </div>
+
+      <PORevisionDialog 
+        open={openRevisionDialog} 
+        onClose={() => setOpenRevisionDialog(false)} 
+        po={po}
+        onSuccess={(revName) => {
+            // Success logic? Maybe redirect to the revision page if needed, 
+            // or just refresh.
+        }}
+      />
     </div>
   );
 };
