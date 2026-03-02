@@ -2,6 +2,10 @@ import frappe
 from frappe import _
 from frappe.utils import flt, nowdate
 import json
+from nirmaan_stack.api.delivery_notes.update_delivery_note import (
+    calculate_order_status,
+    calculate_delivered_amount,
+)
 
 @frappe.whitelist()
 def make_po_revisions(po_id, justification, revision_items, total_amount_difference, payment_return_details):
@@ -351,6 +355,13 @@ def sync_original_po_items(revision_doc):
     # Re-calculate parent totals if method exists
     if hasattr(original_po, 'calculate_totals_from_items'):
          original_po.calculate_totals_from_items()
+
+    # Re-evaluate delivery status after item sync
+    # If the PO was Partially Delivered, revised quantities may now match received quantities
+    if original_po.status in ("Partially Delivered", "Delivered"):
+        updated_items = original_po.get("items", [])
+        original_po.status = calculate_order_status(updated_items)
+        # original_po.po_amount_delivered = calculate_delivered_amount(updated_items)
          
     original_po.flags.ignore_validate_update_after_submit = True
     original_po.save(ignore_permissions=True)
@@ -715,24 +726,24 @@ def on_reject_revision(revision_name):
         frappe.log_error(frappe.get_traceback(), "PO Revision Rejection Error")
         frappe.throw(_("Rejection failed: {0}").format(str(e)))
 
-@frappe.whitelist()
-def get_adjustment_candidate_pos(vendor, current_po):
-    """
-    Returns a list of approved POs for the same vendor that could potentially 
-    receive a payment adjustment 'In'.
+# @frappe.whitelist()
+# def get_adjustment_candidate_pos(vendor, current_po):
+#     """
+#     Returns a list of approved POs for the same vendor that could potentially 
+#     receive a payment adjustment 'In'.
 
-    Use Case: Used by the frontend dropdown during a Negative Revision.
-    What it does: Fetches a list of other active, approved Procurement Orders for the 
-    same vendor where excess credit from a revision could be transferred.
-    """
-    return frappe.get_all("Procurement Orders", 
-        filters={
-            "vendor": vendor,
-            "docstatus": 1,
-            "name": ["!=", current_po],
-            "status": ["not in", ["Cancelled", "Closed"]]
-        },
-        fields=["name", "total_amount", "vendor_name", "creation", "project", "project_name"],
-        order_by="creation desc",
-        limit=50
-    )
+#     Use Case: Used by the frontend dropdown during a Negative Revision.
+#     What it does: Fetches a list of other active, approved Procurement Orders for the 
+#     same vendor where excess credit from a revision could be transferred.
+#     """
+#     return frappe.get_all("Procurement Orders", 
+#         filters={
+#             "vendor": vendor,
+#             "docstatus": 1,
+#             "name": ["!=", current_po],
+#             "status": ["not in", ["Cancelled", "Closed"]]
+#         },
+#         fields=["name", "total_amount", "vendor_name", "creation", "project", "project_name"],
+#         order_by="creation desc",
+#         limit=50
+#     )
