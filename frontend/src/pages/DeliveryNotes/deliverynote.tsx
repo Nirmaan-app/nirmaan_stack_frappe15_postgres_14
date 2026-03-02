@@ -1,7 +1,7 @@
 // // --- IMPORTS ---
 import React, { useMemo, useCallback, useRef } from 'react'; // Re-add useRef
 import { useNavigate } from 'react-router-dom';
-import { useReactToPrint } from 'react-to-print'; // Re-add useReactToPrint
+// import { useReactToPrint } from 'react-to-print';
 import { Printer } from 'lucide-react';
 import { TailSpin } from 'react-loader-spinner';
 import { format } from "date-fns";
@@ -16,7 +16,7 @@ import { AddressView } from '@/components/address-view';
 // Child Components
 import DeliveryHistoryTable from './components/DeliveryHistory';
 import { DeliveryNoteItemsDisplay } from './components/deliveryNoteItemsDisplay';
-import { DeliveryNotePrintLayout } from './components/DeliveryNotePrintLayout';
+import { DeliveryNotePrintLayout, type PrintData } from './components/DeliveryNotePrintLayout';
 
 // Hooks, Types, Constants
 import { useDeliveryNoteData } from './hooks/useDeliveryNoteData';
@@ -24,15 +24,13 @@ import { usePrintHistory } from './hooks/usePrintHistroy'; // Corrected typo her
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 
-import { DeliveryDataType, ProcurementOrder } from '@/types/NirmaanStack/ProcurementOrders';
+import { ProcurementOrder } from '@/types/NirmaanStack/ProcurementOrders';
 import {
   ROUTE_PATHS,
   STATUS_BADGE_VARIANT,
   DOCUMENT_PREFIX,
   encodeFrappeId,
   formatDisplayId,
-  safeJsonParse,
-  deriveDnIdFromPoId
 } from './constants';
 
 // --- HELPER COMPONENTS (no changes) ---
@@ -148,9 +146,10 @@ export default function DeliveryNote() {
     deliveryNoteId,
     poId,
     data: deliveryNoteData,
+    dnRecords,
     isLoading,
     error,
-    mutate: refetchDeliveryNoteData
+    mutate: refetchDeliveryNoteData,
   } = useDeliveryNoteData();
 
   // --- FIX: Revert to the original local print setup since the hook doesn't exist ---
@@ -210,34 +209,23 @@ export default function DeliveryNote() {
   const { triggerHistoryPrint, PrintableHistoryComponent } = usePrintHistory(deliveryNoteData);
 
   // CEO Hold check
-  const { isCEOHold } = useCEOHoldGuard(deliveryNoteData?.project);
-
-  // It's safe to call useMemo and useCallback even if deliveryNoteData is null initially.
-  // They will simply return their initial values and re-calculate on the next render.
-  const deliveryHistory = useMemo(() =>
-    safeJsonParse<{ data: DeliveryDataType }>(deliveryNoteData?.delivery_data, { data: {} }),
-    [deliveryNoteData?.delivery_data]
-  );
+  const { isCEOHold } = useCEOHoldGuard(deliveryNoteData?.project ?? undefined);
 
   const displayDnId = useMemo(() =>
-    formatDisplayId(deliveryNoteId, DOCUMENT_PREFIX.DELIVERY_NOTE),
+    formatDisplayId(deliveryNoteId ?? undefined, DOCUMENT_PREFIX.DELIVERY_NOTE),
     [deliveryNoteId]
   );
 
-  const latestHistoryEntry = useMemo(() => {
-    const historyData = deliveryHistory.data;
-    if (!historyData || Object.keys(historyData).length === 0) {
-      return null;
-    }
-    const sortedKeys = Object.keys(historyData).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
-    const latestKey = sortedKeys[0];
-    return { date: latestKey, entry: historyData[latestKey] };
-  }, [deliveryHistory.data]);
+  // Derive latest DN record from the dnRecords array (sorted by note_no asc from API)
+  const latestDnRecord = useMemo(() => {
+    if (!dnRecords || dnRecords.length === 0) return null;
+    return dnRecords[dnRecords.length - 1];
+  }, [dnRecords]);
 
   const handlePrintLatest = async (e: React.MouseEvent) => {
     e.stopPropagation();
 
-    if (!latestHistoryEntry) {
+    if (!latestDnRecord) {
        toast({
         title: "No History Available",
         description: "A delivery must be recorded before its note can be printed.",
@@ -250,7 +238,7 @@ export default function DeliveryNote() {
       return;
     }
 
-    const date = latestHistoryEntry.date;
+    const date = latestDnRecord.delivery_date;
 
     try {
       toast({ title: "Generating PDF", description: `Downloading note for ${format(new Date(date), "dd MMM")}...` });
@@ -335,7 +323,7 @@ export default function DeliveryNote() {
             onClick={handlePrintLatest}
             variant="outline"
             size="sm"
-            disabled={!latestHistoryEntry} // Disable if no history exists
+            disabled={!latestDnRecord} // Disable if no history exists
             className="w-full sm:w-auto"
           >
             <Printer className="h-4 w-4 mr-2" />
@@ -367,8 +355,8 @@ export default function DeliveryNote() {
             poMutate={refetchDeliveryNoteData}
           />
           <DeliveryHistoryTable
-          poId={poId}
-            deliveryData={deliveryHistory.data}
+            poId={poId}
+            dnRecords={dnRecords}
             onPrintHistory={triggerHistoryPrint}
           />
         </div>
@@ -376,7 +364,7 @@ export default function DeliveryNote() {
 
       {/* --- HIDDEN PRINTABLE COMPONENTS --- */}
       <div className="hidden print:block">
-        <DeliveryNotePrintLayout ref={printComponentRef} data={deliveryNoteData} />
+        <DeliveryNotePrintLayout ref={printComponentRef} data={deliveryNoteData as PrintData} />
       </div>
 
       {/* 

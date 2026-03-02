@@ -3,17 +3,15 @@ import { useUserData } from "@/hooks/useUserData";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import DeliveryHistoryTable from "@/pages/DeliveryNotes/components/DeliveryHistory";
 import { DeliveryNoteItemsDisplay } from "@/pages/DeliveryNotes/components/deliveryNoteItemsDisplay";
-import { ProcurementOrder, DeliveryDataType } from "@/types/NirmaanStack/ProcurementOrders";
+import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
+import { DeliveryNote } from "@/types/NirmaanStack/DeliveryNotes";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { formatDate } from "@/utils/FormatDate";
 import {
   ROUTE_PATHS,
   STATUS_BADGE_VARIANT,
-  DOCUMENT_PREFIX,
   encodeFrappeId,
-  formatDisplayId,
-  safeJsonParse,
   deriveDnIdFromPoId
 } from "@/pages/DeliveryNotes/constants";
 import formatToIndianRupee, {
@@ -56,7 +54,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import React, { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import React, { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate } from "react-router-dom";
 import { VendorHoverCard } from "@/components/helpers/vendor-hover-card";
@@ -99,7 +97,7 @@ import { ValidationIndicator } from "@/components/validations/ValidationIndicato
 import { ValidationMessages } from "@/components/validations/ValidationMessages";
 import { NirmaanAttachment } from "@/types/NirmaanStack/NirmaanAttachment";
 import SITEURL from "@/constants/siteURL";
-import { DeliveryNotePrintLayout } from "@/pages/DeliveryNotes/components/DeliveryNotePrintLayout";
+import { DeliveryNotePrintLayout, type PrintData } from "@/pages/DeliveryNotes/components/DeliveryNotePrintLayout";
 import { useReactToPrint } from "react-to-print";
 import { usePrintHistory } from "@/pages/DeliveryNotes/hooks/usePrintHistroy";
 import { UploadDCMIRDialog } from "@/pages/DeliveryChallansAndMirs/components/UploadDCMIRDialog";
@@ -439,18 +437,24 @@ export const PODetails: React.FC<PODetailsProps> = ({
       : "Delivery_Note",
   });
 
-  // Parse delivery history from po prop
-  const deliveryHistory = useMemo(() =>
-    safeJsonParse<{ data: DeliveryDataType }>(po?.delivery_data, { data: {} }),
-    [po?.delivery_data]
+  // Fetch DN records from API
+  const {
+    call: fetchDNs,
+    result: dnResult,
+  } = useFrappePostCall(
+    'nirmaan_stack.api.delivery_notes.get_delivery_notes.get_delivery_notes'
   );
 
-  // Derive DN ID from PO name
-  const displayDnId = useMemo(() =>
-    formatDisplayId(deriveDnIdFromPoId(po.name), DOCUMENT_PREFIX.DELIVERY_NOTE),
-    [po.name]
-  );
+  useEffect(() => {
+    if (po?.name) {
+      fetchDNs({ procurement_order: po.name });
+    }
+  }, [po?.name, po?.modified]);
 
+  const dnRecords: DeliveryNote[] = useMemo(
+    () => (dnResult?.message as DeliveryNote[]) || [],
+    [dnResult]
+  );
 
   const downloadurl =
     "http://localhost:8000/api/method/frappe.utils.print_format.download_pdf";
@@ -710,59 +714,59 @@ export const PODetails: React.FC<PODetailsProps> = ({
 
               {/* Invoice Statistics Row */}
               <div className="flex  items-center mb-2 mt-4 pt-3 border-t border-dashed border-gray-200">
-                  <p className="text-[10px] mr-5 font-semibold text-gray-400 uppercase tracking-wider">Invoices</p>
-              {/* Conditional Revision Warning or Standard Link */}
-              {/* && !po?.custom  */}
-              {["Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) && !isLocked && !PoPaymentTermsValidationSafe &&(
-                  (totalUploadedInvoiceAmount  && po?.total_amount && Math.abs(totalUploadedInvoiceAmount - po.total_amount) > 1) ? (
-                      <div className="flex items-center text-xs text-red-500 bg-red-50 px-2 py-1 rounded">
-                          <span className="mr-1">Total PO Amount and Total Invoice Amount is not matching. Revise the PO to handle this amount change?</span>
-                           <Button
-                               variant="link"
-                               size="sm"
-                               className="text-xs h-auto p-0 text-blue-600 font-semibold underline"
-                               onClick={() => {
-                                   setOpenRevisionDialog(true);
-                               }}
-                           >
-                               Revise PO
-                           </Button>
-                      </div>
+                <p className="text-[10px] mr-5 font-semibold text-gray-400 uppercase tracking-wider">Invoices</p>
+                {/* Conditional Revision Warning or Standard Link */}
+                {/* && !po?.custom  */}
+                {["Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) && !isLocked && !PoPaymentTermsValidationSafe && (
+                  (totalUploadedInvoiceAmount && po?.total_amount && Math.abs(totalUploadedInvoiceAmount - po.total_amount) > 1) ? (
+                    <div className="flex items-center text-xs text-red-500 bg-red-50 px-2 py-1 rounded">
+                      <span className="mr-1">Total PO Amount and Total Invoice Amount is not matching. Revise the PO to handle this amount change?</span>
+                      <Button
+                        variant="link"
+                        size="sm"
+                        className="text-xs h-auto p-0 text-blue-600 font-semibold underline"
+                        onClick={() => {
+                          setOpenRevisionDialog(true);
+                        }}
+                      >
+                        Revise PO
+                      </Button>
+                    </div>
                   ) : (
-                      // <Button
-                      //     variant="link"
-                      //     size="sm"
-                      //     className="text-[10px] h-auto p-0 text-blue-600 font-semibold uppercase tracking-wider"
-                      //     onClick={() => {
-                      //         setOpenRevisionDialog(true);
-                      //     }}
-                      // >
-                      //     Revision PO
-                      // </Button> 
-                      ""
+                    // <Button
+                    //     variant="link"
+                    //     size="sm"
+                    //     className="text-[10px] h-auto p-0 text-blue-600 font-semibold uppercase tracking-wider"
+                    //     onClick={() => {
+                    //         setOpenRevisionDialog(true);
+                    //     }}
+                    // >
+                    //     Revision PO
+                    // </Button> 
+                    ""
                   )
-              )}
+                )}
               </div>
               <div className="">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                      {/* Total Amount of Invoices Uploaded */}
-                      <div className="space-y-0.5">
-                          <p className="text-xs text-gray-500">Overall Invoices Amount</p>
-                          <p className="text-sm font-medium">{totalUploadedInvoiceAmount ? formatToRoundedIndianRupee(totalUploadedInvoiceAmount) : "--"}</p>
-                      </div>
-
-                      {/* Invoices Pending Approval */}
-                      <div className="space-y-0.5">
-                          <p className="text-xs text-gray-500">Invoices Amount Approval Pending</p>
-                          <p className="text-sm font-medium text-orange-500">{totalPendingInvoiceAmount ? formatToRoundedIndianRupee(totalPendingInvoiceAmount) : "--"}</p>
-                      </div>
-
-                      {/* Total Invoices Approved */}
-                      <div className="space-y-0.5">
-                          <p className="text-xs text-gray-500">Invoices Amount Approved</p>
-                          <p className="text-sm font-medium text-green-600">{totalApprovedInvoiceAmount ? formatToRoundedIndianRupee(totalApprovedInvoiceAmount) : "--"}</p>
-                      </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {/* Total Amount of Invoices Uploaded */}
+                  <div className="space-y-0.5">
+                    <p className="text-xs text-gray-500">Overall Invoices Amount</p>
+                    <p className="text-sm font-medium">{totalUploadedInvoiceAmount ? formatToRoundedIndianRupee(totalUploadedInvoiceAmount) : "--"}</p>
                   </div>
+
+                  {/* Invoices Pending Approval */}
+                  <div className="space-y-0.5">
+                    <p className="text-xs text-gray-500">Invoices Amount Approval Pending</p>
+                    <p className="text-sm font-medium text-orange-500">{totalPendingInvoiceAmount ? formatToRoundedIndianRupee(totalPendingInvoiceAmount) : "--"}</p>
+                  </div>
+
+                  {/* Total Invoices Approved */}
+                  <div className="space-y-0.5">
+                    <p className="text-xs text-gray-500">Invoices Amount Approved</p>
+                    <p className="text-sm font-medium text-green-600">{totalApprovedInvoiceAmount ? formatToRoundedIndianRupee(totalApprovedInvoiceAmount) : "--"}</p>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -898,7 +902,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                       size="sm"
                       className="h-8 px-2.5 border-primary text-primary shrink-0"
                       disabled={isLocked}
-                     
+
                     >
                       <Pencil className="h-3.5 w-3.5 sm:mr-1.5" />
                       <span className="hidden sm:inline text-xs">Update Delivery</span>
@@ -977,7 +981,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   <TooltipTrigger asChild>
                     <Button
                       size="sm"
-                      disabled={!isValid||isLocked}
+                      disabled={!isValid || isLocked}
                       onClick={isValid ? toggleDispatchPODialog : undefined}
                       className="h-8 px-2.5 shrink-0"
                     >
@@ -990,10 +994,10 @@ export const PODetails: React.FC<PODetailsProps> = ({
                       side="bottom"
                       className="bg-background border border-border text-foreground w-80"
                     >
-                        <ValidationMessages
-                          title="Required Before Dispatch"
-                          errors={errors}
-                        />
+                      <ValidationMessages
+                        title="Required Before Dispatch"
+                        errors={errors}
+                      />
                     </TooltipContent>
                   ) : (
                     <TooltipContent className="sm:hidden">Dispatch PO</TooltipContent>
@@ -1017,7 +1021,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                       size="sm"
                       onClick={toggleInactiveDialog}
                       className="h-8 px-2.5 text-destructive border-destructive hover:bg-destructive hover:text-white shrink-0"
-                       disabled={isLocked}
+                      disabled={isLocked}
                     >
                       <CircleX className="h-3.5 w-3.5 sm:mr-1.5" />
                       <span className="hidden sm:inline text-xs">Mark Inactive</span>
@@ -1107,7 +1111,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
 
               <DeliveryHistoryTable
                 poId={po?.name}
-                deliveryData={deliveryHistory.data}
+                dnRecords={dnRecords}
                 onPrintHistory={triggerHistoryPrint}
               />
             </div>
@@ -1405,12 +1409,11 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 </Button>
                 <Button
                   size="sm"
-                  className={`h-9 shadow-sm ${
-                    criticalPOLinking.hasCriticalPOSetup &&
-                    criticalPOLinking.selectedTasks.length === 0 &&
-                    !criticalPOLinking.isPoAlreadyLinked
-                    ? "bg-slate-300 text-slate-500 cursor-not-allowed"
-                    : "bg-amber-500 hover:bg-amber-600 text-white"
+                  className={`h-9 shadow-sm ${criticalPOLinking.hasCriticalPOSetup &&
+                      criticalPOLinking.selectedTasks.length === 0 &&
+                      !criticalPOLinking.isPoAlreadyLinked
+                      ? "bg-slate-300 text-slate-500 cursor-not-allowed"
+                      : "bg-amber-500 hover:bg-amber-600 text-white"
                     }`}
                   onClick={handleMarkAsDispatchedClick}
                   disabled={
@@ -1580,23 +1583,23 @@ export const PODetails: React.FC<PODetailsProps> = ({
       {/* Hidden printable components */}
       <div className="hidden">
         <div ref={printComponentRef}>
-          <DeliveryNotePrintLayout data={po} />
+          <DeliveryNotePrintLayout data={po as PrintData} />
         </div>
         {PrintableHistoryComponent}
       </div>
 
-      <PORevisionDialog 
-        open={openRevisionDialog} 
-        onClose={() => setOpenRevisionDialog(false)} 
+      <PORevisionDialog
+        open={openRevisionDialog}
+        onClose={() => setOpenRevisionDialog(false)}
         po={po}
         onSuccess={() => {
-            // Trigger lock status check to disable UI and show the warning banner
-            if (po?.name) {
-              // Invalidate the SWR cache for the warning banner and isLocked state to show up immediately
-              import("@/pages/PORevision/data/poRevision.constants").then(({ poRevisionKeys }) => {
-                globalMutate(poRevisionKeys.lockCheck(po.name));
-              }).catch(() => {});
-            }
+          // Trigger lock status check to disable UI and show the warning banner
+          if (po?.name) {
+            // Invalidate the SWR cache for the warning banner and isLocked state to show up immediately
+            import("@/pages/PORevision/data/poRevision.constants").then(({ poRevisionKeys }) => {
+              globalMutate(poRevisionKeys.lockCheck(po.name));
+            }).catch(() => { });
+          }
         }}
       />
 

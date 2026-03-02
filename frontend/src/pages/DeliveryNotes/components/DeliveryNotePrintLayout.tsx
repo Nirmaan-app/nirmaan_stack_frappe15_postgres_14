@@ -4,19 +4,12 @@ import { format } from 'date-fns';
 import logo from "@/assets/logo-svg.svg";
 import Seal from "@/assets/NIRMAAN-SEAL.jpeg";
 import { AddressView } from '@/components/address-view';
-import { safeJsonParse, COMPANY_ADDRESS_BY_GST, deriveDnIdFromPoId } from '../constants';
-import { ProcurementOrder, PurchaseOrderItem } from '@/types/NirmaanStack/ProcurementOrders';
+import { COMPANY_ADDRESS_BY_GST, deriveDnIdFromPoId } from '../constants';
+import { ProcurementOrder } from '@/types/NirmaanStack/ProcurementOrders';
 
 // ======================= TYPES & INTERFACES =======================
 
-interface HistoricalDeliveryItem {
-  item_name: string;
-  unit: string;
-  to: string;
-  from: string; // Assuming 'from' is a string representing the quantity received
-}
-
-// --- FIX: A single, consistent interface for any item being rendered ---
+// --- A single, consistent interface for any item being rendered ---
 interface NormalizedPrintItem {
   name: string;
   unit: string;
@@ -24,9 +17,19 @@ interface NormalizedPrintItem {
   comment: string | null;
 }
 
-interface PrintData extends ProcurementOrder {
-  delivery_data?: { data: HistoricalDeliveryItem[] };
-  delivery_date?: string; // The date key from delivery_data JSON (e.g., "2026-01-10")
+// Item shape needed for print rendering — only the fields the layout actually uses
+interface PrintItem {
+  item_name: string;
+  unit: string;
+  received_quantity?: number;
+  comment?: string;
+}
+
+// PrintData uses ProcurementOrder fields + optional overrides for DN history printing
+export interface PrintData extends Omit<ProcurementOrder, 'items'> {
+  items?: PrintItem[];
+  Note_no?: number;
+  delivery_date?: string;
 }
 
 interface DeliveryNotePrintLayoutProps {
@@ -45,21 +48,10 @@ export const DeliveryNotePrintLayout = forwardRef<HTMLDivElement, DeliveryNotePr
     // --- FIX: Normalize both historical and current data into a single, type-safe structure ---
     // console.log("DeliveryNotePrintLayoutProps", data);
 
+    // Normalize items into a consistent shape for rendering.
+    // When Note_no is set, this is a historical DN print — items have been
+    // pre-transformed by usePrintHistory to contain delivered_quantity in received_quantity.
     const itemsToRender: NormalizedPrintItem[] = (() => {
-      // Case 1: Printing a specific historical delivery.
-      if (data.delivery_data?.data) {
-        // console.log("DeliveryNotePrintLayoutProps22", data.delivery_data?.data)
-        return data.delivery_data?.ldatamap(item => ({
-          name: item.item_name,
-          unit: item.unit,
-          quantity: parseFloat(item.to) - parseFloat(item.from) || 0,
-          comment: null,
-        }));
-
-      }
-
-
-      // Case 2: Printing the current state.
       const currentOrderList = data.items || [];
       return currentOrderList.map(item => ({
         name: item.item_name,
@@ -72,7 +64,7 @@ export const DeliveryNotePrintLayout = forwardRef<HTMLDivElement, DeliveryNotePr
     const totalQuantity = itemsToRender.reduce((acc, item) => acc + item.quantity, 0);
 
     const PO_ID = deriveDnIdFromPoId(data.name).toUpperCase();
-    const Note_no = data?.Note_no
+    const Note_no = data.Note_no;
 
     // console.log("Note_no",Note_no)
     const deliveryNoteNumber = Note_no ? `${PO_ID}/${Note_no}` : `${PO_ID}/M`;
