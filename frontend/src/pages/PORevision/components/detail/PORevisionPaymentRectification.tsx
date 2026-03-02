@@ -121,8 +121,8 @@ export default function PORevisionPaymentRectification({ paymentData }: PORevisi
                                             <TableBody>
                                                 <TableRow>
                                                     <TableCell className="font-medium text-slate-800">{formatCurrency(detail.amount || 0)}</TableCell>
-                                                    <TableCell className="text-slate-600">{detail["ad-hoc_tyep"] || "Expense"}</TableCell>
-                                                    <TableCell className="text-slate-600 text-xs">{detail.comment || detail["ad-hoc_dexription"] || "-"}</TableCell>
+                                                    <TableCell className="text-slate-600">{detail["ad-hoc_type"] || "Expense"}</TableCell>
+                                                    <TableCell className="text-slate-600 text-xs">{detail.comment || detail["ad-hoc_description"] || "-"}</TableCell>
                                                 </TableRow>
                                             </TableBody>
                                         </Table>

@@ -161,7 +161,7 @@ The dialog relies heavily on Frappe React SDK hooks (`useFrappeGetDocList`, `use
            "target_pos": [{ "po_number": "PO-002", "amount": 2000.0 }],
            
            // If Ad-hoc:
-           "ad-hoc_tyep": "expense", "ad-hoc_dexription": "reason",
+           "ad-hoc_type": "expense", "ad-hoc_description": "reason",
            
            // If Vendor-has-refund
            "refund_date": "2026-02-27", "refund_attachment": "/files/receipt.pdf"

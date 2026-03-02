@@ -169,8 +169,9 @@ def on_approval_revision(revision_name):
     if revision_doc.status == "Approved":
         frappe.throw(_("This revision is already approved."))
 
-    frappe.db.begin()
     try:
+        frappe.db.savepoint("revision_approval")
+
         # Step 1: Sync Items
         sync_original_po_items(revision_doc)
         
@@ -185,63 +186,11 @@ def on_approval_revision(revision_name):
         revision_doc.status = "Approved"
         revision_doc.save(ignore_permissions=True)
         
-        # Step 4: Unlock the original PO (if we locked it)
-        # frappe.db.set_value("Procurement Orders", revision_doc.revised_po)
-        
-        frappe.db.commit()
+        # No explicit commit — Frappe commits at request end
         return "Success"
 
     except Exception as e:
-        frappe.db.rollback()
-        
-        # Cleanup: Delete any Project Payments that were generated before the error occurred
-        # Since it rolled back, the PO terms are safe, but standalone Docs might persist.
-        try:
-            target_pos = [revision_doc.revised_po]
-            
-            # Try to extract target POs from JSON
-            if revision_doc.payment_return_details:
-                try:
-                    data = json.loads(revision_doc.payment_return_details) if isinstance(revision_doc.payment_return_details, str) else revision_doc.payment_return_details
-                    block = data.get("list", {})
-                    if block.get("type") == "Refund Adjustment":
-                        for entry in block.get("Details", []):
-                            if entry.get("return_type") == "Against-po":
-                                for target in entry.get("target_pos", []):
-                                    t_po_id = target.get("po_number")
-                                    if t_po_id:
-                                        target_pos.append(t_po_id)
-                except Exception:
-                    pass
-
-            # Calculate 5 minutes ago to strictly target freshly generated payments
-            import datetime
-            minutes_ago = frappe.utils.now_datetime() - datetime.timedelta(minutes=1)
-
-            stray_payments = frappe.get_all(
-                "Project Payments", 
-                filters={
-                    "creation": [">", minutes_ago],
-                    "document_name": ["in", target_pos]
-                },
-                fields=["name"]
-            )
-            
-            # Combine dynamically found stray payments with the strictly tracked ones
-            tracked_payments = getattr(frappe.local, 'rollback_payments', [])
-            all_payments_to_delete = set([p.name for p in stray_payments] + tracked_payments)
-
-            for pay_name in all_payments_to_delete:
-                frappe.delete_doc("Project Payments", pay_name, force=1, ignore_permissions=True)
-                
-            # Cleanup stray Project Expenses
-            tracked_expenses = getattr(frappe.local, 'rollback_expenses', [])
-            for exp_name in tracked_expenses:
-                frappe.delete_doc("Project Expenses", exp_name, force=1, ignore_permissions=True)
-                
-        except Exception:
-            pass # Keep original rollback error primary
-            
+        frappe.db.rollback(save_point="revision_approval")
         frappe.log_error(frappe.get_traceback(), "PO Revision Approval Error")
         frappe.throw(_("Approval failed: {0}").format(str(e)))
 
@@ -352,9 +301,9 @@ def sync_original_po_items(revision_doc):
                 original_po.get("items").remove(orig_row)
                 rev_item.item_status = "Approved"
 
-    # Re-calculate parent totals if method exists
-    if hasattr(original_po, 'calculate_totals_from_items'):
-         original_po.calculate_totals_from_items()
+    # Re-calculate parent totals — handled automatically by .save() → validate()
+    # if hasattr(original_po, 'calculate_totals_from_items'):
+    #      original_po.calculate_totals_from_items()
 
     # Re-evaluate delivery status after item sync
     # If the PO was Partially Delivered, revised quantities may now match received quantities
@@ -485,13 +434,9 @@ def _create_project_payment(po_id, project, vendor, amt, status):
     pay.amount = amt
     pay.status = status
     pay.payment_date = nowdate()
+    pay.approved_date = nowdate()
     pay.flags.ignore_amount_validation = True # Bypass basic manual payment validation for internal adjustments
     pay.save(ignore_permissions=True)
-    
-    # Store reference so rollback can delete it if approval fails halfway 
-    if not hasattr(frappe.local, 'rollback_payments'):
-        frappe.local.rollback_payments = []
-    frappe.local.rollback_payments.append(pay.name)
     
     return pay
 
@@ -652,8 +597,8 @@ def process_negative_returns(revision_doc):
 
         # C. Ad-hoc
         elif r_type == "Ad-hoc":
-            desc = entry.get("ad-hoc_dexription", "")
-            expense_type = entry.get("ad-hoc_tyep", "")
+            desc = entry.get("ad-hoc_description", "")
+            expense_type = entry.get("ad-hoc_type", "")
             # CREATE Ad-hoc NOW
             pay_adhoc = _create_project_payment(
                 po_id=revision_doc.revised_po, project=revision_doc.project, vendor=revision_doc.vendor,
@@ -672,14 +617,9 @@ def process_negative_returns(revision_doc):
                 expense.payment_date = nowdate()
                 expense.payment_by = revision_doc.owner
                 comment_text = entry.get("comment", "").strip()
-                po_prefix = f"PO {revision_doc.revised_po}"
-                expense.comment = f"{po_prefix}\n{comment_text}" if comment_text else po_prefix
+                expense.comment = f"{revision_doc.revised_po}\n{comment_text}" if comment_text else revision_doc.revised_po
                 
                 expense.save(ignore_permissions=True)
-                
-                if not hasattr(frappe.local, 'rollback_expenses'):
-                    frappe.local.rollback_expenses = []
-                frappe.local.rollback_expenses.append(expense.name)
 
         entry["status"] = "Approved"
 
