@@ -41,6 +41,7 @@ export interface BOQPreviewRow {
   total_rate: number;
   amount: number;
   hasWarning?: 'empty_description' | 'zero_rates';
+  preamble_id?: number | null;
 }
 
 export interface BOQImportResult {
@@ -48,7 +49,21 @@ export interface BOQImportResult {
   boq_name?: string;
   items_count?: number;
   total_amount?: number;
+  preambles_count?: number;
   message?: string;
+}
+
+// ─── Preamble Types ────────────────────────────────────────────
+export interface PreambleEntry {
+  id: number;
+  text: string;
+}
+
+export interface RowClassification {
+  row_index: number;
+  type: 'preamble' | 'item' | 'empty';
+  preamble_id?: number;
+  text?: string;
 }
 
 export interface SelectOption {

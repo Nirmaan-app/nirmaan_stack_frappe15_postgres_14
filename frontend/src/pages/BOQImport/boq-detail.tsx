@@ -1,13 +1,17 @@
-import { useMemo } from 'react';
+import { Fragment, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useFrappeGetDoc } from 'frappe-react-sdk';
-import { ArrowLeft, FileSpreadsheet, IndianRupee } from 'lucide-react';
+import { ArrowLeft, FileSpreadsheet, IndianRupee, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  TooltipProvider,
+} from '@/components/ui/tooltip';
 import { formatDate } from '@/utils/FormatDate';
 import { formatToRoundedIndianRupee } from '@/utils/FormatPrice';
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { formatCurrency, formatNumber } from './constants';
+import type { PreambleEntry } from './schema';
 
 // ─── Status Badge ────────────────────────────────────────────
 const STATUS_STYLES: Record<string, string> = {
@@ -30,9 +34,28 @@ export function BOQDetail() {
   const { boqId } = useParams<{ boqId: string }>();
   const navigate = useNavigate();
 
-  const { data: boqDoc, isLoading } = useFrappeGetDoc('BOQ', boqId);
+  // Frappe hash names are lowercase; PostgreSQL is case-sensitive
+  const normalizedId = boqId?.toLowerCase();
+
+  const { data: boqDoc, isLoading } = useFrappeGetDoc('BOQ', normalizedId);
 
   const items: any[] = boqDoc?.items ?? [];
+
+  // Parse preambles JSON from parent doc
+  const preambleMap = useMemo(() => {
+    const map = new Map<number, string>();
+    try {
+      const raw = boqDoc?.preambles;
+      if (!raw) return map;
+      const parsed: PreambleEntry[] = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      for (const p of parsed) {
+        map.set(p.id, p.text);
+      }
+    } catch {
+      // gracefully handle old docs without preambles
+    }
+    return map;
+  }, [boqDoc?.preambles]);
 
   const totals = useMemo(() => {
     let qty = 0;
@@ -60,6 +83,7 @@ export function BOQDetail() {
 
   // ─── Render ──────────────────────────────────────────────
   return (
+    <TooltipProvider delayDuration={200}>
     <div className="max-w-6xl mx-auto space-y-6 p-4 md:p-6">
       {/* Back button */}
       <Button variant="ghost" size="sm" onClick={() => navigate('/boq')}>
@@ -155,10 +179,36 @@ export function BOQDetail() {
               </tr>
             </thead>
             <tbody>
-              {items.map((item, idx) => (
-                <tr key={item.name ?? idx} className="border-b last:border-b-0 hover:bg-muted/40">
+            {items.map((item, idx) => {
+            const preambleText =
+              item.preamble_id != null ? preambleMap.get(item.preamble_id) : undefined;
+
+            // Show preamble section header when preamble changes
+            const prevItem = idx > 0 ? items[idx - 1] : null;
+            const showPreambleHeader =
+              preambleText &&
+              (idx === 0 || item.preamble_id !== prevItem?.preamble_id);
+
+            return (
+              <Fragment key={item.name ?? idx}>
+                {showPreambleHeader && (
+                <tr className="bg-blue-50 dark:bg-blue-950/30">
+                  <td
+                    colSpan={8}
+                    className="px-3 py-2 text-xs text-blue-700 dark:text-blue-300 font-medium"
+                  >
+                    <span className="flex items-center gap-2">
+                      <BookOpen className="h-3.5 w-3.5 shrink-0" />
+                      <span className="whitespace-pre-wrap">{preambleText}</span>
+                    </span>
+                  </td>
+                </tr>
+                )}
+                <tr className="border-b last:border-b-0 hover:bg-muted/40">
                   <td className="px-3 py-2 text-right text-muted-foreground tabular-nums">{idx + 1}</td>
-                  <td className="px-3 py-2 text-left min-w-[200px] line-clamp-2">{item.description}</td>
+                  <td className="px-3 py-2 text-left min-w-[200px]">
+                    <span className="line-clamp-2">{item.description}</span>
+                  </td>
                   <td className="px-3 py-2 text-left">{item.unit || '\u2014'}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatNumber(item.quantity ?? 0)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatNumber(item.supply_rate ?? 0)}</td>
@@ -166,7 +216,9 @@ export function BOQDetail() {
                   <td className="px-3 py-2 text-right tabular-nums font-medium">{formatNumber(item.total_rate ?? 0)}</td>
                   <td className="px-3 py-2 text-right tabular-nums font-medium">{formatCurrency(item.amount ?? 0)}</td>
                 </tr>
-              ))}
+                    </Fragment>
+                  );
+                })}
               {items.length === 0 && (
                 <tr>
                   <td colSpan={8} className="px-3 py-8 text-center text-muted-foreground">
@@ -193,6 +245,7 @@ export function BOQDetail() {
         </div>
       </div>
     </div>
+    </TooltipProvider>
   );
 }
 
