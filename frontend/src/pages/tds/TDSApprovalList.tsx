@@ -18,7 +18,9 @@ import { toast } from "@/components/ui/use-toast";
 import { useTDSStore } from "@/zustand/useTDSStore";
 import { useUserData } from "@/hooks/useUserData";
 import { Badge } from "@/components/ui/badge";
-import { FileText } from "lucide-react";
+import { FileText, Info } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { cn } from "@/lib/utils";
 
 interface TDSRequest {
     request_id: string;
@@ -64,8 +66,7 @@ export const TDSApprovalList: React.FC = () => {
 
     const ALLOWED_APPROVER_ROLES = [
         "Nirmaan Admin Profile",
-        "Nirmaan Project Lead Profile", 
-        "Nirmaan PMO Executive Profile",
+        "Nirmaan Project Lead Profile",
     ];
 
     const canApprove = user_id === "Administrator" || (role && ALLOWED_APPROVER_ROLES.includes(role));
@@ -86,25 +87,11 @@ export const TDSApprovalList: React.FC = () => {
     useEffect(() => {
         const tabParam = searchParams.get("tab");
         if (tabParam && ["Pending Approval", "Approved", "Rejected", "All TDS"].includes(tabParam)) {
-            // Prevent unauthorized users from accessing Pending Approval via URL
-            if (!canApprove && tabParam === "Pending Approval") {
-                setSearchParams({ tab: "All TDS" }, { replace: true });
-                setActiveTab("All TDS");
-                return;
-            }
-
             if (tabParam !== activeTab) {
                 setActiveTab(tabParam as TabType);
             }
-        } else {
-            // No URL param - check default behavior
-            if (!canApprove && activeTab === "Pending Approval") {
-                // If user lands on page without param and store has Pending (default), switch to All TDS
-                setSearchParams({ tab: "All TDS" }, { replace: true });
-                setActiveTab("All TDS");
-            }
         }
-    }, [searchParams, activeTab, setActiveTab, canApprove, setSearchParams]);
+    }, [searchParams, activeTab, setActiveTab]);
 
     // Update URL when tab changes
     const handleTabChange = (tab: TabType) => {
@@ -194,9 +181,15 @@ export const TDSApprovalList: React.FC = () => {
                 cell: ({ row }) => (
                     <div className="flex items-center gap-2">
                         <FileText className="h-3.5 w-3.5 text-red-500" />
-                        <span 
-                            className="font-mono text-xs font-medium text-red-600 cursor-pointer hover:text-red-800 hover:underline decoration-red-400 underline-offset-4"
+                        <span
+                            className={cn(
+                                "font-mono text-xs font-medium",
+                                (!canApprove && activeTab === "Pending Approval")
+                                    ? "text-slate-500 cursor-default"
+                                    : "text-red-600 cursor-pointer hover:text-red-800 hover:underline decoration-red-400 underline-offset-4"
+                            )}
                             onClick={() => {
+                                if (!canApprove && activeTab === "Pending Approval") return;
                                 let statusParam = "All";
                                 if (activeTab === "Pending Approval") statusParam = "Pending";
                                 else if (activeTab === "Approved") statusParam = "Approved";
@@ -295,7 +288,7 @@ export const TDSApprovalList: React.FC = () => {
         }
 
         return baseColumns;
-    }, [navigate, activeTab]);
+    }, [navigate, activeTab, canApprove]);
 
     // Create table instance
     const table = useReactTable({
@@ -355,7 +348,7 @@ export const TDSApprovalList: React.FC = () => {
             <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">
                 <div className="flex gap-1.5 sm:flex-wrap pb-1 sm:pb-0 items-center">
                     {/* Pending Tab (First Group) */}
-                    {canApprove && TAB_CONFIG.filter(t => t.key === "Pending Approval").map((tab) => {
+                    {TAB_CONFIG.filter(t => t.key === "Pending Approval").map((tab) => {
                         const isActive = activeTab === tab.key;
                         return (
                             <button
@@ -383,7 +376,7 @@ export const TDSApprovalList: React.FC = () => {
                     })}
 
                     {/* Divider */}
-                    {canApprove && <div className="mx-1 h-5 w-[1px] bg-slate-300 shrink-0" />}
+                    <div className="mx-1 h-5 w-[1px] bg-slate-300 shrink-0" />
 
                     {/* Other Tabs (Second Group) */}
                     {TAB_CONFIG.filter(t => t.key !== "Pending Approval").map((tab) => {
@@ -414,6 +407,15 @@ export const TDSApprovalList: React.FC = () => {
                     })}
                 </div>
             </div>
+
+            {!canApprove && activeTab === "Pending Approval" && (
+                <Alert variant="default" className="border-blue-200 bg-blue-50">
+                    <Info className="h-4 w-4 text-blue-600" />
+                    <AlertDescription className="text-sm text-blue-800">
+                        These TDS items are pending approval from an admin or project lead. Contact them for urgent cases.
+                    </AlertDescription>
+                </Alert>
+            )}
 
             {/* Data Table */}
             <div className=" bg-white shadow-sm overflow-hidden">

@@ -8,7 +8,6 @@ export interface EligibleItem {
   unit: string;
   category: string;
   dnQuantity: number;
-  maxQuote: number;
 }
 
 export function useEligibleItems(projectId: string) {
@@ -33,25 +32,15 @@ export function useEligibleItems(projectId: string) {
 
     return allMaterialUsageItems
       .filter((item) => !toolEquipmentCategories.has(item.categoryName))
-      .filter((item) => {
-        const maxQuote = Math.max(
-          ...(item.poNumbers?.map((p) => p.quote ?? 0) ?? [0])
-        );
-        return maxQuote > 5000;
-      })
-      .map((item) => {
-        const maxQuote = Math.max(
-          ...(item.poNumbers?.map((p) => p.quote ?? 0) ?? [0])
-        );
-        return {
-          itemId: item.itemId || "",
-          itemName: item.itemName || "",
-          unit: item.unit || "",
-          category: item.categoryName,
-          dnQuantity: item.deliveredQuantity,
-          maxQuote,
-        };
-      });
+      .filter((item) => item.categoryName !== "Additional Charges")
+      .filter((item) => (item.totalAmount ?? 0) > 5000)
+      .map((item) => ({
+        itemId: item.itemId || "",
+        itemName: item.itemName || "",
+        unit: item.unit || "",
+        category: item.categoryName,
+        dnQuantity: item.deliveredQuantity,
+      }));
   }, [allMaterialUsageItems, toolEquipmentCategories]);
 
   return { eligibleItems, isLoading: isLoading || isCategoryLoading, error };

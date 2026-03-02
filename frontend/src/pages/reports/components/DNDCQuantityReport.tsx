@@ -590,6 +590,7 @@ function DNDCQuantityReportContent({
                   <span>Vendor</span>
                 </div>
               </TableHead>
+              <TableHead className="min-w-[120px]">Category</TableHead>
               <TableHead className="text-center min-w-[100px]">
                 Items
               </TableHead>
@@ -633,14 +634,14 @@ function DNDCQuantityReportContent({
           <TableBody>
             {paddingTop > 0 && (
               <TableRow>
-                <td colSpan={9} style={{ height: `${paddingTop}px` }} />
+                <td colSpan={10} style={{ height: `${paddingTop}px` }} />
               </TableRow>
             )}
 
             {virtualRows.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={9}
+                  colSpan={10}
                   className="h-24 text-center text-muted-foreground"
                 >
                   {poRows && poRows.length === 0
@@ -681,6 +682,7 @@ function DNDCQuantityReportContent({
                     <TableCell className="py-2 px-3 text-sm text-muted-foreground">
                       {po.vendorName}
                     </TableCell>
+                    <TableCell className="py-2 px-3"></TableCell>
                     <TableCell className="text-center py-2 px-3 text-sm">
                       <span className="font-mono">
                         {po.itemsMatched}/{po.itemsTotal}
@@ -701,7 +703,7 @@ function DNDCQuantityReportContent({
                           className={
                             po.totalDifference > 0
                               ? "text-amber-700"
-                              : "text-red-700"
+                              : "text-green-700"
                           }
                         >
                           {po.totalDifference > 0 ? "+" : ""}
@@ -727,22 +729,18 @@ function DNDCQuantityReportContent({
                   className={getItemRowClasses(item.status)}
                 >
                   <TableCell className="py-1.5 px-2"></TableCell>
-                  <TableCell
-                    className="py-1.5 px-3 text-xs pl-8"
-                    colSpan={2}
-                  >
-                    <span className="text-muted-foreground">
-                      {item.category} /{" "}
-                    </span>
+                  <TableCell className="py-1.5 px-3"></TableCell>
+                  <TableCell className="py-1.5 px-3"></TableCell>
+                  <TableCell className="py-1.5 px-3 text-xs text-muted-foreground">
+                    {item.category}
+                  </TableCell>
+                  <TableCell className="py-1.5 px-3 text-xs">
                     <span className="font-medium">
                       {item.itemName || "N/A"}
                     </span>
                     <span className="text-muted-foreground ml-2">
                       ({item.unit || "-"})
                     </span>
-                  </TableCell>
-                  <TableCell className="text-center py-1.5 px-3 text-xs text-muted-foreground">
-                    -
                   </TableCell>
                   <TableCell className="text-right py-1.5 px-3 font-mono text-xs">
                     {item.orderedQty.toFixed(2)}
@@ -759,7 +757,7 @@ function DNDCQuantityReportContent({
                         className={
                           item.difference > 0
                             ? "text-amber-700"
-                            : "text-red-700"
+                            : "text-green-700"
                         }
                       >
                         {item.difference > 0 ? "+" : ""}
@@ -778,7 +776,7 @@ function DNDCQuantityReportContent({
 
             {paddingBottom > 0 && (
               <TableRow>
-                <td colSpan={9} style={{ height: `${paddingBottom}px` }} />
+                <td colSpan={10} style={{ height: `${paddingBottom}px` }} />
               </TableRow>
             )}
           </TableBody>
@@ -819,10 +817,10 @@ export default function DNDCQuantityReport() {
       <Alert variant="default" className="border-blue-200 bg-blue-50">
         <Info className="h-4 w-4 text-blue-600" />
         <AlertDescription className="text-sm text-blue-800">
-          Compares Delivery Note (DN) quantities against Delivery Challan (DC)
-          quantities for POs with status &quot;Delivered&quot; or &quot;Partially
-          Delivered&quot;. Helps identify POs where DC documentation hasn&apos;t
-          caught up with delivery records.
+          Flags items where Delivery Note (DN) quantities exceed Delivery
+          Challan (DC) quantities for POs with status &quot;Delivered&quot; or
+          &quot;Partially Delivered&quot;. Cases where DC meets or exceeds DN
+          are treated as matched.
         </AlertDescription>
       </Alert>
 
