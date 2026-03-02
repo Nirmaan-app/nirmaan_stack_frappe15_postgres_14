@@ -49,7 +49,7 @@ export const getPORevisionColumns = ({
         accessorKey: "revised_po",
         header: ({ column }) => <DataTableColumnHeader column={column} title="PO ID" />,
         cell: ({ row }) => (
-            <Link to={`/purchase-orders/${row.original.revised_po?.replaceAll("/", "&=")}`} className="text-blue-600 hover:underline">
+            <Link to={`/projects/${row.original.project}/po/${row.original.revised_po?.replaceAll("/", "&=")}`} className="text-blue-600 hover:underline">
                 {row.original.revised_po}
             </Link>
         ),
