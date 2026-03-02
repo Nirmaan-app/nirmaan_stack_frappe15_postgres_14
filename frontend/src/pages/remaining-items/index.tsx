@@ -100,7 +100,7 @@ function UpdateInventoryContent({ projectId, projectName }: { projectId: string;
           }
           todayReportExists={todayExists}
         />
-        <p className="text-sm text-muted-foreground">No high-value items (per-unit quote &gt; &#8377;5,000) found for this project.</p>
+        <p className="text-sm text-muted-foreground">No eligible items (total amount &gt; &#8377;5,000) found for this project.</p>
       </>
     );
   }
