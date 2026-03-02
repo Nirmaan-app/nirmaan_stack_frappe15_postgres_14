@@ -73,7 +73,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
     }, [tab]);
 
     // --- Filter tabs based on role ---
-    const adminTabsFiltered = useMemo(() => isAdmin ? PP_ADMIN_TAB_OPTIONS : [], [isAdmin]);
+    const adminTabsFiltered = useMemo(() => PP_ADMIN_TAB_OPTIONS, []);
     const newPaymentsTabsFiltered = useMemo(() => (isAdmin || isAccountant) ? PP_NEW_PAYMENTS_TAB_OPTIONS : [], [isAdmin, isAccountant]);
     const remTabsFiltered = useMemo(() => (isAdmin || isAccountant) ? PP_REM_TAB_OPTIONS : [], [isAdmin, isAccountant]);
     const paymentTypeTabsFiltered = useMemo(() => [
@@ -164,7 +164,17 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                 <LoadingFallback />
             }>
                 {tab === PP_TABS.APPROVE_PAYMENTS ? (
-                    <ApprovePayments />
+                    <>
+                        {!canApprovePayments && (
+                            <Alert variant="default" className="border-blue-200 bg-blue-50 mb-4">
+                                <Info className="h-4 w-4 text-blue-600" />
+                                <AlertDescription className="text-sm text-blue-800">
+                                    These payments are pending approval from an admin. Contact an admin for urgent cases.
+                                </AlertDescription>
+                            </Alert>
+                        )}
+                        <ApprovePayments readOnly={!canApprovePayments} />
+                    </>
                 ) :
 
                     [PP_TABS.NEW_PAYMENTS].includes(tab as any) ?
