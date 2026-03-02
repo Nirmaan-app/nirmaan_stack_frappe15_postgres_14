@@ -74,6 +74,7 @@ import {
   ProcurementOrder,
   PurchaseOrderItem,
 } from "@/types/NirmaanStack/ProcurementOrders";
+import { DeliveryNote } from "@/types/NirmaanStack/DeliveryNotes";
 import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import formatToIndianRupee from "@/utils/FormatPrice";
@@ -126,9 +127,8 @@ import { DocumentAttachments } from "../invoices-and-dcs/DocumentAttachments";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { usePrintHistory } from "@/pages/DeliveryNotes/hooks/usePrintHistroy";
-import { safeJsonParse } from "@/pages/DeliveryNotes/constants";
 import { Projects } from "@/types/NirmaanStack/Projects";
-import { PaymentTerm, POTotals, DeliveryDataType } from "@/types/NirmaanStack/ProcurementOrders";
+import { PaymentTerm, POTotals } from "@/types/NirmaanStack/ProcurementOrders";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 import { PORevisionWarning } from "@/pages/PORevision/PORevisionWarning";
 import { usePOLockCheck, useAllLockedPOs } from "@/pages/PORevision/data/usePORevisionQueries";
@@ -527,9 +527,23 @@ export const PurchaseOrder = ({
 
 
 
-  const deliveryHistory = useMemo(() =>
-    safeJsonParse<{ data: DeliveryDataType }>(PO?.delivery_data, { data: {} }),
-    [PO?.delivery_data]
+  // Fetch DN records from API
+  const {
+    call: fetchDNs,
+    result: dnResult,
+  } = useFrappePostCall(
+    'nirmaan_stack.api.delivery_notes.get_delivery_notes.get_delivery_notes'
+  );
+
+  useEffect(() => {
+    if (poId) {
+      fetchDNs({ procurement_order: poId });
+    }
+  }, [poId, PO?.modified]);
+
+  const dnRecords: DeliveryNote[] = useMemo(
+    () => (dnResult?.message as DeliveryNote[]) || [],
+    [dnResult]
   );
 
   useEffect(() => {
@@ -1649,7 +1663,7 @@ export const PurchaseOrder = ({
                       Delivery History
                     </p>
                     <Badge variant="secondary">
-                      {Object.keys(deliveryHistory.data || {}).length} updates
+                      {dnRecords.length} updates
                     </Badge>
                   </div>
                 </AccordionTrigger>
@@ -1678,7 +1692,7 @@ export const PurchaseOrder = ({
                       )}
                     <DeliveryHistoryTable
                       poId={PO?.name}
-                      deliveryData={deliveryHistory.data}
+                      dnRecords={dnRecords}
                       onPrintHistory={triggerHistoryPrint}
                       showHeader={false}
                     />
@@ -1716,7 +1730,7 @@ export const PurchaseOrder = ({
             <DeliveryNoteItemsDisplay data={PO} poMutate={poMutate} />
             <DeliveryHistoryTable
               poId={PO?.name}
-              deliveryData={deliveryHistory.data}
+              dnRecords={dnRecords}
               onPrintHistory={triggerHistoryPrint}
               showHeader={false}
             />
@@ -2489,7 +2503,7 @@ export const PurchaseOrder = ({
 
       {/* {["Delivered", "Partially Delivered","PO Approved","Dispatched"].includes(PO?.status) && (
         <DeliveryHistoryTable
-          deliveryData={deliveryHistory.data}
+          dnRecords={dnRecords}
             onPrintHistory={triggerHistoryPrint}
         />
       )} */}

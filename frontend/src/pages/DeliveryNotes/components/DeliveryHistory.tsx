@@ -8,8 +8,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
-import { DeliveryDataType } from '@/types/NirmaanStack/ProcurementOrders';
-import { format } from "date-fns";
+import { DeliveryNote } from "@/types/NirmaanStack/DeliveryNotes";
 import { formatDate } from "@/utils/FormatDate";
 import { toast } from "@/components/ui/use-toast";
 
@@ -21,57 +20,46 @@ import { Printer } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 
 
-
-const TRANSITION_DURATION = 300;
-const MAX_HEIGHT = 1000;
-
 interface DeliveryHistoryTableProps {
-  deliveryData: DeliveryDataType | null;
-  onPrintHistory: (date: string, historyEntryData: DeliveryDataType[string]) => void; // Updated to accept date
-  showHeader?: boolean; // When false, renders without Card wrapper (for use inside accordions)
+  poId?: string;
+  dnRecords: DeliveryNote[];
+  onPrintHistory: (date: string, dn: DeliveryNote) => void;
+  showHeader?: boolean;
 }
 
 interface ExpandableRowProps {
   index: number;
-  date: string;
-  data: DeliveryDataType[string];
+  dn: DeliveryNote;
+  poId?: string;
   isExpanded: boolean;
-  onToggle: (date: string) => void;
-  onPrint: (date: string, historyEntryData: DeliveryDataType[string]) => void; // Updated to accept date
+  onToggle: (key: string) => void;
 }
 
-const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, poId, data, isExpanded, onToggle, onPrint }) => {
+const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, dn, poId, isExpanded, onToggle }) => {
+  const rowKey = dn.name;
 
-
-  // console.log("DeliveryHistoryTable", JSON.stringify(data));
- // --- DIRECT DOWNLOAD FUNCTION ---
   const handleDownloadDeliveryNote = async (e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent row expansion when clicking print
+    e.stopPropagation();
 
     if (!poId) {
-      toast({ title: "Error3", description: "PO ID is missing", variant: "destructive" });
+      toast({ title: "Error", description: "PO ID is missing", variant: "destructive" });
       return;
     }
 
     try {
-      toast({ title: "Generating PDF", description: `Downloading note for ${formatDate(new Date(date), "dd MMM")}...` });
+      toast({ title: "Generating PDF", description: `Downloading note for ${formatDate(dn.delivery_date)}...` });
 
-      // 1. Build Parameters
       const formatname = "PO Delivery Histroy";
-      const formattedDate = typeof date === 'string' 
-      ? date 
-      : format(date, "yyyy-MM-dd");
+      const formattedDate = dn.delivery_date;
 
-       const printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Procurement%20Orders&name=${poId}&format=${encodeURIComponent(formatname)}&no_letterhead=0&delivery_date=${encodeURIComponent(formattedDate)}`;
-    
-      // 2. Fetch Blob
+      const printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Procurement%20Orders&name=${poId}&format=${encodeURIComponent(formatname)}&no_letterhead=0&delivery_date=${encodeURIComponent(formattedDate)}`;
+
       const response = await fetch(printUrl);
       if (!response.ok) throw new Error("Failed to generate PDF");
 
       const blob = await response.blob();
 
-      // 3. Download
-      const fileName = `${poId}_Delivery_${date}.pdf`;
+      const fileName = `${poId}_Delivery_${dn.delivery_date}.pdf`;
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -79,95 +67,79 @@ const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, poId, data, 
       document.body.appendChild(link);
       link.click();
 
-      // 4. Cleanup
       link.remove();
       window.URL.revokeObjectURL(url);
 
-      toast({
-        title: "Success",
-        description: "Delivery note downloaded.",
-        variant: "default" // or success
-      });
-
+      toast({ title: "Success", description: "Delivery note downloaded.", variant: "default" });
     } catch (error) {
       console.error("Download error:", error);
-      toast({
-        title: "Error",
-        description: "Failed to download delivery note.",
-        variant: "destructive"
-      });
+      toast({ title: "Error", description: "Failed to download delivery note.", variant: "destructive" });
     }
   };
 
-
-  const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      onToggle(date);
-    }
-  }, [date, onToggle]);
-
   const { data: usersList } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
-    fields: ["name", "full_name"],
+    fields: ["name", "full_name", "email"],
     limit: 1000,
   }, `Nirmaan Users`);
 
   const getUserName = useMemo(() => memoize((id: string | undefined) => {
-    if (id === "Administrator") return "Administrator"
-    return usersList?.find((user) => user.name === id)?.full_name || ""
+    if (!id) return "";
+    if (id === "Administrator") return "Administrator";
+    const byName = usersList?.find((user) => user.name === id);
+    if (byName) return byName.full_name;
+    const byEmail = usersList?.find((user) => user.email === id);
+    if (byEmail) return byEmail.full_name;
+    return id;
   }, (id: string | undefined) => id), [usersList]);
 
   return (
-    // --- (Indicator) MODIFIED: For mobile, each "row" is now a block element inside a div. On desktop, it's a TableRow. ---
-    // We use a React.Fragment to avoid adding an extra DOM element.
     <>
       {/* Mobile Card View */}
       <div className="block sm:hidden border-t p-4">
-        <div className="flex justify-between items-center" onClick={() => onToggle(date)}>
+        <div className="flex justify-between items-center" onClick={() => onToggle(rowKey)}>
           <div>
-            <div className="font-medium">{formatDate(new Date(date), "dd MM, yyyy")}</div>
-            <div className="text-sm text-gray-500">{data?.note_no}</div>
-            <div className="text-sm text-gray-500">{data.items.length} item(s) updated by {getUserName(data.updated_by)}</div>
+            <div className="font-medium">{formatDate(dn.delivery_date)}</div>
+            <div className="text-sm text-gray-500">{dn.note_no}</div>
+            <div className="text-sm text-gray-500">{dn.items.length} item(s) updated by {getUserName(dn.updated_by_user)}</div>
           </div>
           <div className="flex items-center gap-2">
-            {/* <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); onPrint(date, data); }}><Printer className="h-4 w-4" /></Button> */}
             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleDownloadDeliveryNote}>
               <Printer className="h-4 w-4 text-gray-700" />
             </Button>
-            
             <button aria-label="Toggle details" className="p-1">{isExpanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}</button>
           </div>
         </div>
         <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-[1000px] mt-4' : 'max-h-0'}`}>
           <ul className="list-disc pl-5 space-y-1 text-sm text-gray-700">
-            {data.items.map((item, idx) => (
-              <li key={idx} className="flex-col"><div><strong>{item.item_name}</strong></div> <div>Received : {item.to - item.from}({item.unit})</div></li>
+            {dn.items.map((item, idx) => (
+              <li key={idx} className="flex-col"><div><strong>{item.item_name}</strong></div> <div>Received : {item.delivered_quantity}({item.unit})</div></li>
             ))}
           </ul>
         </div>
       </div>
 
       {/* Desktop Table Row View */}
-      <TableRow role="button" onClick={() => onToggle(date)} className="hidden sm:table-row cursor-pointer hover:bg-gray-50">
+      <TableRow role="button" onClick={() => onToggle(rowKey)} className="hidden sm:table-row cursor-pointer hover:bg-gray-50">
         <TableCell>
-          <div className="flex items-center font-medium">{formatDate(new Date(date), "dd/MM/yyyy")} <span className="ml-2">{isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</span></div>
+          <div className="flex items-center font-medium">{formatDate(dn.delivery_date)} <span className="ml-2">{isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</span></div>
         </TableCell>
-        <TableCell>{data.note_no}</TableCell>
-        <TableCell>{data.items.length}</TableCell>
+        <TableCell>{dn.note_no}</TableCell>
+        <TableCell>{dn.items.length}</TableCell>
         <TableCell className={`${index === 0 ? "font-bold" : ""}`}>{index === 0 ? "Create" : "Update"}</TableCell>
-        <TableCell>{getUserName(data.updated_by)}</TableCell>
+        <TableCell>{getUserName(dn.updated_by_user)}</TableCell>
         <TableCell>
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleDownloadDeliveryNote}><Printer className="h-4 w-4 text-gray-700" /></Button>
         </TableCell>
       </TableRow>
       {/* The expanded content row for desktop */}
       <TableRow className="hidden sm:table-row" aria-hidden={!isExpanded}>
-        <TableCell colSpan={5} className="p-0">
+        <TableCell colSpan={6} className="p-0">
           <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-[1000px]' : 'max-h-0'}`}>
             <div className="p-4 bg-gray-50">
               <Table>
                 <TableHeader className="bg-gray-200"><TableRow><TableHead>Item Name</TableHead><TableHead>Unit</TableHead><TableHead>Received</TableHead></TableRow></TableHeader>
                 <TableBody>
-                  {data.items.map((item, itemIdx) => (<TableRow key={itemIdx}><TableCell>{item.item_name}</TableCell><TableCell>{item.unit}</TableCell><TableCell>{item.to - item.from}</TableCell></TableRow>))}
+                  {dn.items.map((item, itemIdx) => (<TableRow key={itemIdx}><TableCell>{item.item_name}</TableCell><TableCell>{item.unit}</TableCell><TableCell>{item.delivered_quantity}</TableCell></TableRow>))}
                 </TableBody>
               </Table>
             </div>
@@ -181,19 +153,18 @@ const ExpandableRow: React.FC<ExpandableRowProps> = ({ index, date, poId, data, 
 
 const DeliveryHistoryTable: React.FC<DeliveryHistoryTableProps> = ({
   poId,
-  deliveryData,
-  onPrintHistory,
-  showHeader = true, // Default to true for backwards compatibility
+  dnRecords,
+  onPrintHistory: _onPrintHistory,
+  showHeader = true,
 }) => {
   const [expandedRows, setExpandedRows] = useState<string[]>([]);
 
-  const handleToggle = useCallback((date: string) => {
+  const handleToggle = useCallback((key: string) => {
     setExpandedRows((prev) =>
-      prev.includes(date) ? prev.filter((d) => d !== date) : [...prev, date]
+      prev.includes(key) ? prev.filter((d) => d !== key) : [...prev, key]
     );
   }, []);
 
-  // Shared table content - used in both wrapped and unwrapped versions
   const tableContent = (
     <>
       {/* For Desktop */}
@@ -210,17 +181,15 @@ const DeliveryHistoryTable: React.FC<DeliveryHistoryTableProps> = ({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {deliveryData && Object.keys(deliveryData).length > 0 ? (
-              Object.entries(deliveryData).map(([date, data], index) => (
+            {dnRecords.length > 0 ? (
+              dnRecords.map((dn, index) => (
                 <ExpandableRow
-                  key={date}
+                  key={dn.name}
                   index={index}
-                  date={date}
-                  data={data}
+                  dn={dn}
                   poId={poId}
-                  isExpanded={expandedRows.includes(date)}
+                  isExpanded={expandedRows.includes(dn.name)}
                   onToggle={handleToggle}
-                  onPrint={onPrintHistory}
                 />
               ))
             ) : (
@@ -235,18 +204,16 @@ const DeliveryHistoryTable: React.FC<DeliveryHistoryTableProps> = ({
       </div>
       {/* For Mobile */}
       <div className="block sm:hidden">
-        {deliveryData && Object.keys(deliveryData).length > 0 ? (
+        {dnRecords.length > 0 ? (
           <div className="divide-y">
-            {Object.entries(deliveryData).map(([date, data], index) => (
+            {dnRecords.map((dn, index) => (
               <ExpandableRow
-                key={date}
+                key={dn.name}
                 index={index}
-                date={date}
-                data={data}
+                dn={dn}
                 poId={poId}
-                isExpanded={expandedRows.includes(date)}
+                isExpanded={expandedRows.includes(dn.name)}
                 onToggle={handleToggle}
-                onPrint={onPrintHistory}
               />
             ))}
           </div>
@@ -259,12 +226,10 @@ const DeliveryHistoryTable: React.FC<DeliveryHistoryTableProps> = ({
     </>
   );
 
-  // When showHeader is false, render without Card wrapper (for use in accordions)
   if (!showHeader) {
     return <div className="w-full">{tableContent}</div>;
   }
 
-  // Default: render with Card wrapper and header
   return (
     <Card>
       <CardHeader className="font-semibold text-lg text-red-600 pl-6">
