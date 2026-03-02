@@ -141,7 +141,7 @@ const RevisionCard: React.FC<RevisionCardProps> = ({ revision }) => {
                 </p>
               </div>
               <div className={`rounded-lg p-3 border ${isPositive ? "bg-emerald-50/60 border-emerald-100" : isNegative ? "bg-rose-50/60 border-rose-100" : "bg-slate-50 border-slate-100"}`}>
-                <p className="text-[9px] font-medium text-slate-400 uppercase tracking-wider">Impact</p>
+                <p className="text-[9px] font-medium text-slate-400 uppercase tracking-wider">Impact (incl.GST)</p>
                 <p className={`text-sm font-bold mt-1 tabular-nums ${isPositive ? "text-emerald-600" : isNegative ? "text-rose-600" : "text-slate-600"}`}>
                   {isPositive ? "+" : ""}{formatToIndianRupee(diff)}
                 </p>
