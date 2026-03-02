@@ -653,6 +653,7 @@ function HistoryTable({ projectId }: { projectId: string }) {
       onExport={handleExport}
       exportFileName={`Inventory_Report_History_${formatDate(new Date().toISOString())}`}
       showRowSelection={false}
+      enableVirtualization={false}
     />
   );
 }
