@@ -48,7 +48,7 @@ def _check_pending_as_original(po_id):
         "name"
     )
     return pending_revision or False
-
+# O(N)  need to optimize..
 def _check_pending_as_target(po_id):
     """
     Iterates through all Pending PO Revisions and checks their

@@ -547,3 +547,69 @@ When an API error occurs, `useApiErrorLogger` calls `captureApiError()` which se
 - **Searchable tags:** `layer:api`, `feature:po-revision`, `hook:useRevisionDoc`
 - **Full context:** HTTP status, backend messages, original error object
 
+===============================================================================================
+===============================================================================================
+
+## 9. External Functions Used by PO Revision Approval
+
+The PO Revision approval flow (`revision_logic.py`) relies on two key functions from other modules. These are **not** defined within the PO Revision module — they are imported from the Procurement Orders doctype and the Delivery Notes API respectively.
+
+### `calculate_totals_from_items()` — From Procurement Orders Doctype
+
+* **Defined in:** `nirmaan_stack/doctype/procurement_orders/procurement_orders.py` (Line 21)
+* **Type:** Instance method on the `ProcurementOrders` Document class
+* **Called as:** `original_po.calculate_totals_from_items()`
+
+**What it does:**
+Iterates over all child items in the PO and recalculates three parent-level fields:
+
+| Field Set | Source |
+|-----------|--------|
+| `self.amount` | Sum of all `item_row.amount` (excl. tax) |
+| `self.tax_amount` | Sum of all `item_row.tax_amount` |
+| `self.total_amount` | Sum of all `item_row.total_amount` (incl. tax — the grand total) |
+
+**Where used in PO Revision:**
+1. **`sync_original_po_items()`** — After adding/modifying/deleting items, recalculates the PO's grand total before save.
+2. **`process_positive_increase()`** — After syncing, recalculates to get `new_total` for rebalancing payment term percentages.
+3. **`process_negative_returns()`** — After syncing, recalculates `new_total` for LIFO term reduction.
+
+**Why it's important for revisions:**
+When a revision changes item quantities, rates, or adds/deletes items, the PO's `amount`, `tax_amount`, and `total_amount` would be stale. This function ensures they reflect the new item reality before financial operations (payment term adjustments) rely on them.
+
+---
+
+### `calculate_order_status()` — From Delivery Notes API
+
+* **Defined in:** `nirmaan_stack/api/delivery_notes/update_delivery_note.py` (Line 159)
+* **Type:** Standalone function (imported at top of `revision_logic.py`)
+* **Called as:** `calculate_order_status(updated_items)`
+
+**What it does:**
+Determines whether a PO should be `"Delivered"` or `"Partially Delivered"` by checking each item:
+
+| Quantity Type | Condition for "Delivered" |
+|---------------|--------------------------|
+| **Integer** | `quantity <= received_quantity` |
+| **Float** | `(quantity - 2.5% tolerance) <= received_quantity` |
+
+If **all** items pass → `"Delivered"`. Otherwise → `"Partially Delivered"`.
+
+**Where used in PO Revision:**
+* **`sync_original_po_items()`** — After item sync, if the PO was `"Partially Delivered"` or `"Delivered"`, re-evaluates the delivery status based on the new (revised) item quantities vs existing `received_quantity`.
+
+**Why it's important for revisions:**
+A revision can **reduce** an item's ordered quantity (e.g., from 10 → 5). If 5 units were already received, the item now satisfies `quantity <= received_quantity`. If all items in the PO pass this check after revision, the status should automatically update from `"Partially Delivered"` → `"Delivered"` — without requiring a separate delivery note update.
+
+**Example scenario:**
+```
+Before revision:
+  Item A: qty=10, received=10 ✓
+  Item B: qty=10, received=5  ✗  →  Status: "Partially Delivered"
+
+Revision reduces Item B: qty=10 → qty=5
+
+After revision approval + status recalculation:
+  Item A: qty=10, received=10 ✓
+  Item B: qty=5,  received=5  ✓  →  Status: "Delivered" ✅
+```
