@@ -16,6 +16,7 @@
     "import_details_section",
     "header_row",
     "column_mapping",
+    "preambles",
     "summary_section",
     "total_items",
     "total_amount",
@@ -79,6 +80,14 @@
       "fieldname": "column_mapping",
       "fieldtype": "JSON",
       "label": "Column Mapping"
+    },
+    {
+      "fieldname": "preambles",
+      "fieldtype": "Long Text",
+      "label": "Preambles",
+      "hidden": 0,
+      "read_only": 1,
+      "description": "JSON array of {id, text} preamble entries extracted during import"
     },
     {
       "fieldname": "summary_section",

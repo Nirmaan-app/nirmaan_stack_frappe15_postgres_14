@@ -3,6 +3,7 @@ from frappe import _
 import json
 import os
 import csv
+import re
 import tempfile
 import requests
 
@@ -166,17 +167,175 @@ def _to_float(value, default=0.0):
         return default
 
 
+# ─── Preamble Detection ──────────────────────────────────────────────────────
+
+PREAMBLE_KEYWORDS = [
+    'design', 'manufacture', 'supply', 'installation', 'standards', 'note',
+    'specification', 'scope', 'general', 'clause', 'requirement', 'comply',
+    'applicable', 'as per', 'in accordance', 'shall be', 'including',
+]
+
+_NUMBERING_RE = re.compile(r'^\d+(\.\d+)*\s')
+
+
+def _is_preamble_row(description, quantity, supply_rate, installation_rate):
+    """
+    Classify a row as preamble (section heading / descriptive paragraph) vs item.
+
+    A row is a PREAMBLE if ALL numeric fields (quantity, supply_rate, installation_rate)
+    are zero or empty. If any numeric field is non-zero, it's an ITEM.
+    """
+    # If any numeric value is present, it's an item — not a preamble
+    if quantity > 0 or supply_rate > 0 or installation_rate > 0:
+        return False
+
+    if not description or not description.strip():
+        return False
+
+    # All numeric fields are zero and description is non-empty → preamble
+    return True
+
+
+def _extract_row_fields(row, col_index_map):
+    """Extract description, unit, quantity, supply_rate, installation_rate from a row."""
+    desc_idx = col_index_map.get('description')
+    unit_idx = col_index_map.get('unit')
+    qty_idx = col_index_map.get('quantity')
+    supply_idx = col_index_map.get('supply_rate')
+    install_idx = col_index_map.get('installation_rate')
+
+    description = row[desc_idx] if desc_idx is not None and desc_idx < len(row) else ''
+    unit = row[unit_idx] if unit_idx is not None and unit_idx < len(row) else ''
+    quantity = _to_float(row[qty_idx]) if qty_idx is not None and qty_idx < len(row) else 0.0
+    supply_rate = _to_float(row[supply_idx]) if supply_idx is not None and supply_idx < len(row) else 0.0
+    installation_rate = _to_float(row[install_idx]) if install_idx is not None and install_idx < len(row) else 0.0
+
+    return description, unit, quantity, supply_rate, installation_rate
+
+
+def _classify_rows(data_rows, col_index_map):
+    """
+    Classify rows and aggregate consecutive preamble rows into full blocks.
+
+    Returns:
+        row_classifications
+        preambles
+        items
+        total_amount
+    """
+
+    preambles = []
+    seen_preamble_texts = {}
+
+    items = []
+    row_classifications = []
+    total_amount = 0.0
+
+    current_preamble_id = None
+    current_block_lines = []
+    block_start_row = None
+
+    for row_idx, row in enumerate(data_rows):
+        description, unit, quantity, supply_rate, installation_rate = _extract_row_fields(row, col_index_map)
+
+        desc_clean = (description or "").strip()
+
+        # Empty row
+        if not desc_clean:
+            row_classifications.append({
+                'row_index': row_idx,
+                'type': 'empty'
+            })
+            continue
+
+        is_preamble = _is_preamble_row(desc_clean, quantity, supply_rate, installation_rate)
+
+        # ─────────────────────────────────────────────
+        # PREAMBLE ROW → accumulate block
+        # ─────────────────────────────────────────────
+        if is_preamble:
+            if block_start_row is None:
+                block_start_row = row_idx
+
+            current_block_lines.append(desc_clean)
+
+            row_classifications.append({
+                'row_index': row_idx,
+                'type': 'preamble'
+            })
+
+            continue
+
+        # ─────────────────────────────────────────────
+        # ITEM ROW → first finalize any open block
+        # ─────────────────────────────────────────────
+        if current_block_lines:
+            full_text = "\n".join(current_block_lines).strip()
+
+            if full_text not in seen_preamble_texts:
+                pid = len(preambles)
+                preambles.append({
+                    'id': pid,
+                    'text': full_text
+                })
+                seen_preamble_texts[full_text] = pid
+
+            current_preamble_id = seen_preamble_texts[full_text]
+
+            current_block_lines = []
+            block_start_row = None
+
+        # Now process item
+        total_rate = supply_rate + installation_rate
+        amount = quantity * total_rate
+        total_amount += amount
+
+        items.append({
+            'description': description,
+            'unit': unit,
+            'quantity': quantity,
+            'supply_rate': supply_rate,
+            'installation_rate': installation_rate,
+            'total_rate': total_rate,
+            'amount': amount,
+            'preamble_id': current_preamble_id,
+            'source_row_index': row_idx,
+        })
+
+        row_classifications.append({
+            'row_index': row_idx,
+            'type': 'item'
+        })
+
+    # ─────────────────────────────────────────────
+    # Handle file ending with preamble block
+    # ─────────────────────────────────────────────
+    if current_block_lines:
+        full_text = "\n".join(current_block_lines).strip()
+
+        if full_text not in seen_preamble_texts:
+            pid = len(preambles)
+            preambles.append({
+                'id': pid,
+                'text': full_text
+            })
+            seen_preamble_texts[full_text] = pid
+
+    return row_classifications, preambles, items, total_amount
 @frappe.whitelist()
-def parse_excel_preview(file_url):
+def parse_excel_preview(file_url, field_column_map=None, data_start_row=None,
+                       sheet_index=None):
     """
     Parse an Excel/CSV file and return preview data for the BOQ import wizard.
     Returns detected header row, columns, preview rows, and suggested mapping.
+    and preamble classifications when field_column_map is provided.
     """
     filepath = _get_file_path(file_url)
     if not os.path.exists(filepath):
         frappe.throw(_("File not found: {0}").format(file_url))
 
-    all_rows = _read_all_rows(filepath)
+    sheet_idx = int(sheet_index) if sheet_index is not None else None
+    all_rows = _read_all_rows(filepath, sheet_index=sheet_idx)
 
     if not all_rows:
         frappe.throw(_("The file appears to be empty"))
@@ -194,7 +353,7 @@ def parse_excel_preview(file_url):
     # Auto-suggest mapping
     suggested_mapping = _suggest_mapping(columns)
 
-    return {
+    result = {
         'detected_header_row': detected_header,
         'columns': columns,
         'preview_rows': data_rows[:100],
@@ -202,6 +361,26 @@ def parse_excel_preview(file_url):
         'total_rows': len(data_rows),
         'suggested_mapping': suggested_mapping,
     }
+
+    # If field_column_map is provided, classify rows for preamble detection
+    if field_column_map is not None:
+        if isinstance(field_column_map, str):
+            field_column_map = json.loads(field_column_map)
+        start_row = int(data_start_row) if data_start_row is not None else 0
+        col_index_map = {k: int(v) for k, v in field_column_map.items()}
+        classify_data_rows = [
+            row for row in all_rows[start_row:]
+            if any(c.strip() for c in row)
+        ]
+        row_classifications, preambles, classified_items, _ = _classify_rows(
+            classify_data_rows, col_index_map
+        )
+        result['row_classifications'] = row_classifications
+        result['preambles'] = preambles
+        result['items_count'] = len(classified_items)
+        result['preambles_count'] = len(preambles)
+
+    return result
 
 
 @frappe.whitelist()
@@ -215,6 +394,10 @@ def import_boq_data(file_url, project, work_package, zone=None,
     Supports two modes:
     1. New format: field_column_map (targetField→colIndex) + data_start_row
     2. Legacy format: header_row + column_mapping (sourceColName→targetField)
+
+    Preamble rows (section headings / descriptive paragraphs) are automatically
+    detected and separated from actual items. Items are linked to their parent
+    preamble via preamble_id.
     """
     filepath = _get_file_path(file_url)
     if not os.path.exists(filepath):
@@ -265,41 +448,13 @@ def import_boq_data(file_url, project, work_package, zone=None,
         stored_header_row = header_row + 1
         stored_mapping = json.dumps(column_mapping)
 
-    # Create BOQ items
-    items = []
-    total_amount = 0.0
+    # Classify rows — separate preambles from items
+    _, preambles, items, total_amount = _classify_rows(data_rows, col_index_map)
 
-    for row_idx, row in enumerate(data_rows):
-        desc_idx = col_index_map.get('description')
-        description = row[desc_idx] if desc_idx is not None and desc_idx < len(row) else ''
-
-        if not description.strip():
-            continue
-
-        unit_idx = col_index_map.get('unit')
-        qty_idx = col_index_map.get('quantity')
-        supply_idx = col_index_map.get('supply_rate')
-        install_idx = col_index_map.get('installation_rate')
-
-        unit = row[unit_idx] if unit_idx is not None and unit_idx < len(row) else ''
-        quantity = _to_float(row[qty_idx]) if qty_idx is not None and qty_idx < len(row) else 0.0
-        supply_rate = _to_float(row[supply_idx]) if supply_idx is not None and supply_idx < len(row) else 0.0
-        installation_rate = _to_float(row[install_idx]) if install_idx is not None and install_idx < len(row) else 0.0
-
-        total_rate = supply_rate + installation_rate
-        amount = quantity * total_rate
-        total_amount += amount
-
-        items.append({
-            'description': description,
-            'unit': unit,
-            'quantity': quantity,
-            'supply_rate': supply_rate,
-            'installation_rate': installation_rate,
-            'total_rate': total_rate,
-            'amount': amount,
-            'source_row_index': (data_start_row or 0) + row_idx + 1,
-        })
+    # Fix source_row_index to be absolute (relative to original sheet)
+    base_offset = data_start_row if data_start_row else 0
+    for item in items:
+        item['source_row_index'] = base_offset + item['source_row_index'] + 1
 
     if not items:
         frappe.throw(_("No valid data rows found after applying the column mapping"))
@@ -313,6 +468,7 @@ def import_boq_data(file_url, project, work_package, zone=None,
         'status': 'Imported',
         'header_row': stored_header_row,
         'column_mapping': stored_mapping,
+        'preambles': json.dumps(preambles) if preambles else None,
         'total_items': len(items),
         'total_amount': total_amount,
         'items': items,
@@ -326,4 +482,5 @@ def import_boq_data(file_url, project, work_package, zone=None,
         'boq_name': boq.name,
         'items_count': len(items),
         'total_amount': total_amount,
+        'preambles_count': len(preambles),
     }

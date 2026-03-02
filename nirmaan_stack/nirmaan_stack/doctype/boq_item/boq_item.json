@@ -17,7 +17,8 @@
     "total_rate",
     "amount",
     "metadata_section",
-    "source_row_index"
+    "source_row_index",
+    "preamble_id"
   ],
   "fields": [
     {
@@ -89,6 +90,14 @@
       "fieldtype": "Int",
       "hidden": 1,
       "label": "Source Row Index"
+    },
+    {
+      "fieldname": "preamble_id",
+      "fieldtype": "Int",
+      "hidden": 0,
+      "read_only": 1,
+      "label": "Preamble ID",
+      "description": "Index into parent BOQ preambles JSON array. Null means no preamble."
     }
   ],
   "grid_page_length": 50,
