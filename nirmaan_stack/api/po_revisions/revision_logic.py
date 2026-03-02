@@ -604,7 +604,7 @@ def process_negative_returns(revision_doc):
                 po_id=revision_doc.revised_po, project=revision_doc.project, vendor=revision_doc.vendor,
                 amt=-amount, status="Paid"
             )
-            _append_return_payment_term(original_po, pay_adhoc, frappe.utils.cstr(f"Return - Adhoc {desc}")[:140], -amount)
+            _append_return_payment_term(original_po, pay_adhoc, frappe.utils.cstr(f"Return - Adhoc")[:140], -amount)
             
             # CREATE PROJECT EXPENSE
             if expense_type:
