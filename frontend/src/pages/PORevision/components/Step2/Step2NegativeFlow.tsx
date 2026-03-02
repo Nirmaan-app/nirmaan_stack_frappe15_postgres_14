@@ -245,13 +245,19 @@ export const Step2NegativeFlow: React.FC<Step2NegativeFlowProps> = ({
                                         }}
                                     />
                                 </div>
-                                <div className="space-y-1.5">
-                                    <label className="text-sm font-bold text-gray-900">Description<span className="text-red-500">*</span></label>
-                                    <Textarea value={adj.description || ""} onChange={(e) => updateAdjustment(adj.id, { description: e.target.value })} className="min-h-[80px] bg-white border border-gray-200 rounded-md p-3 text-sm resize-none placeholder:text-gray-400" placeholder="Write Description...." />
+                                <div className="space-y-1.5 pt-2">
+                                    <div className="flex justify-between items-center">
+                                        <label className="text-sm font-bold text-gray-900">Description<span className="text-red-500">*</span></label>
+                                        <span className="text-[10px] text-gray-400 font-semibold">{adj.description?.length || 0}/140</span>
+                                    </div>
+                                    <Textarea maxLength={140} value={adj.description || ""} onChange={(e) => updateAdjustment(adj.id, { description: e.target.value })} className="min-h-[80px] bg-white border border-gray-200 rounded-md p-3 text-sm resize-none placeholder:text-gray-400 focus-visible:ring-blue-500" placeholder="Write Description...." />
                                 </div>
-                                <div className="space-y-1.5">
-                                    <label className="text-sm font-bold text-gray-900">Comment</label>
-                                    <Textarea value={adj.comment || ""} placeholder="Write Comment...." className="min-h-[80px] bg-white border border-gray-200 rounded-md p-3 text-sm resize-none placeholder:text-gray-400" onChange={(e) => updateAdjustment(adj.id, { comment: e.target.value })} />
+                                <div className="space-y-1.5 pt-2">
+                                    <div className="flex justify-between items-center">
+                                        <label className="text-sm font-bold text-gray-900">Comment</label>
+                                        <span className="text-[10px] text-gray-400 font-semibold">{adj.comment?.length || 0}/140</span>
+                                    </div>
+                                    <Textarea maxLength={140} value={adj.comment || ""} placeholder="Write Comment...." className="min-h-[80px] bg-white border border-gray-200 rounded-md p-3 text-sm resize-none placeholder:text-gray-400 focus-visible:ring-blue-500" onChange={(e) => updateAdjustment(adj.id, { comment: e.target.value })} />
                                 </div>
                              </div>
                              {/* Delete */}
@@ -325,14 +331,20 @@ export const Step2NegativeFlow: React.FC<Step2NegativeFlowProps> = ({
                                 />
                             </div>
 
-                            <div className="space-y-1.5">
-                                <label className="text-sm font-bold text-gray-900">Description<span className="text-red-500">*</span></label>
-                                <Textarea value={adj.description || ""} onChange={(e) => updateAdjustment(adj.id, { description: e.target.value })} className="min-h-[80px] bg-white border border-gray-200 rounded-md p-3 text-sm resize-none placeholder:text-gray-400" placeholder="Write Description...." />
+                            <div className="space-y-1.5 pt-2">
+                                <div className="flex justify-between items-center">
+                                    <label className="text-sm font-bold text-gray-900">Description<span className="text-red-500">*</span></label>
+                                    <span className="text-[10px] text-gray-400 font-semibold">{adj.description?.length || 0}/140</span>
+                                </div>
+                                <Textarea maxLength={140} value={adj.description || ""} onChange={(e) => updateAdjustment(adj.id, { description: e.target.value })} className="min-h-[80px] bg-white border border-gray-200 rounded-md p-3 text-sm resize-none placeholder:text-gray-400 focus-visible:ring-blue-500" placeholder="Write Description...." />
                             </div>
 
-                            <div className="space-y-1.5">
-                                <label className="text-sm font-bold text-gray-900">Comment</label>
-                                <Textarea value={adj.comment || ""} placeholder="Write Comment...." className="min-h-[80px] bg-white border border-gray-200 rounded-md p-3 text-sm resize-none placeholder:text-gray-400" onChange={(e) => updateAdjustment(adj.id, { comment: e.target.value })} />
+                            <div className="space-y-1.5 pt-2">
+                                <div className="flex justify-between items-center">
+                                    <label className="text-sm font-bold text-gray-900">Comment</label>
+                                    <span className="text-[10px] text-gray-400 font-semibold">{adj.comment?.length || 0}/140</span>
+                                </div>
+                                <Textarea maxLength={140} value={adj.comment || ""} placeholder="Write Comment...." className="min-h-[80px] bg-white border border-gray-200 rounded-md p-3 text-sm resize-none placeholder:text-gray-400 focus-visible:ring-blue-500" onChange={(e) => updateAdjustment(adj.id, { comment: e.target.value })} />
                             </div>
                         </div>
 

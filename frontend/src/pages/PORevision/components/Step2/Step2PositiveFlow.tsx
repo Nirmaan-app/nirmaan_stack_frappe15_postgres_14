@@ -91,17 +91,23 @@ export const Step2PositiveFlow: React.FC<Step2PositiveFlowProps> = ({
                     <TableBody>
                         {paymentTerms.map((term, index) => (
                             <TableRow key={term.id} className="h-14 border-b border-slate-50 last:border-0 hover:bg-slate-50/30 transition-colors">
-                                <TableCell className="pl-6">
-                                    <Input
-                                        value={term.term}
-                                        onChange={(e) => {
-                                            const newTerms = [...paymentTerms];
-                                            newTerms[index].term = e.target.value;
-                                            setPaymentTerms(newTerms);
-                                        }}
-                                        placeholder="e.g., Final Milestone Payment"
-                                        className="h-9 bg-white border-slate-100 text-xs font-semibold text-slate-700 rounded-lg px-4 focus:ring-blue-100 focus:border-blue-200"
-                                    />
+                                <TableCell className="pl-6 pt-3 pb-3">
+                                    <div className="flex flex-col gap-1 w-[90%] min-w-[200px]">
+                                        <div className="flex justify-end pr-2">
+                                            <span className="text-[10px] text-slate-400 font-semibold">{term.term?.length || 0}/140</span>
+                                        </div>
+                                        <Input
+                                            maxLength={140}
+                                            value={term.term}
+                                            onChange={(e) => {
+                                                const newTerms = [...paymentTerms];
+                                                newTerms[index].term = e.target.value;
+                                                setPaymentTerms(newTerms);
+                                            }}
+                                            placeholder="e.g., Final Milestone Payment"
+                                            className="h-9 bg-white border-slate-200 text-xs font-semibold text-slate-700 rounded-lg px-4 focus:ring-blue-500 focus:border-blue-500"
+                                        />
+                                    </div>
                                 </TableCell>
                                 <TableCell>
                                     <div className="relative">
