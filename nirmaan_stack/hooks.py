@@ -230,6 +230,10 @@ doc_events = {
     },
     "Project Inflows": {
         "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
+    },
+    "Delivery Notes": {
+        "on_update": "nirmaan_stack.integrations.controllers.delivery_notes.on_update",
+        "on_trash": "nirmaan_stack.integrations.controllers.delivery_notes.on_trash",
     }
 }
 
