@@ -262,6 +262,8 @@ Once a Manager reviews the "Pending" `PO Revisions` document and decides to appr
 
 3. **Step 2: Handling Financial Flow**
    It checks `total_amount_difference`.
+
+   
    * **If > 0 (Positive Flow):** It calls `process_positive_increase`. This function handles cost increases by strictly manipulating the Payment Terms table on the Original PO:
      1. **Recalculate Totals:** It re-fetches the Original PO and calls `.calculate_totals_from_items()` to get the new `Grand Total` including the synced items.
      2. **Update/Append Terms:** It parses the `payment_return_details` JSON from the draft.
@@ -270,6 +272,8 @@ Once a Manager reviews the "Pending" `PO Revisions` document and decides to appr
         * If no `"Created"` term exists, it instead appends a brand new row to the PO's `payment_terms` table, carefully inheriting the `payment_type` from existing terms and setting status to `"Created"`. If the inherited payment type is `"Credit"`, it additionally sets the `due_date` of this new term to `today + 2 days`.
      3. **Percentage Rebalancing:** Because the PO's total has increased, it loops through *all* payment terms (old and new) and forcefully recalculates their `percentage` field (`(amount / new_total) * 100`) so they precisely sum to 100%.
      4. **Save Draft Changes:** Finally, it updates the JSON payload in the draft to reflect the newly calculated percentages, and saves the Original PO (again, using `ignore_validate_update_after_submit = True`).
+
+
    * **If < 0 (Negative Flow):** It calls `process_negative_returns`. This function is strictly responsible for routing the "excess" money that the vendor now owes us back onto the books. It parses `payment_return_details` for `"Refund Adjustment"`. Depending on the `return_type` selected on the frontend, it executes one of three paths:
      1. **`Vendor-has-refund` (Direct Refund):** 
         * It creates a real `"Paid"` `Project Payments` document against the current PO for a *negative* amount (representing cash coming back).
@@ -313,3 +317,126 @@ If any piece of code fails (e.g., a validation error while creating a Project Pa
    * It forcefully deletes them (`force=1`, `ignore_permissions=True`) to guarantee no phantom financial records are left behind from a failed approval attempt.
 
 **Summary:** The Approval function is a highly controlled, high-stakes database transaction. It uses specific Frappe flags to bypass standard document locks, applies the drafted changes, and relies on aggressive rollback procedures to ensure the system is never left in a partially-updated, corrupt state.
+
+===============================================================================================
+===============================================================================================
+
+## 6. Backend API: PO Revision History
+
+Provides a single consolidated API to fetch all PO Revision history data for a given PO, eliminating the need for multiple separate frontend API calls.
+
+### API Endpoint Details
+* **Method:** `POST`
+* **Endpoint:** `nirmaan_stack.api.po_revisions.revision_history.get_po_revision_history`
+* **File Location:** `nirmaan_stack/api/po_revisions/revision_history.py`
+
+### What it Receives (Parameters):
+1. `po_id` (string): The Procurement Order ID to fetch revision history for.
+
+### What it Returns:
+A list of revision objects, ordered newest-first, each containing:
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | Revision document ID (e.g., `REV-PO-0005`) |
+| `creation` | datetime | When the revision was created |
+| `status` | string | `"Pending"`, `"Approved"`, or `"Rejected"` |
+| `total_amount_difference` | float | Net financial impact (+/-) |
+| `revision_justification` | string | User-provided reason for revision |
+| `payment_return_details` | object/null | **Pre-parsed** JSON (not a string) — the financial allocation details |
+| `revision_items` | array | Full child table rows from `PO Revisions Items` |
+| `original_total_incl_tax` | float | Computed total of original items including GST (rounded to 2 decimals) |
+| `revised_total_incl_tax` | float | Computed total of revised items including GST (rounded to 2 decimals) |
+
+### How it Works (Step-by-Step):
+
+1. **Fetch All Revisions:**
+   Queries `PO Revisions` doctype filtered by `revised_po = po_id`, ordered by `creation desc` to show most recent first.
+
+2. **Parse Payment JSON:**
+   For each revision, if `payment_return_details` exists and is a JSON string, it auto-parses it into a Python dict. This means the frontend receives a ready-to-use object instead of needing to call `JSON.parse()`.
+
+3. **Fetch Child Items:**
+   For each revision, queries all rows from the `PO Revisions Items` child table (filtered by `parent = revision.name`, ordered by `idx asc`). Returns the full item detail including `item_type`, original fields, and revision fields.
+
+4. **Compute Totals Including Tax:**
+   The API pre-computes two financial totals from the child items:
+   * **`original_total_incl_tax`:** Sum of `original_amount × (1 + original_tax/100)` for all items except `"New"` items (which didn't exist originally).
+   * **`revised_total_incl_tax`:** Sum of revised amounts with tax for all items except `"Deleted"` items. For `"Original"` (unchanged) items, it uses the original amount; for `"Revised"`/`"Replace"`/`"New"` items, it uses the revision amount with the revision tax rate.
+
+### Why This API Exists:
+* **Performance:** Replaces 2+ frontend API calls (`useFrappeGetDocList` for the list + `useFrappeGetDoc` per card expansion) with a single call that returns everything.
+* **Pre-computation:** Tax-inclusive totals are computed server-side with proper floating-point handling, avoiding JavaScript precision issues.
+* **Pre-parsing:** Payment JSON is parsed server-side, so the frontend doesn't need try/catch blocks for JSON parsing.
+
+===============================================================================================
+===============================================================================================
+
+## 7. Frontend Component: PO Revision History
+
+A premium, timeline-based UI component that displays the full revision history for a Purchase Order. It uses a two-level collapsible pattern: the entire section collapses, and each revision card within it also collapses independently.
+
+### Frontend Component
+* **Component Name:** `PORevisionHistory` (`frontend/src/pages/PORevision/components/PORevisionHistory.tsx`)
+* **Usage:** Imported and rendered in `PODetails.tsx` (Purchase Orders detail page), placed after the `PORevisionDialog` component.
+* **Props:** `poId: string` — the Procurement Order ID.
+
+### Data Fetching
+* Uses `useFrappePostCall` + `useSWR` to call the backend API (`get_po_revision_history`).
+* SWR cache key: `po_revision_history_{poId}` — ensures data is cached and shared across re-renders.
+* The component returns `null` (renders nothing) if loading, no data, or no revisions exist.
+
+### UI Structure
+
+#### Level 1: Section Collapsible (Outer)
+* **Collapsed state (default):** A gradient header bar showing:
+  * History icon (clock) in a red-tinted badge
+  * "Revision History" title
+  * Count badge (number of revisions)
+  * Chevron indicator with rotation animation
+* **Expanded state:** Reveals a timeline layout with a vertical gradient line on the left side.
+
+#### Level 2: Revision Cards (Inner - one per revision)
+Each revision renders as a card along the timeline:
+
+* **Timeline Dot:** A colored circle on the left timeline, color-coded by status:
+  * 🟢 Emerald = Approved
+  * 🟡 Amber = Pending
+  * 🔴 Rose = Rejected
+
+* **Card Header (always visible):**
+  * Chevron with smooth 90° rotation
+  * Revision ID + Status badge (color-coded)
+  * Creation date
+  * Net difference amount with trend icon (↗ green for increase, ↘ red for decrease)
+
+* **Card Body (expanded):**
+  1. **Amount Summary (3-column grid):**
+     * "Before" — Original total including tax (from API `original_total_incl_tax`)
+     * "After" — Revised total including tax (from API `revised_total_incl_tax`)
+     * "Impact" — Net difference with color coding (green/red bg)
+
+  2. **Reason for Revision:**
+     * Icon-prefixed section (MessageSquareText icon)
+     * Displays `revision_justification` text
+
+  3. **Items Changed:**
+     * Icon-prefixed section (ArrowUpDown icon)
+     * Shows count of changed items (excludes `"Original"` type)
+     * Scrollable table with `max-h-[200px]` to prevent excessive height
+     * Columns: Type badge, Item name, Qty Change (shown as `10 → 8` with arrow), Amount diff
+     * Type badges are color-coded: Green (New), Red (Deleted), Blue (Revised/Replace)
+     * Deleted items show strikethrough qty, New items show plain qty
+
+  4. **Payment Rectification:**
+     * Icon-prefixed section (Wallet icon)
+     * Reuses the existing `PORevisionPaymentRectification` component
+     * Payment data is already parsed by the backend API (no JSON.parse needed)
+
+### Design Highlights
+* **Timeline pattern:** Vertical line with status-colored dots creates a visual chronology
+* **Tabular numbers:** All financial figures use `tabular-nums` for perfect digit alignment
+* **Gradient backgrounds:** Subtle `from-white to-slate-50/50` gradient on expanded cards
+* **Shadow transitions:** Cards lift on hover with smooth shadow animation
+* **Line clamp:** Long item names are truncated with CSS `line-clamp-1`
+* **Sticky table header:** Item changes table header stays visible during scroll
