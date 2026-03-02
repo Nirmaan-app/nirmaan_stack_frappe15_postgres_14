@@ -32,11 +32,12 @@ class ProjectPayments(Document):
 		
 		total_paid = sum(flt(p.amount) for p in payments)
 
-		if flt(self.amount) + total_paid > flt(doc.total_amount) + 10.0:
-			frappe.throw(
-				_("Total payment amount cannot exceed the total amount of the document."),
-				title=_("Payment Amount Exceeds Total")
-			)
+		if not self.flags.ignore_amount_validation:
+			if flt(self.amount) + total_paid > flt(doc.total_amount) + 10.0:
+				frappe.throw(
+					_("Total payment amount cannot exceed the total amount of the document."),
+					title=_("Payment Amount Exceeds Total")
+				)
 
 	
 	def on_update(self):
