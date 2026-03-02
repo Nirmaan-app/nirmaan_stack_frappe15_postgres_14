@@ -125,7 +125,7 @@ def _split_target_po_term(target_po_id, transfer_amount, payment_name, source_po
                 
                 # Create the new split reserved term
                 split_term = {
-                    "label": f"{term.label} (Credit from PO {source_po_id})",
+                    "label": frappe.utils.cstr(f"{term.label} (Credit from PO {source_po_id})")[:140],
                     "amount": reduction,
                     "percentage": 0, # Percentage will be recalculated on approval if needed, keep 0 for draft
                     "term_status": "Paid", # Keeps it un-usable by regular GRNs
@@ -164,7 +164,7 @@ def on_approval_revision(revision_name):
     2. Calls positive flow logic if the total cost increased (asking for more money).
     3. Calls negative flow logic if the total cost decreased (processing refunds/credits).
     """
-    revision_doc = frappe.get_doc("PO Revisions", revision_name)
+    revision_doc = frappe.get_doc("PO Revisions", revision_name, for_update=True)
     
     if revision_doc.status == "Approved":
         frappe.throw(_("This revision is already approved."))
@@ -379,10 +379,10 @@ def process_positive_increase(revision_doc):
                                 if merge_target:
                                     # Merge into the existing unpaid term
                                     merge_target.amount += flt(st.get("amount"))
-                                    # Update label intelligently
+                                    # Update label intelligently and safely truncate
                                     new_label = st.get("label", "").strip()
                                     if new_label and new_label.lower() not in (merge_target.label or "").lower():
-                                        merge_target.label = f"{merge_target.label} + {new_label}"
+                                        merge_target.label = frappe.utils.cstr(f"{merge_target.label} + {new_label}")[:140]
                                 else:
                                     # Fallback: Append a brand new term
                                     new_term_data = {
@@ -604,7 +604,7 @@ def process_negative_returns(revision_doc):
                 po_id=revision_doc.revised_po, project=revision_doc.project, vendor=revision_doc.vendor,
                 amt=-amount, status="Paid"
             )
-            _append_return_payment_term(original_po, pay_adhoc, f"Return - Adhoc {desc}", -amount)
+            _append_return_payment_term(original_po, pay_adhoc, frappe.utils.cstr(f"Return - Adhoc {desc}")[:140], -amount)
             
             # CREATE PROJECT EXPENSE
             if expense_type:
@@ -612,7 +612,7 @@ def process_negative_returns(revision_doc):
                 expense.projects = revision_doc.project
                 expense.type = expense_type
                 expense.vendor = revision_doc.vendor
-                expense.description = desc
+                expense.description = frappe.utils.cstr(desc)[:140] # Truncate to max db length
                 expense.amount = amount  # Positive amount for expense
                 expense.payment_date = nowdate()
                 expense.payment_by = revision_doc.owner
@@ -635,36 +635,36 @@ def process_negative_returns(revision_doc):
         _reduce_payment_terms_lifo(original_po, reduction_needed, new_total)
 
     # Sync modified timestamp from DB to bypass TimestampMismatchError caused by backend Project Payments
-    original_po.modified = frappe.db.get_value("Procurement Orders", original_po.name, "modified")
+       # Sync modified timestamp and amount_paid from DB to bypass overwrite
+    fresh_data = frappe.db.get_value("Procurement Orders", original_po.name, ["modified", "amount_paid"], as_dict=True)
+    if fresh_data:
+        original_po.modified = fresh_data.modified
+        original_po.amount_paid = fresh_data.amount_paid
+
+    original_po.flags.ignore_validate_update_after_submit = True
     original_po.save(ignore_permissions=True)
+
 
 
 @frappe.whitelist()
 def on_reject_revision(revision_name):
-    """
-    Handles the rejection or cancellation of a PO Revision.
-    Since payments and terms are no longer created upfront, this just marks the revision rejected.
-
-    Use Case: Executed when a manager clicks "Reject" on a PO Revision.
-    What it does: Cancels the revision request simply by marking its status as "Rejected". 
-    Since financial/item changes are deferred until approval, no complex rollback is needed.
-    """
-    revision_doc = frappe.get_doc("PO Revisions", revision_name)
+    # lock it here too
+    revision_doc = frappe.get_doc("PO Revisions", revision_name, for_update=True)
     
     if revision_doc.status in ["Approved", "Rejected"]:
         frappe.throw(_("This revision cannot be rejected in its current state."))
 
-    frappe.db.begin()
+    # Remove frappe.db.begin() - it's dangerous in HTTP requests
     try:
         revision_doc.status = "Rejected"
         revision_doc.save(ignore_permissions=True)
-        frappe.db.commit()
+        # Remove frappe.db.commit() - Frappe does it automatically at request end
         return "Success"
-
     except Exception as e:
-        frappe.db.rollback()
+        # Remove frappe.db.rollback() 
         frappe.log_error(frappe.get_traceback(), "PO Revision Rejection Error")
         frappe.throw(_("Rejection failed: {0}").format(str(e)))
+
 
 # @frappe.whitelist()
 # def get_adjustment_candidate_pos(vendor, current_po):
