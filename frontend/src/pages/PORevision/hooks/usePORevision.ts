@@ -248,8 +248,8 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
             } else if (adj.type === "Adhoc") {
                 detail.return_type = "Ad-hoc";
                 detail.status = "Pending";
-                detail["ad-hoc_tyep"] = adj.adhoc_type || "expense";
-                detail["ad-hoc_dexription"] = adj.description || "";
+                detail["ad-hoc_type"] = adj.adhoc_type || "expense";
+                detail["ad-hoc_description"] = adj.description || "";
                 detail.comment = adj.comment || "";
             } else if (adj.type === "Refunded") {
                 detail.return_type = "Vendor-has-refund";

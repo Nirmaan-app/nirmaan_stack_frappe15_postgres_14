@@ -22,7 +22,11 @@ export const useCreateRevision = () => {
     const result = await call(payload);
 
     // Invalidate lock check so Warning banner refreshes
-    await mutate(poRevisionKeys.lockCheck(payload.po_id));
+    // Invalidate revision history so the history section on PO details refetches
+    await Promise.all([
+      mutate(poRevisionKeys.lockCheck(payload.po_id)),
+      mutate(poRevisionKeys.revisionHistory(payload.po_id)),
+    ]);
 
     return result;
   };
@@ -50,6 +54,8 @@ export const useApproveRevision = () => {
             mutate(poRevisionKeys.originalPO(poId)),
             mutate(poRevisionKeys.revisionHistory(poId)),
             mutate(poRevisionKeys.lockCheck(poId)),
+            // Refetch PO on PurchaseOrder.tsx details page (items, status, payment terms changed)
+            mutate(["Procurement Orders", poId]),
           ]
         : []),
     ]);
@@ -78,7 +84,12 @@ export const useRejectRevision = () => {
     await Promise.all([
       mutate(poRevisionKeys.revisionDoc(revisionId)),
       ...(poId
-        ? [mutate(poRevisionKeys.lockCheck(poId))]
+        ? [
+            mutate(poRevisionKeys.lockCheck(poId)),
+            mutate(poRevisionKeys.revisionHistory(poId)),
+            // Refetch PO on PurchaseOrder.tsx (lock banner removed)
+            mutate(["Procurement Orders", poId]),
+          ]
         : []),
     ]);
 
@@ -87,3 +98,4 @@ export const useRejectRevision = () => {
 
   return { rejectRevision, loading };
 };
+
