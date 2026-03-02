@@ -67,6 +67,8 @@ export interface DataTableProps<T> {
   newRowIndicatorComponent?: React.ReactNode;
 
   estimatedRowHeight?: number;
+  /** Set to false to disable row virtualization (better for small datasets <50 rows) */
+  enableVirtualization?: boolean;
 
   /* styling options */
   headerClassName?: string;
@@ -93,6 +95,7 @@ export function DataTable<T>({
   isNewRow,
   newRowIndicatorComponent = <div className="h-2 w-2 rounded-full bg-red-500" />,
   estimatedRowHeight = 45,
+  enableVirtualization = true,
   // Default theme-appropriate classNames with good defaults
   headerClassName = "bg-red-50",
   stickyHeaderClassName = "bg-red-50",
@@ -126,6 +129,13 @@ export function DataTable<T>({
   const paddingBottom = virtualRows.length
     ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end
     : 0;
+
+  // When virtualization is disabled, render all rows directly (no virtual padding)
+  const renderRows = enableVirtualization
+    ? virtualRows
+    : rows.map((_, i) => ({ index: i, start: 0, end: 0 }));
+  const renderPaddingTop = enableVirtualization ? paddingTop : 0;
+  const renderPaddingBottom = enableVirtualization ? paddingBottom : 0;
 
   // --- Default Export Handler ---
   const handleDefaultExport = React.useCallback(() => {
@@ -305,15 +315,15 @@ export function DataTable<T>({
               <TableBodySkeleton rows={10} colSpan={table.getVisibleLeafColumns().length + (shouldRenderIndicatorColumn ? 1 : 0) + (shouldRenderSelectionColumn ? 1 : 0)} />
             ) : (
               <>
-                {paddingTop > 0 && (
-                  <TableRow><TableCell style={{ height: paddingTop, border: 0 }} /></TableRow>
+                {renderPaddingTop > 0 && (
+                  <TableRow><TableCell style={{ height: renderPaddingTop, border: 0 }} /></TableRow>
                 )}
 
-                {virtualRows.length === 0 && (
+                {renderRows.length === 0 && (
                   <TableRow><TableCell colSpan={leafCols.length + (shouldRenderIndicatorColumn ? 1 : 0) + (shouldRenderSelectionColumn ? 1 : 0)} className="h-24 text-center">No results found.</TableCell></TableRow>
                 )}
 
-                {virtualRows.map(vRow => {
+                {renderRows.map(vRow => {
                   const row = rows[vRow.index] as TanRow<T>;
                   const customRowClassName = getRowClassName?.(row);
                   return (
@@ -369,8 +379,8 @@ export function DataTable<T>({
                   );
                 })}
 
-                {paddingBottom > 0 && (
-                  <TableRow><TableCell style={{ height: paddingBottom, border: 0 }} /></TableRow>
+                {renderPaddingBottom > 0 && (
+                  <TableRow><TableCell style={{ height: renderPaddingBottom, border: 0 }} /></TableRow>
                 )}
               </>
             )}
