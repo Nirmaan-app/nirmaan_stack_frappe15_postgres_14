@@ -106,6 +106,7 @@ import { UploadDCMIRDialog } from "@/pages/DeliveryChallansAndMirs/components/Up
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 import { PORevisionDialog } from "@/pages/PORevision/PORevisionDialog";
+import { PORevisionHistory } from "@/pages/PORevision/components/PORevisionHistory";
 
 interface PODetailsProps {
   po: ProcurementOrder | null;
@@ -1607,6 +1608,9 @@ export const PODetails: React.FC<PODetailsProps> = ({
             // or just refresh.
         }}
       />
+
+      {/* PO Revision History */}
+      <PORevisionHistory poId={po.name} />
     </div>
   );
 };
