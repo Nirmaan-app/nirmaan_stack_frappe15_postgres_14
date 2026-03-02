@@ -12,7 +12,7 @@ The PO Revision Warning is a critical UI component that prevents concurrent modi
 * **Purpose:** Displays a red alert banner at the top of the Purchase Order detail page if the PO is locked. It informs the user why it's locked and provides a quick link to view the pending revision.
 * **Mechanism:** 
   * It accepts the `poId` as a prop.
-  * On mount or when `poId` changes, it makes a POST request to the backend API.
+  * Uses `usePOLockCheck(poId)` from the centralized data layer (`data/usePORevisionQueries.ts`), which wraps a POST call + SWR cache with Sentry error logging.
   * If the response indicates the PO `is_locked`, it renders the alert with the specific `role` (Original or Target) and a link to the `revision_id`.
 
 ### Backend API
@@ -382,8 +382,9 @@ A premium, timeline-based UI component that displays the full revision history f
 * **Props:** `poId: string` — the Procurement Order ID.
 
 ### Data Fetching
-* Uses `useFrappePostCall` + `useSWR` to call the backend API (`get_po_revision_history`).
-* SWR cache key: `po_revision_history_{poId}` — ensures data is cached and shared across re-renders.
+* Uses `useRevisionHistory(poId)` from the centralized data layer (`data/usePORevisionQueries.ts`).
+* SWR cache key: `["po-revision", "history", poId]` via `poRevisionKeys.revisionHistory(poId)`.
+* Includes automatic Sentry error logging via `useApiErrorLogger`.
 * The component returns `null` (renders nothing) if loading, no data, or no revisions exist.
 
 ### UI Structure
@@ -440,3 +441,109 @@ Each revision renders as a card along the timeline:
 * **Shadow transitions:** Cards lift on hover with smooth shadow animation
 * **Line clamp:** Long item names are truncated with CSS `line-clamp-1`
 * **Sticky table header:** Item changes table header stays visible during scroll
+
+===============================================================================================
+===============================================================================================
+
+## 8. Centralized Data Layer & Sentry Integration
+
+The PO Revision module uses a centralized data layer pattern (modeled after the Vendor module) to standardize API calls, SWR cache management, and Sentry error observability.
+
+### Folder Structure
+
+```
+PORevision/
+├── data/                              ← Centralized data layer
+│   ├── poRevision.constants.ts        ← Cache keys, doctype constants, API endpoints
+│   ├── usePORevisionQueries.ts        ← All read hooks with Sentry logging
+│   └── usePORevisionMutations.ts      ← All write hooks with cache invalidation
+├── hooks/                             ← Business logic hooks (use data/ imports)
+│   ├── usePORevision.ts
+│   └── usePORevisionsApprovalDetail.ts
+└── ...
+```
+
+### Cache Key Factory — `poRevisionKeys`
+**File:** `data/poRevision.constants.ts`
+
+All SWR cache keys are generated from a single `poRevisionKeys` factory object, ensuring predictable invalidation:
+
+| Key | Factory | Used By |
+|-----|---------|--------|
+| Revision Doc | `revisionDoc(id)` | Approval Detail |
+| Revision History | `revisionHistory(poId)` | PORevisionHistory component |
+| Procurement Request | `procurementRequest(prId)` | Revision Dialog |
+| Categories | `categories(wp)` | Revision Dialog |
+| Items | `items(wp)` | Revision Dialog |
+| Category Makelist | `categoryMakelist(wp)` | Revision Dialog |
+| Vendor Invoices | `vendorInvoices(poId)` | Revision Dialog |
+| Candidate POs | `candidatePOs(vendor)` | Negative Flow (Step 2) |
+| Original PO | `originalPO(poId)` | Approval Detail |
+| Lock Check | `lockCheck(poId)` | PORevisionWarning |
+
+### API Endpoint Constants — `PO_REVISION_APIS`
+
+All backend API endpoint strings are centralized:
+
+```typescript
+export const PO_REVISION_APIS = {
+  makeRevision:    "nirmaan_stack.api.po_revisions.revision_logic.make_po_revisions",
+  approveRevision: "nirmaan_stack.api.po_revisions.revision_logic.on_approval_revision",
+  checkLock:       "nirmaan_stack.api.po_revisions.revision_po_check.check_po_in_pending_revisions",
+  getHistory:      "nirmaan_stack.api.po_revisions.revision_history.get_po_revision_history",
+};
+```
+
+### Centralized Queries — `usePORevisionQueries.ts`
+
+10 query hooks, each wrapping a Frappe SDK call with:
+- **Standardized SWR cache key** from `poRevisionKeys`
+- **Automatic Sentry error logging** via `useApiErrorLogger` with `feature: "po-revision"`
+
+| Hook | Doctype/API | Consumer |
+|------|-------------|----------|
+| `useRevisionDoc(id)` | PO Revisions GetDoc | Approval Detail |
+| `useOriginalPO(poId)` | Procurement Orders GetDoc | Approval Detail |
+| `useProcurementRequestForRevision(prId)` | Procurement Requests GetDoc | Dialog |
+| `useRevisionCategories(wp)` | Category DocList | Dialog |
+| `useRevisionItems(wp, cats)` | Items DocList | Dialog |
+| `useRevisionCategoryMakelist(wp, cats)` | Category Makelist DocList | Dialog |
+| `useRevisionVendorInvoices(poId, enabled)` | Vendor Invoices DocList | Dialog |
+| `useApprovalInvoices(poId)` | Vendor Invoices DocList | Approval Detail |
+| `useCandidatePOs(vendor, enabled)` | Procurement Orders DocList | Dialog (Negative Flow) |
+| `usePOLockCheck(poId)` | Custom API (PostCall + SWR) | PORevisionWarning |
+| `useRevisionHistory(poId)` | Custom API (PostCall + SWR) | PORevisionHistory |
+
+### Centralized Mutations — `usePORevisionMutations.ts`
+
+3 mutation hooks with automatic SWR cache invalidation after success:
+
+| Hook | API | Invalidates |
+|------|-----|------------|
+| `useCreateRevision()` | `make_po_revisions` | `lockCheck(poId)` |
+| `useApproveRevision()` | `on_approval_revision` | `revisionDoc`, `originalPO`, `revisionHistory`, `lockCheck` |
+| `useRejectRevision()` | `updateDoc` (status → Rejected) | `revisionDoc`, `lockCheck` |
+
+### Sentry Error Logging Pattern
+
+Every query hook follows this pattern:
+
+```typescript
+export const useRevisionDoc = (revisionId?: string) => {
+  const response = useFrappeGetDoc(...);
+  useApiErrorLogger(response.error, {
+    hook: "useRevisionDoc",        // Which hook failed
+    api: "PO Revisions GetDoc",    // What API endpoint
+    feature: "po-revision",        // Feature area for grouping in Sentry
+    doctype: PO_REVISION_DOCTYPE,  // Frappe doctype
+    entity_id: revisionId,         // Specific entity for context
+  });
+  return response;
+};
+```
+
+When an API error occurs, `useApiErrorLogger` calls `captureApiError()` which sends to Sentry with:
+- **Custom fingerprinting:** `[feature, hook, api, httpStatus]` — groups errors uniquely per API call
+- **Searchable tags:** `layer:api`, `feature:po-revision`, `hook:useRevisionDoc`
+- **Full context:** HTTP status, backend messages, original error object
+

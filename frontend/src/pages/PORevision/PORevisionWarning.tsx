@@ -1,40 +1,17 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { AlertCircle } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { useFrappePostCall } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
+import { usePOLockCheck } from "./data/usePORevisionQueries";
 
 interface PORevisionWarningProps {
   poId: string | undefined;
 }
 
 export const PORevisionWarning: React.FC<PORevisionWarningProps> = ({ poId }) => {
-  const [warningData, setWarningData] = useState<{
-    is_locked: boolean;
-    role?: string;
-    revision_id?: string;
-    message?: string;
-  } | null>(null);
+  const { data: warningData, isLoading } = usePOLockCheck(poId);
 
-  const { call, loading } = useFrappePostCall(
-    "nirmaan_stack.api.po_revisions.revision_po_check.check_po_in_pending_revisions"
-  );
-
-  useEffect(() => {
-    if (poId) {
-      call({ po_id: poId })
-        .then((res) => {
-          if (res.message && res.message.is_locked) {
-            setWarningData(res.message);
-          } else {
-            setWarningData(null);
-          }
-        })
-        .catch((err) => console.error("Error fetching revision status:", err));
-    }
-  }, [poId, call]);
-
-  if (loading || !warningData?.is_locked) return null;
+  if (isLoading || !warningData?.is_locked) return null;
 
   return (
     <Alert variant="destructive" className="mb-6 bg-red-50 border-red-200">

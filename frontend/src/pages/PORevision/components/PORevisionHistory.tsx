@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { useFrappePostCall } from "frappe-react-sdk";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -16,7 +15,7 @@ import {
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import PORevisionPaymentRectification from "./detail/PORevisionPaymentRectification";
-import useSWR from "swr";
+import { useRevisionHistory } from "../data/usePORevisionQueries";
 
 interface PORevisionHistoryProps {
   poId: string;
@@ -31,14 +30,8 @@ const statusConfig: Record<string, { bg: string; text: string; dot: string; bord
 export const PORevisionHistory: React.FC<PORevisionHistoryProps> = ({ poId }) => {
   const [sectionOpen, setSectionOpen] = useState(false);
 
-  const { call } = useFrappePostCall(
-    "nirmaan_stack.api.po_revisions.revision_history.get_po_revision_history"
-  );
+  const { data: revisions, isLoading } = useRevisionHistory(poId);
 
-  const { data: revisions, isLoading } = useSWR(
-    poId ? `po_revision_history_${poId}` : null,
-    () => call({ po_id: poId }).then((res) => res.message || [])
-  );
 
   if (isLoading || !revisions || revisions.length === 0) {
     return null;
