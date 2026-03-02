@@ -19,6 +19,7 @@ Quick navigation to detailed documentation. Read only when working on related ta
 | File | Domain | When to Read |
 |------|--------|--------------|
 | `domain/ceo-hold.md` | CEO Hold | Project hold status blocking, guard hooks, affected pages |
+| `domain/delivery-notes.md` | Delivery Notes | DN system on POs, delivery_data JSON, 51-point linkage map across the app |
 | `domain/projects.md` | Projects | Frontend status behavior, ProjectSelect component |
 | `domain/customers.md` | Customers | Customer CRUD, financials, inflows |
 | `domain/invoices.md` | Invoices | PO/SR invoices, 2B reconciliation |

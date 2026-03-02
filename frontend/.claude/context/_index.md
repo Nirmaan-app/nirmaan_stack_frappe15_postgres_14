@@ -18,6 +18,7 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | [domain/milestones.md](./domain/milestones.md) | Milestones | Daily progress reports, zone tracking, work headers |
 | [domain/projects.md](./domain/projects.md) | Projects | Project status lifecycle, ProjectSelect component, status restrictions |
 | [domain/ceo-hold.md](./domain/ceo-hold.md) | CEO Hold | Project hold status, blocked operations, guard hooks |
+| [domain/delivery-notes.md](./domain/delivery-notes.md) | Delivery Notes | DN doctype, DN Item child table, APIs, received_quantity, 51-point linkage map |
 
 ### Module References (in-code)
 
@@ -34,6 +35,7 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | SR Form Wizard | `src/pages/ServiceRequests/sr-form/` | Step-based wizard: `schema.ts`, `constants.ts`, `steps/`, `amend/` |
 | SR Remarks | `src/pages/ServiceRequests/approved-sr/` | `hooks/useSRRemarks.ts`, `components/SRRemarks.tsx` |
 | DC/MIR Module | `src/pages/DeliveryChallansAndMirs/` | `components/UploadDCMIRDialog.tsx`, `ViewAttachmentsDialog.tsx`, `DCMIRItemSelector.tsx`, `hooks/usePODeliveryDocuments.ts` |
+| Delivery Notes (DN) | `src/pages/DeliveryNotes/` | `deliverynotes.tsx` (hub), `deliverynote.tsx` (detail), `components/deliveryNoteItemsDisplay.tsx` (form), `hooks/useDeliveryNoteData.ts` |
 | Design Tracker | `src/pages/ProjectDesignTracker/` | `types/index.ts` for interfaces, `utils.tsx` for styling, `config/taskTableColumns.tsx` for table, `components/FilesCell.tsx` for file/proof icons |
 | Team Performance | `src/pages/ProjectDesignTracker/` | `components/TeamPerformanceSummary.tsx`, inline edit with TaskEditModal, InlineTaskList drill-down |
 | Vendor Attachment for PR | `src/pages/ProcurementRequests/` | `components/VendorAttachmentForPR.tsx` for vendor quote attachments |
@@ -85,11 +87,12 @@ const { role, user_id } = useUserData();
     ├── testing.md          # Playwright browser testing guide
     ├── websocket.md        # Socket.IO real-time events & notifications
     └── domain/
-        ├── customers.md  # Customer management & financials
-        ├── invoices.md   # Invoice management & 2B reconciliation
-        ├── milestones.md # Daily progress reports & zone tracking
-        ├── projects.md   # Project status lifecycle & frontend behavior
-        └── ceo-hold.md   # CEO Hold status & blocked operations
+        ├── customers.md       # Customer management & financials
+        ├── delivery-notes.md  # DN doctype + child table, APIs, linkage map
+        ├── invoices.md        # Invoice management & 2B reconciliation
+        ├── milestones.md      # Daily progress reports & zone tracking
+        ├── projects.md        # Project status lifecycle & frontend behavior
+        └── ceo-hold.md        # CEO Hold status & blocked operations
 ```
 
 ---
