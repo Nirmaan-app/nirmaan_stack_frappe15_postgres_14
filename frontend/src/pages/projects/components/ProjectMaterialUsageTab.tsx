@@ -241,8 +241,7 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
       const remainingMap = new Map(Object.entries(remainingItems));
       items = processedItems.map((item) => {
         const key = `${item.categoryName}_${item.itemId}`;
-        const maxQuote = Math.max(...(item.poNumbers?.map((p) => p.quote ?? 0) ?? [0]));
-        const isHighValue = maxQuote > 5000;
+        const isHighValue = item.categoryName !== "Additional Charges" && (item.totalAmount ?? 0) > 5000;
         const remaining = remainingMap.get(key);
 
         return {
