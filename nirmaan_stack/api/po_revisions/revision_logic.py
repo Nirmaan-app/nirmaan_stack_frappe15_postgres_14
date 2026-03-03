@@ -455,6 +455,7 @@ def _create_project_payment(po_id, project, vendor, amt, status):
     pay.status = status
     pay.payment_date = nowdate()
     pay.approved_date = nowdate()
+    pay.approval_date = nowdate()
     pay.flags.from_revision = True  # Skip ALL project_payments.py hooks (validation, on_update, commit)
     pay.save(ignore_permissions=True)
     
