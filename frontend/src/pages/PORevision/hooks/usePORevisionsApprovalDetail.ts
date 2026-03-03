@@ -10,7 +10,8 @@ import {
 } from "../data/usePORevisionMutations";
 
 
-export const usePORevisionsApprovalDetail = (revisionId?: string) => {
+export const usePORevisionsApprovalDetail = (revisionIdFromUrl?: string) => {
+    const revisionId = revisionIdFromUrl ? revisionIdFromUrl.replace(/&=/g, "/") : undefined;
     const [isApproving, setIsApproving] = useState(false);
     const [isRejecting, setIsRejecting] = useState(false);
 

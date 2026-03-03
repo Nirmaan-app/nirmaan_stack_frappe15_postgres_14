@@ -103,7 +103,7 @@ export const MainLayout: React.FC = () => {
         const path = `/${processedSegments.slice(0, index + 1).join("/")}`;
         let labelText = segment;
         if (labelText.includes("%20")) labelText = labelText.replace(/%20/g, " ");
-        if (labelText.includes("PO&=") || labelText.includes("DN&=")) labelText = labelText.replace(/&=/g, "/");
+        if (labelText.includes("PO&=") || labelText.includes("DN&=") || labelText.includes("PRT&=")) labelText = labelText.replace(/&=/g, "/");
         labelText = labelText.toUpperCase();
         return { label: labelText, path };
       })
