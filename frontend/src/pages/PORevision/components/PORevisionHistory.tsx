@@ -16,6 +16,7 @@ import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import PORevisionPaymentRectification from "./detail/PORevisionPaymentRectification";
 import { useRevisionHistory } from "../data/usePORevisionQueries";
+import { useUserData } from "@/hooks/useUserData";
 
 interface PORevisionHistoryProps {
   poId: string;
@@ -31,9 +32,11 @@ export const PORevisionHistory: React.FC<PORevisionHistoryProps> = ({ poId }) =>
   const [sectionOpen, setSectionOpen] = useState(false);
 
   const { data: revisions, isLoading } = useRevisionHistory(poId);
+  const { role } = useUserData();
 
+  const isAllowed = ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Procurement Executive Profile"].includes(role);
 
-  if (isLoading || !revisions || revisions.length === 0) {
+  if (isLoading || !revisions || revisions.length === 0 || !isAllowed) {
     return null;
   }
 
