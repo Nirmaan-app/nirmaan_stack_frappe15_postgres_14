@@ -26,7 +26,7 @@ import {
   CreditCard,
   BanknoteIcon,
   Dices,
-  Landmark, PencilRuler
+  Landmark, PencilRuler,SquareStack
 } from "lucide-react";
 
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
@@ -405,14 +405,12 @@ export function NewSidebar() {
     ...(user_id == "Administrator" || [
       "Nirmaan Admin Profile",
       "Nirmaan PMO Executive Profile",
-      "Nirmaan Project Lead Profile",
-      "Nirmaan Project Manager Profile",
-      "Nirmaan Procurement Executive Profile"
+      "Nirmaan Accountant Profile"
     ].includes(role)
       ? [
         {
           key: "/po-revisions-approval",
-          icon: ClipboardCheck,
+          icon: SquareStack,
           label: "PO Revisions Approval",
         },
       ]
