@@ -77,7 +77,7 @@ export const DeclarationDialog: React.FC<DeclarationDialogProps> = ({
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent className="sm:max-w-lg">
+      <AlertDialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <AlertDialogHeader className="space-y-4">
           {/* Icon badge */}
           <div className="mx-auto sm:mx-0 flex items-center justify-center w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-900/30">

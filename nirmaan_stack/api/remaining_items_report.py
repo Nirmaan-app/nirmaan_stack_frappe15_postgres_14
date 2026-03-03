@@ -159,11 +159,15 @@ def get_today_report_for_project(project):
             "remaining_quantity": item.remaining_quantity,
         })
 
+    submitted_by_full_name = None
+    if existing.submitted_by:
+        submitted_by_full_name = frappe.db.get_value("User", existing.submitted_by, "full_name") or existing.submitted_by
+
     return {
         "exists": True,
         "name": doc.name,
         "status": doc.status,
-        "submitted_by": existing.submitted_by,
+        "submitted_by": submitted_by_full_name or existing.submitted_by,
         "modified": str(existing.modified),
         "items": items_list,
     }

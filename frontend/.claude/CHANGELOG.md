@@ -4,6 +4,26 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-02-27 — Read-Only Approval Tabs for Non-Approver Roles
+- Show "Pending Approval" tab on TDS Approval page to all roles (read-only for non-approvers)
+- Show "Approve Payments" tab on Project Payments page to all roles (read-only for non-approvers)
+- Non-approvers see info banner, no action buttons, no row navigation to approval screens
+- Added `readOnly` prop to ApprovePayments component
+- Files: TDSApprovalList.tsx, ApprovePayments.tsx, RenderProjectPaymentsComponent.tsx
+
+---
+
+## 2026-02-27: Restrict PMO Executive from TDS & Payment Approval
+
+**Summary:** Removed PMO Executive role from two specific approval capabilities while preserving view access.
+
+### Changes
+- **TDS Approval**: Removed PMO from `ALLOWED_APPROVER_ROLES` in `TDSApprovalList.tsx` and `TDSApprovalDetail.tsx` — PMO can view but not approve/reject
+- **Payment Approval**: Removed PMO from admin tab/default logic in `RenderProjectPaymentsComponent.tsx` and `isAdmin` check in `AllPayments.tsx` — PMO loses Approve Payments tab and edit-fulfilled capability
+- **Docs**: Updated `role-access.md` and `CLAUDE.md` to document PMO exceptions
+
+---
+
 ## 2026-02-25: Context Sync - 2 Week Feature Analysis
 
 **Summary:** Analyzed 122 commits (2026-02-10 to 2026-02-25) and synced insights to context documentation.

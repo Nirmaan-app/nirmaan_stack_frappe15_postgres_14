@@ -21,7 +21,7 @@ import { useFrappeFileUpload } from "frappe-react-sdk";
 import { DOC_TYPES } from "../approve-payments/constants";
 import { useOrderPayments } from "@/hooks/useOrderPayments";
 import { useOrderTotals } from "@/hooks/useOrderTotals";
-
+import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
 /* ---------- tiny sub-component for label/value rows --------------- */
 const Row = ({ label, val, labelClass, valClass }: { label: string; val: string | number, labelClass?: string, valClass?: string }) => (
@@ -40,6 +40,7 @@ export interface ProjectPaymentUpdateFields {
         document_name : string;
         document_type : string;
         amount        : number;
+        status        : string;
     }
 
 /* ---------- exported dialog --------------------------------------- */
@@ -94,6 +95,7 @@ export default function UpdatePaymentRequestDialog({
       };
       await trigger(payload);
       toast({ title: "Success", description: "Payment fulfilled", variant: "success" });
+      invalidateSidebarCounts();
       onSuccess(); toggle(); reset();
     } catch (e: any) {
       // const msg = e?.message || "Failed";
@@ -121,6 +123,7 @@ export default function UpdatePaymentRequestDialog({
     try {
       await trigger({ action: "delete", name: payment.name });
       toast({ title: "Deleted", variant: "success" });
+      invalidateSidebarCounts();
       onSuccess(); toggle(); reset();
     } catch (e: any) {
       toast({ title: "Error", description: e.message || "Failed", variant: "destructive" });
