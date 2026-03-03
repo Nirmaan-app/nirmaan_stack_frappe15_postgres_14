@@ -27,7 +27,7 @@ export const PORevisionWarning: React.FC<PORevisionWarningProps> = ({ poId }) =>
         </span>
         {warningData.revision_id && (
           <Link
-            to={`/po-revisions-approval/${warningData.revision_id.replaceAll("/", "&=")}`}
+            to={`/po-revisions-approval/${warningData.revision_id.replace(/\//g, "&=")}`}
             className="ml-4 whitespace-nowrap bg-red-100 hover:bg-red-200 text-red-800 px-3 py-1 rounded-md text-sm font-medium transition-colors"
           >
             View Revision {warningData.revision_id}

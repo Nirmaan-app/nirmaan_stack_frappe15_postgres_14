@@ -39,7 +39,7 @@ export const getPORevisionColumns = ({
         accessorKey: "name",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Revision ID" />,
         cell: ({ row }) => (
-            <Link to={`/po-revisions-approval/${row.original.name}`} className="text-blue-600 hover:underline">
+            <Link to={`/po-revisions-approval/${row.original.name.replace(/\//g, "&=")}`} className="text-blue-600 hover:underline">
                 {row.original.name}
             </Link>
         ),
