@@ -536,7 +536,8 @@ export const PO_REVISION_APIS = {
 
 ### Sentry Error Logging Pattern
 
-Every query hook follows this pattern:
+**Queries (Automatic):**
+Every query hook (which uses `useFrappeGetDocList` or `useSWR`) follows this pattern, where `useApiErrorLogger` automatically intercepts SWR failures:
 
 ```typescript
 export const useRevisionDoc = (revisionId?: string) => {
@@ -552,10 +553,20 @@ export const useRevisionDoc = (revisionId?: string) => {
 };
 ```
 
-When an API error occurs, `useApiErrorLogger` calls `captureApiError()` which sends to Sentry with:
+**Mutations (Manual):**
+Unlike queries, mutations execute imperatively on button clicks and are not automatically wrapped by SWR's error lifecycle. Therefore, every mutation in `usePORevisionMutations.ts` manually injects Sentry using `captureApiError`:
+
+1. **API Catch:** 
+   The main `.call()` is wrapped in a `try/catch`. If the API fails, `captureApiError` logs the exact endpoint and payload context.
+2. **SWR Catch:**
+   The `mutate()` calls are wrapped in an inner `try/catch`. If updating the React cache fails, a specific `"SWR Invalidation"` error is logged, preventing the UI from crashing after a successful database save.
+3. **User Context:**
+   We retrieve the `currentUser` via `useFrappeAuth()` and attach it to both `captureApiError` blocks.
+
+When any error occurs in queries or mutations, it sends to Sentry with:
 - **Custom fingerprinting:** `[feature, hook, api, httpStatus]` — groups errors uniquely per API call
 - **Searchable tags:** `layer:api`, `feature:po-revision`, `hook:useRevisionDoc`
-- **Full context:** HTTP status, backend messages, original error object
+- **Full context:** HTTP status, backend messages, user data, and the original error object
 
 ===============================================================================================
 ===============================================================================================
@@ -695,3 +706,66 @@ except Exception as e:
 | `revision_logic.py` → `_recalculate_amount_paid()` | New helper function for manual `amount_paid` calculation |
 | `doctype/project_payments/project_payments.py` | `from_revision` check in `before_insert` and `on_update` |
 | `integrations/controllers/project_payments.py` | `from_revision` check in `after_insert` and `on_update` |
+
+===============================================================================================
+===============================================================================================
+
+## 11. PO Lock: Disabled Actions When a Revision is Pending
+
+When a PO is locked (either as the Original PO or as a Target PO of a pending revision), several UI actions across the application are disabled to prevent conflicting changes.
+
+### Hook Used
+* **`usePOLockCheck(poId)`** from `data/usePORevisionQueries.ts`
+* Returns `{ is_locked, role, revision_id }` via SWR-cached POST call.
+
+### Disabled Actions by Component
+
+#### 1. `PODetails.tsx` (`purchase-order/components/PODetails.tsx`)
+| Button | Behavior When Locked |
+|--------|---------------------|
+| **Update Delivery** | `disabled={isLocked}` — button is grayed out, cannot open delivery note sheet |
+| **Mark Inactive** | `disabled={isLocked}` — button is grayed out, cannot open inactive confirmation dialog |
+| **Revise PO** | Completely hidden (`isLocked === false` is a visibility condition) |
+
+* `usePOLockCheck` is called directly inside this component using `po?.name`.
+
+#### 2. `POPaymentTermsCard.tsx` (`purchase-order/components/POPaymentTermsCard.tsx`)
+| Button | Behavior When Locked |
+|--------|---------------------|
+| **Edit (Payment Terms)** | `disabled={isLocked}` with title tooltip — cannot open the edit terms dialog |
+
+* Receives `isLocked` as a prop from `PurchaseOrder.tsx`.
+* The **Request Payment** row buttons are **not** blocked — users can still open the dialog.
+* The lock is enforced inside the **internal RequestPaymentDialog** (see below).
+
+#### 3. Internal `RequestPaymentDialog` (inside `POPaymentTermsCard.tsx`)
+| Element | Behavior When Locked |
+|---------|---------------------|
+| **Request button** | `disabled={isLoading \|\| isLocked}` — cannot submit the payment request |
+| **Warning message** | Red text: *"PO is in Revision, cannot request payment."* shown below the button |
+
+* Receives `isLocked` as a prop from `POPaymentTermsCard`.
+
+#### 4. Credits Page `RequestPaymentDialog` (`components/dialogs/RequestPaymentDialog.tsx`)
+| Element | Behavior When Locked |
+|---------|---------------------|
+| **Request button** | `disabled={isLoading \|\| isLocked}` — cannot submit the payment request |
+| **Warning message** | Red text: *"PO is in Revision, cannot request payment."* shown below the button |
+
+* Calls `usePOLockCheck(term?.name)` internally using the PO name from the `PoPaymentTermRow`.
+
+#### 5. `PurchaseOrder.tsx` (main page)
+| Button | Behavior When Locked |
+|--------|---------------------|
+| **Update Delivery** (summary section) | `disabled={isLocked}` — grayed out |
+
+* Calls `usePOLockCheck(poId)` and passes `isLocked` down to `POPaymentTermsCard`.
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `PurchaseOrder.tsx` | Calls `usePOLockCheck`, passes `isLocked` to `POPaymentTermsCard`, disables Update Delivery button |
+| `PODetails.tsx` | Uses existing `usePOLockCheck` call to disable Update Delivery and Mark Inactive buttons |
+| `POPaymentTermsCard.tsx` | Receives `isLocked` prop, disables Edit button, passes `isLocked` to internal `RequestPaymentDialog` |
+| `components/dialogs/RequestPaymentDialog.tsx` | Calls `usePOLockCheck` internally, disables Request button and shows warning |

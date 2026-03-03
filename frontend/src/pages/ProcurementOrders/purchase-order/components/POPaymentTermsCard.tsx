@@ -74,6 +74,7 @@ interface POPaymentTermsCardProps {
   projectPaymentsMutate: any;
   isEditTermsOpenmanual: boolean;
   setEditTermsOpenmanual: (isOpen: boolean) => void;
+  isLocked?: boolean;
 }
 
 // =================================================================================
@@ -694,6 +695,7 @@ const RequestPaymentDialog = ({
   term,
   onConfirm,
   isLoading,
+  isLocked,
 }) => {
   if (!isOpen || !term) return null;
   return (
@@ -730,7 +732,7 @@ const RequestPaymentDialog = ({
           <Button
             className="bg-red-600 hover:bg-red-700 w-32"
             onClick={onConfirm}
-            disabled={isLoading}
+            disabled={isLoading || isLocked}
           >
             {isLoading ? (
               <TailSpin color="white" height={20} width={20} />
@@ -740,6 +742,9 @@ const RequestPaymentDialog = ({
               </>
             )}
           </Button>
+          {isLocked && (
+            <p className="text-xs text-red-500 mt-1">PO is in Revision, cannot request payment.</p>
+          )}
         </div>
       </DialogContent>
     </Dialog>
@@ -849,7 +854,8 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
   estimatesViewing,
   summaryPage,
   poMutate,
-  projectPaymentsMutate
+  projectPaymentsMutate,
+  isLocked
 }) => {
   if (!PO)
     return (
@@ -1066,7 +1072,8 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
                   size="sm"
                   className="h-7 px-3 text-xs"
                   onClick={() => setEditTermsOpen(true)}
-                  //  disabled={!isPaymentTermsEditable}
+                  disabled={isLocked}
+                  title={isLocked ? "PO is in Revision, cannot edit payment terms." : ""}
                 >
                   <PencilIcon className="w-3 h-3 mr-1" />
                   Edit
@@ -1193,6 +1200,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
         term={termToRequest}
         onConfirm={handleConfirmRequestPayment}
         isLoading={CreatePPApiLoading}
+        isLocked={isLocked}
       />
     </>
   );

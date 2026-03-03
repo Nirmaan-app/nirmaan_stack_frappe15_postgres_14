@@ -11,6 +11,7 @@ import { TailSpin } from "react-loader-spinner";
 import { Send } from "lucide-react";
 import { PoPaymentTermRow } from "@/types/NirmaanStack/POPaymentTerms"; // Use the row type
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { usePOLockCheck } from "@/pages/PORevision/data/usePORevisionQueries";
 
 interface RequestPaymentDialogProps {
   isOpen: boolean;
@@ -27,6 +28,9 @@ export const RequestPaymentDialog = ({
   onConfirm,
   isLoading,
 }: RequestPaymentDialogProps) => {
+  const { data: lockData } = usePOLockCheck(term?.name);
+  const isLocked = lockData?.is_locked || false;
+
   if (!isOpen || !term) return null;
 
   return (
@@ -64,7 +68,7 @@ export const RequestPaymentDialog = ({
           <Button
             className="bg-red-600 hover:bg-red-700 w-32"
             onClick={onConfirm}
-            disabled={isLoading}
+            disabled={isLoading || isLocked}
           >
             {isLoading ? (
               <TailSpin color="white" height={20} width={20} />
@@ -74,6 +78,9 @@ export const RequestPaymentDialog = ({
               </>
             )}
           </Button>
+          {isLocked && (
+            <p className="text-xs text-red-500 mt-1">PO is in Revision, cannot request payment.</p>
+          )}
         </div>
       </DialogContent>
     </Dialog>
