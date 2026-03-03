@@ -896,6 +896,8 @@ export const PODetails: React.FC<PODetailsProps> = ({
                       variant="outline"
                       size="sm"
                       className="h-8 px-2.5 border-primary text-primary shrink-0"
+                      disabled={isLocked}
+                     
                     >
                       <Pencil className="h-3.5 w-3.5 sm:mr-1.5" />
                       <span className="hidden sm:inline text-xs">Update Delivery</span>
@@ -1014,6 +1016,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                       size="sm"
                       onClick={toggleInactiveDialog}
                       className="h-8 px-2.5 text-destructive border-destructive hover:bg-destructive hover:text-white shrink-0"
+                       disabled={isLocked}
                     >
                       <CircleX className="h-3.5 w-3.5 sm:mr-1.5" />
                       <span className="hidden sm:inline text-xs">Mark Inactive</span>

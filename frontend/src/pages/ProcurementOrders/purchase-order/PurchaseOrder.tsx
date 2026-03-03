@@ -131,6 +131,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { PaymentTerm, POTotals, DeliveryDataType } from "@/types/NirmaanStack/ProcurementOrders";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 import { PORevisionWarning } from "@/pages/PORevision/PORevisionWarning";
+import { usePOLockCheck } from "@/pages/PORevision/data/usePORevisionQueries";
 
 interface PurchaseOrderProps {
   summaryPage?: boolean;
@@ -166,6 +167,9 @@ export const PurchaseOrder = ({
 
   const [isRedirecting, setIsRedirecting] = useState(false);
   const poId = id?.replaceAll("&=", "/");
+
+  const { data: lockData } = usePOLockCheck(poId);
+  const isLocked = lockData?.is_locked || false;
 
   const [orderData, setOrderData] = useState<PurchaseOrderItem[]>([]);
   const [PO, setPO] = useState<ProcurementOrder | null>(null);
@@ -1618,17 +1622,7 @@ export const PurchaseOrder = ({
                     getTotal={PO?.total_amount}
                     poMutate={poMutate}
                     projectPaymentsMutate={poPaymentsMutate}
-
-                  // advance={advance}
-                  // materialReadiness={materialReadiness}
-                  // afterDelivery={afterDelivery}
-                  // xDaysAfterDelivery={xDaysAfterDelivery}
-                  // xDays={xDays}
-                  // setAdvance={setAdvance}
-                  // setMaterialReadiness={setMaterialReadiness}
-                  // setAfterDelivery={setAfterDelivery}
-                  // setXDaysAfterDelivery={setXDaysAfterDelivery}
-                  // setXDays={setXDays}
+                    isLocked={isLocked}
                   />
                 </div>
               </AccordionContent>
@@ -1671,6 +1665,7 @@ export const PurchaseOrder = ({
                             variant="outline"
                             size="sm"
                             className="h-8 px-3 border-primary text-primary"
+                            disabled={isLocked}
                           >
                             <Pencil className="h-3.5 w-3.5 mr-1.5" />
                             Update Delivery
