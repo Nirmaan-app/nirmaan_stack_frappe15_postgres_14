@@ -11,7 +11,7 @@ import { Category } from "@/types/NirmaanStack/Category";
 import { Items } from "@/types/NirmaanStack/Items";
 import { CategoryMakelist } from "@/types/NirmaanStack/CategoryMakelist";
 import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
-import { useApiErrorLogger } from "@/pages/vendors/data/useVendorQueries";
+import { useApiErrorLogger } from "@/utils/sentry/useApiErrorLogger";
 import { poRevisionKeys, PO_REVISION_DOCTYPE, PO_REVISION_APIS } from "./poRevision.constants";
 import useSWR from "swr";
 
