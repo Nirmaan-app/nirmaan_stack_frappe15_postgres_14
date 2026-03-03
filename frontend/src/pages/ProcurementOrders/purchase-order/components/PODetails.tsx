@@ -107,6 +107,7 @@ import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 import { PORevisionDialog } from "@/pages/PORevision/PORevisionDialog";
 import { PORevisionHistory } from "@/pages/PORevision/components/PORevisionHistory";
+import { usePOLockCheck } from "@/pages/PORevision/data/usePORevisionQueries";
 
 interface PODetailsProps {
   po: ProcurementOrder | null;
@@ -196,28 +197,9 @@ export const PODetails: React.FC<PODetailsProps> = ({
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
 
-  // PO Revision Lock status fetch
-  const [isLocked, setIsLocked] = useState(false);
-
-  const { call: fetchRevisionStatus } = useFrappePostCall(
-    "nirmaan_stack.api.po_revisions.revision_po_check.check_po_in_pending_revisions"
-  );
-
-  useEffect(() => {
-    if (po?.name) {
-      fetchRevisionStatus({ po_id: po.name })
-        .then((res) => {
-          if (res.message && res.message.is_locked) {
-            setIsLocked(true);
-          } else {
-            setIsLocked(false);
-          }
-        })
-        .catch((err) => console.error("Error fetching revision status:", err));
-    }
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [po?.name]);
+  // PO Revision Lock status fetch using SWR hook
+  const { data: lockData } = usePOLockCheck(po?.name);
+  const isLocked = lockData?.is_locked || false;
 
   const [inactiveDialog, setInactiveDialog] = useState(false);
 
@@ -1603,9 +1585,14 @@ export const PODetails: React.FC<PODetailsProps> = ({
         open={openRevisionDialog} 
         onClose={() => setOpenRevisionDialog(false)} 
         po={po}
-        onSuccess={(revName) => {
-            // Success logic? Maybe redirect to the revision page if needed, 
-            // or just refresh.
+        onSuccess={() => {
+            // Trigger lock status check to disable UI and show the warning banner
+            if (po?.name) {
+              // Invalidate the SWR cache for the warning banner and isLocked state to show up immediately
+              import("@/pages/PORevision/data/poRevision.constants").then(({ poRevisionKeys }) => {
+                globalMutate(poRevisionKeys.lockCheck(po.name));
+              }).catch(() => {});
+            }
         }}
       />
 
