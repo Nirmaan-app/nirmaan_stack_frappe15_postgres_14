@@ -521,7 +521,7 @@ export const PO_REVISION_APIS = {
 | `useRevisionVendorInvoices(poId, enabled)` | Vendor Invoices DocList | Dialog |
 | `useApprovalInvoices(poId)` | Vendor Invoices DocList | Approval Detail |
 | `useCandidatePOs(vendor, enabled)` | Procurement Orders DocList | Dialog (Negative Flow) |
-| `usePOLockCheck(poId)` | Custom API (PostCall + SWR) | PORevisionWarning |
+| `usePOLockCheck(poId)` | Custom API (PostCall + SWR) | PORevisionWarning, Approval Detail (`PODetails.tsx`) |
 | `useRevisionHistory(poId)` | Custom API (PostCall + SWR) | PORevisionHistory |
 
 ### Centralized Mutations — `usePORevisionMutations.ts`
