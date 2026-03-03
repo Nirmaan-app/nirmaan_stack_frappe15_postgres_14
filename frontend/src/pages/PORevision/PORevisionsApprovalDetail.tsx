@@ -141,7 +141,7 @@ export default function PORevisionsApprovalDetail() {
                 )}
             </div>
             
-            <p className="items-center text-sm border-b pb-4 text-slate-500 ml-11">
+            <p className="items-center text-sm border-b pb-4 text-slate-500 ">
                 Review changes requested for Purchase Order{" "}
                 <Link to={`/purchase-orders/${revisionDoc.revised_po?.replaceAll("/", "&=")}?tab=${originalPO?.status || "Approved%20PO"}`} className="font-medium text-blue-600 hover:underline inline-flex items-center gap-1">
                     #{revisionDoc.revised_po}
@@ -149,7 +149,7 @@ export default function PORevisionsApprovalDetail() {
                 </Link>
             </p>
 
-            <div className="ml-11 mt-2">
+            <div className=" mt-2">
                 {/* Metadata Card */}
                 <PORevisionInfoCard 
                     vendor={originalPO?.vendor || revisionDoc.vendor_name || revisionDoc.vendor || "Loading..."}
