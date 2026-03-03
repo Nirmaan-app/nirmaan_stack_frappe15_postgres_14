@@ -170,8 +170,6 @@ def on_approval_revision(revision_name):
         frappe.throw(_("This revision is already approved."))
 
     try:
-        frappe.db.savepoint("revision_approval")
-
         # Step 1: Sync Items
         sync_original_po_items(revision_doc)
         
@@ -190,8 +188,30 @@ def on_approval_revision(revision_name):
         return "Success"
 
     except Exception as e:
-        frappe.db.rollback(save_point="revision_approval")
-        frappe.log_error(frappe.get_traceback(), "PO Revision Approval Error")
+        traceback_str = frappe.get_traceback()
+        print(f"DEBUG_ROLLBACK: Exception caught: {str(e)}")
+        print(f"DEBUG_ROLLBACK: About to do frappe.db.rollback()")
+        
+        # Check payments BEFORE rollback
+        original_po_id = revision_doc.revised_po
+        before_payments = frappe.db.sql(
+            "SELECT name, document_name, amount FROM `tabProject Payments` WHERE document_name=%s AND status='Paid'",
+            original_po_id, as_dict=True
+        )
+        print(f"DEBUG_ROLLBACK: Payments BEFORE rollback for {original_po_id}: {before_payments}")
+        
+        # FULL transaction rollback
+        frappe.db.rollback()
+        
+        # Check payments AFTER rollback
+        after_payments = frappe.db.sql(
+            "SELECT name, document_name, amount FROM `tabProject Payments` WHERE document_name=%s AND status='Paid'",
+            original_po_id, as_dict=True
+        )
+        print(f"DEBUG_ROLLBACK: Payments AFTER rollback for {original_po_id}: {after_payments}")
+        print(f"DEBUG_ROLLBACK: Difference = {len(before_payments) - len(after_payments)} payments rolled back")
+        
+        frappe.log_error(traceback_str, "PO Revision Approval Error")
         frappe.throw(_("Approval failed: {0}").format(str(e)))
 
 
@@ -435,10 +455,30 @@ def _create_project_payment(po_id, project, vendor, amt, status):
     pay.status = status
     pay.payment_date = nowdate()
     pay.approved_date = nowdate()
-    pay.flags.ignore_amount_validation = True # Bypass basic manual payment validation for internal adjustments
+    pay.flags.from_revision = True  # Skip ALL project_payments.py hooks (validation, on_update, commit)
     pay.save(ignore_permissions=True)
     
     return pay
+
+def _recalculate_amount_paid(po_id):
+    """
+    Manually recalculates and sets amount_paid on a Procurement Order
+    by summing all its 'Paid' Project Payments.
+
+    Use Case: Called after creating payments with from_revision=True flag,
+    since the normal project_payments.py on_update hook is skipped.
+    """
+    paid_payments = frappe.get_all(
+        "Project Payments",
+        filters={
+            "document_type": "Procurement Orders",
+            "document_name": po_id,
+            "status": "Paid"
+        },
+        fields=["amount"]
+    )
+    total_paid = sum(flt(p.amount) for p in paid_payments)
+    frappe.db.set_value("Procurement Orders", po_id, "amount_paid", total_paid)
 
 def _append_return_payment_term(po_doc, payment_doc, term_label, amt):
     """
@@ -555,6 +595,7 @@ def process_negative_returns(revision_doc):
         entries = [entries] if entries else []
         
     original_po = frappe.get_doc("Procurement Orders", revision_doc.revised_po)
+    affected_target_pos = set()  # Track all target POs that need amount_paid recalculation
 
     # Process each JSON entry and Create Paid Payments
     for entry in entries:
@@ -585,6 +626,7 @@ def process_negative_returns(revision_doc):
                 )
                 # Split Target PO Term NOW
                 _split_target_po_term(t_po_id, t_amount, pay_in.name, revision_doc.revised_po)
+                affected_target_pos.add(t_po_id)  # Mark for amount_paid recalculation
 
         # B. Vendor-has-refund
         elif r_type == "Vendor-has-refund":
@@ -634,15 +676,16 @@ def process_negative_returns(revision_doc):
     if original_po.payment_terms and reduction_needed > 0:
         _reduce_payment_terms_lifo(original_po, reduction_needed, new_total)
 
-    # Sync modified timestamp from DB to bypass TimestampMismatchError caused by backend Project Payments
-       # Sync modified timestamp and amount_paid from DB to bypass overwrite
-    fresh_data = frappe.db.get_value("Procurement Orders", original_po.name, ["modified", "amount_paid"], as_dict=True)
-    if fresh_data:
-        original_po.modified = fresh_data.modified
-        original_po.amount_paid = fresh_data.amount_paid
+    # Recalculate amount_paid for all target POs that received payments
+    for target_po_id in affected_target_pos:
+        _recalculate_amount_paid(target_po_id)
 
     original_po.flags.ignore_validate_update_after_submit = True
     original_po.save(ignore_permissions=True)
+
+    # Recalculate amount_paid for original PO AFTER save to avoid TimestampMismatchError
+    # (frappe.db.set_value inside _recalculate_amount_paid updates the 'modified' timestamp)
+    _recalculate_amount_paid(original_po.name)
 
 
 

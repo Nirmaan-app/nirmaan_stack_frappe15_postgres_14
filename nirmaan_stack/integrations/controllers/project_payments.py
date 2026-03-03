@@ -45,6 +45,11 @@ def after_insert(doc, method):
     This hook is now ONLY responsible for sending notifications.
     The linking logic has been moved to the 'create_project_payment' API call.
     """
+    # Skip notifications entirely during PO Revision — these hooks call frappe.db.commit()
+    # which permanently commits the payment and destroys the ability to rollback on failure.
+    if doc.flags.from_revision:
+        return
+
     admin_users = get_admin_users()
     project = frappe.get_doc("Projects", doc.project)
     
@@ -102,6 +107,10 @@ def on_update(doc, method):
     """
     On update, find the related PO term by searching and sync the status.
     """
+    # Skip during PO Revision — notifications call frappe.db.commit() which kills rollback
+    if doc.flags.from_revision:
+        return
+
     old_doc = doc.get_doc_before_save()
     if not old_doc or old_doc.status == doc.status:
         return # Do nothing if status hasn't changed

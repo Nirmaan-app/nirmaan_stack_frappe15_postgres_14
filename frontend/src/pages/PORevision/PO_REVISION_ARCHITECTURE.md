@@ -252,8 +252,8 @@ Once a Manager reviews the "Pending" `PO Revisions` document and decides to appr
 
 ### How it works behind the scenes (Step-by-Step):
 
-1. **Transaction Initialization:**
-   The very first thing it does is call `frappe.db.begin()`. This starts a SQL database transaction. If any step fails below, the entire database state can be rolled back to protect data integrity.
+1. **Concurrency Lock (`for_update=True`):**
+   The revision document is fetched with `for_update=True`, which acquires a row-level database lock. This prevents two managers from simultaneously approving/rejecting the same revision.
 
 2. **Step 1: Syncing Items (`sync_original_po_items`)**
    It reads the `revision_items` table from the draft and applies the delta to the Original Purchase Order.
@@ -299,24 +299,34 @@ Once a Manager reviews the "Pending" `PO Revisions` document and decides to appr
              5. If there is still credit leftover, it cascades down the list to the next `"Created"` term and repeats the split.
              6. Finally, it forcefully recalculates the percentages on the Target PO so they gracefully sum back to 100%, and saves the Target PO to the database.
              
-        * Note: If any piece of the `Against-po` transfer fails (for instance, if the Target PO happens to be locked, or doesn't actually have enough unpaid terms left to absorb the credit limit), the *entire* approval transaction safely rolls back, protecting both the Original and Target POs from partial corruption.
-     
-     **Final Negative Step (LIFO Reduction):** After routing the return money, the API loops back to the Original PO. Because the overall PO essentially costs less now, it executes a Last-In, First-Out (LIFO) reduction (`_reduce_payment_terms_lifo`). It takes the unpaid `"Created"` payment terms starting from the bottom of the list and shrinks them until they perfectly account for the new, cheaper `Grand Total`, preserving the percentages.
+      **Final Negative Step — LIFO Reduction & Amount Paid Recalculation:**
+      After routing the return money, the API does two things:
+      1. Executes a Last-In, First-Out (LIFO) reduction (`_reduce_payment_terms_lifo`) on the Original PO's unpaid `"Created"` payment terms starting from the bottom, shrinking them until they perfectly account for the new, cheaper Grand Total.
+      2. Calls `_recalculate_amount_paid()` on both the original PO and all affected target POs. This manually sums all `"Paid"` Project Payments for each PO and updates their `amount_paid` field. This is necessary because the normal `project_payments.py` hooks that do this automatically are intentionally skipped during the revision flow (see Section 10).
+
 4. **Step 3: Finalizing the Draft**
    It changes the `PO Revisions` document status to `"Approved"` and calls `.save(ignore_permissions=True)` to confirm the draft is executed.
 
-5. **Commit Configuration:**
-   If all steps succeed, it calls `frappe.db.commit()` to permanently save all database changes simultaneously.
+5. **Automatic Commit:**
+   There is no explicit `frappe.db.commit()`. Frappe automatically commits the transaction at the end of a successful HTTP request.
 
 ### Rollback & Error Handling (`except Exception:`)
-If any piece of code fails (e.g., a validation error while creating a Project Payment), the system immediately jumps to the `except` block:
-1. **`frappe.db.rollback()`**: This violently undoes all database changes made since `frappe.db.begin()`. The Original PO's items revert to normal, and the draft goes back to "Pending".
-2. **Stray Document Cleanup**: While `rollback()` reverts database rows attached to the current transaction, certain standalone Frappe documents (like freshly minted `Project Payments`) might persist in extreme edge cases or if they bypassed the transaction. The error handler implements a targeted cleanup sweep:
-   * It parses the `payment_return_details` JSON to find target POs.
-   * It queries the database for any `Project Payments` created strictly within the last `1 minute` linked to those POs.
-   * It forcefully deletes them (`force=1`, `ignore_permissions=True`) to guarantee no phantom financial records are left behind from a failed approval attempt.
+If any step fails (e.g., a validation error, character length overflow, or a Target PO being locked), the system immediately jumps to the `except` block:
 
-**Summary:** The Approval function is a highly controlled, high-stakes database transaction. It uses specific Frappe flags to bypass standard document locks, applies the drafted changes, and relies on aggressive rollback procedures to ensure the system is never left in a partially-updated, corrupt state.
+1. **`frappe.db.rollback()`**: This performs a **full transaction rollback** that undoes *all* database changes made during the entire HTTP request. This includes:
+   * All newly created `Project Payments` records
+   * All `Project Expenses` records
+   * Modified payment terms on both Original and Target POs
+   * Item changes synced to the Original PO
+   * The revision status change itself
+   
+2. **Error Logging**: `frappe.log_error()` captures the full traceback for debugging.
+
+3. **User-Facing Error**: `frappe.throw()` sends a clear error message to the frontend.
+
+> **Note:** The `from_revision` flag (see Section 10) is critical for this rollback to work. Without it, the `Project Payments` hooks would call `frappe.db.commit()` mid-transaction, permanently committing payments and making rollback impossible.
+
+**Summary:** The Approval function is a highly controlled, high-stakes database transaction. It uses the `from_revision` flag to prevent mid-transaction commits, specific Frappe flags to bypass standard document locks, and relies on Frappe's full transaction rollback to ensure the system is never left in a partially-updated, corrupt state.
 
 ===============================================================================================
 ===============================================================================================
@@ -613,3 +623,75 @@ After revision approval + status recalculation:
   Item A: qty=10, received=10 ✓
   Item B: qty=5,  received=5  ✓  →  Status: "Delivered" ✅
 ```
+
+===============================================================================================
+===============================================================================================
+
+## 10. Transaction Safety: The `from_revision` Flag Architecture
+
+The PO Revision approval flow creates multiple `Project Payments` during the negative flow. If any subsequent step fails (e.g., payment term split crashes), ALL previously-created payments must be rolled back. This section documents the architecture that ensures this atomicity.
+
+### The Problem
+
+When a `Project Payment` is created via `pay.save()`, Frappe triggers a chain of hooks across **three separate files**:
+
+| Order | File | Hook | What it does | Danger |
+|-------|------|------|-------------|--------|
+| 1 | `doctype/project_payments/project_payments.py` | `before_insert` | Validates that total payments don't exceed PO amount | Blocks negative payments |
+| 2 | `doctype/project_payments/project_payments.py` | `on_update` | Calls `update_parent_amount_paid()` → `frappe.db.commit()` | **Permanently commits the payment** |
+| 3 | `integrations/controllers/project_payments.py` | `after_insert` | Creates `Nirmaan Notifications` + sends Firebase push → `frappe.db.commit()` inside loop | **Permanently commits the payment** |
+| 4 | `integrations/controllers/project_payments.py` | `on_update` | Syncs payment term status + sends notifications → `frappe.db.commit()` | **Permanently commits the payment** |
+
+The `frappe.db.commit()` calls in hooks #2, #3, and #4 are **destructive** during the revision flow. They permanently write the payment to the database mid-transaction. If a later step fails and `frappe.db.rollback()` is called, it can only undo changes made *after* the last commit — the payment survives as an orphan.
+
+### The Solution: `from_revision` Flag
+
+When `_create_project_payment()` in `revision_logic.py` creates a payment, it sets:
+
+```python
+pay.flags.from_revision = True
+```
+
+All four hook entry points check for this flag and **return early** if present:
+
+```python
+# In both doctype/project_payments.py and integrations/controllers/project_payments.py:
+def before_insert(self) / after_insert(doc, method) / on_update(...):
+    if self.flags.from_revision:  # or doc.flags.from_revision
+        return  # Skip validation, notifications, and the destructive commit()
+```
+
+### Manual Recalculation: `_recalculate_amount_paid()`
+
+Since `on_update` is skipped (which normally recalculates `amount_paid` on the parent PO), the revision flow manually handles this at the end via `_recalculate_amount_paid(po_id)`:
+
+```python
+def _recalculate_amount_paid(po_id):
+    paid_payments = frappe.get_all("Project Payments", ...)
+    total_paid = sum(flt(p.amount) for p in paid_payments)
+    frappe.db.set_value("Procurement Orders", po_id, "amount_paid", total_paid)
+```
+
+This is called:
+1. For all **target POs** — before `original_po.save()`
+2. For the **original PO** — after `original_po.save()` (to avoid `TimestampMismatchError`, since `set_value` updates the `modified` timestamp)
+
+### Full Rollback Guarantee
+
+With all hooks skipped, **zero `frappe.db.commit()` calls execute** during the revision flow. The entire approval runs in a single database transaction. If anything fails:
+
+```python
+except Exception as e:
+    frappe.db.rollback()  # Undoes EVERYTHING — payments, expenses, PO edits, all of it
+    frappe.throw(_("Approval failed: {0}").format(str(e)))
+```
+
+### Files Modified for This Architecture
+
+| File | Changes |
+|------|---------|
+| `revision_logic.py` → `_create_project_payment()` | Sets `pay.flags.from_revision = True` |
+| `revision_logic.py` → `on_approval_revision()` | Uses `frappe.db.rollback()` (full) instead of savepoints |
+| `revision_logic.py` → `_recalculate_amount_paid()` | New helper function for manual `amount_paid` calculation |
+| `doctype/project_payments/project_payments.py` | `from_revision` check in `before_insert` and `on_update` |
+| `integrations/controllers/project_payments.py` | `from_revision` check in `after_insert` and `on_update` |
