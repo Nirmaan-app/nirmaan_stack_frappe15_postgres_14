@@ -13,6 +13,8 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Info } from "lucide-react";
 
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Info } from "lucide-react";
 
 const ApprovePayments = React.lazy(() => import("./approve-payments/ApprovePayments"));
 const AccountantTabs = React.lazy(() => import("./update-payment/AccountantTabs"));
