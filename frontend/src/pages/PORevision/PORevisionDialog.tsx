@@ -104,6 +104,7 @@ export const PORevisionDialog: React.FC<PORevisionDialogProps> = (props) => {
                     difference={difference}
                     netImpact={netImpact}
                     itemOptions={itemOptions}
+                    isCustom={!!po.custom}
                 />
             )}
 

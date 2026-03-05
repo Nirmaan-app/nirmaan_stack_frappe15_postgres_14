@@ -727,7 +727,7 @@ export const PurchaseOrder = ({
     }
   };
 
-  console.log("PO?.payment_terms",PO?.payment_terms)
+  // console.log("PO?.payment_terms",PO?.payment_terms)
   const handleAmendPo = async () => {
     setLoadingFuncName("handleAmendPo");
 

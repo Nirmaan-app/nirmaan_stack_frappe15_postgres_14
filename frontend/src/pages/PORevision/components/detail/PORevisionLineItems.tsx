@@ -6,9 +6,10 @@ import { Button } from "@/components/ui/button";
 
 interface PORevisionLineItemsProps {
     items: any[];
+    isCustom?: boolean;
 }
 
-export default function PORevisionLineItems({ items }: PORevisionLineItemsProps) {
+export default function PORevisionLineItems({ items, isCustom = false }: PORevisionLineItemsProps) {
     const renderTag = (status: string) => {
         switch (status) {
             case "New":
@@ -43,7 +44,7 @@ export default function PORevisionLineItems({ items }: PORevisionLineItemsProps)
                     <TableHeader className="bg-slate-50">
                         <TableRow>
                             <TableHead className="font-semibold text-slate-700 h-10 w-[30%]">ITEM</TableHead>
-                            <TableHead className="font-semibold text-slate-700 h-10">MAKE</TableHead>
+                            {!isCustom && <TableHead className="font-semibold text-slate-700 h-10">MAKE</TableHead>}
                             <TableHead className="font-semibold text-slate-700 h-10 w-20">UNIT</TableHead>
                             <TableHead className="font-semibold text-slate-700 h-10 text-right">QTY</TableHead>
                             <TableHead className="font-semibold text-slate-700 h-10 text-right">RATE</TableHead>
@@ -100,7 +101,7 @@ export default function PORevisionLineItems({ items }: PORevisionLineItemsProps)
                                                         <span className="font-medium mt-1">{item.original_item_name || item.item_name || item.item || "Unknown Item"}</span>
                                                     </div>
                                                 </TableCell>
-                                                <TableCell>{item.original_make || item.make || "N/A"}</TableCell>
+                                                {!isCustom && <TableCell>{item.original_make || item.make || "N/A"}</TableCell>}
                                                 <TableCell>{item.original_unit || item.unit || item.uom || "NOS"}</TableCell>
                                                 <TableCell className="text-right">{Number(originalQty).toFixed(2)}</TableCell>
                                                 <TableCell className="text-right">{formatCurrency(originalRate)}</TableCell>
@@ -125,6 +126,7 @@ export default function PORevisionLineItems({ items }: PORevisionLineItemsProps)
                                                     </div>
                                                 </div>
                                             </TableCell>
+                                            {!isCustom && (
                                             <TableCell>
                                                 <div className="flex flex-col">
                                                     <span className={isChanged && make !== (item.original_make || item.make || "N/A") ? "text-emerald-600 font-bold" : ""}>
@@ -135,6 +137,7 @@ export default function PORevisionLineItems({ items }: PORevisionLineItemsProps)
                                                     )}
                                                 </div>
                                             </TableCell>
+                                            )}
                                             <TableCell>
                                                 <div className="flex flex-col">
                                                     <span className={isChanged && unit !== (item.original_unit || item.unit || item.uom || "NOS") ? "text-emerald-600 font-bold" : ""}>
