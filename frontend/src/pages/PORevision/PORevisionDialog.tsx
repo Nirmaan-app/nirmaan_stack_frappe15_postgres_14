@@ -87,9 +87,11 @@ export const PORevisionDialog: React.FC<PORevisionDialogProps> = (props) => {
           setStep={setStep} 
           differenceAmount={difference.inclGst} 
           poName={po.name} 
+          vendorName={po.vendor_name}
+          projectName={po.project_name}
         />
 
-        <div className="space-y-8">
+        <div className="space-y-4">
             {step === 1 && (
                 <Step1ReviseItems 
                     revisionItems={revisionItems}
@@ -105,6 +107,9 @@ export const PORevisionDialog: React.FC<PORevisionDialogProps> = (props) => {
                     netImpact={netImpact}
                     itemOptions={itemOptions}
                     isCustom={!!po.custom}
+                    poTotalAmount={po.total_amount || 0}
+                    poAmountPaid={po.amount_paid || 0}
+                    poAmountDelivered={po.po_amount_delivered || 0}
                 />
             )}
 

@@ -21,7 +21,7 @@ export const ImpactSummaryTable: React.FC<ImpactSummaryTableProps> = ({
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <BarChart2 className="h-4 w-4 text-red-600" />
-        <h3 className="font-bold text-[13px] text-gray-700 uppercase tracking-tight">Revision Impact Summary</h3>
+        <h3 className="font-bold text-[13px] text-gray-700 uppercase tracking-tight">PO Revision Impact Summary</h3>
       </div>
       <div className="border rounded-md overflow-hidden bg-white">
         <Table className="text-xs">
@@ -35,7 +35,7 @@ export const ImpactSummaryTable: React.FC<ImpactSummaryTableProps> = ({
           </TableHeader>
           <TableBody>
             <TableRow className="h-10 hover:bg-gray-50/50">
-              <TableCell className="text-gray-500 font-medium">Total Excl. GST</TableCell>
+              <TableCell className="text-gray-500 font-medium"> PO Total Excl. GST</TableCell>
               <TableCell className="font-medium text-gray-500">{formatToIndianRupee(beforeSummary.totalExclGst)}</TableCell>
               <TableCell className="font-medium text-gray-900">{formatToIndianRupee(afterSummary.totalExclGst)}</TableCell>
               <TableCell className={`font-bold ${difference.exclGst < 0 ? "text-red-500" : "text-green-600"}`}>
@@ -43,7 +43,7 @@ export const ImpactSummaryTable: React.FC<ImpactSummaryTableProps> = ({
               </TableCell>
             </TableRow>
             <TableRow className="h-10 hover:bg-gray-50/50 bg-gray-50/30">
-              <TableCell className="text-gray-500 font-medium">Total Incl. GST</TableCell>
+              <TableCell className="text-gray-500 font-medium">PO Total Incl. GST</TableCell>
               <TableCell className="font-medium text-gray-500">{formatToIndianRupee(beforeSummary.totalInclGst)}</TableCell>
               <TableCell className="font-medium text-gray-900">{formatToIndianRupee(afterSummary.totalInclGst)}</TableCell>
               <TableCell className={`font-bold ${difference.inclGst < 0 ? "text-red-500" : "text-green-600"}`}>

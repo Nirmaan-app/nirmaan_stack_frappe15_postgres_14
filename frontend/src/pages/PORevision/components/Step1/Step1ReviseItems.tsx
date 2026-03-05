@@ -30,6 +30,9 @@ interface Step1ReviseItemsProps {
   netImpact: number;
   itemOptions?: { label: string; value: string; item_id: string; item_name: string; make: string; available_makes: string[]; unit: string; category: string; tax: number }[];
   isCustom?: boolean;
+  poTotalAmount: number;
+  poAmountPaid: number;
+  poAmountDelivered: number;
 }
 
 export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
@@ -46,17 +49,35 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
   netImpact,
   itemOptions = [],
   isCustom = false,
+  poTotalAmount,
+  poAmountPaid,
+  poAmountDelivered,
 }) => {
   const { toast } = useToast();
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-4">
       <Alert className="bg-blue-50 border-blue-100 py-3">
         <Info className="h-4 w-4 text-blue-600" />
         <AlertDescription className="text-blue-700 text-xs">
           Note: Once submitted, this PO revision will be locked for 7 days. Please review all line items and amount changes carefully before proceeding.
         </AlertDescription>
       </Alert>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 border rounded-xl bg-gray-50/50">
+          <div className="space-y-1">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">PO Amount (incl. GST)</p>
+              <p className="text-sm font-bold text-gray-900">{formatToIndianRupee(poTotalAmount)}</p>
+          </div>
+          <div className="space-y-1 border-l-0 sm:border-l sm:pl-4 border-gray-100">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">PO Amount Paid</p>
+              <p className="text-sm font-bold text-emerald-600">{formatToIndianRupee(poAmountPaid)}</p>
+          </div>
+          <div className="space-y-1 border-l-0 sm:border-l sm:pl-4 border-gray-100">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">PO Amount Delivered</p>
+              <p className="text-sm font-medium text-blue-600">{formatToIndianRupee(poAmountDelivered)}</p>
+          </div>
+      </div>
 
       <InvoicesSection invoices={invoices} />
 
@@ -337,13 +358,7 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
       </div>
 
       <div className="grid grid-cols-2 gap-10 pt-4">
-        <ImpactSummaryTable 
-          beforeSummary={beforeSummary}
-          afterSummary={afterSummary}
-          difference={difference}
-          netImpact={netImpact}
-        />
-
+       
         <div className="space-y-4">
           <div className="flex items-center gap-2">
             <Edit3 className="h-4 w-4 text-red-600" />
@@ -361,6 +376,13 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
               />
           </div>
         </div>
+         <ImpactSummaryTable 
+          beforeSummary={beforeSummary}
+          afterSummary={afterSummary}
+          difference={difference}
+          netImpact={netImpact}
+        />
+
       </div>
     </div>
   );
