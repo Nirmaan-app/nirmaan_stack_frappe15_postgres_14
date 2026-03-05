@@ -6,6 +6,7 @@ import {
   PO_REVISION_DOCTYPE,
   PO_REVISION_APIS,
 } from "./poRevision.constants";
+import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
 // ─── Create Revision (Submit draft) ──────────────────────────
 
@@ -31,6 +32,7 @@ export const useCreateRevision = () => {
           mutate(poRevisionKeys.lockCheck(payload.po_id)),
           mutate(poRevisionKeys.revisionHistory(payload.po_id)),
         ]);
+        invalidateSidebarCounts();
       } catch (invalidateError) {
         captureApiError({
           hook: "useCreateRevision",
@@ -86,6 +88,7 @@ export const useApproveRevision = () => {
               ]
             : []),
         ]);
+        invalidateSidebarCounts();
       } catch (invalidateError) {
         captureApiError({
           hook: "useApproveRevision",
@@ -142,6 +145,7 @@ export const useRejectRevision = () => {
               ]
             : []),
         ]);
+        invalidateSidebarCounts();
       } catch (invalidateError) {
         captureApiError({
           hook: "useRejectRevision",
