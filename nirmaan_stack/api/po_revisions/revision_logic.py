@@ -264,7 +264,8 @@ def sync_original_po_items(revision_doc):
             new_row.make = rev_item.revision_make
             new_row.tax_amount = (new_row.amount * new_row.tax) / 100
             new_row.total_amount = new_row.amount + new_row.tax_amount
-            
+            new_row.received_quantity = 0.0 # Explicitly initialize so it isn't None
+
             # Fetch and assign metadata
             cat, pkg = _get_item_metadata(new_row.item_id)
             new_row.category = cat
@@ -305,6 +306,10 @@ def sync_original_po_items(revision_doc):
                 orig_row.make = rev_item.revision_make
                 orig_row.tax_amount = (orig_row.amount * orig_row.tax) / 100
                 orig_row.total_amount = orig_row.amount + orig_row.tax_amount
+                
+                # For a full replacement, we ensure received is treated safely
+                if not getattr(orig_row, 'received_quantity', None):
+                    orig_row.received_quantity = 0.0
                 
                 rev_item.item_status = "Approved"
             else:
