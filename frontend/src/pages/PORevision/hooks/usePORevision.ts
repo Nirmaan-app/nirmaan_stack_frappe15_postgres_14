@@ -81,6 +81,19 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
     return refundAdjustments.reduce((sum, adj) => sum + (adj.amount || 0), 0);
   }, [refundAdjustments]);
 
+  // Auto-absorb: how much of the refund can be absorbed by shrinking "Created" terms
+  const createdTermsAbsorbable = useMemo(() => {
+    if (difference.inclGst >= 0) return 0; // Only for negative revisions
+    const createdTotal = (po?.payment_terms || [])
+      .filter((t: any) => t.term_status === "Created" && !(t.label || "").includes("Return"))
+      .reduce((sum: number, t: any) => sum + (t.amount || 0), 0);
+    return Math.min(createdTotal, Math.abs(difference.inclGst));
+  }, [po, difference]);
+
+  const userAllocationRequired = useMemo(() => {
+    return Math.max(0, Math.abs(difference.inclGst) - createdTermsAbsorbable);
+  }, [difference, createdTermsAbsorbable]);
+
   // Sync state on open
   useEffect(() => {
     if (open && po) {
@@ -280,6 +293,7 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
         returnDetails = {
           list: {
             type: "Refund Adjustment",
+            auto_absorbed_amount: createdTermsAbsorbable,
             Details: detailsWithFiles
           }
         };
@@ -328,6 +342,8 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
     difference,
     netImpact,
     totalAdjustmentAllocated,
+    createdTermsAbsorbable,
+    userAllocationRequired,
     invoices,
     adjCandidatePOs,
     handleAddItem,

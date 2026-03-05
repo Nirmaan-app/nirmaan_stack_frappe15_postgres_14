@@ -438,7 +438,7 @@ def process_positive_increase(revision_doc):
     revision_doc.payment_return_details = json.dumps(data)
 
 
-def _create_project_payment(po_id, project, vendor, amt, status):
+def _create_project_payment(po_id, project, vendor, amt, status, utr=None, attachment=None):
     """
     Internal helper to create a Project Payment record without appending terms.
 
@@ -454,8 +454,13 @@ def _create_project_payment(po_id, project, vendor, amt, status):
     pay.amount = amt
     pay.status = status
     pay.payment_date = nowdate()
-    pay.approved_date = nowdate()
     pay.approval_date = nowdate()
+    
+    if utr:
+        pay.utr = utr
+    if attachment:
+        pay.payment_attachment = attachment
+        
     pay.flags.from_revision = True  # Skip ALL project_payments.py hooks (validation, on_update, commit)
     pay.save(ignore_permissions=True)
     
@@ -634,7 +639,9 @@ def process_negative_returns(revision_doc):
             # CREATE Return/Refund NOW
             pay_refund = _create_project_payment(
                 po_id=revision_doc.revised_po, project=revision_doc.project, vendor=revision_doc.vendor,
-                amt=-amount, status="Paid"
+                amt=-amount, status="Paid",
+                utr=entry.get("utr"),
+                attachment=entry.get("refund_attachment")
             )
             _append_return_payment_term(original_po, pay_refund, "Return - Vendor Refund", -amount)
 

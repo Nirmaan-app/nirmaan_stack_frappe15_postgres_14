@@ -152,6 +152,7 @@ The dialog relies heavily on Frappe React SDK hooks (`useFrappeGetDocList`, `use
      {
        "list": {
          "type": "Refund Adjustment",
+         "auto_absorbed_amount": 2000.0, // Amount auto-absorbed directly from unpaid "Created" terms (if any)
          "Details": [{
            "status": "Pending",
            "amount": 2000.0,
@@ -182,7 +183,7 @@ The dialog relies heavily on Frappe React SDK hooks (`useFrappeGetDocList`, `use
    * **Validation:** To proceed to Step 2, the user *must* provide a text `justification`.
 2. **Step 2 (Financial Adjustment):**
    * **Validation (Positive Flow):** If the amount increased, the sum of all newly allocated Payment Terms *must* exactly equal the difference amount to proceed (`Math.abs(totalAllocated - Math.abs(difference.inclGst)) < 1`).
-   * **Validation (Negative Flow):** If the amount decreased and "Another PO" is selected, the total refund allocated to target POs *must* exactly equal the refund amount.
+   * **Validation (Negative Flow):** The system first calculates `createdTermsAbsorbable` which checks if there are unpaid terms in a "Created" state. It auto-absorbs the negative amount into these terms up to their limit. Any remaining negative balance (`userAllocationRequired`) must be allocated by the user via "Another PO", "Adhoc", or "Refunded".
 3. **Step 3 (Summary & Submit):**
    * Displays the Before/After totals.
    * Clicking Submit triggers `handleSave()`.

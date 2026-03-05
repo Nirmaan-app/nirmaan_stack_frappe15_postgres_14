@@ -1,7 +1,7 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import formatCurrency from "@/utils/FormatPrice";
 import { formatDate } from "@/utils/FormatDate";
-import { CreditCard, Edit } from "lucide-react";
+import { CreditCard, Edit, ShieldCheck } from "lucide-react";
 
 interface PORevisionPaymentRectificationProps {
     paymentData?: string | object | null;
@@ -70,6 +70,28 @@ export default function PORevisionPaymentRectification({ paymentData }: PORevisi
 
             {type === "Refund Adjustment" && (
                 <div className="space-y-6">
+                    {data?.list?.auto_absorbed_amount > 0 && (
+                        <div className="space-y-2">
+                            <h4 className="text-sm font-bold text-green-600 flex items-center gap-2">
+                                <ShieldCheck className="w-4 h-4" />
+                                Auto-Absorbed by Payment Terms:
+                            </h4>
+                            <div className="rounded-md border shadow-sm bg-green-50 overflow-x-auto">
+                                <Table>
+                                    <TableHeader className="bg-green-100/50">
+                                        <TableRow>
+                                            <TableHead className="font-semibold text-green-800 h-10 w-full">AMOUNT ABSORBED</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        <TableRow>
+                                            <TableCell className="font-medium text-slate-800">{formatCurrency(data.list.auto_absorbed_amount)}</TableCell>
+                                        </TableRow>
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        </div>
+                    )}
                     {/* Render separate tables for each return_type inside the details array */}
                     {details.map((detail: any, idx: number) => {
                         const rtype = detail.return_type;
@@ -140,7 +162,7 @@ export default function PORevisionPaymentRectification({ paymentData }: PORevisi
                                             <TableHeader className="bg-slate-50">
                                                 <TableRow>
                                                     <TableHead className="font-semibold text-slate-700 h-10 uppercase tracking-wider text-xs w-1/3">TOTAL REFUND AMOUNT</TableHead>
-                                                    <TableHead className="font-semibold text-slate-700 h-10 uppercase tracking-wider text-xs w-1/3">INVOICE DOC</TableHead>
+                                                    <TableHead className="font-semibold text-slate-700 h-10 uppercase tracking-wider text-xs w-1/3">ATTACHMENT</TableHead>
                                                     <TableHead className="font-semibold text-slate-700 h-10 uppercase tracking-wider text-xs">REFUND DATE</TableHead>
                                                 </TableRow>
                                             </TableHeader>
@@ -150,7 +172,7 @@ export default function PORevisionPaymentRectification({ paymentData }: PORevisi
                                                     <TableCell>
                                                         {detail.refund_attachment ? (
                                                             <a href={detail.refund_attachment} target="_blank" rel="noreferrer" className="inline-flex items-center px-3 py-1 rounded-md text-sm font-medium bg-blue-600 text-white hover:bg-blue-700">
-                                                                Invoice Doc
+                                                                Attach
                                                             </a>
                                                         ) : (
                                                             <span className="text-slate-400 italic">No File</span>

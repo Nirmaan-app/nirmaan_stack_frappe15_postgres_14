@@ -3,7 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
 import { Badge } from "@/components/ui/badge";
-import { Wallet, Plus, Info, CheckCircle2, Trash2, CreditCard, Undo2 } from "lucide-react";
+import { Wallet, Plus, Info, CheckCircle2, Trash2, CreditCard, Undo2, ShieldCheck } from "lucide-react";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,8 @@ interface Step2NegativeFlowProps {
   totalAdjustmentAllocated: number;
   adjCandidatePOs?: ProcurementOrder[];
   poName: string;
+  createdTermsAbsorbable: number;
+  userAllocationRequired: number;
 }
 
 export const Step2NegativeFlow: React.FC<Step2NegativeFlowProps> = ({
@@ -34,6 +36,8 @@ export const Step2NegativeFlow: React.FC<Step2NegativeFlowProps> = ({
   totalAdjustmentAllocated,
   adjCandidatePOs,
   poName,
+  createdTermsAbsorbable,
+  userAllocationRequired,
 }) => {
   const [isMethodDialogOpen, setIsMethodDialogOpen] = React.useState(false);
   
@@ -41,7 +45,9 @@ export const Step2NegativeFlow: React.FC<Step2NegativeFlowProps> = ({
   const { data: expenseTypesData, isLoading: expenseTypesLoading } = useFrappeGetDocList<ExpenseType>("Expense Type", expenseTypeFetchOptions as any, queryKeys.expenseTypes.list(expenseTypeFetchOptions));
   const expenseTypeOptions = React.useMemo(() => expenseTypesData?.map(et => ({ value: et.name, label: et.expense_name })) || [], [expenseTypesData]);
 
-  const remainingToAdjust = Math.abs(difference.inclGst) - totalAdjustmentAllocated;
+  const remainingToAdjust = userAllocationRequired - totalAdjustmentAllocated;
+
+  const isFullyAbsorbed = userAllocationRequired <= 0.01;
 
   const isPOSelected = refundAdjustments.some(a => a.type === "Another PO");
 
@@ -49,15 +55,15 @@ export const Step2NegativeFlow: React.FC<Step2NegativeFlowProps> = ({
     if (type === "Another PO") {
         setAdjustmentMethod("Another PO");
     } else {
-        const id = Math.random().toString();
-        setRefundAdjustments([...refundAdjustments, { 
-            id, 
-            type, 
-            amount: Math.max(0, remainingToAdjust),
-            adhoc_type: type === "Adhoc" ? "" : undefined,
-            description: type === "Adhoc" ? `${poName} and ad-hoc : ` : undefined,
-            date: type === "Refunded" ? new Date().toISOString().split('T')[0] : undefined
-        }]);
+          const id = Math.random().toString();
+          setRefundAdjustments([...refundAdjustments, { 
+              id, 
+              type, 
+              amount: Math.max(0, remainingToAdjust),
+              adhoc_type: type === "Adhoc" ? "" : undefined,
+              description: type === "Adhoc" ? `${poName} and ad-hoc : ` : undefined,
+              date: type === "Refunded" ? new Date().toISOString().split('T')[0] : undefined
+          }]);
     }
     setIsMethodDialogOpen(false);
   };
@@ -97,6 +103,28 @@ export const Step2NegativeFlow: React.FC<Step2NegativeFlowProps> = ({
             </div>
       </div>
 
+      {/* Auto-absorb banner */}
+      {createdTermsAbsorbable > 0 && (
+        <div className={`p-4 rounded-xl flex items-center gap-3 border ${isFullyAbsorbed ? "bg-green-50/50 border-green-100" : "bg-blue-50/50 border-blue-100"}`}>
+          <div className={`h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 ${isFullyAbsorbed ? "bg-green-100" : "bg-blue-100"}`}>
+            <ShieldCheck className={`h-4 w-4 ${isFullyAbsorbed ? "text-green-600" : "text-blue-600"}`} />
+          </div>
+          <div>
+            <p className={`text-sm font-bold tracking-tight ${isFullyAbsorbed ? "text-green-800" : "text-blue-800"}`}>
+              {formatToIndianRupee(createdTermsAbsorbable)} auto-absorbed from unpaid payment terms
+            </p>
+            <p className={`text-xs mt-0.5 ${isFullyAbsorbed ? "text-green-600" : "text-blue-600"}`}>
+              {isFullyAbsorbed
+                ? "This refund is fully covered by reducing unpaid (Created) terms. No additional adjustment needed."
+                : `Remaining ${formatToIndianRupee(userAllocationRequired)} needs to be allocated below.`}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {!isFullyAbsorbed && (
+        <>
+
       <div className={`p-4 rounded-xl flex items-center justify-between border ${remainingToAdjust <= 0 ? "bg-green-50/50 border-green-100" : "bg-orange-50/50 border-orange-100"}`}>
           <div className="flex items-center gap-3">
              <div className={`h-8 w-8 rounded-full flex items-center justify-center ${remainingToAdjust <= 0 ? "bg-green-100" : "bg-orange-100"}`}>
@@ -123,7 +151,7 @@ export const Step2NegativeFlow: React.FC<Step2NegativeFlowProps> = ({
                       onClick={() => {
                           setAdjustmentMethod("Adhoc");
                           // Clear and add fresh adhoc adjustment
-                          setRefundAdjustments([{ id: Math.random().toString(), type: "Adhoc", amount: Math.abs(difference.inclGst), adhoc_type: "", description: `${poName} and ad-hoc : ` }]);
+                          setRefundAdjustments([{ id: Math.random().toString(), type: "Adhoc", amount: userAllocationRequired, adhoc_type: "", description: `${poName} and ad-hoc : ` }]);
                       }}
                       className={`flex flex-row justify-center items-center py-[9px] px-[13px] gap-[9px] h-[36px] rounded-[4px] font-medium text-xs transition-colors flex-1 ${isPOSelected ? "opacity-50 cursor-not-allowed" : ""} ${adjustmentMethod === "Adhoc" ? "bg-[#336CE7] text-white" : "bg-[#F9F9F9] text-[#4B5563] hover:bg-gray-100"}`}>
                         Adjustment against adhoc purchase
@@ -133,7 +161,7 @@ export const Step2NegativeFlow: React.FC<Step2NegativeFlowProps> = ({
                       onClick={() => {
                           setAdjustmentMethod("Refunded");
                           // Clear and add fresh refund adjustment
-                          setRefundAdjustments([{ id: Math.random().toString(), type: "Refunded", amount: Math.abs(difference.inclGst), date: new Date().toISOString().split('T')[0] }]);
+                          setRefundAdjustments([{ id: Math.random().toString(), type: "Refunded", amount: userAllocationRequired, date: new Date().toISOString().split('T')[0] }]);
                       }}
                       className={`flex flex-row justify-center items-center py-[9px] px-[13px] gap-[9px] h-[36px] rounded-[4px] font-medium text-xs transition-colors flex-1 ${isPOSelected ? "opacity-50 cursor-not-allowed" : ""} ${adjustmentMethod === "Refunded" ? "bg-[#336CE7] text-white" : "bg-[#F9F9F9] text-[#4B5563] hover:bg-gray-100"}`}>
                         Vendor has refunded
@@ -416,6 +444,8 @@ export const Step2NegativeFlow: React.FC<Step2NegativeFlowProps> = ({
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+        </>
+      )}
     </div>
   );
 };
