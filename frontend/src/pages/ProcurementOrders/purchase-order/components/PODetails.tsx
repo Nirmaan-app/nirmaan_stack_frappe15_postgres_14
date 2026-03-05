@@ -1,19 +1,10 @@
 import { usePOValidation } from "@/hooks/usePOValidation";
 import { useUserData } from "@/hooks/useUserData";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
-import DeliveryHistoryTable from "@/pages/DeliveryNotes/components/DeliveryHistory";
-import { DeliveryNoteItemsDisplay } from "@/pages/DeliveryNotes/components/deliveryNoteItemsDisplay";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
-import { DeliveryNote } from "@/types/NirmaanStack/DeliveryNotes";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { formatDate } from "@/utils/FormatDate";
-import {
-  ROUTE_PATHS,
-  STATUS_BADGE_VARIANT,
-  encodeFrappeId,
-  deriveDnIdFromPoId
-} from "@/pages/DeliveryNotes/constants";
 import formatToIndianRupee, {
   formatToRoundedIndianRupee,
 } from "@/utils/FormatPrice";
@@ -37,9 +28,7 @@ import {
   Mail,
   Paperclip,
   MessageSquare,
-  Pencil,
   Phone,
-  Printer,
   Send,
   Trash2Icon,
   TriangleAlert,
@@ -54,7 +43,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import React, { useCallback, useEffect, useRef, useState, useMemo } from "react";
+import React, { useCallback, useState, useMemo } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate } from "react-router-dom";
 import { VendorHoverCard } from "@/components/helpers/vendor-hover-card";
@@ -83,8 +72,6 @@ import { Separator } from "@/components/ui/separator";
 import {
   Sheet,
   SheetContent,
-  SheetHeader,
-  SheetTitle,
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -97,9 +84,6 @@ import { ValidationIndicator } from "@/components/validations/ValidationIndicato
 import { ValidationMessages } from "@/components/validations/ValidationMessages";
 import { NirmaanAttachment } from "@/types/NirmaanStack/NirmaanAttachment";
 import SITEURL from "@/constants/siteURL";
-import { DeliveryNotePrintLayout, type PrintData } from "@/pages/DeliveryNotes/components/DeliveryNotePrintLayout";
-import { useReactToPrint } from "react-to-print";
-import { usePrintHistory } from "@/pages/DeliveryNotes/hooks/usePrintHistroy";
 import { UploadDCMIRDialog } from "@/pages/DeliveryChallansAndMirs/components/UploadDCMIRDialog";
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
@@ -206,11 +190,6 @@ export const PODetails: React.FC<PODetailsProps> = ({
   }, []); // No dependencies needed for simple toggle
 
   const { toggleNewInvoiceDialog } = useDialogStore();
-
-  const [deliveryNoteSheet, setDeliveryNoteSheet] = useState(false);
-  const toggleDeliveryNoteSheet = useCallback(() => {
-    setDeliveryNoteSheet((prevState) => !prevState);
-  }, []);
 
   // PDD Upload dialog state (new structured flow)
   const [pddUploadState, setPddUploadState] = useState<{
@@ -425,83 +404,12 @@ export const PODetails: React.FC<PODetailsProps> = ({
   };
 
 
-  // --- Print logic hooks (using po prop directly instead of separate fetch) ---
-  const printComponentRef = useRef<HTMLDivElement>(null);
-  const { triggerHistoryPrint, PrintableHistoryComponent } = usePrintHistory(po);
-
-  // The main print handler is for the overall DN/PO Summary
-  const handlePrint = useReactToPrint({
-    content: () => printComponentRef.current,
-    documentTitle: po
-      ? `${deriveDnIdFromPoId(po.name).toUpperCase()}_${po.vendor_name}`
-      : "Delivery_Note",
-  });
-
-  // Fetch DN records from API
-  const {
-    call: fetchDNs,
-    result: dnResult,
-  } = useFrappePostCall(
-    'nirmaan_stack.api.delivery_notes.get_delivery_notes.get_delivery_notes'
-  );
-
-  useEffect(() => {
-    if (po?.name) {
-      fetchDNs({ procurement_order: po.name });
-    }
-  }, [po?.name, po?.modified]);
-
-  const dnRecords: DeliveryNote[] = useMemo(
-    () => (dnResult?.message as DeliveryNote[]) || [],
-    [dnResult]
-  );
-
   const downloadurl =
     "http://localhost:8000/api/method/frappe.utils.print_format.download_pdf";
 
   const viewUrl = "http://localhost:8000/printview";
 
   // const { call: triggerPdfDownload, loading } = useFrappePostCall('nirmaan_stack.api.download_po_pdf.download_po_pdf');
-
-  const handleDownloadDeliveryNote = async (poId: string) => {
-    try {
-      const formatname = "PO Delivery Histroy";
-      const printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Procurement%20Orders&name=${poId}&format=${encodeURIComponent(formatname)}&no_letterhead=0`;
-
-      const response = await fetch(printUrl);
-      if (!response.ok) throw new Error("Failed to generate PDF");
-
-      const blob = await response.blob();
-
-      // Generate filename - you can customize this based on your needs
-      const fileName = `PO_Delivery_${poId}_.pdf`;
-
-      // Create download link
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', fileName);
-      document.body.appendChild(link);
-      link.click();
-
-      // Cleanup
-      link.remove();
-      window.URL.revokeObjectURL(url);
-
-      toast({
-        title: "Success",
-        description: "Delivery note downloaded successfully.",
-        variant: "success"
-      });
-    } catch (error) {
-      console.error("Download error:", error);
-      toast({
-        title: "Error",
-        description: "Failed to download delivery note.",
-        variant: "destructive"
-      });
-    }
-  };
 
   const handleDownloadPdf = async (poId: string) => {
     // try {
@@ -891,27 +799,6 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 </Tooltip>
               )}
 
-            {/* Update Delivery Button */}
-            {["Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) &&
-              ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      onClick={toggleDeliveryNoteSheet}
-                      variant="outline"
-                      size="sm"
-                      className="h-8 px-2.5 border-primary text-primary shrink-0"
-                      disabled={isLocked}
-
-                    >
-                      <Pencil className="h-3.5 w-3.5 sm:mr-1.5" />
-                      <span className="hidden sm:inline text-xs">Update Delivery</span>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent className="sm:hidden">Update Delivery</TooltipContent>
-                </Tooltip>
-              )}
-
             {/* Preview Button */}
             {(po?.status !== "PO Approved" ||
               summaryPage ||
@@ -1070,53 +957,6 @@ export const PODetails: React.FC<PODetailsProps> = ({
           </DialogContent>
         </Dialog>
 
-        {/* Delivery Note Sheet */}
-        <Sheet
-          open={deliveryNoteSheet}
-          onOpenChange={toggleDeliveryNoteSheet}
-        >
-          <SheetContent className="overflow-auto">
-            <SheetHeader className="text-start mb-4 mx-4">
-              <SheetTitle className="text-primary flex flex-row items-center justify-between">
-                <p>Update/View Delivery Note</p>
-                <div className="flex flex-col gap-2 w-full sm:flex-row sm:justify-end sm:items-center">
-
-                  <Button
-                    onClick={() => handleDownloadDeliveryNote(po?.name)}
-                    variant="default"
-                    className="px-2"
-                    size="sm"
-                  >
-                    <Eye className="h-4 w-4 mr-2" />
-                    <span className="text-xs">Download</span>
-                  </Button>
-                  <Button
-                    onClick={handlePrint}
-                    variant="default"
-                    className="px-2"
-                    size="sm"
-                  >
-                    <Eye className="h-4 w-4 mr-2" />
-                    <span className="text-xs">Preview</span>
-                  </Button>
-                </div>
-
-              </SheetTitle>
-            </SheetHeader>
-            <div className="space-y-4">
-              <DeliveryNoteItemsDisplay
-                data={po}
-                poMutate={poMutate}
-              />
-
-              <DeliveryHistoryTable
-                poId={po?.name}
-                dnRecords={dnRecords}
-                onPrintHistory={triggerHistoryPrint}
-              />
-            </div>
-          </SheetContent>
-        </Sheet>
 
         {/* Delete Dialog */}
         <Dialog open={deleteDialog} onOpenChange={toggleDeleteDialog}>
@@ -1410,10 +1250,10 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 <Button
                   size="sm"
                   className={`h-9 shadow-sm ${criticalPOLinking.hasCriticalPOSetup &&
-                      criticalPOLinking.selectedTasks.length === 0 &&
-                      !criticalPOLinking.isPoAlreadyLinked
-                      ? "bg-slate-300 text-slate-500 cursor-not-allowed"
-                      : "bg-amber-500 hover:bg-amber-600 text-white"
+                    criticalPOLinking.selectedTasks.length === 0 &&
+                    !criticalPOLinking.isPoAlreadyLinked
+                    ? "bg-slate-300 text-slate-500 cursor-not-allowed"
+                    : "bg-amber-500 hover:bg-amber-600 text-white"
                     }`}
                   onClick={handleMarkAsDispatchedClick}
                   disabled={
@@ -1580,31 +1420,6 @@ export const PODetails: React.FC<PODetailsProps> = ({
         onSuccess={handlePDDUploadSuccess}
       />
 
-      {/* Hidden printable components */}
-      <div className="hidden">
-        <div ref={printComponentRef}>
-          <DeliveryNotePrintLayout data={po as PrintData} />
-        </div>
-        {PrintableHistoryComponent}
-      </div>
-
-      <PORevisionDialog
-        open={openRevisionDialog}
-        onClose={() => setOpenRevisionDialog(false)}
-        po={po}
-        onSuccess={() => {
-          // Trigger lock status check to disable UI and show the warning banner
-          if (po?.name) {
-            // Invalidate the SWR cache for the warning banner and isLocked state to show up immediately
-            import("@/pages/PORevision/data/poRevision.constants").then(({ poRevisionKeys }) => {
-              globalMutate(poRevisionKeys.lockCheck(po.name));
-            }).catch(() => { });
-          }
-        }}
-      />
-
-      {/* PO Revision History */}
-      <PORevisionHistory poId={po.name} />
     </div>
   );
 };
