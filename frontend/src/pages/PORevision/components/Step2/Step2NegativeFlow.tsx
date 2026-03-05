@@ -111,7 +111,7 @@ export const Step2NegativeFlow: React.FC<Step2NegativeFlowProps> = ({
           </div>
           <div>
             <p className={`text-sm font-bold tracking-tight ${isFullyAbsorbed ? "text-green-800" : "text-blue-800"}`}>
-              {formatToIndianRupee(createdTermsAbsorbable)} auto-absorbed from unpaid payment terms
+              {formatToIndianRupee(createdTermsAbsorbable)} Auto-Adjusted from unpaid payment terms
             </p>
             <p className={`text-xs mt-0.5 ${isFullyAbsorbed ? "text-green-600" : "text-blue-600"}`}>
               {isFullyAbsorbed

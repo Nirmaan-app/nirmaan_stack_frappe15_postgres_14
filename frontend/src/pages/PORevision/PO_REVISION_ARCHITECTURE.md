@@ -155,7 +155,7 @@ The dialog relies heavily on Frappe React SDK hooks (`useFrappeGetDocList`, `use
      {
        "list": {
          "type": "Refund Adjustment",
-         "auto_absorbed_amount": 2000.0, // Amount auto-absorbed directly from unpaid "Created" terms (if any)
+         "auto_adjusted_amount": 2000.0, // Amount auto-adjusted directly from unpaid "Created" terms (if any)
          "Details": [{
            "status": "Pending",
            "amount": 2000.0,
