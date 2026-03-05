@@ -10,8 +10,10 @@ import { FrappeDoc, GetDocListArgs, useFrappeGetDocList } from "frappe-react-sdk
 import { memoize } from "lodash";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { useFacetValues } from "@/hooks/useFacetValues";
+import { useDocCountStore } from "@/zustand/useDocCountStore";
 
 export default function PORevisionsApprovalList() {
+    const { counts } = useDocCountStore();
     const [searchParams, setSearchParams] = useSearchParams();
     const activeTab = searchParams.get("tab") || "Pending Approval";
 
@@ -172,10 +174,12 @@ export default function PORevisionsApprovalList() {
                                     }`}
                             >
                                 {tab}
-                                {/* If we had counts for PO Revisions it would go here */}
-                                {/* <span className={`text-xs font-bold ${isActive ? "opacity-90" : "opacity-70"}`}>
-                                    {count}
-                                </span> */}
+                                <span className={`text-xs ml-1 font-bold ${isActive ? "text-white" : "text-sky-600"}`}>
+                                    {tab === "Pending Approval" ? counts?.po_revisions?.pending_approval || 0 :
+                                     tab === "Approved" ? counts?.po_revisions?.approved || 0 :
+                                     tab === "Rejected" ? counts?.po_revisions?.rejected || 0 :
+                                     counts?.po_revisions?.all || 0}
+                                </span>
                             </button>
                         );
                     })}

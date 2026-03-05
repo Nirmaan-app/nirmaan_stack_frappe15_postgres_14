@@ -34,6 +34,15 @@ def sidebar_counts(user: str) -> str:
     po_map = {s: q for s, q, _ in po_status_counts}
     po_map["all"] = sum(q for _, q, _ in po_status_counts)
 
+    # --- PO Revisions ---
+    porev_filters = {} if is_full_access else {"project": ["in", user_projects]}
+    porev_counts = {
+        "pending_approval": simple("PO Revisions", {**porev_filters, "status": "Pending"}),
+        "approved": simple("PO Revisions", {**porev_filters, "status": "Approved"}),
+        "rejected": simple("PO Revisions", {**porev_filters, "status": "Rejected"}),
+    }
+    porev_counts["all"] = simple("PO Revisions", porev_filters)
+
 
     # --- Procurement Requests (Using Your Preferred Flow with the Fix) ---
     # We fetch only the parent document fields first for speed.
@@ -187,6 +196,7 @@ def sidebar_counts(user: str) -> str:
 
     return json.dumps({
         "po": po_map,
+        "po_revisions": porev_counts,
         "pr": pr_counts,
         "sb": sb_counts,
         "sr": sr_counts,
