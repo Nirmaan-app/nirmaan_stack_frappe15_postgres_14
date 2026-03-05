@@ -219,6 +219,29 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
         ...(serviceOrders?.map((order) => ({ ...order, type: "Service Order" })) || []),
     ], [purchaseOrders, serviceOrders])
 
+    // Filter options with counts for faceted filters (project & vendor dropdowns)
+    // Only include items that are present in combinedData (count > 0)
+    const projectFilterValues = useMemo(() => {
+        const countMap = new Map<string, number>();
+        combinedData.forEach((item) => countMap.set(item.project, (countMap.get(item.project) || 0) + 1));
+        return (projects?.filter((item) => countMap.has(item?.name))
+            .map((item) => ({
+                label: `${item?.project_name} (${countMap.get(item?.name)})`,
+                value: item?.name,
+            })) || []);
+    }, [projects, combinedData])
+
+    const vendorFilterValues = useMemo(() => {
+        const countMap = new Map<string, number>();
+        combinedData.forEach((item) => countMap.set(item.vendor, (countMap.get(item.vendor) || 0) + 1));
+        return (vendors?.filter((item) => countMap.has(item?.name))
+            .map((item) => ({
+                label: `${item?.vendor_name} (${countMap.get(item?.name)})`,
+                value: item?.name,
+            })) || []);
+    }, [vendors, combinedData])
+
+
 
 
     const AddPayment = async () => {
@@ -694,8 +717,8 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                     <DataTable 
                         columns={columns} 
                         data={combinedData} 
-                        project_values={!projectId ? projectValues : undefined} 
-                        approvedQuotesVendors={vendorValues} 
+                        project_values={!projectId ? projectFilterValues : undefined}
+                        approvedQuotesVendors={vendorFilterValues}
                         getRowClassName={getRowClassName} 
                         onExport={(filteredData) => {
                             exportToCsv(`PO_Wise_Payments_${formatDate(new Date())}`, filteredData, columns);
