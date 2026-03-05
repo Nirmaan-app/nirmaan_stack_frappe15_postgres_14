@@ -166,7 +166,7 @@ export const Step3Summary: React.FC<Step3SummaryProps> = ({
                                                 <div className="flex justify-between items-center pb-2 border-b border-gray-50">
                                                     <span className="font-black text-[11px] text-gray-400 uppercase tracking-widest flex items-center gap-2">
                                                         <ShieldCheck className="h-4 w-4 text-green-500" />
-                                                        Auto-Absorbed from Unpaid Terms
+                                                       Auto-Adjusted from Unpaid Terms
                                                     </span>
                                                     <span className="font-black text-sm text-gray-900">{formatToIndianRupee(createdTermsAbsorbable)}</span>
                                                 </div>

@@ -74,13 +74,13 @@ export default function PORevisionPaymentRectification({ paymentData }: PORevisi
                         <div className="space-y-2">
                             <h4 className="text-sm font-bold text-green-600 flex items-center gap-2">
                                 <ShieldCheck className="w-4 h-4" />
-                                Auto-Absorbed by Payment Terms:
+                                Auto-Adjusted by Payment Terms:
                             </h4>
                             <div className="rounded-md border shadow-sm bg-green-50 overflow-x-auto">
                                 <Table>
                                     <TableHeader className="bg-green-100/50">
                                         <TableRow>
-                                            <TableHead className="font-semibold text-green-800 h-10 w-full">AMOUNT ABSORBED</TableHead>
+                                            <TableHead className="font-semibold text-green-800 h-10 w-full">AMOUNT ADJUSTED</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
