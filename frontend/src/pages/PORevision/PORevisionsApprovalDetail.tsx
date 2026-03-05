@@ -173,7 +173,7 @@ export default function PORevisionsApprovalDetail() {
                     />
 
                     {/* Line Items */}
-                    <PORevisionLineItems items={parsedItems} />
+                    <PORevisionLineItems items={parsedItems} isCustom={!!originalPO?.custom} />
 
                     {/* Payment Rectification */}
                     {revisionDoc.payment_return_details && (

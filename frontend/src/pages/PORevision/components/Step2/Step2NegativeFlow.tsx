@@ -305,7 +305,7 @@ export const Step2NegativeFlow: React.FC<Step2NegativeFlowProps> = ({
                                 </Badge>
                             </div>
                             <div className="space-y-6">
-                                <CustomAttachment selectedFile={adj.refund_attachment_file} onFileSelect={(file) => updateAdjustment(adj.id, { refund_attachment_file: file })} label="Upload Refund Proof (PDF/Image)" acceptedTypes={["application/pdf", "image/*"]} className="bg-white" />
+                                <CustomAttachment label="Payment Proof" selectedFile={adj.refund_attachment_file} onFileSelect={(file) => updateAdjustment(adj.id, { refund_attachment_file: file })} label="Upload Refund Proof (PDF/Image)" acceptedTypes={["application/pdf", "image/*"]} className="bg-white" />
                                 <div className="space-y-3 px-1">
                                     <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest pl-1">Refund Date<span className="text-red-500">*</span></label>
                                     <Input type="date" value={adj.date} onChange={(e) => updateAdjustment(adj.id, { date: e.target.value })} className="h-12 bg-white border-2 rounded-2xl focus-visible:ring-blue-100 border-gray-100" />

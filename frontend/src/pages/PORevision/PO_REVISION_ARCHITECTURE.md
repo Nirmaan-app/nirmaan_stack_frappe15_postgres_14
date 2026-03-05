@@ -45,6 +45,9 @@ The "Revise PO" button initiates the PO Revision workflow from the Procurement O
   The "Revise PO" button is highly conditional and only appears if **ALL** of the following base constraints are met:
   1. **Valid Status:** The PO's status must be `"Dispatched"`, `"Partially Delivered"`, or `"Delivered"`.
   2. **Not Locked:** The PO must *not* currently be locked by an existing pending revision (`isLocked === false`).
+  
+  > [!NOTE]
+  > Previously, Custom POs were excluded from revisions (`!po.custom`). This restriction has been removed to allow all PO types to benefit from the revision workflow.
 
   If the base constraints are met, the button renders if there is a discrepancy between the PO amount and uploaded invoices:
 
@@ -144,7 +147,7 @@ The dialog relies heavily on Frappe React SDK hooks (`useFrappeGetDocList`, `use
            ]
          }]
        }
-     }
+     ]
      ```
 
      *Negative Flow (Difference < 0):*
@@ -168,7 +171,7 @@ The dialog relies heavily on Frappe React SDK hooks (`useFrappeGetDocList`, `use
            "refund_date": "2026-02-27", "refund_attachment": "/files/receipt.pdf"
          }]
        }
-     }
+     ]
      ```
 
 ### Step-by-Step Logic
@@ -180,6 +183,10 @@ The dialog relies heavily on Frappe React SDK hooks (`useFrappeGetDocList`, `use
      * The **Unit** cannot be changed.
      * The **Delete Icon** is disabled.
      * The **Quantity** cannot be reduced below the already `received_quantity` (e.g., if 7 items were received, the user can revise the quantity to 8 or 10, but not 6).
+   * **Custom PO Specialized UI:** If the PO is a "Custom PO" (`po.custom === true`), the following UI adjustments are made to Step 1:
+     * **Item Name**: Uses a free-text `Input` field instead of `ReactSelect`, allowing users to type any item name.
+     * **Make Column**: The "Make" column is completely hidden from the table as it's not applicable to custom entry items.
+     * **Units & Tax**: These continue to use standard dropdowns (`SelectUnit` and `Select`) for data consistency.
    * **Validation:** To proceed to Step 2, the user *must* provide a text `justification`.
 2. **Step 2 (Financial Adjustment):**
    * **Validation (Positive Flow):** If the amount increased, the sum of all newly allocated Payment Terms *must* exactly equal the difference amount to proceed (`Math.abs(totalAllocated - Math.abs(difference.inclGst)) < 1`).

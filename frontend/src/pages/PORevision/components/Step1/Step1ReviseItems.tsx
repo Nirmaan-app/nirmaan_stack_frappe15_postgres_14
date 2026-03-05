@@ -29,6 +29,7 @@ interface Step1ReviseItemsProps {
   difference: DifferenceData;
   netImpact: number;
   itemOptions?: { label: string; value: string; item_id: string; item_name: string; make: string; available_makes: string[]; unit: string; category: string; tax: number }[];
+  isCustom?: boolean;
 }
 
 export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
@@ -44,6 +45,7 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
   difference,
   netImpact,
   itemOptions = [],
+  isCustom = false,
 }) => {
   const { toast } = useToast();
 
@@ -74,7 +76,7 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
               <TableRow>
                 <TableHead className="w-[40px] pl-3"></TableHead>
                 <TableHead className="w-[340px]">ITEM NAME</TableHead>
-                <TableHead className="w-[200px]">MAKE</TableHead>
+                {!isCustom && <TableHead className="w-[200px]">MAKE</TableHead>}
                 <TableHead className="w-[100px]">UNIT</TableHead>
                 <TableHead className="w-[100px]">QTY</TableHead>
                 <TableHead className="w-[120px]">RATE</TableHead>
@@ -125,7 +127,23 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                       </HoverCard>
                     </TableCell>
                     <TableCell>
-                      {item.item_type !== 'Deleted'  && item.item_type !== 'Revised' ? (
+                      {isCustom ? (
+                        <Input
+                          value={item.item_name}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            const isOriginal = item.item_type === 'Original';
+                            let typeUpdates: Partial<RevisionItem> = {};
+                            if (isOriginal && val !== item.item_name) {
+                              typeUpdates = { item_type: 'Replace', original_row_id: item.name };
+                            }
+                            handleUpdateItem(idx, { ...typeUpdates, item_name: val });
+                          }}
+                          disabled={isDeleted}
+                          placeholder="Item Name..."
+                          className="text-xs font-bold h-9"
+                        />
+                      ) : item.item_type !== 'Deleted'  && item.item_type !== 'Revised' ? (
                         <ReactSelect
                           options={itemOptions.filter(opt => !revisionItems.some(ri => ri.item_id === opt.item_id && ri.item_type !== 'Deleted'))}
                           value={
@@ -186,40 +204,52 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                         </div>
                       )}
                     </TableCell>
+                    {!isCustom && (
                     <TableCell>
-                      <ReactSelect
-                        options={
-                          (() => {
-                            const optionItem = itemOptions.find(opt => opt.item_id === item.item_id);
-                            const makes = optionItem?.available_makes || (item.make ? [item.make] : []);
-                            return makes.map(m => ({ label: m, value: m }));
-                          })()
-                        }
-                        value={item.make ? { label: item.make, value: item.make } : null}
-                        onChange={(selected: any) => handleUpdateItem(idx, { make: selected?.value || "" })}
-                        isDisabled={isDeleted || !item.item_id}
-                        placeholder="Make..."
-                        isClearable
-                        styles={{
-                          control: (base) => ({
-                            ...base,
-                            minHeight: '36px',
-                            height: '36px',
-                            fontSize: '12px',
-                            fontWeight: 600,
-                          }),
-                          valueContainer: (base) => ({
-                            ...base,
-                            padding: '0 8px',
-                          }),
-                          input: (base) => ({
-                            ...base,
-                            margin: 0,
-                            padding: 0,
-                          }),
-                        }}
-                      />
+                      {isCustom ? (
+                        <Input
+                          value={item.make}
+                          onChange={(e) => handleUpdateItem(idx, { make: e.target.value })}
+                          disabled={isDeleted}
+                          placeholder="Make..."
+                          className="text-xs font-bold h-9"
+                        />
+                      ) : (
+                        <ReactSelect
+                          options={
+                            (() => {
+                              const optionItem = itemOptions.find(opt => opt.item_id === item.item_id);
+                              const makes = optionItem?.available_makes || (item.make ? [item.make] : []);
+                              return makes.map(m => ({ label: m, value: m }));
+                            })()
+                          }
+                          value={item.make ? { label: item.make, value: item.make } : null}
+                          onChange={(selected: any) => handleUpdateItem(idx, { make: selected?.value || "" })}
+                          isDisabled={isDeleted || !item.item_id}
+                          placeholder="Make..."
+                          isClearable
+                          styles={{
+                            control: (base) => ({
+                              ...base,
+                              minHeight: '36px',
+                              height: '36px',
+                              fontSize: '12px',
+                              fontWeight: 600,
+                            }),
+                            valueContainer: (base) => ({
+                              ...base,
+                              padding: '0 8px',
+                            }),
+                            input: (base) => ({
+                              ...base,
+                              margin: 0,
+                              padding: 0,
+                            }),
+                          }}
+                        />
+                      )}
                     </TableCell>
+                    )}
                     <TableCell>
                       <SelectUnit 
                         value={item.unit || ""} 
@@ -273,7 +303,6 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="0">0%</SelectItem>
                           <SelectItem value="5">5%</SelectItem>
                           <SelectItem value="12">12%</SelectItem>
                           <SelectItem value="18">18%</SelectItem>
