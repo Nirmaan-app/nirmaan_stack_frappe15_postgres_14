@@ -1,4 +1,5 @@
-import { useState, useMemo, useCallback } from "react";
+import { useMemo, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { DOCTYPE, PO_REVISION_FIELDS_TO_FETCH, PO_REVISION_SEARCHABLE_FIELDS, PO_REVISION_DATE_COLUMNS, getPORevisionColumns } from "./config/poRevisions.config";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { DataTable } from "@/components/data-table/new-data-table";
@@ -11,7 +12,19 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { useFacetValues } from "@/hooks/useFacetValues";
 
 export default function PORevisionsApprovalList() {
-    const [activeTab, setActiveTab] = useState<string>("Pending Approval");
+    const [searchParams, setSearchParams] = useSearchParams();
+    const activeTab = searchParams.get("tab") || "Pending Approval";
+
+    const setActiveTab = (tab: string) => {
+        setSearchParams(
+            (prev) => {
+                const newParams = new URLSearchParams(prev);
+                newParams.set("tab", tab);
+                return newParams;
+            },
+            { replace: true }
+        );
+    };
 
     const tabs = [
         "Pending Approval",
