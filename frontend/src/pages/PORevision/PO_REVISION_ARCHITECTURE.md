@@ -12,7 +12,7 @@ The PO Revision Warning is a critical UI component that prevents concurrent modi
 * **Purpose:** Displays a red alert banner at the top of the Purchase Order detail page if the PO is locked. It informs the user why it's locked and provides a quick link to view the pending revision.
 * **Mechanism:** 
   * It accepts the `poId` as a prop.
-  * On mount or when `poId` changes, it makes a POST request to the backend API.
+  * Uses `usePOLockCheck(poId)` from the centralized data layer (`data/usePORevisionQueries.ts`), which wraps a POST call + SWR cache with Sentry error logging.
   * If the response indicates the PO `is_locked`, it renders the alert with the specific `role` (Original or Target) and a link to the `revision_id`.
 
 ### Backend API
@@ -152,6 +152,7 @@ The dialog relies heavily on Frappe React SDK hooks (`useFrappeGetDocList`, `use
      {
        "list": {
          "type": "Refund Adjustment",
+         "auto_absorbed_amount": 2000.0, // Amount auto-absorbed directly from unpaid "Created" terms (if any)
          "Details": [{
            "status": "Pending",
            "amount": 2000.0,
@@ -161,7 +162,7 @@ The dialog relies heavily on Frappe React SDK hooks (`useFrappeGetDocList`, `use
            "target_pos": [{ "po_number": "PO-002", "amount": 2000.0 }],
            
            // If Ad-hoc:
-           "ad-hoc_tyep": "expense", "ad-hoc_dexription": "reason",
+           "ad-hoc_type": "expense", "ad-hoc_description": "reason",
            
            // If Vendor-has-refund
            "refund_date": "2026-02-27", "refund_attachment": "/files/receipt.pdf"
@@ -182,7 +183,7 @@ The dialog relies heavily on Frappe React SDK hooks (`useFrappeGetDocList`, `use
    * **Validation:** To proceed to Step 2, the user *must* provide a text `justification`.
 2. **Step 2 (Financial Adjustment):**
    * **Validation (Positive Flow):** If the amount increased, the sum of all newly allocated Payment Terms *must* exactly equal the difference amount to proceed (`Math.abs(totalAllocated - Math.abs(difference.inclGst)) < 1`).
-   * **Validation (Negative Flow):** If the amount decreased and "Another PO" is selected, the total refund allocated to target POs *must* exactly equal the refund amount.
+   * **Validation (Negative Flow):** The system first calculates `createdTermsAbsorbable` which checks if there are unpaid terms in a "Created" state. It auto-absorbs the negative amount into these terms up to their limit. Any remaining negative balance (`userAllocationRequired`) must be allocated by the user via "Another PO", "Adhoc", or "Refunded".
 3. **Step 3 (Summary & Submit):**
    * Displays the Before/After totals.
    * Clicking Submit triggers `handleSave()`.
@@ -252,8 +253,8 @@ Once a Manager reviews the "Pending" `PO Revisions` document and decides to appr
 
 ### How it works behind the scenes (Step-by-Step):
 
-1. **Transaction Initialization:**
-   The very first thing it does is call `frappe.db.begin()`. This starts a SQL database transaction. If any step fails below, the entire database state can be rolled back to protect data integrity.
+1. **Concurrency Lock (`for_update=True`):**
+   The revision document is fetched with `for_update=True`, which acquires a row-level database lock. This prevents two managers from simultaneously approving/rejecting the same revision.
 
 2. **Step 1: Syncing Items (`sync_original_po_items`)**
    It reads the `revision_items` table from the draft and applies the delta to the Original Purchase Order.
@@ -262,6 +263,8 @@ Once a Manager reviews the "Pending" `PO Revisions` document and decides to appr
 
 3. **Step 2: Handling Financial Flow**
    It checks `total_amount_difference`.
+
+   
    * **If > 0 (Positive Flow):** It calls `process_positive_increase`. This function handles cost increases by strictly manipulating the Payment Terms table on the Original PO:
      1. **Recalculate Totals:** It re-fetches the Original PO and calls `.calculate_totals_from_items()` to get the new `Grand Total` including the synced items.
      2. **Update/Append Terms:** It parses the `payment_return_details` JSON from the draft.
@@ -270,6 +273,8 @@ Once a Manager reviews the "Pending" `PO Revisions` document and decides to appr
         * If no `"Created"` term exists, it instead appends a brand new row to the PO's `payment_terms` table, carefully inheriting the `payment_type` from existing terms and setting status to `"Created"`. If the inherited payment type is `"Credit"`, it additionally sets the `due_date` of this new term to `today + 2 days`.
      3. **Percentage Rebalancing:** Because the PO's total has increased, it loops through *all* payment terms (old and new) and forcefully recalculates their `percentage` field (`(amount / new_total) * 100`) so they precisely sum to 100%.
      4. **Save Draft Changes:** Finally, it updates the JSON payload in the draft to reflect the newly calculated percentages, and saves the Original PO (again, using `ignore_validate_update_after_submit = True`).
+
+
    * **If < 0 (Negative Flow):** It calls `process_negative_returns`. This function is strictly responsible for routing the "excess" money that the vendor now owes us back onto the books. It parses `payment_return_details` for `"Refund Adjustment"`. Depending on the `return_type` selected on the frontend, it executes one of three paths:
      1. **`Vendor-has-refund` (Direct Refund):** 
         * It creates a real `"Paid"` `Project Payments` document against the current PO for a *negative* amount (representing cash coming back).
@@ -295,21 +300,473 @@ Once a Manager reviews the "Pending" `PO Revisions` document and decides to appr
              5. If there is still credit leftover, it cascades down the list to the next `"Created"` term and repeats the split.
              6. Finally, it forcefully recalculates the percentages on the Target PO so they gracefully sum back to 100%, and saves the Target PO to the database.
              
-        * Note: If any piece of the `Against-po` transfer fails (for instance, if the Target PO happens to be locked, or doesn't actually have enough unpaid terms left to absorb the credit limit), the *entire* approval transaction safely rolls back, protecting both the Original and Target POs from partial corruption.
-     
-     **Final Negative Step (LIFO Reduction):** After routing the return money, the API loops back to the Original PO. Because the overall PO essentially costs less now, it executes a Last-In, First-Out (LIFO) reduction (`_reduce_payment_terms_lifo`). It takes the unpaid `"Created"` payment terms starting from the bottom of the list and shrinks them until they perfectly account for the new, cheaper `Grand Total`, preserving the percentages.
+      **Final Negative Step — LIFO Reduction & Amount Paid Recalculation:**
+      After routing the return money, the API does two things:
+      1. Executes a Last-In, First-Out (LIFO) reduction (`_reduce_payment_terms_lifo`) on the Original PO's unpaid `"Created"` payment terms starting from the bottom, shrinking them until they perfectly account for the new, cheaper Grand Total.
+      2. Calls `_recalculate_amount_paid()` on both the original PO and all affected target POs. This manually sums all `"Paid"` Project Payments for each PO and updates their `amount_paid` field. This is necessary because the normal `project_payments.py` hooks that do this automatically are intentionally skipped during the revision flow (see Section 10).
+
 4. **Step 3: Finalizing the Draft**
    It changes the `PO Revisions` document status to `"Approved"` and calls `.save(ignore_permissions=True)` to confirm the draft is executed.
 
-5. **Commit Configuration:**
-   If all steps succeed, it calls `frappe.db.commit()` to permanently save all database changes simultaneously.
+5. **Automatic Commit:**
+   There is no explicit `frappe.db.commit()`. Frappe automatically commits the transaction at the end of a successful HTTP request.
 
 ### Rollback & Error Handling (`except Exception:`)
-If any piece of code fails (e.g., a validation error while creating a Project Payment), the system immediately jumps to the `except` block:
-1. **`frappe.db.rollback()`**: This violently undoes all database changes made since `frappe.db.begin()`. The Original PO's items revert to normal, and the draft goes back to "Pending".
-2. **Stray Document Cleanup**: While `rollback()` reverts database rows attached to the current transaction, certain standalone Frappe documents (like freshly minted `Project Payments`) might persist in extreme edge cases or if they bypassed the transaction. The error handler implements a targeted cleanup sweep:
-   * It parses the `payment_return_details` JSON to find target POs.
-   * It queries the database for any `Project Payments` created strictly within the last `1 minute` linked to those POs.
-   * It forcefully deletes them (`force=1`, `ignore_permissions=True`) to guarantee no phantom financial records are left behind from a failed approval attempt.
+If any step fails (e.g., a validation error, character length overflow, or a Target PO being locked), the system immediately jumps to the `except` block:
 
-**Summary:** The Approval function is a highly controlled, high-stakes database transaction. It uses specific Frappe flags to bypass standard document locks, applies the drafted changes, and relies on aggressive rollback procedures to ensure the system is never left in a partially-updated, corrupt state.
+1. **`frappe.db.rollback()`**: This performs a **full transaction rollback** that undoes *all* database changes made during the entire HTTP request. This includes:
+   * All newly created `Project Payments` records
+   * All `Project Expenses` records
+   * Modified payment terms on both Original and Target POs
+   * Item changes synced to the Original PO
+   * The revision status change itself
+   
+2. **Error Logging**: `frappe.log_error()` captures the full traceback for debugging.
+
+3. **User-Facing Error**: `frappe.throw()` sends a clear error message to the frontend.
+
+> **Note:** The `from_revision` flag (see Section 10) is critical for this rollback to work. Without it, the `Project Payments` hooks would call `frappe.db.commit()` mid-transaction, permanently committing payments and making rollback impossible.
+
+**Summary:** The Approval function is a highly controlled, high-stakes database transaction. It uses the `from_revision` flag to prevent mid-transaction commits, specific Frappe flags to bypass standard document locks, and relies on Frappe's full transaction rollback to ensure the system is never left in a partially-updated, corrupt state.
+
+===============================================================================================
+===============================================================================================
+
+## 6. Backend API: PO Revision History
+
+Provides a single consolidated API to fetch all PO Revision history data for a given PO, eliminating the need for multiple separate frontend API calls.
+
+### API Endpoint Details
+* **Method:** `POST`
+* **Endpoint:** `nirmaan_stack.api.po_revisions.revision_history.get_po_revision_history`
+* **File Location:** `nirmaan_stack/api/po_revisions/revision_history.py`
+
+### What it Receives (Parameters):
+1. `po_id` (string): The Procurement Order ID to fetch revision history for.
+
+### What it Returns:
+A list of revision objects, ordered newest-first, each containing:
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | Revision document ID (e.g., `REV-PO-0005`) |
+| `creation` | datetime | When the revision was created |
+| `status` | string | `"Pending"`, `"Approved"`, or `"Rejected"` |
+| `total_amount_difference` | float | Net financial impact (+/-) |
+| `revision_justification` | string | User-provided reason for revision |
+| `payment_return_details` | object/null | **Pre-parsed** JSON (not a string) — the financial allocation details |
+| `revision_items` | array | Full child table rows from `PO Revisions Items` |
+| `original_total_incl_tax` | float | Computed total of original items including GST (rounded to 2 decimals) |
+| `revised_total_incl_tax` | float | Computed total of revised items including GST (rounded to 2 decimals) |
+
+### How it Works (Step-by-Step):
+
+1. **Fetch All Revisions:**
+   Queries `PO Revisions` doctype filtered by `revised_po = po_id`, ordered by `creation desc` to show most recent first.
+
+2. **Parse Payment JSON:**
+   For each revision, if `payment_return_details` exists and is a JSON string, it auto-parses it into a Python dict. This means the frontend receives a ready-to-use object instead of needing to call `JSON.parse()`.
+
+3. **Fetch Child Items:**
+   For each revision, queries all rows from the `PO Revisions Items` child table (filtered by `parent = revision.name`, ordered by `idx asc`). Returns the full item detail including `item_type`, original fields, and revision fields.
+
+4. **Compute Totals Including Tax:**
+   The API pre-computes two financial totals from the child items:
+   * **`original_total_incl_tax`:** Sum of `original_amount × (1 + original_tax/100)` for all items except `"New"` items (which didn't exist originally).
+   * **`revised_total_incl_tax`:** Sum of revised amounts with tax for all items except `"Deleted"` items. For `"Original"` (unchanged) items, it uses the original amount; for `"Revised"`/`"Replace"`/`"New"` items, it uses the revision amount with the revision tax rate.
+
+### Why This API Exists:
+* **Performance:** Replaces 2+ frontend API calls (`useFrappeGetDocList` for the list + `useFrappeGetDoc` per card expansion) with a single call that returns everything.
+* **Pre-computation:** Tax-inclusive totals are computed server-side with proper floating-point handling, avoiding JavaScript precision issues.
+* **Pre-parsing:** Payment JSON is parsed server-side, so the frontend doesn't need try/catch blocks for JSON parsing.
+
+===============================================================================================
+===============================================================================================
+
+## 7. Frontend Component: PO Revision History
+
+A premium, timeline-based UI component that displays the full revision history for a Purchase Order. It uses a two-level collapsible pattern: the entire section collapses, and each revision card within it also collapses independently.
+
+### Frontend Component
+* **Component Name:** `PORevisionHistory` (`frontend/src/pages/PORevision/components/PORevisionHistory.tsx`)
+* **Usage:** Imported and rendered in `PODetails.tsx` (Purchase Orders detail page), placed after the `PORevisionDialog` component.
+* **Props:** `poId: string` — the Procurement Order ID.
+
+### Data Fetching
+* Uses `useRevisionHistory(poId)` from the centralized data layer (`data/usePORevisionQueries.ts`).
+* SWR cache key: `["po-revision", "history", poId]` via `poRevisionKeys.revisionHistory(poId)`.
+* Includes automatic Sentry error logging via `useApiErrorLogger`.
+* The component returns `null` (renders nothing) if loading, no data, or no revisions exist.
+
+### UI Structure
+
+#### Level 1: Section Collapsible (Outer)
+* **Collapsed state (default):** A gradient header bar showing:
+  * History icon (clock) in a red-tinted badge
+  * "Revision History" title
+  * Count badge (number of revisions)
+  * Chevron indicator with rotation animation
+* **Expanded state:** Reveals a timeline layout with a vertical gradient line on the left side.
+
+#### Level 2: Revision Cards (Inner - one per revision)
+Each revision renders as a card along the timeline:
+
+* **Timeline Dot:** A colored circle on the left timeline, color-coded by status:
+  * 🟢 Emerald = Approved
+  * 🟡 Amber = Pending
+  * 🔴 Rose = Rejected
+
+* **Card Header (always visible):**
+  * Chevron with smooth 90° rotation
+  * Revision ID + Status badge (color-coded)
+  * Creation date
+  * Net difference amount with trend icon (↗ green for increase, ↘ red for decrease)
+
+* **Card Body (expanded):**
+  1. **Amount Summary (3-column grid):**
+     * "Before" — Original total including tax (from API `original_total_incl_tax`)
+     * "After" — Revised total including tax (from API `revised_total_incl_tax`)
+     * "Impact" — Net difference with color coding (green/red bg)
+
+  2. **Reason for Revision:**
+     * Icon-prefixed section (MessageSquareText icon)
+     * Displays `revision_justification` text
+
+  3. **Items Changed:**
+     * Icon-prefixed section (ArrowUpDown icon)
+     * Shows count of changed items (excludes `"Original"` type)
+     * Scrollable table with `max-h-[200px]` to prevent excessive height
+     * Columns: Type badge, Item name, Qty Change (shown as `10 → 8` with arrow), Amount diff
+     * Type badges are color-coded: Green (New), Red (Deleted), Blue (Revised/Replace)
+     * Deleted items show strikethrough qty, New items show plain qty
+
+  4. **Payment Rectification:**
+     * Icon-prefixed section (Wallet icon)
+     * Reuses the existing `PORevisionPaymentRectification` component
+     * Payment data is already parsed by the backend API (no JSON.parse needed)
+
+### Design Highlights
+* **Timeline pattern:** Vertical line with status-colored dots creates a visual chronology
+* **Tabular numbers:** All financial figures use `tabular-nums` for perfect digit alignment
+* **Gradient backgrounds:** Subtle `from-white to-slate-50/50` gradient on expanded cards
+* **Shadow transitions:** Cards lift on hover with smooth shadow animation
+* **Line clamp:** Long item names are truncated with CSS `line-clamp-1`
+* **Sticky table header:** Item changes table header stays visible during scroll
+
+===============================================================================================
+===============================================================================================
+
+## 8. Centralized Data Layer & Sentry Integration
+
+The PO Revision module uses a centralized data layer pattern (modeled after the Vendor module) to standardize API calls, SWR cache management, and Sentry error observability.
+
+### Folder Structure
+
+```
+PORevision/
+├── data/                              ← Centralized data layer
+│   ├── poRevision.constants.ts        ← Cache keys, doctype constants, API endpoints
+│   ├── usePORevisionQueries.ts        ← All read hooks with Sentry logging
+│   └── usePORevisionMutations.ts      ← All write hooks with cache invalidation
+├── hooks/                             ← Business logic hooks (use data/ imports)
+│   ├── usePORevision.ts
+│   └── usePORevisionsApprovalDetail.ts
+└── ...
+```
+
+### Cache Key Factory — `poRevisionKeys`
+**File:** `data/poRevision.constants.ts`
+
+All SWR cache keys are generated from a single `poRevisionKeys` factory object, ensuring predictable invalidation:
+
+| Key | Factory | Used By |
+|-----|---------|--------|
+| Revision Doc | `revisionDoc(id)` | Approval Detail |
+| Revision History | `revisionHistory(poId)` | PORevisionHistory component |
+| Procurement Request | `procurementRequest(prId)` | Revision Dialog |
+| Categories | `categories(wp)` | Revision Dialog |
+| Items | `items(wp)` | Revision Dialog |
+| Category Makelist | `categoryMakelist(wp)` | Revision Dialog |
+| Vendor Invoices | `vendorInvoices(poId)` | Revision Dialog |
+| Candidate POs | `candidatePOs(vendor)` | Negative Flow (Step 2) |
+| Original PO | `originalPO(poId)` | Approval Detail |
+| Lock Check | `lockCheck(poId)` | PORevisionWarning |
+
+### API Endpoint Constants — `PO_REVISION_APIS`
+
+All backend API endpoint strings are centralized:
+
+```typescript
+export const PO_REVISION_APIS = {
+  makeRevision:    "nirmaan_stack.api.po_revisions.revision_logic.make_po_revisions",
+  approveRevision: "nirmaan_stack.api.po_revisions.revision_logic.on_approval_revision",
+  checkLock:       "nirmaan_stack.api.po_revisions.revision_po_check.check_po_in_pending_revisions",
+  getHistory:      "nirmaan_stack.api.po_revisions.revision_history.get_po_revision_history",
+};
+```
+
+### Centralized Queries — `usePORevisionQueries.ts`
+
+10 query hooks, each wrapping a Frappe SDK call with:
+- **Standardized SWR cache key** from `poRevisionKeys`
+- **Automatic Sentry error logging** via `useApiErrorLogger` with `feature: "po-revision"`
+
+| Hook | Doctype/API | Consumer |
+|------|-------------|----------|
+| `useRevisionDoc(id)` | PO Revisions GetDoc | Approval Detail |
+| `useOriginalPO(poId)` | Procurement Orders GetDoc | Approval Detail |
+| `useProcurementRequestForRevision(prId)` | Procurement Requests GetDoc | Dialog |
+| `useRevisionCategories(wp)` | Category DocList | Dialog |
+| `useRevisionItems(wp, cats)` | Items DocList | Dialog |
+| `useRevisionCategoryMakelist(wp, cats)` | Category Makelist DocList | Dialog |
+| `useRevisionVendorInvoices(poId, enabled)` | Vendor Invoices DocList | Dialog |
+| `useApprovalInvoices(poId)` | Vendor Invoices DocList | Approval Detail |
+| `useCandidatePOs(vendor, enabled)` | Procurement Orders DocList | Dialog (Negative Flow) |
+| `usePOLockCheck(poId)` | Custom API (PostCall + SWR) | PORevisionWarning, Approval Detail (`PODetails.tsx`) |
+| `useRevisionHistory(poId)` | Custom API (PostCall + SWR) | PORevisionHistory |
+
+### Centralized Mutations — `usePORevisionMutations.ts`
+
+3 mutation hooks with automatic SWR cache invalidation after success:
+
+| Hook | API | Invalidates |
+|------|-----|------------|
+| `useCreateRevision()` | `make_po_revisions` | `lockCheck(poId)` |
+| `useApproveRevision()` | `on_approval_revision` | `revisionDoc`, `originalPO`, `revisionHistory`, `lockCheck` |
+| `useRejectRevision()` | `updateDoc` (status → Rejected) | `revisionDoc`, `lockCheck` |
+
+### Sentry Error Logging Pattern
+
+**Queries (Automatic):**
+Every query hook (which uses `useFrappeGetDocList` or `useSWR`) follows this pattern, where `useApiErrorLogger` automatically intercepts SWR failures:
+
+```typescript
+export const useRevisionDoc = (revisionId?: string) => {
+  const response = useFrappeGetDoc(...);
+  useApiErrorLogger(response.error, {
+    hook: "useRevisionDoc",        // Which hook failed
+    api: "PO Revisions GetDoc",    // What API endpoint
+    feature: "po-revision",        // Feature area for grouping in Sentry
+    doctype: PO_REVISION_DOCTYPE,  // Frappe doctype
+    entity_id: revisionId,         // Specific entity for context
+  });
+  return response;
+};
+```
+
+**Mutations (Manual):**
+Unlike queries, mutations execute imperatively on button clicks and are not automatically wrapped by SWR's error lifecycle. Therefore, every mutation in `usePORevisionMutations.ts` manually injects Sentry using `captureApiError`:
+
+1. **API Catch:** 
+   The main `.call()` is wrapped in a `try/catch`. If the API fails, `captureApiError` logs the exact endpoint and payload context.
+2. **SWR Catch:**
+   The `mutate()` calls are wrapped in an inner `try/catch`. If updating the React cache fails, a specific `"SWR Invalidation"` error is logged, preventing the UI from crashing after a successful database save.
+3. **User Context:**
+   We retrieve the `currentUser` via `useFrappeAuth()` and attach it to both `captureApiError` blocks.
+
+When any error occurs in queries or mutations, it sends to Sentry with:
+- **Custom fingerprinting:** `[feature, hook, api, httpStatus]` — groups errors uniquely per API call
+- **Searchable tags:** `layer:api`, `feature:po-revision`, `hook:useRevisionDoc`
+- **Full context:** HTTP status, backend messages, user data, and the original error object
+
+===============================================================================================
+===============================================================================================
+
+## 9. External Functions Used by PO Revision Approval
+
+The PO Revision approval flow (`revision_logic.py`) relies on two key functions from other modules. These are **not** defined within the PO Revision module — they are imported from the Procurement Orders doctype and the Delivery Notes API respectively.
+
+### `calculate_totals_from_items()` — From Procurement Orders Doctype
+
+* **Defined in:** `nirmaan_stack/doctype/procurement_orders/procurement_orders.py` (Line 21)
+* **Type:** Instance method on the `ProcurementOrders` Document class
+* **Called as:** `original_po.calculate_totals_from_items()`
+
+**What it does:**
+Iterates over all child items in the PO and recalculates three parent-level fields:
+
+| Field Set | Source |
+|-----------|--------|
+| `self.amount` | Sum of all `item_row.amount` (excl. tax) |
+| `self.tax_amount` | Sum of all `item_row.tax_amount` |
+| `self.total_amount` | Sum of all `item_row.total_amount` (incl. tax — the grand total) |
+
+**Where used in PO Revision:**
+1. **`sync_original_po_items()`** — After adding/modifying/deleting items, recalculates the PO's grand total before save.
+2. **`process_positive_increase()`** — After syncing, recalculates to get `new_total` for rebalancing payment term percentages.
+3. **`process_negative_returns()`** — After syncing, recalculates `new_total` for LIFO term reduction.
+
+**Why it's important for revisions:**
+When a revision changes item quantities, rates, or adds/deletes items, the PO's `amount`, `tax_amount`, and `total_amount` would be stale. This function ensures they reflect the new item reality before financial operations (payment term adjustments) rely on them.
+
+---
+
+### `calculate_order_status()` — From Delivery Notes API
+
+* **Defined in:** `nirmaan_stack/api/delivery_notes/update_delivery_note.py` (Line 159)
+* **Type:** Standalone function (imported at top of `revision_logic.py`)
+* **Called as:** `calculate_order_status(updated_items)`
+
+**What it does:**
+Determines whether a PO should be `"Delivered"` or `"Partially Delivered"` by checking each item:
+
+| Quantity Type | Condition for "Delivered" |
+|---------------|--------------------------|
+| **Integer** | `quantity <= received_quantity` |
+| **Float** | `(quantity - 2.5% tolerance) <= received_quantity` |
+
+If **all** items pass → `"Delivered"`. Otherwise → `"Partially Delivered"`.
+
+**Where used in PO Revision:**
+* **`sync_original_po_items()`** — After item sync, if the PO was `"Partially Delivered"` or `"Delivered"`, re-evaluates the delivery status based on the new (revised) item quantities vs existing `received_quantity`.
+
+**Why it's important for revisions:**
+A revision can **reduce** an item's ordered quantity (e.g., from 10 → 5). If 5 units were already received, the item now satisfies `quantity <= received_quantity`. If all items in the PO pass this check after revision, the status should automatically update from `"Partially Delivered"` → `"Delivered"` — without requiring a separate delivery note update.
+
+**Example scenario:**
+```
+Before revision:
+  Item A: qty=10, received=10 ✓
+  Item B: qty=10, received=5  ✗  →  Status: "Partially Delivered"
+
+Revision reduces Item B: qty=10 → qty=5
+
+After revision approval + status recalculation:
+  Item A: qty=10, received=10 ✓
+  Item B: qty=5,  received=5  ✓  →  Status: "Delivered" ✅
+```
+
+===============================================================================================
+===============================================================================================
+
+## 10. Transaction Safety: The `from_revision` Flag Architecture
+
+The PO Revision approval flow creates multiple `Project Payments` during the negative flow. If any subsequent step fails (e.g., payment term split crashes), ALL previously-created payments must be rolled back. This section documents the architecture that ensures this atomicity.
+
+### The Problem
+
+When a `Project Payment` is created via `pay.save()`, Frappe triggers a chain of hooks across **three separate files**:
+
+| Order | File | Hook | What it does | Danger |
+|-------|------|------|-------------|--------|
+| 1 | `doctype/project_payments/project_payments.py` | `before_insert` | Validates that total payments don't exceed PO amount | Blocks negative payments |
+| 2 | `doctype/project_payments/project_payments.py` | `on_update` | Calls `update_parent_amount_paid()` → `frappe.db.commit()` | **Permanently commits the payment** |
+| 3 | `integrations/controllers/project_payments.py` | `after_insert` | Creates `Nirmaan Notifications` + sends Firebase push → `frappe.db.commit()` inside loop | **Permanently commits the payment** |
+| 4 | `integrations/controllers/project_payments.py` | `on_update` | Syncs payment term status + sends notifications → `frappe.db.commit()` | **Permanently commits the payment** |
+
+The `frappe.db.commit()` calls in hooks #2, #3, and #4 are **destructive** during the revision flow. They permanently write the payment to the database mid-transaction. If a later step fails and `frappe.db.rollback()` is called, it can only undo changes made *after* the last commit — the payment survives as an orphan.
+
+### The Solution: `from_revision` Flag
+
+When `_create_project_payment()` in `revision_logic.py` creates a payment, it sets:
+
+```python
+pay.flags.from_revision = True
+```
+
+All four hook entry points check for this flag and **return early** if present:
+
+```python
+# In both doctype/project_payments.py and integrations/controllers/project_payments.py:
+def before_insert(self) / after_insert(doc, method) / on_update(...):
+    if self.flags.from_revision:  # or doc.flags.from_revision
+        return  # Skip validation, notifications, and the destructive commit()
+```
+
+### Manual Recalculation: `_recalculate_amount_paid()`
+
+Since `on_update` is skipped (which normally recalculates `amount_paid` on the parent PO), the revision flow manually handles this at the end via `_recalculate_amount_paid(po_id)`:
+
+```python
+def _recalculate_amount_paid(po_id):
+    paid_payments = frappe.get_all("Project Payments", ...)
+    total_paid = sum(flt(p.amount) for p in paid_payments)
+    frappe.db.set_value("Procurement Orders", po_id, "amount_paid", total_paid)
+```
+
+This is called:
+1. For all **target POs** — before `original_po.save()`
+2. For the **original PO** — after `original_po.save()` (to avoid `TimestampMismatchError`, since `set_value` updates the `modified` timestamp)
+
+### Full Rollback Guarantee
+
+With all hooks skipped, **zero `frappe.db.commit()` calls execute** during the revision flow. The entire approval runs in a single database transaction. If anything fails:
+
+```python
+except Exception as e:
+    frappe.db.rollback()  # Undoes EVERYTHING — payments, expenses, PO edits, all of it
+    frappe.throw(_("Approval failed: {0}").format(str(e)))
+```
+
+### Files Modified for This Architecture
+
+| File | Changes |
+|------|---------|
+| `revision_logic.py` → `_create_project_payment()` | Sets `pay.flags.from_revision = True` |
+| `revision_logic.py` → `on_approval_revision()` | Uses `frappe.db.rollback()` (full) instead of savepoints |
+| `revision_logic.py` → `_recalculate_amount_paid()` | New helper function for manual `amount_paid` calculation |
+| `doctype/project_payments/project_payments.py` | `from_revision` check in `before_insert` and `on_update` |
+| `integrations/controllers/project_payments.py` | `from_revision` check in `after_insert` and `on_update` |
+
+===============================================================================================
+===============================================================================================
+
+## 11. PO Lock: Disabled Actions When a Revision is Pending
+
+When a PO is locked (either as the Original PO or as a Target PO of a pending revision), several UI actions across the application are disabled to prevent conflicting changes.
+
+### Hook Used
+* **`usePOLockCheck(poId)`** from `data/usePORevisionQueries.ts`
+* Returns `{ is_locked, role, revision_id }` via SWR-cached POST call.
+
+### Disabled Actions by Component
+
+#### 1. `PODetails.tsx` (`purchase-order/components/PODetails.tsx`)
+| Button | Behavior When Locked |
+|--------|---------------------|
+| **Update Delivery** | `disabled={isLocked}` — button is grayed out, cannot open delivery note sheet |
+| **Mark Inactive** | `disabled={isLocked}` — button is grayed out, cannot open inactive confirmation dialog |
+| **Revise PO** | Completely hidden (`isLocked === false` is a visibility condition) |
+
+* `usePOLockCheck` is called directly inside this component using `po?.name`.
+
+#### 2. `POPaymentTermsCard.tsx` (`purchase-order/components/POPaymentTermsCard.tsx`)
+| Button | Behavior When Locked |
+|--------|---------------------|
+| **Edit (Payment Terms)** | `disabled={isLocked}` with title tooltip — cannot open the edit terms dialog |
+
+* Receives `isLocked` as a prop from `PurchaseOrder.tsx`.
+* The **Request Payment** row buttons are **not** blocked — users can still open the dialog.
+* The lock is enforced inside the **internal RequestPaymentDialog** (see below).
+
+#### 3. Internal `RequestPaymentDialog` (inside `POPaymentTermsCard.tsx`)
+| Element | Behavior When Locked |
+|---------|---------------------|
+| **Request button** | `disabled={isLoading \|\| isLocked}` — cannot submit the payment request |
+| **Warning message** | Red text: *"PO is in Revision, cannot request payment."* shown below the button |
+
+* Receives `isLocked` as a prop from `POPaymentTermsCard`.
+
+#### 4. Credits Page `RequestPaymentDialog` (`components/dialogs/RequestPaymentDialog.tsx`)
+| Element | Behavior When Locked |
+|---------|---------------------|
+| **Request button** | `disabled={isLoading \|\| isLocked}` — cannot submit the payment request |
+| **Warning message** | Red text: *"PO is in Revision, cannot request payment."* shown below the button |
+
+* Calls `usePOLockCheck(term?.name)` internally using the PO name from the `PoPaymentTermRow`.
+
+#### 5. `PurchaseOrder.tsx` (main page)
+| Button | Behavior When Locked |
+|--------|---------------------|
+| **Update Delivery** (summary section) | `disabled={isLocked}` — grayed out |
+
+* Calls `usePOLockCheck(poId)` and passes `isLocked` down to `POPaymentTermsCard`.
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `PurchaseOrder.tsx` | Calls `usePOLockCheck`, passes `isLocked` to `POPaymentTermsCard`, disables Update Delivery button |
+| `PODetails.tsx` | Uses existing `usePOLockCheck` call to disable Update Delivery and Mark Inactive buttons |
+| `POPaymentTermsCard.tsx` | Receives `isLocked` prop, disables Edit button, passes `isLocked` to internal `RequestPaymentDialog` |
+| `components/dialogs/RequestPaymentDialog.tsx` | Calls `usePOLockCheck` internally, disables Request button and shows warning |

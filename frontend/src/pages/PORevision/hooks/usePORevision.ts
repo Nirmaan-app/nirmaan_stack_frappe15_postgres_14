@@ -1,11 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
-import { useFrappeGetDocList, useFrappePostCall, useFrappeFileUpload, useFrappeGetDoc } from "frappe-react-sdk";
+import { useFrappeFileUpload } from "frappe-react-sdk";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
-import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
-import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
-import { Category } from "@/types/NirmaanStack/Category";
-import { Items } from "@/types/NirmaanStack/Items";
-import { CategoryMakelist } from "@/types/NirmaanStack/CategoryMakelist";
 import { toast } from "@/components/ui/use-toast";
 import { 
   RevisionItem, 
@@ -15,6 +10,15 @@ import {
   DifferenceData, 
   SummaryData 
 } from "../types";
+import {
+  useProcurementRequestForRevision,
+  useRevisionCategories,
+  useRevisionItems,
+  useRevisionCategoryMakelist,
+  useRevisionVendorInvoices,
+  useCandidatePOs,
+} from "../data/usePORevisionQueries";
+import { useCreateRevision } from "../data/usePORevisionMutations";
 
 interface UsePORevisionProps {
   po: ProcurementOrder;
@@ -77,6 +81,19 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
     return refundAdjustments.reduce((sum, adj) => sum + (adj.amount || 0), 0);
   }, [refundAdjustments]);
 
+  // Auto-absorb: how much of the refund can be absorbed by shrinking "Created" terms
+  const createdTermsAbsorbable = useMemo(() => {
+    if (difference.inclGst >= 0) return 0; // Only for negative revisions
+    const createdTotal = (po?.payment_terms || [])
+      .filter((t: any) => t.term_status === "Created" && !(t.label || "").includes("Return"))
+      .reduce((sum: number, t: any) => sum + (t.amount || 0), 0);
+    return Math.min(createdTotal, Math.abs(difference.inclGst));
+  }, [po, difference]);
+
+  const userAllocationRequired = useMemo(() => {
+    return Math.max(0, Math.abs(difference.inclGst) - createdTermsAbsorbable);
+  }, [difference, createdTermsAbsorbable]);
+
   // Sync state on open
   useEffect(() => {
     if (open && po) {
@@ -88,59 +105,24 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
     }
   }, [open, po]);
 
-  // Fetch Data
-  const { data: prData } = useFrappeGetDoc<ProcurementRequest>(
-    "Procurement Requests",
-    po?.procurement_request || "",
-    po?.procurement_request ? `PR-${po.procurement_request}` : null
-  );
-
+  // ─── Centralized Data Fetching ────────────────────────────
+  const { data: prData } = useProcurementRequestForRevision(po?.procurement_request);
   const workPackage = prData?.work_package;
 
-  const { data: categories } = useFrappeGetDocList<Category>(
-    "Category",
-    {
-      fields: ["name", "tax"],
-      filters: [["work_package", "in",[workPackage,"Tool & Equipments","Additional Charges"]]], 
-      limit: 0,
-    },
-    workPackage ? `Categories-WP-${workPackage}` : null
-  );
-
+  const { data: categories } = useRevisionCategories(workPackage);
   const categoryNames = useMemo(() => categories?.map(c => c.name) || [], [categories]);
 
-  const { data: itemsList } = useFrappeGetDocList<Items>(
-    "Items",
-    {
-      fields: ["name", "item_name", "category", "unit_name", "make_name"],
-      filters: categoryNames.length > 0 ? [["category", "in", categoryNames]] : [["name", "=", "INVALID"]],
-      limit: 0,
-    },
-    categoryNames.length > 0 ? `Items-Cat-${workPackage}` : null
-  );
-
-  const { data: categoryMakelist } = useFrappeGetDocList<CategoryMakelist>(
-    "Category Makelist",
-    {
-      fields: ["category", "make"],
-      filters: categoryNames.length > 0 ? [["category", "in", categoryNames]] : [["category", "=", "INVALID"]],
-      limit: 0,
-    },
-    categoryNames.length > 0 ? `CatMakelist-${workPackage}` : null
-  );
+  const { data: itemsList } = useRevisionItems(workPackage, categoryNames);
+  const { data: categoryMakelist } = useRevisionCategoryMakelist(workPackage, categoryNames);
 
   const itemOptions = useMemo(() => {
     if (!itemsList) return [];
-    
-    // Create a map of categories to get tax easily
     const categoryMap = new Map(categories?.map(c => [c.name, c]) || []);
-
     const categoryMakesMap = new Map<string, string[]>();
     categoryMakelist?.forEach(m => {
         if (!categoryMakesMap.has(m.category)) categoryMakesMap.set(m.category, []);
         categoryMakesMap.get(m.category)!.push(m.make);
     });
-
     return itemsList.map(item => ({
       label: item.item_name,
       value: item.name,
@@ -154,33 +136,11 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
     }));
   }, [itemsList, categories, categoryMakelist]);
 
-  const { data: invoices } = useFrappeGetDocList<VendorInvoice>(
-    "Vendor Invoices",
-    {
-      fields: ["name", "invoice_no", "invoice_date", "invoice_amount", "status", "owner"],
-      filters: [
-        ["document_type", "=", "Procurement Orders"],
-        ["document_name", "=", po?.name || ""],
-      ],
-      limit: 100,
-    },
-    open && po?.name ? `VendorInvoices-${po.name}` : null
-  );
+  const { data: invoices } = useRevisionVendorInvoices(po?.name, open);
+  const { data: adjCandidatePOs } = useCandidatePOs(po?.vendor, open);
 
-  const { data: adjCandidatePOs } = useFrappeGetDocList<ProcurementOrder>(
-    "Procurement Orders",
-    {
-      fields: ["name", "vendor", "total_amount","amount_paid"],
-      filters: [
-        ["vendor", "=", po?.vendor || ""],
-        ["status", "in", ["PO Approved"]],
-      ],
-      limit: 100,
-    },
-    open && po?.vendor ? `AdjCandidatePOs-${po.vendor}` : null
-  );
-
-  const { call: makeRevision } = useFrappePostCall("nirmaan_stack.api.po_revisions.revision_logic.make_po_revisions");
+  // ─── Centralized Mutations ───────────────────────────────
+  const { createRevision } = useCreateRevision();
   const { upload } = useFrappeFileUpload();
 
   // Item Handlers
@@ -301,8 +261,8 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
             } else if (adj.type === "Adhoc") {
                 detail.return_type = "Ad-hoc";
                 detail.status = "Pending";
-                detail["ad-hoc_tyep"] = adj.adhoc_type || "expense";
-                detail["ad-hoc_dexription"] = adj.description || "";
+                detail["ad-hoc_type"] = adj.adhoc_type || "expense";
+                detail["ad-hoc_description"] = adj.description || "";
                 detail.comment = adj.comment || "";
             } else if (adj.type === "Refunded") {
                 detail.return_type = "Vendor-has-refund";
@@ -333,12 +293,13 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
         returnDetails = {
           list: {
             type: "Refund Adjustment",
+            auto_absorbed_amount: createdTermsAbsorbable,
             Details: detailsWithFiles
           }
         };
       }
 
-      const res = await makeRevision({
+      const res = await createRevision({
         po_id: po.name,
         justification,
         revision_items: JSON.stringify(itemsToSubmit),
@@ -381,6 +342,8 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
     difference,
     netImpact,
     totalAdjustmentAllocated,
+    createdTermsAbsorbable,
+    userAllocationRequired,
     invoices,
     adjCandidatePOs,
     handleAddItem,

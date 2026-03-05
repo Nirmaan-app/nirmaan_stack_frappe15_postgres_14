@@ -86,7 +86,7 @@ const INVENTORY_SEARCH_FIELDS: SearchFieldOption[] = [
   { value: "category", label: "Category", placeholder: "Search by category..." },
 ];
 
-const RATE_THRESHOLD = 5000;
+const AMOUNT_THRESHOLD = 5000;
 
 // -1 is the backend sentinel for "not filled in" on remaining quantity
 const NOT_FILLED = -1;
@@ -116,7 +116,7 @@ export default function InventoryReport() {
       <Alert variant="default" className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30">
         <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
         <AlertDescription className="text-sm text-blue-800 dark:text-blue-300">
-          This report only includes items with a per-unit rate exceeding &#8377;{RATE_THRESHOLD.toLocaleString()}.
+          This report only includes items with a total amount exceeding &#8377;{AMOUNT_THRESHOLD.toLocaleString()}.
         </AlertDescription>
       </Alert>
 
@@ -188,10 +188,8 @@ function SummaryTable({ projectId }: { projectId: string }) {
 
     return allMaterialUsageItems
       .filter((item) => !toolEquipmentCategories.has(item.categoryName))
-      .filter((item) => {
-        const maxRate = Math.max(...(item.poNumbers?.map((p) => p.quote ?? 0) ?? [0]));
-        return maxRate > RATE_THRESHOLD;
-      })
+      .filter((item) => item.categoryName !== "Additional Charges")
+      .filter((item) => (item.totalAmount ?? 0) > AMOUNT_THRESHOLD)
       .map((item) => {
         const key = `${item.categoryName}_${item.itemId}`;
         const remaining = remainingItems[key];
@@ -306,14 +304,14 @@ function SummaryTable({ projectId }: { projectId: string }) {
     },
     {
       accessorKey: "unit",
-      header: "Unit",
+      header: () => <div className="flex-1 text-center">Unit</div>,
       cell: ({ row }) => <span className="text-sm text-center block">{row.original.unit}</span>,
       size: 80,
       enableSorting: false,
     },
     {
       accessorKey: "poQuantity",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="PO Quantity" />,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="PO Quantity" className="flex-1 justify-end" />,
       cell: ({ row }) => (
         <span className="text-sm text-right block font-mono tabular-nums">
           {row.original.poQuantity.toFixed(2)}
@@ -323,7 +321,7 @@ function SummaryTable({ projectId }: { projectId: string }) {
     },
     {
       accessorKey: "latestDNQuantity",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="DN Quantity" />,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="DN Quantity" className="flex-1 justify-end" />,
       cell: ({ row }) => (
         <span className="text-sm text-right block font-mono tabular-nums">
           {row.original.latestDNQuantity.toFixed(2)}
@@ -337,6 +335,7 @@ function SummaryTable({ projectId }: { projectId: string }) {
         <DataTableColumnHeader
           column={column}
           title={<span className="whitespace-normal leading-tight">{remainingHeader}</span>}
+          className="flex-1 justify-end"
         />
       ),
       cell: ({ row }) => {
@@ -423,7 +422,7 @@ function SummaryTable({ projectId }: { projectId: string }) {
   if (summaryData.length === 0) {
     return (
       <p className="text-sm text-muted-foreground text-center py-8">
-        No items with per-unit rate exceeding &#8377;{RATE_THRESHOLD.toLocaleString()} found for this project.
+        No eligible items (total amount &gt; &#8377;{AMOUNT_THRESHOLD.toLocaleString()}) found for this project.
       </p>
     );
   }
@@ -505,7 +504,7 @@ function HistoryTable({ projectId }: { projectId: string }) {
     for (const report of reports) {
       const dateKey = `remaining_${report.report_date}`;
       for (const item of report.items) {
-        if (toolEquipmentCategories.has(item.category)) continue;
+        if (toolEquipmentCategories.has(item.category) || item.category === "Additional Charges") continue;
         const itemKey = `${item.category}_${item.item_id}`;
         if (!rowMap.has(itemKey)) {
           rowMap.set(itemKey, {
@@ -537,7 +536,7 @@ function HistoryTable({ projectId }: { projectId: string }) {
       },
       {
         accessorKey: "unit",
-        header: "Unit",
+        header: () => <div className="flex-1 text-center">Unit</div>,
         cell: ({ row }) => <span className="text-sm text-center block">{row.original.unit}</span>,
         size: 80,
       },
@@ -551,13 +550,13 @@ function HistoryTable({ projectId }: { projectId: string }) {
 
     const dateCols: ColumnDef<PivotRow>[] = dateColumns.map((col) => ({
       id: col.key,
-      header: () => <div className="text-xs font-medium text-center">{col.label}</div>,
+      header: () => <div className="flex-1 text-xs font-medium text-right">{col.label}</div>,
       cell: ({ row }) => {
         const value = row.original[col.key];
         const numVal = typeof value === "number" ? value : null;
         const formatted = formatRemainingQty(numVal);
         if (formatted === "---") {
-          return <span className="text-muted-foreground text-center block">---</span>;
+          return <span className="text-muted-foreground text-right block">---</span>;
         }
         return (
           <span className="text-sm text-right block font-mono tabular-nums">{formatted}</span>
@@ -654,6 +653,7 @@ function HistoryTable({ projectId }: { projectId: string }) {
       onExport={handleExport}
       exportFileName={`Inventory_Report_History_${formatDate(new Date().toISOString())}`}
       showRowSelection={false}
+      enableVirtualization={false}
     />
   );
 }

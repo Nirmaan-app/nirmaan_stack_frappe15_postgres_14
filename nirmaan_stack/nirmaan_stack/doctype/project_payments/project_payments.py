@@ -19,6 +19,11 @@ class ProjectPayments(Document):
 		Called before save. Good place for validations and calculations
 		that affect the document itself before it's written.
 		"""
+		# Skip all validation when created programmatically by PO Revision flow
+		if self.flags.from_revision:
+			print(f"DEBUG_HOOK: project_payments.before_insert skipped for {self.document_name} due to from_revision flag")
+			return
+
 		doc = frappe.get_doc(self.document_type, self.document_name)
 
 		payments = frappe.get_all("Project Payments",
@@ -29,7 +34,7 @@ class ProjectPayments(Document):
 			},
 			fields=["amount"]
 		)
-		
+
 		total_paid = sum(flt(p.amount) for p in payments)
 
 		if flt(self.amount) + total_paid > flt(doc.total_amount) + 10.0:
@@ -44,6 +49,12 @@ class ProjectPayments(Document):
         Triggered after a document is saved.
         We check if the status has just changed to 'Paid'.
         """
+		# Skip all hook logic when created by PO Revision — revision_logic.py handles amount_paid itself
+		if self.flags.from_revision:
+			print(f"DEBUG_HOOK: project_payments.before_insert Update for {self.document_name} due to from_revision flag")
+			
+			return
+
 		old_doc = self.get_doc_before_save()
 		if not old_doc:
 			if self.status == "Paid":

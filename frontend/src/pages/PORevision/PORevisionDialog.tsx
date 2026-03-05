@@ -38,6 +38,8 @@ export const PORevisionDialog: React.FC<PORevisionDialogProps> = (props) => {
     difference,
     netImpact,
     totalAdjustmentAllocated,
+    createdTermsAbsorbable,
+    userAllocationRequired,
     invoices,
     adjCandidatePOs,
     handleAddItem,
@@ -67,9 +69,9 @@ export const PORevisionDialog: React.FC<PORevisionDialogProps> = (props) => {
                 toast({ title: "Allocation Mismatch", description: "Please allocate the full difference amount to payment terms.", variant: "destructive" });
                 return;
             }
-        } else if (difference.inclGst < 0 && adjustmentMethod === "Another PO") {
-             if (Math.abs(Math.abs(difference.inclGst) - totalAdjustmentAllocated) > 1) {
-                toast({ title: "Allocation Mismatch", description: "Please allocate the full refund amount to target POs.", variant: "destructive" });
+        } else if (difference.inclGst < 0) {
+             if (userAllocationRequired > 1 && Math.abs(userAllocationRequired - totalAdjustmentAllocated) > 1) {
+                toast({ title: "Allocation Mismatch", description: "Please allocate the remaining refund amount.", variant: "destructive" });
                 return;
              }
         }
@@ -123,6 +125,8 @@ export const PORevisionDialog: React.FC<PORevisionDialogProps> = (props) => {
                         totalAdjustmentAllocated={totalAdjustmentAllocated}
                         adjCandidatePOs={adjCandidatePOs}
                         poName={po.name}
+                        createdTermsAbsorbable={createdTermsAbsorbable}
+                        userAllocationRequired={userAllocationRequired}
                     />
                 )
             )}
@@ -139,6 +143,7 @@ export const PORevisionDialog: React.FC<PORevisionDialogProps> = (props) => {
                     beforeSummary={beforeSummary}
                     afterSummary={afterSummary}
                     netImpact={netImpact}
+                    createdTermsAbsorbable={createdTermsAbsorbable}
                 />
             )}
         </div>

@@ -1,4 +1,5 @@
-import { useState, useMemo, useCallback } from "react";
+import { useMemo, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { DOCTYPE, PO_REVISION_FIELDS_TO_FETCH, PO_REVISION_SEARCHABLE_FIELDS, PO_REVISION_DATE_COLUMNS, getPORevisionColumns } from "./config/poRevisions.config";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { DataTable } from "@/components/data-table/new-data-table";
@@ -9,9 +10,23 @@ import { FrappeDoc, GetDocListArgs, useFrappeGetDocList } from "frappe-react-sdk
 import { memoize } from "lodash";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { useFacetValues } from "@/hooks/useFacetValues";
+import { useDocCountStore } from "@/zustand/useDocCountStore";
 
 export default function PORevisionsApprovalList() {
-    const [activeTab, setActiveTab] = useState<string>("Pending Approval");
+    const { counts } = useDocCountStore();
+    const [searchParams, setSearchParams] = useSearchParams();
+    const activeTab = searchParams.get("tab") || "Pending Approval";
+
+    const setActiveTab = (tab: string) => {
+        setSearchParams(
+            (prev) => {
+                const newParams = new URLSearchParams(prev);
+                newParams.set("tab", tab);
+                return newParams;
+            },
+            { replace: true }
+        );
+    };
 
     const tabs = [
         "Pending Approval",
@@ -159,10 +174,12 @@ export default function PORevisionsApprovalList() {
                                     }`}
                             >
                                 {tab}
-                                {/* If we had counts for PO Revisions it would go here */}
-                                {/* <span className={`text-xs font-bold ${isActive ? "opacity-90" : "opacity-70"}`}>
-                                    {count}
-                                </span> */}
+                                <span className={`text-xs ml-1 font-bold ${isActive ? "text-white" : "text-sky-600"}`}>
+                                    {tab === "Pending Approval" ? counts?.po_revisions?.pending_approval || 0 :
+                                     tab === "Approved" ? counts?.po_revisions?.approved || 0 :
+                                     tab === "Rejected" ? counts?.po_revisions?.rejected || 0 :
+                                     counts?.po_revisions?.all || 0}
+                                </span>
                             </button>
                         );
                     })}

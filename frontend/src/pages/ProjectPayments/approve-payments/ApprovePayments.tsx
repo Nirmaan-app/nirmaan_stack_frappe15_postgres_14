@@ -78,7 +78,11 @@ interface SelectOption {
 }
 
 // --- Component ---
-export const ApprovePayments: React.FC = () => {
+interface ApprovePaymentsProps {
+  readOnly?: boolean;
+}
+
+export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = false }) => {
   const { toast } = useToast();
   const { db } = useContext(FrappeContext) as FrappeConfig;
   // const { mutate } = useSWRConfig();
@@ -471,10 +475,10 @@ export const ApprovePayments: React.FC = () => {
             row.owner,
         },
       },
-      {
+      ...(!readOnly ? [{
         id: "actions",
         header: "Actions",
-        cell: ({ row }) => (
+        cell: ({ row }: { row: Row<ProjectPayments> }) => (
           <div className="flex items-center gap-1">
             {" "}
             {/* Reduced gap */}
@@ -512,14 +516,13 @@ export const ApprovePayments: React.FC = () => {
                 Reject
               </HoverCardContent>
             </HoverCard>
-            {/* <HoverCard><HoverCardTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7 text-blue-600 hover:text-blue-700" onClick={() => openDialog(row.original, DIALOG_ACTION_TYPES.EDIT)}><SquarePen className="h-4 w-4" /></Button></HoverCardTrigger><HoverCardContent className="text-xs w-auto p-1.5">Edit & Approve</HoverCardContent></HoverCard> */}
           </div>
         ),
         size: 120,
         meta: {
-          excludedFromExport: true, // Exclude from export
+          excludedFromExport: true,
         },
-      },
+      } as ColumnDef<ProjectPayments>] : []),
     ],
     [
       notifications,
@@ -531,6 +534,7 @@ export const ApprovePayments: React.FC = () => {
       getDocumentTotal,
       getAmountPaid,
       allPaidPayments,
+      readOnly,
     ]
   );
 
@@ -737,7 +741,7 @@ export const ApprovePayments: React.FC = () => {
         />
       )}
 
-      {selectedPayment && (
+      {!readOnly && selectedPayment && (
         <PaymentActionDialog
           isOpen={isDialogOpen}
           onOpenChange={setIsDialogOpen}

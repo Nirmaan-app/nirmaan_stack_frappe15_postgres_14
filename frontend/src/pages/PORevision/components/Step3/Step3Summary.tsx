@@ -1,7 +1,7 @@
 import React from "react";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { FileText, Edit3, BarChart2, Wallet, Paperclip, Calendar } from "lucide-react";
+import { FileText, Edit3, BarChart2, Wallet, Paperclip, Calendar, ShieldCheck } from "lucide-react";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { RevisionItem, PaymentTerm, RefundAdjustment, DifferenceData, AdjustmentMethodType } from "../../types";
 import { ImpactSummaryTable } from "../Step1/ImpactSummaryTable";
@@ -18,6 +18,7 @@ interface Step3SummaryProps {
   beforeSummary: any;
   afterSummary: any;
   netImpact: number;
+  createdTermsAbsorbable?: number;
 }
 
 export const Step3Summary: React.FC<Step3SummaryProps> = ({
@@ -31,6 +32,7 @@ export const Step3Summary: React.FC<Step3SummaryProps> = ({
   beforeSummary,
   afterSummary,
   netImpact,
+  createdTermsAbsorbable = 0,
 }) => {
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -159,6 +161,17 @@ export const Step3Summary: React.FC<Step3SummaryProps> = ({
                                         <Badge variant="outline" className="bg-green-100 text-green-700 border-none font-black text-[9px] px-2 py-0.5 uppercase">Negative Flow</Badge>
                                     </div>
                                     <div className="space-y-4">
+                                        {createdTermsAbsorbable > 0 && (
+                                            <div className="bg-white p-5 rounded-xl border border-green-100 shadow-sm space-y-3">
+                                                <div className="flex justify-between items-center pb-2 border-b border-gray-50">
+                                                    <span className="font-black text-[11px] text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                                                        <ShieldCheck className="h-4 w-4 text-green-500" />
+                                                        Auto-Absorbed from Unpaid Terms
+                                                    </span>
+                                                    <span className="font-black text-sm text-gray-900">{formatToIndianRupee(createdTermsAbsorbable)}</span>
+                                                </div>
+                                            </div>
+                                        )}
                                         {refundAdjustments.map((a, i) => (
                                             <div key={i} className="bg-white p-5 rounded-xl border border-green-100 shadow-sm space-y-3">
                                                 <div className="flex justify-between items-center pb-2 border-b border-gray-50">

@@ -19,7 +19,9 @@ This document contains detailed page-level role access control mappings for the 
 
 **Special:** `Administrator` user (user_id) is hardcoded with Admin role access.
 
-**Note:** PMO Executive Profile mirrors Admin Profile access in all areas.
+**Note:** PMO Executive Profile mirrors Admin Profile access in all areas **except**:
+- **TDS Approval:** PMO can see the "Pending Approval" tab (read-only) but cannot approve/reject TDS items
+- **Project Payment Approval:** PMO can see the "Approve Payments" tab (read-only) but cannot approve/reject payments or edit fulfilled payments
 
 ---
 
@@ -182,9 +184,11 @@ Roles that don't require `has_project === "true"`:
 
 | Page | Feature | Admin | PMO | Accountant | Others |
 |------|---------|:-----:|:---:|:----------:|:------:|
-| ProjectPayments | Approve Tab | Y | Y | - | - |
+| ProjectPayments | Approve Tab | Y | Read-only | Read-only | Read-only* |
 | ProjectPayments | New Payments Tab | Y | Y | Y | - |
-| ProjectPayments | Edit Payment | Y | Y | Y | - |
+| ProjectPayments | Edit Payment | Y | - | Y | - |
+
+*Read-only Approve tab visible to all roles with sidebar access (PL, Procurement Exec, etc.)
 | ProjectExpenses | Add Expense | Y | Y | Y | - |
 | ProjectExpenses | Delete Expense | Y | Y | - | - |
 | NonProjectExpenses | Edit/Delete | Y | Y | - | - |
@@ -278,3 +282,16 @@ Roles that don't require `has_project === "true"`:
 | Edit Project Details | Y | Y | Y | - | - | - |
 
 **Design Tracker specific:** Design Lead can edit structure; Design Executive can only edit assigned tasks; Project Manager is view-only.
+
+**PMO Executive exceptions:** PMO Executive can view TDS Approval and Payment Approval tabs (read-only) but cannot approve/reject or edit fulfilled payments. In all other areas, PMO mirrors Admin.
+
+---
+
+## Read-Only Approval Tabs
+
+Approval tabs are visible to all roles with sidebar access, but non-approvers see them in read-only mode (info banner, no action buttons, no row navigation to approval screens).
+
+| Page | Approver Roles | Read-Only Roles | Non-Approver Behavior |
+|------|---------------|-----------------|----------------------|
+| TDS Approval | Admin, Project Lead | PMO, Project Manager, others | See Pending tab, no row click, no actions, info banner |
+| Project Payments | Admin | PMO, Accountant, PL, Proc Exec, others | See Approve Payments tab, no action buttons, info banner |

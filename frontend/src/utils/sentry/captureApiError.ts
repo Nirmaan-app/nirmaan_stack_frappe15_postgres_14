@@ -7,6 +7,7 @@ interface ApiErrorContext {
   doctype?: string;
   entity_id?: string;
   error: any;
+  user?: string;
 }
 
 export const captureApiError = ({
@@ -16,6 +17,7 @@ export const captureApiError = ({
   doctype,
   entity_id,
   error,
+  user,
 }: ApiErrorContext) => {
 
   const httpStatus = error?.httpStatus;
@@ -42,6 +44,10 @@ export const captureApiError = ({
     scope.setTag("httpStatus", httpStatus || "unknown");
 
     if (doctype) scope.setTag("doctype", doctype);
+    if (user) {
+      scope.setTag("user", user);
+      scope.setUser({ id: user, username: user, email: user });
+    }
 
     // 🔹 Full backend info
     scope.setContext("api_details", {
@@ -49,6 +55,7 @@ export const captureApiError = ({
       api,
       doctype,
       entity_id,
+      user: user || "unknown",
       httpStatus,
       httpStatusText: error?.httpStatusText,
       backendMessage: error?._server_messages,

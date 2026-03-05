@@ -33,9 +33,9 @@ export default function PORevisionLineItems({ items }: PORevisionLineItemsProps)
                     <List className="w-5 h-5 text-red-600" />
                     <h3 className="text-sm font-bold text-slate-800">Line Items ({items.length})</h3>
                 </div>
-                <Button variant="outline" size="sm" className="text-red-500 border-red-200 hover:bg-red-50 hover:text-red-600">
+                {/* <Button variant="outline" size="sm" className="text-red-500 border-red-200 hover:bg-red-50 hover:text-red-600">
                     View Changes
-                </Button>
+                </Button> */}
             </div>
             
             <div className="rounded-md border shadow-sm bg-white overflow-x-auto">

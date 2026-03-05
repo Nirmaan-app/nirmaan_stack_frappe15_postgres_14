@@ -25,6 +25,7 @@ import { CustomAttachment } from "../../../components/helpers/CustomAttachment";
 import { KeyedMutator } from 'swr';
 import { safeJsonParse } from "../constants";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
+import { usePOLockCheck } from "@/pages/PORevision/data/usePORevisionQueries";
 
 interface DeliveryNoteItemsDisplayProps {
   poMutate: KeyedMutator<FrappeDoc<ProcurementOrder>>;
@@ -43,6 +44,9 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
   const userData = useUserData();
   const { toast } = useToast();
   const { mutate } = useSWRConfig();
+
+  const { data: lockData } = usePOLockCheck(data?.name);
+  const isLocked = lockData?.is_locked || false;
 
   // console.log("updateDN Data", data,data?.items?.length)
   // console.log("updateDN Data",JSON.parse(data?.deliveryDate))
@@ -383,9 +387,11 @@ export const DeliveryNoteItemsDisplay: React.FC<DeliveryNoteItemsDisplayProps> =
               </div>
             </div>
           ) : (
-            <Button onClick={() => setShowEdit(true)} className="gap-1"><Pencil className="h-4 w-4" /> Record New Updates</Button>
+            <div className="flex flex-col items-end gap-1">
+              <Button onClick={() => setShowEdit(true)} className="gap-1" disabled={isLocked}><Pencil className="h-4 w-4" /> Record New Updates</Button>
+              {isLocked && <p className="text-xs text-red-500">PO is in Revision,Check Procurement.</p>}
+            </div>
           )}
-          {/* )} */}
         </CardHeader>
         <CardContent>
           <div className="overflow-auto hidden sm:block">

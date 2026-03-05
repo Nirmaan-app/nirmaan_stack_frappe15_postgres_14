@@ -8,8 +8,7 @@ import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { Items } from "@/types/NirmaanStack/Items";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { VENDOR_DOCTYPE } from "../vendors.constants";
-import { useEffect, useRef } from "react";
-import { captureApiError } from "@/utils/sentry/captureApiError";
+import { useApiErrorLogger } from "@/utils/sentry/useApiErrorLogger";
 
 
 // ─── Vendor Cache Keys (Standardized) ─────────────────────────
@@ -57,42 +56,7 @@ interface ApiTransaction {
   amount: number;
   payment: number;
 }
-interface LoggerOptions {
-  hook: string;
-  api: string;
-  feature: string;
-  doctype?: string;
-  entity_id?: string;
-}
 
-export const useApiErrorLogger = (error: any, options: LoggerOptions) => {
-  const lastErrorIdRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!error) return;
-    const currentErrorId = [
-      options.feature,
-      options.hook,
-      options.api,
-      options.doctype ?? "",
-      options.entity_id ?? "",
-      error?.message ?? "",
-      error?.httpStatus ?? "",
-    ].join("|");
-
-    if (lastErrorIdRef.current === currentErrorId) return;
-    lastErrorIdRef.current = currentErrorId;
-
-    captureApiError({
-      hook: options.hook,
-      api: options.api,
-      feature: options.feature,
-      doctype: options.doctype,
-      entity_id: options.entity_id,
-      error: error,
-    });
-  }, [error, options.hook, options.api, options.feature, options.doctype, options.entity_id]);
-};
 
 // ─── Queries ─────────────────────────────────────────────────
 

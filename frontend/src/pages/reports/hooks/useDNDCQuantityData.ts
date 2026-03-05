@@ -232,9 +232,9 @@ export function useDNDCQuantityData(projectId: string | null) {
         const difference = dnQty - dcQty;
 
         let status: ReconcileStatus;
-        if (dnQty === dcQty && dnQty > 0) {
+        if (dcQty >= dnQty) {
           status = "matched";
-        } else if ((dnQty > 0 && dcQty === 0) || (dnQty === 0 && dcQty > 0)) {
+        } else if (dnQty > 0 && dcQty === 0) {
           status = "no_dc_update";
         } else {
           status = "mismatch";
@@ -269,7 +269,7 @@ export function useDNDCQuantityData(projectId: string | null) {
             dnQty: 0,
             dcQty: dcData.qty,
             difference: 0 - dcData.qty,
-            status: "no_dc_update",
+            status: "matched",
           });
         }
       }
@@ -286,13 +286,16 @@ export function useDNDCQuantityData(projectId: string | null) {
       const totalDNQty = activeItems.reduce((sum, i) => sum + i.dnQty, 0);
       const totalDCQty = activeItems.reduce((sum, i) => sum + i.dcQty, 0);
 
+      const hasMismatch = activeItems.some((i) => i.status === "mismatch");
+      const hasNoDCUpdate = activeItems.some((i) => i.status === "no_dc_update");
+
       let reconcileStatus: ReconcileStatus;
-      if (matchedItems === activeItems.length) {
-        reconcileStatus = "matched";
-      } else if (totalDNQty > 0 && totalDCQty === 0) {
+      if (hasMismatch) {
+        reconcileStatus = "mismatch";
+      } else if (hasNoDCUpdate) {
         reconcileStatus = "no_dc_update";
       } else {
-        reconcileStatus = "mismatch";
+        reconcileStatus = "matched";
       }
 
       resultRows.push({
@@ -325,7 +328,7 @@ export function useDNDCQuantityData(projectId: string | null) {
           dnQty: 0,
           dcQty: dcData.qty,
           difference: 0 - dcData.qty,
-          status: "no_dc_update",
+          status: "matched",
         });
       }
 
@@ -348,7 +351,7 @@ export function useDNDCQuantityData(projectId: string | null) {
         totalDifference: activeItems.reduce((sum, i) => sum + i.difference, 0),
         itemsMatched: 0,
         itemsTotal: activeItems.length,
-        reconcileStatus: "no_dc_update",
+        reconcileStatus: "matched",
         items: activeItems,
       });
     }

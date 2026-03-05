@@ -17,6 +17,12 @@ export interface SidebarCountsData {
         "PO Amendment": number;
 
     }
+    po_revisions: {
+        all: number;
+        pending_approval: number;
+        approved: number;
+        rejected: number;
+    }
     pr: {
         all: number;
         pending: number;
@@ -81,6 +87,12 @@ export const useDocCountStore = create<Store>()(
             "Delivered": 0,
             "Merged": 0,
             "PO Amendment": 0,
+        },
+        po_revisions: {
+            all: 0,
+            pending_approval: 0,
+            approved: 0,
+            rejected: 0,
         },
         pr: {
             all: 0,

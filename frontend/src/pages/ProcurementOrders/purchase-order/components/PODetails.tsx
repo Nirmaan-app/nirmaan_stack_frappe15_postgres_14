@@ -106,6 +106,8 @@ import { UploadDCMIRDialog } from "@/pages/DeliveryChallansAndMirs/components/Up
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 import { PORevisionDialog } from "@/pages/PORevision/PORevisionDialog";
+import { PORevisionHistory } from "@/pages/PORevision/components/PORevisionHistory";
+import { usePOLockCheck } from "@/pages/PORevision/data/usePORevisionQueries";
 
 interface PODetailsProps {
   po: ProcurementOrder | null;
@@ -195,28 +197,9 @@ export const PODetails: React.FC<PODetailsProps> = ({
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
 
-  // PO Revision Lock status fetch
-  const [isLocked, setIsLocked] = useState(false);
-
-  const { call: fetchRevisionStatus } = useFrappePostCall(
-    "nirmaan_stack.api.po_revisions.revision_po_check.check_po_in_pending_revisions"
-  );
-
-  useEffect(() => {
-    if (po?.name) {
-      fetchRevisionStatus({ po_id: po.name })
-        .then((res) => {
-          if (res.message && res.message.is_locked) {
-            setIsLocked(true);
-          } else {
-            setIsLocked(false);
-          }
-        })
-        .catch((err) => console.error("Error fetching revision status:", err));
-    }
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [po?.name]);
+  // PO Revision Lock status fetch using SWR hook
+  const { data: lockData } = usePOLockCheck(po?.name);
+  const isLocked = lockData?.is_locked || false;
 
   const [inactiveDialog, setInactiveDialog] = useState(false);
 
@@ -729,7 +712,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
               <div className="flex  items-center mb-2 mt-4 pt-3 border-t border-dashed border-gray-200">
                   <p className="text-[10px] mr-5 font-semibold text-gray-400 uppercase tracking-wider">Invoices</p>
               {/* Conditional Revision Warning or Standard Link */}
-              {["Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) && !isLocked && (
+              {["Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) && !isLocked && !PoPaymentTermsValidationSafe && (
                   (totalUploadedInvoiceAmount  && po?.total_amount && Math.abs(totalUploadedInvoiceAmount - po.total_amount) > 1) ? (
                       <div className="flex items-center text-xs text-red-500 bg-red-50 px-2 py-1 rounded">
                           <span className="mr-1">Total PO Amount and Total Invoice Amount is not matching. Revise the PO to handle this amount change?</span>
@@ -913,6 +896,8 @@ export const PODetails: React.FC<PODetailsProps> = ({
                       variant="outline"
                       size="sm"
                       className="h-8 px-2.5 border-primary text-primary shrink-0"
+                      disabled={isLocked}
+                     
                     >
                       <Pencil className="h-3.5 w-3.5 sm:mr-1.5" />
                       <span className="hidden sm:inline text-xs">Update Delivery</span>
@@ -1031,6 +1016,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                       size="sm"
                       onClick={toggleInactiveDialog}
                       className="h-8 px-2.5 text-destructive border-destructive hover:bg-destructive hover:text-white shrink-0"
+                       disabled={isLocked}
                     >
                       <CircleX className="h-3.5 w-3.5 sm:mr-1.5" />
                       <span className="hidden sm:inline text-xs">Mark Inactive</span>
@@ -1602,11 +1588,19 @@ export const PODetails: React.FC<PODetailsProps> = ({
         open={openRevisionDialog} 
         onClose={() => setOpenRevisionDialog(false)} 
         po={po}
-        onSuccess={(revName) => {
-            // Success logic? Maybe redirect to the revision page if needed, 
-            // or just refresh.
+        onSuccess={() => {
+            // Trigger lock status check to disable UI and show the warning banner
+            if (po?.name) {
+              // Invalidate the SWR cache for the warning banner and isLocked state to show up immediately
+              import("@/pages/PORevision/data/poRevision.constants").then(({ poRevisionKeys }) => {
+                globalMutate(poRevisionKeys.lockCheck(po.name));
+              }).catch(() => {});
+            }
         }}
       />
+
+      {/* PO Revision History */}
+      <PORevisionHistory poId={po.name} />
     </div>
   );
 };
