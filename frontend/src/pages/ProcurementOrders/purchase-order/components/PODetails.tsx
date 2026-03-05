@@ -713,7 +713,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   <p className="text-[10px] mr-5 font-semibold text-gray-400 uppercase tracking-wider">Invoices</p>
               {/* Conditional Revision Warning or Standard Link */}
               {/* && !po?.custom  */}
-              {["Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) && !isLocked && !PoPaymentTermsValidationSafe  && (
+              {["Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) && !isLocked && !PoPaymentTermsValidationSafe  && !po?.custom &&(
                   (totalUploadedInvoiceAmount  && po?.total_amount && Math.abs(totalUploadedInvoiceAmount - po.total_amount) > 1) ? (
                       <div className="flex items-center text-xs text-red-500 bg-red-50 px-2 py-1 rounded">
                           <span className="mr-1">Total PO Amount and Total Invoice Amount is not matching. Revise the PO to handle this amount change?</span>

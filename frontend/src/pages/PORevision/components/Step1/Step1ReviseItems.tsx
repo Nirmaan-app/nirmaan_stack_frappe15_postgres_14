@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { useToast } from "@/components/ui/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Info, ClipboardList, Plus, Undo, Trash2, Edit3, Eye } from "lucide-react";
@@ -14,6 +14,8 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { RevisionItem, SummaryData, DifferenceData } from "../../types";
 import { InvoicesSection } from "./InvoicesSection";
 import { ImpactSummaryTable } from "./ImpactSummaryTable";
+import { AddNewItemDialog } from "./AddNewItemDialog";
+import { AddChargeDialog } from "./AddChargeDialog";
 import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 
 interface Step1ReviseItemsProps {
@@ -21,7 +23,7 @@ interface Step1ReviseItemsProps {
   invoices?: VendorInvoice[];
   justification: string;
   setJustification: (val: string) => void;
-  handleAddItem: () => void;
+  handleAddItem: (item?: RevisionItem) => void;
   handleUpdateItem: (idx: number, updates: Partial<RevisionItem>) => void;
   handleRemoveItem: (idx: number) => void;
   beforeSummary: SummaryData;
@@ -54,6 +56,8 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
   poAmountDelivered,
 }) => {
   const { toast } = useToast();
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [isAddChargeDialogOpen, setIsAddChargeDialogOpen] = useState(false);
 
   return (
     <div className="space-y-4">
@@ -87,9 +91,16 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
             <ClipboardList className="h-4 w-4 text-red-600" />
             <h3 className="font-bold text-[13px] text-gray-700 uppercase tracking-tight"> Item Revision</h3>
           </div>
-          <Button variant="outline" size="sm" onClick={handleAddItem} className="text-red-500 border-red-500 hover:bg-red-50 text-[11px] h-8 font-bold px-4">
-            <Plus className="h-3 w-3 mr-1" /> Add New Item
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setIsAddChargeDialogOpen(true)} className="text-blue-600 border-blue-200 hover:bg-blue-50 text-[11px] h-8 font-bold px-4">
+              <Plus className="h-3 w-3 mr-1" /> Add Charges
+            </Button>
+            {!isCustom && (
+              <Button variant="outline" size="sm" onClick={() => setIsAddDialogOpen(true)} className="text-red-500 border-red-500 hover:bg-red-50 text-[11px] h-8 font-bold px-4">
+                <Plus className="h-3 w-3 mr-1" /> Add New Item
+              </Button>
+            )}
+          </div>
         </div>
         <div className="border rounded-md overflow-visible bg-white pb-24">
           <Table>
@@ -160,7 +171,7 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                             }
                             handleUpdateItem(idx, { ...typeUpdates, item_name: val });
                           }}
-                          disabled={isDeleted}
+                          disabled={isDeleted || isCustom}
                           placeholder="Item Name..."
                           className="text-xs font-bold h-9"
                         />
@@ -376,7 +387,7 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
               />
           </div>
         </div>
-         <ImpactSummaryTable 
+        <ImpactSummaryTable 
           beforeSummary={beforeSummary}
           afterSummary={afterSummary}
           difference={difference}
@@ -384,6 +395,24 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
         />
 
       </div>
+
+      <AddNewItemDialog
+        open={isAddDialogOpen}
+        onOpenChange={setIsAddDialogOpen}
+        onAdd={handleAddItem}
+        isCustom={isCustom}
+        itemOptions={itemOptions}
+        revisionItems={revisionItems}
+      />
+
+      <AddChargeDialog
+        open={isAddChargeDialogOpen}
+        onOpenChange={setIsAddChargeDialogOpen}
+        onAdd={handleAddItem}
+        isCustom={isCustom}
+        itemOptions={itemOptions}
+        revisionItems={revisionItems}
+      />
     </div>
   );
 };

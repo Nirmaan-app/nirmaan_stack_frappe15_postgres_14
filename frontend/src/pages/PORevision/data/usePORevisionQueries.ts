@@ -80,12 +80,12 @@ export const useRevisionCategories = (workPackage?: string) => {
         [
           "work_package",
           "in",
-          [workPackage || "", "Tool & Equipments", "Additional Charges"],
+          [workPackage || "NOT YET DEFINED", "Tool & Equipments", "Additional Charges"],
         ],
       ],
       limit: 0,
     },
-    workPackage ? poRevisionKeys.categories(workPackage) : null
+    poRevisionKeys.categories(workPackage || "default")
   );
   useApiErrorLogger(response.error, {
     hook: "useRevisionCategories",
@@ -112,8 +112,8 @@ export const useRevisionItems = (
           : [["name", "=", "INVALID"]],
       limit: 0,
     },
-    categoryNames.length > 0 && workPackage
-      ? poRevisionKeys.items(workPackage)
+    categoryNames.length > 0
+      ? poRevisionKeys.items(workPackage || "default")
       : null
   );
   useApiErrorLogger(response.error, {
@@ -141,8 +141,8 @@ export const useRevisionCategoryMakelist = (
           : [["category", "=", "INVALID"]],
       limit: 0,
     },
-    categoryNames.length > 0 && workPackage
-      ? poRevisionKeys.categoryMakelist(workPackage)
+    categoryNames.length > 0
+      ? poRevisionKeys.categoryMakelist(workPackage || "default")
       : null
   );
   useApiErrorLogger(response.error, {

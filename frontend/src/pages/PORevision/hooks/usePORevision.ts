@@ -144,8 +144,8 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
   const { upload } = useFrappeFileUpload();
 
   // Item Handlers
-  const handleAddItem = () => {
-    const newItem: RevisionItem = {
+  const handleAddItem = (newItem?: RevisionItem) => {
+    const itemToAdd: RevisionItem = newItem || {
       item_name: "",
       make: "",
       unit: "Nos",
@@ -154,7 +154,7 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
       tax: 0,
       item_type: "New"
     };
-    setRevisionItems([...revisionItems, newItem]);
+    setRevisionItems([...revisionItems, itemToAdd]);
   };
 
   const handleUpdateItem = (index: number, updates: Partial<RevisionItem>) => {
