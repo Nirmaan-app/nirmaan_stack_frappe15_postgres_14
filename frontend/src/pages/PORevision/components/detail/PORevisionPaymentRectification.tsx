@@ -20,7 +20,7 @@ export default function PORevisionPaymentRectification({ paymentData }: PORevisi
     const type = data?.list?.type;
     const details = data?.list?.Details || [];
 
-    if (!type || details.length === 0) return null;
+    // if (!type || details.length === 0) return null;
 
     return (
         <div className="space-y-4 mt-6">
