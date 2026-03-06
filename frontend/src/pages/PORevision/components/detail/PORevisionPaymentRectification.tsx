@@ -106,7 +106,6 @@ export default function PORevisionPaymentRectification({ paymentData }: PORevisi
                                                 <TableRow>
                                                     <TableHead className="font-semibold text-slate-700 h-10 uppercase tracking-wider text-xs">SELECTED PO</TableHead>
                                                     <TableHead className="font-semibold text-slate-700 h-10 uppercase tracking-wider text-xs">TOTAL REFUND AMOUNT</TableHead>
-                                                    <TableHead className="font-semibold text-slate-700 h-10 uppercase tracking-wider text-xs">AMOUNT PAYABLE</TableHead>
                                                     <TableHead className="font-semibold text-slate-700 h-10 uppercase tracking-wider text-xs">ADJUSTMENT APPLIED</TableHead>
                                                 </TableRow>
                                             </TableHeader>
@@ -115,8 +114,6 @@ export default function PORevisionPaymentRectification({ paymentData }: PORevisi
                                                     <TableRow key={tidx}>
                                                         <TableCell className="font-medium text-slate-800">{tpo.po_number}</TableCell>
                                                         <TableCell>{formatCurrency(detail.amount || 0)}</TableCell>
-                                                        {/* For payable we'd ideally get tpo balance, but just showing adjustment mapping for now */}
-                                                        <TableCell className="text-slate-600">-</TableCell>
                                                         <TableCell className="text-slate-800 font-medium">-{formatCurrency(tpo.amount || 0)}</TableCell>
                                                     </TableRow>
                                                 ))}
