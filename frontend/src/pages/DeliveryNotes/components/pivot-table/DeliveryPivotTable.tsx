@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table } from "@/components/ui/table";
+import { Plus } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { useDeliveryPivotData } from "../../hooks/useDeliveryPivotData";
 import { useDeliverySubmit } from "../../hooks/useDeliverySubmit";
@@ -100,7 +101,8 @@ export function DeliveryPivotTable({
             </>
           ) : (
             <Button size="sm" variant="outline" onClick={handleToggleEdit}>
-              Record Delivery
+              <Plus className="h-4 w-4 mr-1" />
+              Add New Delivery Note
             </Button>
           )}
         </div>
