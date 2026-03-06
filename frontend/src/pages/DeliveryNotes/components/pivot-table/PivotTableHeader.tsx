@@ -76,11 +76,11 @@ export function PivotTableHeader({
             <TableHead
               key={col.dnName}
               className={cn(
-                "text-center text-xs font-medium text-muted-foreground min-w-[100px]",
+                "text-right text-xs font-medium text-muted-foreground min-w-[100px]",
                 isEditing && "bg-primary/5"
               )}
             >
-              <div className="flex flex-col items-center gap-0.5 py-0.5">
+              <div className="flex flex-col items-end gap-0.5 py-0.5">
                 <span className="uppercase tracking-wider font-semibold text-foreground/80">
                   DN-{col.noteNo}
                 </span>
