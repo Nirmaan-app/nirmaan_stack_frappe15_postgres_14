@@ -226,30 +226,35 @@ export const useApprovalInvoices = (poId?: string) => {
 
 // ─── Candidate POs (for negative flow adjustment) ────────────
 
+import { useFrappeGetCall } from "frappe-react-sdk";
+
 export const useCandidatePOs = (
   vendor: string | undefined,
+  currentPO: string | undefined,
   enabled: boolean = true
 ) => {
-  const response = useFrappeGetDocList<ProcurementOrder>(
-    "Procurement Orders",
+  const response = useFrappeGetCall<{ message: any[] }>(
+    PO_REVISION_APIS.getCandidatePOs,
     {
-      fields: ["name", "vendor", "total_amount", "amount_paid"],
-      filters: [
-        ["vendor", "=", vendor || ""],
-        ["status", "in", ["PO Approved"]],
-      ],
-      limit: 100,
+      vendor: vendor || "",
+      current_po: currentPO || ""
     },
-    enabled && vendor ? poRevisionKeys.candidatePOs(vendor) : null
+    enabled && vendor && currentPO ? poRevisionKeys.candidatePOs(vendor) : null
   );
+  
+  // To keep compatibility with existing components that expect an array directly on `.data`
+  const formattedResponse = {
+      ...response,
+      data: response.data?.message || undefined
+  };
+
   useApiErrorLogger(response.error, {
     hook: "useCandidatePOs",
-    api: "Candidate POs List",
+    api: "get_adjustment_candidate_pos",
     feature: "po-revision",
-    doctype: "Procurement Orders",
     entity_id: vendor,
   });
-  return response;
+  return formattedResponse;
 };
 
 // ─── PO Lock Check ───────────────────────────────────────────

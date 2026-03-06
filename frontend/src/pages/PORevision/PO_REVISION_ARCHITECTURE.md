@@ -99,7 +99,7 @@ The dialog relies heavily on Frappe React SDK hooks (`useFrappeGetDocList`, `use
    * `Procurement Requests`: Fetches the PR to determine the Work Package.
    * `Category`, `Items`, & `Category Makelist`: Fetches valid categories, items, taxes, and makes allowed for this specific Work Package to populate the "Add/Edit Item" dropdowns.
    * `Vendor Invoices`: Fetches all invoices linked to the PO to help the user reference them while revising.
-   * `Procurement Orders` (Candidate POs): Fetches all other "Approved" POs for this specific vendor. This is used in Step 2 (Negative Flow) to allow the user to select a target PO to transfer credit to.
+   * `Procurement Orders` (Candidate POs): Fetches all other valid POs for this specific vendor, using a custom API `get_adjustment_candidate_pos`. To be eligible as a Target PO for credit transfers, a PO must explicitly be in `PO Approved`, `Dispatched`, or `Partially Delivered` status. The API calculates the sum total of all its `Created` (unpaid) payment terms; if this maximum absorbable limit is `< ₹100`, the PO is hidden from the dropdown list.
 2. **File Uploads:**
    * Uses the `upload()` function to attach proof/receipt documents if the user selects the "Refunded" method in Step 2.
 3. **Submission Endpoint:**
@@ -299,12 +299,12 @@ Once a Manager reviews the "Pending" `PO Revisions` document and decides to appr
           
         * **What happens to the TARGET PO (The one receiving the credit):**
           * It generates a real, positive `"Paid"` `Project Payment` assigned directly to this Target PO to represent the credit "arriving".
-          * **Target PO Payment Term Split (`_split_target_po_term`):** It physically opens the Target PO document and actively applies the credit to its future milestones:
+          * **Target PO Payment Term Consolidation (`_split_target_po_term`):** It actively applies the credit to its future milestones cleanly without splitting rows unnecessarily:
              1. It loops through the Target PO's `payment_terms` from top to bottom.
              2. It targets terms where `term_status == "Created"` (unpaid future milestones).
              3. When it finds one, it **reduces** that term's `amount` by the credit limit.
-             4. Immediately beneath it, it **inserts a new row** labeled `"[Original Label] (Credit from PO [Source Original PO])"`. It sets this new row's status strictly to **`"Paid"`** and permanently links it to the positive Project Payment. This effectively "reserves" and pays off that chunk of the milestone early, so a future Goods Receipt doesn't try to bill for it again.
-             5. If there is still credit leftover, it cascades down the list to the next `"Created"` term and repeats the split.
+             4. Once the total credit amount has been successfully reduced from the target's pending milestones (or we run out of created terms), it appends **one single unified term** automatically labeled `"Credit from PO [Source Original PO]"` at the very bottom of the table. 
+             5. It sets this new consolidated row's status strictly to **`"Paid"`** and permanently links it to the positive Project Payment. This effectively "reserves" and pays off those milestones via credit, without causing the `payment_terms` table to bloat with duplicates.
              6. Finally, it forcefully recalculates the percentages on the Target PO so they gracefully sum back to 100%, and saves the Target PO to the database.
              
       **Final Negative Step — LIFO Reduction & Amount Paid Recalculation:**

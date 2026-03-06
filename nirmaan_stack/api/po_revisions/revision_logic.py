@@ -98,12 +98,10 @@ def make_po_revisions(po_id, justification, revision_items, total_amount_differe
 
 def _split_target_po_term(target_po_id, transfer_amount, payment_name, source_po_id):
     """
-    Finds the first available 'Created' term on the Target PO, reduces it,
-    and inserts a new 'Credit' term right below it linked to the payment.
+    Deducts the given credit amount from the 'Created' terms of the Target PO
+    and appends a single 'Credit' term at the end to represent the transferred payment.
 
     Use Case: Used during the negative revision flow when excess credit is transferred "Against-po".
-    What it does: Accurately reduces the target PO's pending payments by the credit amount
-    from the revised source PO.
     """
     target_po = frappe.get_doc("Procurement Orders", target_po_id)
     if not target_po.payment_terms: return
@@ -111,33 +109,28 @@ def _split_target_po_term(target_po_id, transfer_amount, payment_name, source_po
     credit_remaining = transfer_amount
     new_terms = []
     
+    # First, simply reduce the existing "Created" terms
     for term in target_po.payment_terms:
-        # If we still have credit to apply and this term is unpaid
         if credit_remaining > 0 and term.term_status == "Created":
             term_amount = flt(term.amount)
-            # We can only deduct up to what the term currently holds
             reduction = min(term_amount, credit_remaining)
             
             if reduction > 0:
-                # Reduce the original term
                 term.amount = term_amount - reduction
-                new_terms.append(term.as_dict())
-                
-                # Create the new split reserved term
-                split_term = {
-                    "label": frappe.utils.cstr(f"{term.label} (Credit from PO {source_po_id})")[:140],
-                    "amount": reduction,
-                    "percentage": 0, # Percentage will be recalculated on approval if needed, keep 0 for draft
-                    "term_status": "Paid", # Keeps it un-usable by regular GRNs
-                    "payment_type": term.payment_type,
-                    "project_payment": payment_name
-                }
-                new_terms.append(split_term)
                 credit_remaining -= reduction
-            else:
-                new_terms.append(term.as_dict())
-        else:
-            new_terms.append(term.as_dict())
+                
+        new_terms.append(term.as_dict())
+                
+    # Next, append exactly ONE consolidated credit term for the entire transfer_amount
+    split_term = {
+        "label": frappe.utils.cstr(f"Credit from PO {source_po_id}")[:140],
+        "amount": transfer_amount,
+        "percentage": 0, # Percentage will be recalculated on approval if needed, keep 0 for draft
+        "term_status": "Paid", # Keeps it un-usable by regular GRNs
+        "payment_type": target_po.payment_terms[0].payment_type if target_po.payment_terms else "",
+        "project_payment": payment_name
+    }
+    new_terms.append(split_term)
             
     # Set and save the newly cascaded terms
     target_po.set("payment_terms", new_terms)
@@ -722,24 +715,48 @@ def on_reject_revision(revision_name):
         frappe.throw(_("Rejection failed: {0}").format(str(e)))
 
 
-# @frappe.whitelist()
-# def get_adjustment_candidate_pos(vendor, current_po):
-#     """
-#     Returns a list of approved POs for the same vendor that could potentially 
-#     receive a payment adjustment 'In'.
+@frappe.whitelist()
+def get_adjustment_candidate_pos(vendor, current_po):
+    """
+    Returns a list of approved POs for the same vendor that could potentially 
+    receive a payment adjustment 'In'.
 
-#     Use Case: Used by the frontend dropdown during a Negative Revision.
-#     What it does: Fetches a list of other active, approved Procurement Orders for the 
-#     same vendor where excess credit from a revision could be transferred.
-#     """
-#     return frappe.get_all("Procurement Orders", 
-#         filters={
-#             "vendor": vendor,
-#             "docstatus": 1,
-#             "name": ["!=", current_po],
-#             "status": ["not in", ["Cancelled", "Closed"]]
-#         },
-#         fields=["name", "total_amount", "vendor_name", "creation", "project", "project_name"],
-#         order_by="creation desc",
-#         limit=50
-#     )
+    Use Case: Used by the frontend dropdown during a Negative Revision.
+    What it does: Fetches a list of other active, approved Procurement Orders for the 
+    same vendor where excess credit from a revision could be transferred.
+    """
+    pos = frappe.get_all("Procurement Orders", 
+        filters={
+            "vendor": vendor,
+            "name": ["!=", current_po],
+            "status": ["in", ["PO Approved", "Dispatched", "Partially Delivered"]]
+        },
+        fields=["name", "vendor", "total_amount", "amount_paid", "vendor_name", "creation", "project", "project_name", "status"],
+        order_by="creation desc",
+        limit=0
+    )
+    
+    valid_pos = []
+    
+    # Import the lock checker
+    from nirmaan_stack.api.po_revisions.revision_po_check import check_po_in_pending_revisions
+
+    # Calculate the sum of 'Created' payment terms for each PO
+    for po in pos:
+        # Check if the PO is already involved in another Pending Revision
+        lock_status = check_po_in_pending_revisions(po.name)
+        if lock_status and lock_status.get("is_locked"):
+            continue # Skip this PO, it's locked
+            
+        created_amount = frappe.db.sql("""
+            SELECT SUM(amount)
+            FROM `tabPO Payment Terms`
+            WHERE parent = %s AND term_status = 'Created'
+        """, (po.name,))[0][0]
+        
+        po.created_terms_amount = created_amount or 0.0
+        
+        if po.created_terms_amount > 100:
+            valid_pos.append(po)
+
+    return valid_pos
