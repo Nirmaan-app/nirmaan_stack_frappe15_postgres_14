@@ -311,6 +311,25 @@ export const usePOLockCheck = (poId: string | undefined) => {
   return { data, isLoading, error, mutate };
 };
 
+// ─── Bulk PO Lock Check ──────────────────────────────────────
+
+export const useAllLockedPOs = () => {
+  const { call } = useFrappePostCall(PO_REVISION_APIS.getAllLocked);
+
+  const { data, isLoading, error, mutate } = useSWR(
+    poRevisionKeys.allLocked(),
+    () => call({}).then((res) => res.message || [])
+  );
+
+  useApiErrorLogger(error, {
+    hook: "useAllLockedPOs",
+    api: "get_all_locked_po_names",
+    feature: "po-revision",
+  });
+
+  return { data, isLoading, error, mutate };
+};
+
 // ─── Revision History ────────────────────────────────────────
 
 export const useRevisionHistory = (poId: string) => {

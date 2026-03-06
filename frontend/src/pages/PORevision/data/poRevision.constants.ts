@@ -28,6 +28,7 @@ export const poRevisionKeys = {
 
   // Lock check
   lockCheck: (poId: string) => ["po-revision", "lockCheck", poId] as const,
+  allLocked: () => ["po-revision", "allLocked"] as const,
 };
 
 // ─── Backend API Endpoints ────────────────────────────────────
@@ -42,4 +43,6 @@ export const PO_REVISION_APIS = {
     "nirmaan_stack.api.po_revisions.revision_history.get_po_revision_history",
   getCandidatePOs:
     "nirmaan_stack.api.po_revisions.revision_logic.get_adjustment_candidate_pos",
+  getAllLocked:
+    "nirmaan_stack.api.po_revisions.revision_po_check.get_all_locked_po_names",
 } as const;
