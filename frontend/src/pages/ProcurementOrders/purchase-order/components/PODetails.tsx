@@ -977,7 +977,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   <TooltipTrigger asChild>
                     <Button
                       size="sm"
-                      disabled={!isValid}
+                      disabled={!isValid||isLocked}
                       onClick={isValid ? toggleDispatchPODialog : undefined}
                       className="h-8 px-2.5 shrink-0"
                     >
@@ -990,10 +990,10 @@ export const PODetails: React.FC<PODetailsProps> = ({
                       side="bottom"
                       className="bg-background border border-border text-foreground w-80"
                     >
-                      <ValidationMessages
-                        title="Required Before Dispatch"
-                        errors={errors}
-                      />
+                        <ValidationMessages
+                          title="Required Before Dispatch"
+                          errors={errors}
+                        />
                     </TooltipContent>
                   ) : (
                     <TooltipContent className="sm:hidden">Dispatch PO</TooltipContent>
