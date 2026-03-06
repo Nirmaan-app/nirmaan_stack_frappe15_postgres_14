@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { useToast } from "@/components/ui/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Info, ClipboardList, Plus, Undo, Trash2, Edit3, Eye } from "lucide-react";
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
@@ -55,7 +54,6 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
   poAmountPaid,
   poAmountDelivered,
 }) => {
-  const { toast } = useToast();
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isAddChargeDialogOpen, setIsAddChargeDialogOpen] = useState(false);
 
@@ -171,7 +169,7 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                             }
                             handleUpdateItem(idx, { ...typeUpdates, item_name: val });
                           }}
-                          disabled={isDeleted}
+                          disabled={isDeleted || item.category === 'Additional Charges'}
                           placeholder="Item Name..."
                           className="text-xs font-bold h-9"
                         />
@@ -297,20 +295,10 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                         value={item.quantity} 
                         onChange={(e) => {
                            const val = parseFloat(e.target.value) || 0;
-                           const minQty = (item.item_type !== 'New' && item.received_quantity) ? item.received_quantity : 0;
-                           if (val < minQty) {
-                               handleUpdateItem(idx, { quantity: minQty });
-                               toast({
-                                 title: "Minimum Qty Reached",
-                                 description: `Qty cannot go below ${minQty} (already delivered). Check the 👁 eye icon for details.`,
-                                 variant: "destructive",
-                               });
-                           } else {
-                               handleUpdateItem(idx, { quantity: val });
-                           }
+                           handleUpdateItem(idx, { quantity: val });
                         }}
                         disabled={isDeleted}
-                        className="text-xs font-bold h-9"
+                        className={`text-xs font-bold h-9 ${!isDeleted && (item.quantity === undefined || item.quantity <= 0 || item.quantity < ((item.item_type !== 'New' && item.received_quantity) ? item.received_quantity : 0)) ? 'border-red-500 ring-1 ring-red-500 focus-visible:ring-red-500 bg-red-50/50' : ''}`}
                       />
                     </TableCell>
                     <TableCell>
@@ -321,7 +309,7 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                               value={item.quote} 
                               onChange={(e) => handleUpdateItem(idx, { quote: parseFloat(e.target.value) || 0 })}
                               disabled={isDeleted}
-                              className="text-xs font-bold pl-5 h-9"
+                              className={`text-xs font-bold pl-5 h-9 ${!isDeleted && (item.quote === undefined || item.quote <= 0) ? 'border-red-500 ring-1 ring-red-500 focus-visible:ring-red-500 bg-red-50/50' : ''}`}
                           />
                        </div>
                     </TableCell>
