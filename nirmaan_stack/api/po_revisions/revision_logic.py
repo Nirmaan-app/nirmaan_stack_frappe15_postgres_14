@@ -780,7 +780,7 @@ def get_adjustment_candidate_pos(vendor, current_po):
         filters={
             "vendor": vendor,
             "name": ["!=", current_po],
-            "status": ["in", ["PO Approved", "Dispatched", "Partially Delivered"]]
+            "status": ["in", ["PO Approved", "Dispatched", "Partially Delivered","Delivered"]]
         },
         fields=["name", "vendor", "total_amount", "amount_paid", "vendor_name", "creation", "project", "project_name", "status"],
         order_by="creation desc",
@@ -789,14 +789,16 @@ def get_adjustment_candidate_pos(vendor, current_po):
     
     valid_pos = []
     
-    # Import the lock checker
-    from nirmaan_stack.api.po_revisions.revision_po_check import check_po_in_pending_revisions
+    # Import the bulk lock checker
+    from nirmaan_stack.api.po_revisions.revision_po_check import get_all_locked_po_names
+    
+    # Get all currently locked POs once
+    locked_po_names = get_all_locked_po_names()
 
     # Calculate the sum of 'Created' payment terms for each PO
     for po in pos:
-        # Check if the PO is already involved in another Pending Revision
-        lock_status = check_po_in_pending_revisions(po.name)
-        if lock_status and lock_status.get("is_locked"):
+        # Check if the PO is already involved in another Pending Revision using the pre-fetched list
+        if po.name in locked_po_names:
             continue # Skip this PO, it's locked
             
         created_amount = frappe.db.sql("""
