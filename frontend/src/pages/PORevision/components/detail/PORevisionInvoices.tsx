@@ -34,10 +34,10 @@ export default function PORevisionInvoices({ invoices, isLoading }: PORevisionIn
         <div className="space-y-2">
             <div className="flex items-center gap-2 mb-2">
                 <ReceiptText className="w-4 h-4 text-red-600" />
-                <h3 className="text-sm font-bold text-slate-800">Invoices</h3>
+                <h3 className="text-sm font-bold text-slate-800">PO Invoices Reference</h3>
             </div>
-            <div className="rounded-md border">
-                <Table>
+            <div className="rounded-md border overflow-x-auto">
+                <Table className="min-w-[600px]">
                     <TableHeader className="bg-slate-50">
                         <TableRow>
                             <TableHead className="font-semibold text-slate-700 h-10">DATE</TableHead>

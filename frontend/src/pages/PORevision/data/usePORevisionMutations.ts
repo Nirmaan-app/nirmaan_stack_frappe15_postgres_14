@@ -29,6 +29,7 @@ export const useCreateRevision = () => {
         // Invalidate lock check so Warning banner refreshes
         // Invalidate revision history so the history section on PO details refetches
         await Promise.all([
+          mutate(PO_REVISION_DOCTYPE), // Invalidate the main Approval List immediately
           mutate(poRevisionKeys.lockCheck(payload.po_id)),
           mutate(poRevisionKeys.revisionHistory(payload.po_id)),
         ]);
@@ -77,6 +78,7 @@ export const useApproveRevision = () => {
       try {
         // Invalidate all related caches
         await Promise.all([
+          mutate(PO_REVISION_DOCTYPE), // Invalidate the main Approval List
           mutate(poRevisionKeys.revisionDoc(revisionId)),
           ...(poId
             ? [
@@ -135,6 +137,7 @@ export const useRejectRevision = () => {
       try {
         // Invalidate related caches
         await Promise.all([
+          mutate(PO_REVISION_DOCTYPE), // Invalidate the main Approval List
           mutate(poRevisionKeys.revisionDoc(revisionId)),
           ...(poId
             ? [

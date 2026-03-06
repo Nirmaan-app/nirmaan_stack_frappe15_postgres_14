@@ -32,7 +32,7 @@ export default function PORevisionLineItems({ items, isCustom = false }: PORevis
             <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                     <List className="w-5 h-5 text-red-600" />
-                    <h3 className="text-sm font-bold text-slate-800">Line Items ({items.length})</h3>
+                    <h3 className="text-sm font-bold text-slate-800">Revision Items ({items.length})</h3>
                 </div>
                 {/* <Button variant="outline" size="sm" className="text-red-500 border-red-200 hover:bg-red-50 hover:text-red-600">
                     View Changes

@@ -152,9 +152,8 @@ export default function PORevisionsApprovalDetail() {
             <div className=" mt-2">
                 {/* Metadata Card */}
                 <PORevisionInfoCard 
-                    vendor={originalPO?.vendor || revisionDoc.vendor_name || revisionDoc.vendor || "Loading..."}
-                    project={revisionDoc.project || "N/A"}
-                    workPackage={originalPO?.work_package || "N/A"}
+                    vendor={revisionDoc?.vendor_name || originalPO?.vendor_name || revisionDoc?.vendor || originalPO?.vendor || "Loading..."}
+                    project={revisionDoc?.project_name || originalPO?.project_name || revisionDoc?.project || originalPO?.project || "N/A"}
                     dispatched={originalPO?.dispatch_date ? new Date(originalPO.dispatch_date).toLocaleDateString() : "Pending"}
                     currentTotal={originalPO?.total_amount || 0}
                 />
