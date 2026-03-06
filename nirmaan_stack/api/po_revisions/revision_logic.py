@@ -136,7 +136,10 @@ def _split_target_po_term(target_po_id, transfer_amount, payment_name, source_po
                 term.amount = term_amount - reduction
                 credit_remaining -= reduction
                 
-        new_terms.append(term.as_dict())
+        # Only keep terms that are not exactly 0. 
+        # Negative terms (Returns) or remaining positive balance should be preserved.
+        if abs(flt(term.amount)) > 0:
+            new_terms.append(term.as_dict())
                 
     # Next, append exactly ONE consolidated credit term for the entire transfer_amount
     split_term = {
@@ -575,10 +578,6 @@ def _reduce_payment_terms_lifo(original_po, reduction_needed, new_total):
     # Calculate negative return terms manually appended
     return_amount = sum(flt(t.amount) for t in original_po.payment_terms if "Return" in (t.label or "") and flt(t.amount) < 0)
 
-    # Validation: Ensure we don't reduce below what is already locked (Paid/Requested), offsetting the return
-    if new_total < (locked_amount + return_amount):
-        frappe.throw(f"Revision calculation reduces amount below already paid/requested terms. Revert not possible.")
-
     locked_term_dicts = [t.as_dict() for t in locked_terms]
     modifiable_term_dicts = [t.as_dict() for t in modifiable_terms]
 
@@ -600,6 +599,27 @@ def _reduce_payment_terms_lifo(original_po, reduction_needed, new_total):
     return_terms = [t.as_dict() for t in original_po.payment_terms if "Return" in (t.label or "")]
     final_modifiable_terms = [d for d in modifiable_term_dicts if flt(d.get("amount")) > 0.01]
     
+    # NEW: If there is still a reduction deficit (overpayment), create an automatic Return term
+    if reduction_needed_for_terms > 0.01:
+        # Create a standalone negative Project Payment for internal ledger balancing
+        pay_adjustment = _create_project_payment(
+            po_id=original_po.name, 
+            project=original_po.project, 
+            vendor=original_po.vendor,
+            amt=-reduction_needed_for_terms, 
+            status="Paid"
+        )
+        # Create the corresponding PO Payment Term
+        auto_return_term = {
+            "label": frappe.utils.cstr("Return - Overpayment Adjustment")[:140],
+            "amount": -reduction_needed_for_terms,
+            "percentage": 0.0,
+            "term_status": "Return",
+            "payment_type": original_po.payment_terms[0].payment_type if original_po.payment_terms else "",
+            "project_payment": pay_adjustment.name
+        }
+        return_terms.append(auto_return_term)
+
     # Reset child table with the corrected list
     original_po.set("payment_terms", locked_term_dicts + final_modifiable_terms + return_terms)
 
