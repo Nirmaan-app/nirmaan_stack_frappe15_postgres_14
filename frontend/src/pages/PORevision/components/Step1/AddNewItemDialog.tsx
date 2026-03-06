@@ -8,6 +8,7 @@ import { SelectUnit } from "@/components/helpers/SelectUnit";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { RevisionItem } from "../../types";
 import { useToast } from "@/components/ui/use-toast";
+import { useProcurementPackages, useCategories } from "../../data/usePORevisionQueries";
 
 interface AddNewItemDialogProps {
   open: boolean;
@@ -34,6 +35,11 @@ export const AddNewItemDialog: React.FC<AddNewItemDialogProps> = ({
   const [quantity, setQuantity] = useState<number | "">("");
   const [quote, setQuote] = useState<number | "">("");
   const [tax, setTax] = useState<number | "">("");
+  const [procurement_package, setProcurementPackage] = useState("");
+  const [category, setCategory] = useState("");
+
+  const { data: procurement_packages } = useProcurementPackages();
+  const { data: category_data } = useCategories();
 
   const resetForm = () => {
     setItemName("");
@@ -43,6 +49,8 @@ export const AddNewItemDialog: React.FC<AddNewItemDialogProps> = ({
     setQuantity("");
     setQuote("");
     setTax("");
+    setProcurementPackage("");
+    setCategory("");
   };
 
   useEffect(() => {
@@ -61,6 +69,11 @@ export const AddNewItemDialog: React.FC<AddNewItemDialogProps> = ({
   const handleSubmit = () => {
     if (!item_name.trim()) {
       toast({ title: "Validation Error", description: "Item Name is required.", variant: "destructive" });
+      return;
+    }
+
+    if (isCustom && (!procurement_package || !category)) {
+      toast({ title: "Validation Error", description: "Procurement Package and Category are required for custom items.", variant: "destructive" });
       return;
     }
 
@@ -87,13 +100,15 @@ export const AddNewItemDialog: React.FC<AddNewItemDialogProps> = ({
 
     const newItem: RevisionItem = {
       item_name,
-      item_id: isCustom ? undefined : item_id,
+      item_id: item_id || undefined,
       make: isCustom ? "" : make,
       unit,
       quantity: Number(quantity),
       quote: Number(quote),
       tax: Number(tax),
       item_type: "New",
+      category: category || undefined,
+      procurement_package: procurement_package || undefined,
     };
 
     onAdd(newItem);
@@ -128,12 +143,16 @@ export const AddNewItemDialog: React.FC<AddNewItemDialogProps> = ({
                     setMake(selected.make || "");
                     setUnit(selected.unit || "Nos");
                     setTax(selected.tax || 0);
+                    setCategory(selected.category || "");
+                    setProcurementPackage(selected.procurement_package || "");
                   } else {
                     setItemId("");
                     setItemName("");
                     setMake("");
                     setUnit("Nos");
                     setTax(0);
+                    setCategory("");
+                    setProcurementPackage("");
                   }
                 }}
                 placeholder="Select Item..."
@@ -144,6 +163,40 @@ export const AddNewItemDialog: React.FC<AddNewItemDialogProps> = ({
               />
             )}
           </div>
+          
+          {isCustom && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-xs">Procurement Package <span className="text-red-500">*</span></Label>
+                <Select value={procurement_package} onValueChange={(v) => {
+                  setProcurementPackage(v);
+                  setCategory(""); // Reset category when package changes
+                }}>
+                  <SelectTrigger className="text-xs h-9">
+                    <SelectValue placeholder="Select Package" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {procurement_packages?.map((pp: any) => (
+                      <SelectItem key={pp?.name} value={pp?.name} className="text-xs">{pp?.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs">Category <span className="text-red-500">*</span></Label>
+                <Select value={category} onValueChange={setCategory} disabled={!procurement_package}>
+                  <SelectTrigger className="text-xs h-9">
+                    <SelectValue placeholder="Select Category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {category_data?.filter((i: any) => i?.work_package === procurement_package)?.map((cat: any) => (
+                      <SelectItem key={cat?.name} value={cat?.name} className="text-xs">{cat?.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
 
           {!isCustom && (
             <div className="space-y-2">

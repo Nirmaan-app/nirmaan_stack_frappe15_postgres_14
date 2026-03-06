@@ -95,11 +95,11 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
             <Button variant="outline" size="sm" onClick={() => setIsAddChargeDialogOpen(true)} className="text-blue-600 border-blue-200 hover:bg-blue-50 text-[11px] h-8 font-bold px-4">
               <Plus className="h-3 w-3 mr-1" /> Add Charges
             </Button>
-            {!isCustom && (
+            
               <Button variant="outline" size="sm" onClick={() => setIsAddDialogOpen(true)} className="text-red-500 border-red-500 hover:bg-red-50 text-[11px] h-8 font-bold px-4">
                 <Plus className="h-3 w-3 mr-1" /> Add New Item
               </Button>
-            )}
+            
           </div>
         </div>
         <div className="border rounded-md overflow-visible bg-white pb-24">
@@ -171,7 +171,7 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                             }
                             handleUpdateItem(idx, { ...typeUpdates, item_name: val });
                           }}
-                          disabled={isDeleted || isCustom}
+                          disabled={isDeleted}
                           placeholder="Item Name..."
                           className="text-xs font-bold h-9"
                         />
