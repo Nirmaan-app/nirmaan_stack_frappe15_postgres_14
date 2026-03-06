@@ -143,7 +143,7 @@ def _split_target_po_term(target_po_id, transfer_amount, payment_name, source_po
                 
     # Next, append exactly ONE consolidated credit term for the entire transfer_amount
     split_term = {
-        "label": frappe.utils.cstr(f"Credit from PO {source_po_id}")[:140],
+        "label": frappe.utils.cstr(f"Credit PO {source_po_id}")[:140],
         "amount": transfer_amount,
         "percentage": 0, # Percentage will be recalculated on approval if needed, keep 0 for draft
         "term_status": "Paid", # Keeps it un-usable by regular GRNs
@@ -373,9 +373,8 @@ def sync_original_po_items(revision_doc):
                 original_po.get("items").remove(orig_row)
                 rev_item.item_status = "Approved"
 
-    # Re-calculate parent totals — handled automatically by .save() → validate()
-    # if hasattr(original_po, 'calculate_totals_from_items'):
-    #      original_po.calculate_totals_from_items()
+    # Re-calculate parent totals
+    original_po.calculate_totals_from_items()
 
     # Re-evaluate delivery status after item sync
     # If the PO was Partially Delivered, revised quantities may now match received quantities
@@ -512,6 +511,7 @@ def _create_project_payment(po_id, project, vendor, amt, status, utr=None, attac
         pay.utr = utr
     if attachment:
         pay.payment_attachment = attachment
+        pay.utr = f"VR-{po_id}"
         
     pay.flags.from_revision = True  # Skip ALL project_payments.py hooks (validation, on_update, commit)
     pay.save(ignore_permissions=True)
@@ -692,7 +692,7 @@ def process_negative_returns(revision_doc):
                     po_id=revision_doc.revised_po, project=revision_doc.project, vendor=revision_doc.vendor,
                     amt=-t_amount, status="Paid"
                 )
-                _append_return_payment_term(original_po, pay_out, f"Return - Against PO {t_po_id}", -t_amount)
+                _append_return_payment_term(original_po, pay_out, f"RA PO {t_po_id}", -t_amount)
 
                 # CREATE Adjustment In NOW
                 pay_in = _create_project_payment(
@@ -712,7 +712,7 @@ def process_negative_returns(revision_doc):
                 utr=entry.get("utr"),
                 attachment=entry.get("refund_attachment")
             )
-            _append_return_payment_term(original_po, pay_refund, "Return - Vendor Refund", -amount)
+            _append_return_payment_term(original_po, pay_refund, "RA Vendor", -amount)
 
         # C. Ad-hoc
         elif r_type == "Ad-hoc":
@@ -723,7 +723,7 @@ def process_negative_returns(revision_doc):
                 po_id=revision_doc.revised_po, project=revision_doc.project, vendor=revision_doc.vendor,
                 amt=-amount, status="Paid"
             )
-            _append_return_payment_term(original_po, pay_adhoc, frappe.utils.cstr(f"Return - Adhoc")[:140], -amount)
+            _append_return_payment_term(original_po, pay_adhoc, frappe.utils.cstr(f"RA Adhoc")[:140], -amount)
             
             # CREATE PROJECT EXPENSE
             if expense_type:
@@ -736,7 +736,7 @@ def process_negative_returns(revision_doc):
                 expense.payment_date = nowdate()
                 expense.payment_by = revision_doc.owner
                 comment_text = entry.get("comment", "").strip()
-                expense.comment = f"{revision_doc.revised_po}\n{comment_text}" if comment_text else revision_doc.revised_po
+                expense.comment = f"{comment_text}" if comment_text else revision_doc.revised_po
                 
                 expense.save(ignore_permissions=True)
 
