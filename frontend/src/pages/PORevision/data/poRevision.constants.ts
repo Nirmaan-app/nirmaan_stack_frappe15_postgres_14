@@ -40,4 +40,6 @@ export const PO_REVISION_APIS = {
     "nirmaan_stack.api.po_revisions.revision_po_check.check_po_in_pending_revisions",
   getHistory:
     "nirmaan_stack.api.po_revisions.revision_history.get_po_revision_history",
+  getCandidatePOs:
+    "nirmaan_stack.api.po_revisions.revision_logic.get_adjustment_candidate_pos",
 } as const;

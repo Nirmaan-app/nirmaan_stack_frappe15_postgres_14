@@ -137,7 +137,7 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
   }, [itemsList, categories, categoryMakelist]);
 
   const { data: invoices } = useRevisionVendorInvoices(po?.name, open);
-  const { data: adjCandidatePOs } = useCandidatePOs(po?.vendor, open);
+  const { data: adjCandidatePOs } = useCandidatePOs(po?.vendor, po?.name, open);
 
   // ─── Centralized Mutations ───────────────────────────────
   const { createRevision } = useCreateRevision();

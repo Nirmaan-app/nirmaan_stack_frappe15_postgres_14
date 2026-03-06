@@ -8,7 +8,8 @@ import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { RefundAdjustment, AdjustmentMethodType, DifferenceData, ProcurementOrder } from "../../types";
+import { RefundAdjustment, AdjustmentMethodType, DifferenceData } from "../../types";
+import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import ReactSelect from "react-select";
 import { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
@@ -183,7 +184,7 @@ export const Step2NegativeFlow: React.FC<Step2NegativeFlowProps> = ({
                              const isSelected = refundAdjustments.some(a => a.po_id === cand.name);
                              const adj = refundAdjustments.find(a => a.po_id === cand.name);
                              
-                             const maxPayableForThisPO = (cand.total_amount || 0) - (cand.amount_paid || 0);
+                             const maxPayableForThisPO = (cand as any).created_terms_amount || 0;
                              const remainingPayable = Math.max(0, maxPayableForThisPO - (adj?.amount || 0));
                              const canSelect = isSelected || remainingToAdjust > 0;
                              return (
@@ -207,10 +208,24 @@ export const Step2NegativeFlow: React.FC<Step2NegativeFlowProps> = ({
                                                 <div className="flex items-center gap-1">
                                                     <span className="text-[13px] font-medium text-gray-600">PO ID:</span>
                                                     <span className="text-[13px] font-bold text-gray-900">{cand.name}</span>
+                                                    {cand.status && (
+                                                        <Badge variant="outline" className={`ml-2 text-[10px] px-2 py-0 h-4 border-none ${
+                                                            cand.status === 'PO Approved' ? 'bg-green-100 text-green-700' :
+                                                            cand.status === 'Dispatched' ? 'bg-blue-100 text-blue-700' :
+                                                            cand.status === 'Partially Delivered' ? 'bg-yellow-100 text-yellow-700' :
+                                                            'bg-gray-100 text-gray-700'
+                                                        }`}>
+                                                            {cand.status}
+                                                        </Badge>
+                                                    )}
                                                 </div>
                                                 <div className="flex items-center gap-1">
                                                     <span className="text-[11px] font-medium text-gray-400">Max adjustment allowed :</span>
                                                     <span className="text-[11px] font-bold text-gray-700">{formatToIndianRupee(maxPayableForThisPO)}</span>
+                                                </div>
+                                                <div className="flex items-center gap-1">
+                                                    <span className="text-[11px] font-medium text-gray-400">PO Total Amount :</span>
+                                                    <span className="text-[11px] font-bold text-gray-700">{formatToIndianRupee(cand.total_amount || 0)}</span>
                                                 </div>
                                             </div>
 
@@ -305,7 +320,7 @@ export const Step2NegativeFlow: React.FC<Step2NegativeFlowProps> = ({
                                 </Badge>
                             </div>
                             <div className="space-y-6">
-                                <CustomAttachment label="Payment Proof" selectedFile={adj.refund_attachment_file} onFileSelect={(file) => updateAdjustment(adj.id, { refund_attachment_file: file })} label="Upload Refund Proof (PDF/Image)" acceptedTypes={["application/pdf", "image/*"]} className="bg-white" />
+                                <CustomAttachment selectedFile={adj.refund_attachment_file} onFileSelect={(file) => updateAdjustment(adj.id, { refund_attachment_file: file })} label="Upload Refund Proof" acceptedTypes={["application/pdf", "image/*"]} className="bg-white" />
                                 <div className="space-y-3 px-1">
                                     <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest pl-1">Refund Date<span className="text-red-500">*</span></label>
                                     <Input type="date" value={adj.date} onChange={(e) => updateAdjustment(adj.id, { date: e.target.value })} className="h-12 bg-white border-2 rounded-2xl focus-visible:ring-blue-100 border-gray-100" />
