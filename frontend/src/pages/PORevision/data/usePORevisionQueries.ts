@@ -75,7 +75,7 @@ export const useRevisionCategories = (workPackage?: string) => {
   const response = useFrappeGetDocList<Category>(
     "Category",
     {
-      fields: ["name", "tax"],
+      fields: ["name", "tax", "work_package"],
       filters: [
         [
           "work_package",
@@ -220,6 +220,40 @@ export const useApprovalInvoices = (poId?: string) => {
     feature: "po-revision",
     doctype: "Vendor Invoices",
     entity_id: poId,
+  });
+  return response;
+};
+
+// ─── Categories & Packages (for custom items) ───────────────
+
+export const useProcurementPackages = () => {
+  const response = useFrappeGetDocList("Procurement Packages", {
+    fields: ["*"],
+    filters: [["name", "!=", "Services"]],
+    orderBy: { field: "name", order: "asc" },
+    limit: 100,
+  });
+  useApiErrorLogger(response.error, {
+    hook: "useProcurementPackages",
+    api: "Procurement Packages List",
+    feature: "po-revision",
+    doctype: "Procurement Packages",
+  });
+  return response;
+};
+
+export const useCategories = () => {
+  const response = useFrappeGetDocList("Category", {
+    fields: ["*"],
+    filters: [["work_package", "!=", "Services"]],
+    orderBy: { field: "category_name", order: "asc" },
+    limit: 10000,
+  });
+  useApiErrorLogger(response.error, {
+    hook: "useCategories",
+    api: "Category List",
+    feature: "po-revision",
+    doctype: "Category",
   });
   return response;
 };

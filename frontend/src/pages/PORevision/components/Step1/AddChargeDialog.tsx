@@ -33,6 +33,8 @@ export const AddChargeDialog: React.FC<AddChargeDialogProps> = ({
   const [quantity, setQuantity] = useState<number | "">("");
   const [quote, setQuote] = useState<number | "">("");
   const [tax, setTax] = useState<number | "">("");
+  const [category, setCategory] = useState("");
+  const [procurement_package, setProcurementPackage] = useState("");
 
   const resetForm = () => {
     setItemName("");
@@ -41,6 +43,8 @@ export const AddChargeDialog: React.FC<AddChargeDialogProps> = ({
     setQuantity("");
     setQuote("");
     setTax("");
+    setCategory("");
+    setProcurementPackage("");
   };
 
   useEffect(() => {
@@ -85,13 +89,15 @@ export const AddChargeDialog: React.FC<AddChargeDialogProps> = ({
 
     const newItem: RevisionItem = {
       item_name,
-      item_id: isCustom ? undefined : item_id,
+      item_id: item_id || undefined,
       make: "", // Charges typically don't have a make
       unit,
       quantity: Number(quantity),
       quote: Number(quote),
       tax: Number(tax),
       item_type: "New",
+      category: category,
+      procurement_package: procurement_package
     };
 
     onAdd(newItem);
@@ -119,11 +125,15 @@ export const AddChargeDialog: React.FC<AddChargeDialogProps> = ({
                   setItemName(selected.item_name);
                   setUnit(selected.unit || "Nos");
                   setTax(selected.tax || 0);
+                  setCategory(selected.category || "");
+                  setProcurementPackage(selected.procurement_package || "");
                 } else {
                   setItemId("");
                   setItemName("");
                   setUnit("Nos");
                   setTax(0);
+                  setCategory("");
+                  setProcurementPackage("");
                 }
               }}
               placeholder="Select Charge..."

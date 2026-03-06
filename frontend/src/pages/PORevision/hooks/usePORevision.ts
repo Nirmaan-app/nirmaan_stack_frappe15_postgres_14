@@ -132,6 +132,7 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
       available_makes: categoryMakesMap.get(item.category) || (item.make_name ? [item.make_name] : []),
       unit: item.unit_name || "",
       category: item.category,
+      procurement_package: categoryMap.get(item.category)?.work_package || "",
       tax: parseFloat(categoryMap.get(item.category)?.tax || "0")
     }));
   }, [itemsList, categories, categoryMakelist]);
@@ -212,6 +213,8 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
           quote: item.quote,
           amount: (item.quantity || 0) * (item.quote || 0),
           tax: item.tax,
+          category: item.category,
+          procurement_package: item.procurement_package,
           
           // Original Details
           original_item_id: original?.item_id,
@@ -223,6 +226,8 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
           original_rate: original?.quote,
           original_amount: original?.amount,
           original_tax: original?.tax,
+          original_category: original?.category,
+          original_procurement_package: original?.procurement_package,
         };
       });
 

@@ -60,6 +60,8 @@ def make_po_revisions(po_id, justification, revision_items, total_amount_differe
                     "original_rate": flt(item.get("original_rate")),
                     "original_amount": flt(item.get("original_amount")),
                     "original_tax": flt(item.get("original_tax")),
+                    "original_category": item.get("original_category"),
+                    "original_procurement_package": item.get("original_procurement_package"),
                 })
 
             # Revision Details - Skip for "Original" and "Deleted" items
@@ -73,6 +75,21 @@ def make_po_revisions(po_id, justification, revision_items, total_amount_differe
                     "revision_rate": flt(item.get("quote")),
                     "revision_amount": flt(item.get("amount")),
                     "revision_tax": flt(item.get("tax")),
+                })
+                
+                # Ensure category/package metadata is explicitly drafted so it's not lost
+                cat = item.get("category") or item.get("original_category")
+                pkg = item.get("procurement_package") or item.get("original_procurement_package")
+                
+                # Fallback to backend lookup if the frontend didn't provide it (e.g. for catalog items)
+                if not cat or not pkg:
+                    fetched_cat, fetched_pkg = _get_item_metadata(item.get("item_id"))
+                    cat = cat or fetched_cat
+                    pkg = pkg or fetched_pkg
+                    
+                row_data.update({
+                    "revision_category": cat,
+                    "revision_procurement_package": pkg
                 })
 
             rev_po.append("revision_items", row_data)
@@ -259,8 +276,19 @@ def sync_original_po_items(revision_doc):
             new_row.total_amount = new_row.amount + new_row.tax_amount
             new_row.received_quantity = 0.0 # Explicitly initialize so it isn't None
 
-            # Fetch and assign metadata
-            cat, pkg = _get_item_metadata(new_row.item_id)
+            # Assign metadata mapped during draft creation
+            cat = rev_item.revision_category
+            pkg = rev_item.revision_procurement_package
+            
+            # Fallback for older drafts or misses
+            if not cat or not pkg:
+                fetched_cat, fetched_pkg = _get_item_metadata(new_row.item_id)
+                cat = cat or fetched_cat
+                pkg = pkg or fetched_pkg
+                
+            if not cat:
+                frappe.throw(_("Category is missing for item '{0}'. Please reject this draft and recreate the revision.").format(new_row.item_name))
+
             new_row.category = cat
             new_row.procurement_package = pkg
             
@@ -278,6 +306,18 @@ def sync_original_po_items(revision_doc):
                 orig_row.tax_amount = (orig_row.amount * orig_row.tax) / 100
                 orig_row.total_amount = orig_row.amount + orig_row.tax_amount
                 
+                # Ensure category isn't lost on old custom items
+                if rev_item.revision_category:
+                    orig_row.category = rev_item.revision_category
+                if rev_item.revision_procurement_package:
+                    orig_row.procurement_package = rev_item.revision_procurement_package
+                
+                # Final safety check
+                if not orig_row.category:
+                    orig_row.category, orig_row.procurement_package = _get_item_metadata(orig_row.item_id)
+                if not orig_row.category:
+                    frappe.throw(_("Category is required for Revised Item '{0}'. Please recreate this revision.").format(orig_row.item_name))
+
                 rev_item.item_status = "Approved"
             else:
                 frappe.throw(_("Original item row {0} not found for revision.").format(rev_item.original_row_id))
@@ -300,6 +340,17 @@ def sync_original_po_items(revision_doc):
                 orig_row.tax_amount = (orig_row.amount * orig_row.tax) / 100
                 orig_row.total_amount = orig_row.amount + orig_row.tax_amount
                 
+                # Ensure category is correctly assigned for replacements
+                if rev_item.revision_category:
+                    orig_row.category = rev_item.revision_category
+                if rev_item.revision_procurement_package:
+                    orig_row.procurement_package = rev_item.revision_procurement_package
+                
+                if not orig_row.category:
+                    orig_row.category, orig_row.procurement_package = _get_item_metadata(orig_row.item_id)
+                if not orig_row.category:
+                    frappe.throw(_("Category is required for Replaced Item '{0}'. Please recreate this revision.").format(orig_row.item_name))
+
                 # For a full replacement, we ensure received is treated safely
                 if not getattr(orig_row, 'received_quantity', None):
                     orig_row.received_quantity = 0.0
