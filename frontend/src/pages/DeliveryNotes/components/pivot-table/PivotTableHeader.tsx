@@ -160,19 +160,6 @@ export function PivotTableHeader({
         <TableHead className="text-right text-xs font-medium uppercase tracking-wider text-muted-foreground min-w-[80px] sm:min-w-[90px]">
           <div className="flex flex-col items-end gap-1 px-1">
             <span>Total Received</span>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-5 w-5 hover:bg-muted-foreground/10"
-                  onClick={() => onDownloadDN()}
-                >
-                  <Printer className="h-3 w-3" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Download Overall History</TooltipContent>
-            </Tooltip>
           </div>
         </TableHead>
       </TableRow>
