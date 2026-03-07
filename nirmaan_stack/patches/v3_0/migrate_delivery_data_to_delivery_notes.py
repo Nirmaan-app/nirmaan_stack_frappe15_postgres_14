@@ -340,7 +340,7 @@ def execute():
         SELECT name, project, vendor, modified
         FROM "tabProcurement Orders"
         WHERE status IN ('Partially Delivered', 'Delivered')
-        AND (delivery_data IS NULL OR delivery_data = '' OR delivery_data = '{}')
+        AND (delivery_data IS NULL OR delivery_data::text = '' OR delivery_data::text = '{}')
         ORDER BY modified ASC
         """,
         as_dict=True,
