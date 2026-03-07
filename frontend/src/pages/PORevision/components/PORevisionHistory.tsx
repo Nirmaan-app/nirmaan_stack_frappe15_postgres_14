@@ -186,7 +186,7 @@ const RevisionCard: React.FC<RevisionCardProps> = ({ revision }) => {
                           <tr className="bg-slate-50/80 border-b border-slate-100">
                             <th className="text-left pl-3 py-2 text-[9px] font-semibold text-slate-400 uppercase tracking-wider w-[60px]">Type</th>
                             <th className="text-left py-2 text-[9px] font-semibold text-slate-400 uppercase tracking-wider">Item</th>
-                            <th className="text-center py-2 text-[9px] font-semibold text-slate-400 uppercase tracking-wider w-[100px]">Qty Change</th>
+                            <th className="text-center py-2 text-[9px] font-semibold text-slate-400 uppercase tracking-wider w-[140px]">Changes</th>
                             <th className="text-right pr-3 py-2 text-[9px] font-semibold text-slate-400 uppercase tracking-wider w-[90px]">Amount</th>
                           </tr>
                         </thead>
@@ -205,31 +205,57 @@ const RevisionCard: React.FC<RevisionCardProps> = ({ revision }) => {
 
                             const origQty = item.original_qty || 0;
                             const revQty = item.revision_qty || 0;
+                            const origRate = item.original_rate || 0;
+                            const revRate = item.revision_rate || 0;
+
+                            const qtyChanged = item.item_type === "Deleted" || item.item_type === "New" || origQty !== revQty;
+                            const rateChanged = item.item_type === "Deleted" || item.item_type === "New" || origRate !== revRate;
 
                             return (
-                              <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
-                                <td className="pl-3 py-2">
+                              <tr key={idx} className="hover:bg-slate-50/50 transition-colors border-b border-slate-50 last:border-0">
+                                <td className="pl-3 py-2.5">
                                   <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md ${typeBadge.bg} ${typeBadge.text}`}>
                                     {item.item_type}
                                   </span>
                                 </td>
-                                <td className="py-2 pr-2">
+                                <td className="py-2.5 pr-2">
                                   <span className="text-[11px] text-slate-700 font-medium line-clamp-1">
                                     {item.revision_item_name || item.original_item_name || "--"}
                                   </span>
                                 </td>
-                                <td className="py-2 text-center">
-                                  {item.item_type === "Deleted" ? (
-                                    <span className="text-[10px] text-rose-500 line-through">{origQty}</span>
-                                  ) : item.item_type === "New" ? (
-                                    <span className="text-[10px] text-emerald-600 font-medium">{revQty}</span>
-                                  ) : (
-                                    <span className="text-[10px] text-slate-600">
-                                      {origQty} <ArrowRight className="h-2.5 w-2.5 inline text-slate-300 mx-0.5" /> <span className="font-medium text-slate-800">{revQty}</span>
-                                    </span>
-                                  )}
+                                <td className="py-2.5 text-center">
+                                  <div className="flex flex-col items-center gap-1">
+                                    {qtyChanged && (
+                                      <div className="flex items-center gap-1 px-1.5 py-0.5 bg-slate-50 rounded border border-slate-100/50">
+                                        <span className="text-[9px] font-medium text-slate-400 uppercase tracking-tighter">Qty:</span>
+                                        {item.item_type === "Deleted" ? (
+                                          <span className="text-[10px] text-rose-500 line-through">{origQty}</span>
+                                        ) : item.item_type === "New" ? (
+                                          <span className="text-[10px] text-emerald-600 font-medium">{revQty}</span>
+                                        ) : (
+                                          <span className="text-[10px] text-slate-600 flex items-center gap-1">
+                                            {origQty} <ArrowRight className="h-2 w-2 text-slate-300" /> <span className="font-medium text-slate-800">{revQty}</span>
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+                                    {rateChanged && (
+                                      <div className="flex items-center gap-1 px-1.5 py-0.5 bg-slate-50 rounded border border-slate-100/50">
+                                        <span className="text-[9px] font-medium text-slate-400 uppercase tracking-tighter">Rate:</span>
+                                        {item.item_type === "Deleted" ? (
+                                          <span className="text-[10px] text-rose-500 line-through">{formatToIndianRupee(origRate)}</span>
+                                        ) : item.item_type === "New" ? (
+                                          <span className="text-[10px] text-emerald-600 font-medium">{formatToIndianRupee(revRate)}</span>
+                                        ) : (
+                                          <span className="text-[10px] text-slate-600 flex items-center gap-1">
+                                            {formatToIndianRupee(origRate)} <ArrowRight className="h-2 w-2 text-slate-300" /> <span className="font-medium text-slate-800">{formatToIndianRupee(revRate)}</span>
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
                                 </td>
-                                <td className={`text-right pr-3 py-2 text-[10px] font-semibold tabular-nums ${itemDiff > 0 ? "text-emerald-600" : itemDiff < 0 ? "text-rose-600" : "text-slate-400"}`}>
+                                <td className={`text-right pr-3 py-2.5 text-[10px] font-semibold tabular-nums ${itemDiff > 0 ? "text-emerald-600" : itemDiff < 0 ? "text-rose-600" : "text-slate-400"}`}>
                                   {itemDiff !== 0 ? (itemDiff > 0 ? "+" : "") + formatToIndianRupee(itemDiff) : "--"}
                                 </td>
                               </tr>
