@@ -29,6 +29,7 @@ interface PivotTableBodyProps {
     value: string,
     maxAllowed: number
   ) => void;
+  viewMode?: "create" | "view-only" | "full";
 }
 
 export function PivotTableBody({
@@ -39,6 +40,7 @@ export function PivotTableBody({
   editingDnName,
   editedQuantities,
   onEditQuantityChange,
+  viewMode = "full",
 }: PivotTableBodyProps) {
   return (
     <TableBody>
@@ -46,12 +48,19 @@ export function PivotTableBody({
         <TableRow
           key={row.itemId}
           className={cn(
-            row.isFullyDelivered && "bg-green-50/40 dark:bg-green-950/20"
+            viewMode !== "create" &&
+              row.isFullyDelivered &&
+              "bg-green-50 dark:bg-green-950/30"
           )}
         >
           {/* Sticky: Item Name */}
-          <TableCell className="sticky left-0 z-20 bg-background py-1.5 px-2 max-w-[180px]">
-            <div className="truncate text-sm">
+          <TableCell
+            className={cn(
+              "sticky left-0 z-20 py-1.5 px-1.5 sm:px-2 max-w-[140px] sm:max-w-[180px] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]",
+              viewMode !== "create" && row.isFullyDelivered ? "bg-green-50 dark:bg-green-950/30" : "bg-background"
+            )}
+          >
+            <div className="text-sm line-clamp-2 break-words">
               {row.itemName}
               {row.comment && (
                 <HoverCard>
@@ -69,22 +78,20 @@ export function PivotTableBody({
             </div>
           </TableCell>
 
-          {/* Sticky: Unit */}
-          <TableCell
-            className={`sticky left-[180px] z-20 bg-background py-1.5 px-2 text-center text-xs ${isProjectManager ? "shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]" : ""}`}
-          >
+          {/* Unit */}
+          <TableCell className="py-1.5 px-1.5 sm:px-2 text-center text-xs">
             {row.unit}
           </TableCell>
 
-          {/* Sticky: Ordered Qty */}
+          {/* Ordered Qty */}
           {!isProjectManager && (
-            <TableCell className="sticky left-[240px] z-20 bg-background py-1.5 px-2 text-right tabular-nums text-xs shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">
+            <TableCell className="py-1.5 px-1.5 sm:px-2 text-right tabular-nums text-xs">
               {row.orderedQty}
             </TableCell>
           )}
 
-          {/* Dynamic DN quantity columns */}
-          {pivotData.dnColumns.map((col) => {
+          {/* Dynamic DN quantity columns — hidden in "create" mode */}
+          {viewMode !== "create" && pivotData.dnColumns.map((col) => {
             const isEditingThisCol = editingDnName === col.dnName;
             const currentDnQty = row.dnQuantities[col.dnName] ?? 0;
 
@@ -155,11 +162,13 @@ export function PivotTableBody({
           {/* Total Received */}
           <TableCell className="py-1.5 px-2 text-right tabular-nums text-xs font-medium">
             {row.totalReceived}
-            {row.isFullyDelivered ? (
-              <CheckCircle2 className="inline ml-1 h-3 w-3 text-green-600" />
-            ) : row.totalReceived > 0 ? (
-              <ArrowDown className="inline ml-1 h-3 w-3 text-primary" />
-            ) : null}
+            {viewMode !== "create" && (
+              row.isFullyDelivered ? (
+                <CheckCircle2 className="inline ml-1 h-3 w-3 text-green-600" />
+              ) : row.totalReceived > 0 ? (
+                <ArrowDown className="inline ml-1 h-3 w-3 text-primary" />
+              ) : null
+            )}
           </TableCell>
         </TableRow>
       ))}
@@ -169,7 +178,7 @@ export function PivotTableBody({
           <TableCell
             colSpan={
               (isProjectManager ? 2 : 3) +
-              pivotData.dnColumns.length +
+              (viewMode !== "create" ? pivotData.dnColumns.length : 0) +
               (showEdit && !editingDnName ? 1 : 0) +
               1
             }
