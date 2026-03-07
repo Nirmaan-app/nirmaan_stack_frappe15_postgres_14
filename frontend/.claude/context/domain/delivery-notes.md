@@ -103,6 +103,33 @@ Check in `PODetails.tsx`:
  "Nirmaan Procurement Executive Profile"].includes(role)
 ```
 
+## Return Notes
+
+Return Notes record items returned to vendor. They use the same `Delivery Notes` doctype with `is_return = 1`.
+
+**Key differences from regular DNs:**
+- `delivered_quantity` stored as **negative** values
+- No attachment upload (date picker only)
+- Shared `note_no` sequence with regular DNs (DN-1, DN-2, RN-3)
+- Visual: red-tinted columns, "RN-" prefix, `RotateCcw` icon
+
+**Roles (RETURN_NOTE_ROLES):** Admin, PMO Executive, Project Lead, Procurement Executive (PM excluded)
+
+**Access:** Return button only appears in PO accordion (not standalone DN page), requires ≥1 existing DN
+
+**Max return qty:** Capped at current `received_quantity` per item
+
+**Status reversion:** Automatic — returning items from "Delivered" PO reverts to "Partially Delivered"
+
+**Editing:** Same rules as regular DN edits (ALWAYS_EDIT_ROLES — Admin, PMO, Project Lead; PM conditional)
+
+**Frontend files:**
+- `hooks/useReturnSubmit.ts` — Return submission hook
+- `pivot-table/DeliveryPivotTable.tsx` — Return button, confirmation dialog
+- `pivot-table/types.ts` — `RETURN_NOTE_ROLES` constant
+
+**Backend:** `update_delivery_note.py` accepts `is_return` parameter, validates roles, stores negative deltas
+
 ---
 
 ## Frontend Entry Points

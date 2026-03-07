@@ -35,7 +35,7 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | SR Form Wizard | `src/pages/ServiceRequests/sr-form/` | Step-based wizard: `schema.ts`, `constants.ts`, `steps/`, `amend/` |
 | SR Remarks | `src/pages/ServiceRequests/approved-sr/` | `hooks/useSRRemarks.ts`, `components/SRRemarks.tsx` |
 | DC/MIR Module | `src/pages/DeliveryChallansAndMirs/` | `components/UploadDCMIRDialog.tsx`, `ViewAttachmentsDialog.tsx`, `DCMIRItemSelector.tsx`, `hooks/usePODeliveryDocuments.ts` |
-| Delivery Notes (DN) | `src/pages/DeliveryNotes/` | `deliverynotes.tsx` (hub: dashboard/create/view), `deliverynote.tsx` (detail, `?mode=` support), `components/pivot-table/` (pivot subsystem), `components/DNDetailDialog.tsx`, `hooks/useProjectDeliveryNotes.ts` |
+| Delivery Notes (DN) | `src/pages/DeliveryNotes/` | `deliverynotes.tsx` (hub: dashboard/create/view), `deliverynote.tsx` (detail, `?mode=` support), `components/pivot-table/` (pivot subsystem), `components/DNDetailDialog.tsx`, `hooks/useProjectDeliveryNotes.ts`, `hooks/useReturnSubmit.ts` (return notes) |
 | Design Tracker | `src/pages/ProjectDesignTracker/` | `types/index.ts` for interfaces, `utils.tsx` for styling, `config/taskTableColumns.tsx` for table, `components/FilesCell.tsx` for file/proof icons |
 | Team Performance | `src/pages/ProjectDesignTracker/` | `components/TeamPerformanceSummary.tsx`, inline edit with TaskEditModal, InlineTaskList drill-down |
 | Vendor Attachment for PR | `src/pages/ProcurementRequests/` | `components/VendorAttachmentForPR.tsx` for vendor quote attachments |
