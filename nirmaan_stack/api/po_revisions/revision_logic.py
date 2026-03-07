@@ -142,14 +142,19 @@ def _split_target_po_term(target_po_id, transfer_amount, payment_name, source_po
             new_terms.append(term.as_dict())
                 
     # Next, append exactly ONE consolidated credit term for the entire transfer_amount
+    payment_type = target_po.payment_terms[0].payment_type if target_po.payment_terms else ""
     split_term = {
         "label": frappe.utils.cstr(f"Credit PO {source_po_id}")[:140],
         "amount": transfer_amount,
         "percentage": 0, # Percentage will be recalculated on approval if needed, keep 0 for draft
         "term_status": "Paid", # Keeps it un-usable by regular GRNs
-        "payment_type": target_po.payment_terms[0].payment_type if target_po.payment_terms else "",
+        "payment_type": payment_type,
         "project_payment": payment_name
     }
+    
+    if payment_type == "Credit":
+        split_term["due_date"] = frappe.utils.nowdate()
+
     new_terms.append(split_term)
             
     # Set and save the newly cascaded terms
@@ -553,14 +558,19 @@ def _append_return_payment_term(po_doc, payment_doc, term_label, amt):
     # If amount is negative (money going out), status = Return. If positive (money coming in), status = Paid.
     conditional_status = "Return" if flt(amt) < 0 else "Paid"
 
-    po_doc.append("payment_terms", {
+    new_term = {
         "label": term_label,
         "amount": amt, # Keep the sign true to what was passed so it reflects on the UI accurately per user request
         "percentage": 0.0,
         "term_status": conditional_status,
         "payment_type": existing_payment_type,
-        "project_payment": payment_doc.name
-    })
+        "project_payment": payment_doc.name,
+    }
+
+    if existing_payment_type == "Credit":
+        new_term["due_date"] = frappe.utils.add_days(frappe.utils.nowdate(), 2)
+
+    po_doc.append("payment_terms", new_term)
 
 def _reduce_payment_terms_lifo(original_po, reduction_needed, new_total):
     """
@@ -571,12 +581,13 @@ def _reduce_payment_terms_lifo(original_po, reduction_needed, new_total):
     (Last-In, First-Out), essentially canceling out future payments that are no longer 
     needed due to items being made cheaper or removed.
     """
-    locked_terms = [t for t in original_po.payment_terms if t.term_status in ["Paid", "Requested", "Approved"] and "Return" not in (t.label or "")]
-    modifiable_terms = [t for t in original_po.payment_terms if t.term_status in ["Created"] and "Return" not in (t.label or "")]
+    # Categorize terms based on status for robust processing
+    locked_terms = [t for t in original_po.payment_terms if t.term_status in ["Paid", "Requested", "Approved"]]
+    modifiable_terms = [t for t in original_po.payment_terms if t.term_status == "Created"]
+    return_terms = [t for t in original_po.payment_terms if t.term_status == "Return"]
+
     locked_amount = sum(flt(t.amount) for t in locked_terms)
-    
-    # Calculate negative return terms manually appended
-    return_amount = sum(flt(t.amount) for t in original_po.payment_terms if "Return" in (t.label or "") and flt(t.amount) < 0)
+    return_amount = sum(flt(t.amount) for t in return_terms if flt(t.amount) < 0)
 
     locked_term_dicts = [t.as_dict() for t in locked_terms]
     modifiable_term_dicts = [t.as_dict() for t in modifiable_terms]
@@ -595,8 +606,8 @@ def _reduce_payment_terms_lifo(original_po, reduction_needed, new_total):
         term_dict["amount"] = term_amount - amount_to_deduct
         reduction_needed_for_terms -= amount_to_deduct
     
-    # Preserve locked terms, reduced modifiable terms (> 0), and any Return terms
-    return_terms = [t.as_dict() for t in original_po.payment_terms if "Return" in (t.label or "")]
+    # Map return terms to dicts for reconciliation
+    return_term_dicts = [t.as_dict() for t in return_terms]
     final_modifiable_terms = [d for d in modifiable_term_dicts if flt(d.get("amount")) > 0.01]
     
     # NEW: If there is still a reduction deficit (overpayment), create an automatic Return term
@@ -618,10 +629,10 @@ def _reduce_payment_terms_lifo(original_po, reduction_needed, new_total):
             "payment_type": original_po.payment_terms[0].payment_type if original_po.payment_terms else "",
             "project_payment": pay_adjustment.name
         }
-        return_terms.append(auto_return_term)
+        return_term_dicts.append(auto_return_term)
 
     # Reset child table with the corrected list
-    original_po.set("payment_terms", locked_term_dicts + final_modifiable_terms + return_terms)
+    original_po.set("payment_terms", locked_term_dicts + final_modifiable_terms + return_term_dicts)
 
     # Final Adjustment for floating point drift
     # Here we MUST include Return terms because Frappe validates that the sum of all terms == new_total
@@ -636,7 +647,7 @@ def _reduce_payment_terms_lifo(original_po, reduction_needed, new_total):
     # Assign percentages cleanly based strictly on new_total
     for term in original_po.payment_terms:
         # If it's a "Return/Refund" tracking term we appended, leave percentage at 0
-        if "Return" in (term.label or "") or new_total <= 0:
+        if term.term_status == "Return" or new_total <= 0:
             term.percentage = 0.0
         else:
             term.percentage = (flt(term.amount) / new_total) * 100
