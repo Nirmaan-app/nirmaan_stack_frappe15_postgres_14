@@ -33,6 +33,7 @@ export function DeliveryPivotTable({
   isProjectManager = false,
   viewMode = "full",
   canReturn = false,
+  isLocked = false,
 }: DeliveryPivotTableProps) {
   const pivotData = useDeliveryPivotData(po, dnRecords);
   const submitHook = useDeliverySubmit({
@@ -112,7 +113,7 @@ export function DeliveryPivotTable({
       {/* Action bar for create mode */}
       {effectiveCanEdit && !editHook.editingDnName && (
         <div
-          className={`flex items-center justify-end gap-2 ${
+          className={`flex flex-col sm:flex-row items-end sm:items-center justify-end gap-2 ${
             isEmbedded ? "pb-3" : "px-4 py-3 border-b"
           }`}
         >
@@ -121,14 +122,23 @@ export function DeliveryPivotTable({
               <Button
                 size="sm"
                 onClick={() => setConfirmDialog(true)}
-                disabled={!submitHook.hasChanges}
+                disabled={!submitHook.hasChanges || isLocked}
               >
                 Update
               </Button>
               {viewMode !== "create" && (
-                <Button size="sm" variant="ghost" onClick={handleToggleEdit}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={handleToggleEdit}
+                >
                   Cancel
                 </Button>
+              )}
+              {isLocked && (
+                <p className="text-xs text-red-600 font-medium">
+                 This PO is currently under revision, so editing is disabled.
+                </p>
               )}
             </>
           ) : showReturn ? (
@@ -147,8 +157,8 @@ export function DeliveryPivotTable({
             </>
           ) : (
             viewMode !== "create" && (
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="outline" onClick={handleToggleEdit}>
+              <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2">
+                <Button size="sm" variant="outline" onClick={handleToggleEdit} disabled={isLocked}>
                   <Plus className="h-4 w-4 mr-1" />
                   Add New Delivery Note
                 </Button>
@@ -158,10 +168,16 @@ export function DeliveryPivotTable({
                     variant="outline"
                     className="text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-950/30"
                     onClick={handleToggleReturn}
+                    disabled={isLocked}
                   >
                     <RotateCcw className="h-4 w-4 mr-1" />
                     Return Items
                   </Button>
+                )}
+                {isLocked && (
+                  <p className="text-xs text-red-600 font-medium">
+                    This PO is currently under revision, so editing is disabled.
+                  </p>
                 )}
               </div>
             )
@@ -172,11 +188,11 @@ export function DeliveryPivotTable({
       {/* Action bar for edit mode */}
       {editHook.editingDnName && (
         <div
-          className={`flex items-center justify-end gap-2 ${
+          className={`flex flex-col sm:flex-row items-end sm:items-center justify-end gap-2 ${
             isEmbedded ? "pb-3" : "px-4 py-3 border-b"
           }`}
         >
-          <span className="text-sm text-muted-foreground mr-auto">
+          <span className="text-sm text-muted-foreground sm:mr-auto text-right sm:text-left">
             Editing {editHook.editingDnName}
           </span>
           <Button
