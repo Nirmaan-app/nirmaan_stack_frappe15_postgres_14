@@ -10,7 +10,7 @@ export function useDownloadDN(poId?: string) {
   const { toast } = useToast();
 
   const downloadDN = useCallback(
-    async (deliveryDate?: string) => {
+    async (deliveryDate?: string, noteNo?: string | number) => {
       if (!poId) {
         toast({
           title: "Error",
@@ -20,9 +20,9 @@ export function useDownloadDN(poId?: string) {
         return;
       }
 
-      const isSpecificDate = !!deliveryDate;
-      const description = isSpecificDate
-        ? `Downloading note for ${formatDate(deliveryDate)}...`
+      const isSpecificNote = !!deliveryDate && !!noteNo;
+      const description = isSpecificNote
+        ? `Downloading note DN-${noteNo} for ${formatDate(deliveryDate)}...`
         : "Downloading overall delivery note...";
 
       try {
@@ -31,8 +31,11 @@ export function useDownloadDN(poId?: string) {
         const formatName = "PO Delivery Histroy"; // Backend print format name (has typo)
         let printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Procurement%20Orders&name=${poId}&format=${encodeURIComponent(formatName)}&no_letterhead=0`;
 
-        if (isSpecificDate) {
+        if (deliveryDate) {
           printUrl += `&delivery_date=${encodeURIComponent(deliveryDate)}`;
+        }
+        if (noteNo) {
+          printUrl += `&note_no=${encodeURIComponent(noteNo.toString())}`;
         }
 
         const response = await fetch(printUrl);
@@ -40,8 +43,8 @@ export function useDownloadDN(poId?: string) {
 
         const blob = await response.blob();
 
-        const fileName = isSpecificDate
-          ? `${poId}_Delivery_${deliveryDate}.pdf`
+        const fileName = isSpecificNote
+          ? `${poId}_DN_${noteNo}_${deliveryDate}.pdf`
           : `${poId}_Delivery_Overall.pdf`;
 
         const url = window.URL.createObjectURL(blob);
