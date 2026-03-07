@@ -39,7 +39,7 @@ def calculate_delivered_amount(order_items: list) -> float:
 
 @frappe.whitelist()
 def update_delivery_note(po_id: str, modified_items: dict, delivery_data: dict = None,
-                        delivery_challan_attachment: str = None):
+                        delivery_challan_attachment: str = None, is_return: bool = False):
     """
     Updates a Procurement Order with delivery information and creates a Delivery Notes record.
 
@@ -48,16 +48,40 @@ def update_delivery_note(po_id: str, modified_items: dict, delivery_data: dict =
         modified_items (dict): Dictionary of {item_name: new_received_quantity}
         delivery_data (dict): Delivery metadata with date key containing updated_by, etc.
         delivery_challan_attachment (str): URL of uploaded delivery challan
+        is_return (bool): Whether this is a return note (items returned to vendor)
     """
+    # Handle string-to-bool conversion from frontend
+    is_return = is_return in (True, "true", "True", 1, "1")
+
     try:
         frappe.db.begin()
 
         po = frappe.get_doc("Procurement Orders", po_id)
 
+        # Return-specific role validation
+        RETURN_ROLES = [
+            "Nirmaan Admin Profile",
+            "Nirmaan PMO Executive Profile",
+            "Nirmaan Project Lead Profile",
+            "Nirmaan Procurement Executive Profile",
+        ]
+        if is_return:
+            role = frappe.db.get_value("Nirmaan Users", frappe.session.user, "role_profile")
+            if frappe.session.user != "Administrator" and role not in RETURN_ROLES:
+                frappe.throw("Insufficient permissions to create return notes", frappe.PermissionError)
+
         # Capture old received quantities BEFORE mutation
         old_received = {}
         for item in po.get("items"):
             old_received[item.name] = safe_float(item.get("received_quantity"))
+
+        # Validate return quantities won't result in negative received_quantity
+        if is_return:
+            for item in po.get("items"):
+                if item.name in modified_items:
+                    new_qty = safe_float(modified_items[item.name])
+                    if new_qty < 0:
+                        frappe.throw(f"Return quantity exceeds received quantity for {item.item_name}")
 
         # Update received quantities in original order (mutates in-place)
         updated_order = update_order_items(po.get("items"), modified_items)
@@ -84,7 +108,7 @@ def update_delivery_note(po_id: str, modified_items: dict, delivery_data: dict =
         # Create Delivery Notes record
         _create_delivery_note_record(
             po, modified_items, old_received,
-            delivery_data, attachment_doc
+            delivery_data, attachment_doc, is_return
         )
 
         frappe.db.commit()
@@ -106,7 +130,7 @@ def update_delivery_note(po_id: str, modified_items: dict, delivery_data: dict =
 
 
 def _create_delivery_note_record(po, modified_items, old_received,
-                                  delivery_data, attachment_doc):
+                                  delivery_data, attachment_doc, is_return=False):
     """Create a Delivery Notes record from the delivery update."""
     # Calculate note_no = count of existing DNs for this PO + 1
     existing_count = frappe.db.count("Delivery Notes", {"procurement_order": po.name})
@@ -137,6 +161,7 @@ def _create_delivery_note_record(po, modified_items, old_received,
         "updated_by_user": updated_by,
         "nirmaan_attachment": attachment_doc.name if attachment_doc else None,
         "is_stub": 0,
+        "is_return": 1 if is_return else 0,
     })
 
     # Add child items — only items that were actually modified with a positive delta
@@ -149,8 +174,14 @@ def _create_delivery_note_record(po, modified_items, old_received,
         new_total = safe_float(modified_items[item_key])
         delta = new_total - prev_qty
 
-        if delta <= 0:
-            continue
+        # For returns, keep only negative deltas (stored as negative); for deliveries, keep only positive
+        if is_return:
+            if delta >= 0:
+                continue
+            # delta is already negative — store as-is so recalculate_po_delivery_fields sums correctly
+        else:
+            if delta <= 0:
+                continue
 
         dn.append("items", {
             "item_id": item_obj.item_id,
