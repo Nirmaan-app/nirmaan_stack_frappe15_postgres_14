@@ -30,6 +30,7 @@ export function DeliveryPivotTable({
   canEdit,
   isEmbedded = false,
   isProjectManager = false,
+  viewMode = "full",
 }: DeliveryPivotTableProps) {
   const pivotData = useDeliveryPivotData(po, dnRecords);
   const submitHook = useDeliverySubmit({
@@ -43,7 +44,10 @@ export function DeliveryPivotTable({
   });
   const { downloadDN } = useDownloadDN(po.name);
 
-  const [showEdit, setShowEdit] = useState(false);
+  // In "view-only" mode, override canEdit to false
+  const effectiveCanEdit = viewMode === "view-only" ? false : canEdit;
+  // In "create" mode, auto-open the new entry form
+  const [showEdit, setShowEdit] = useState(viewMode === "create");
   const [confirmDialog, setConfirmDialog] = useState(false);
   const [editConfirmDialog, setEditConfirmDialog] = useState(false);
 
@@ -80,7 +84,7 @@ export function DeliveryPivotTable({
   return (
     <div className={isEmbedded ? "" : "border rounded-lg bg-card"}>
       {/* Action bar for create mode */}
-      {canEdit && !editHook.editingDnName && (
+      {effectiveCanEdit && !editHook.editingDnName && (
         <div
           className={`flex items-center justify-end gap-2 ${
             isEmbedded ? "pb-3" : "px-4 py-3 border-b"
@@ -95,15 +99,19 @@ export function DeliveryPivotTable({
               >
                 Update
               </Button>
-              <Button size="sm" variant="ghost" onClick={handleToggleEdit}>
-                Cancel
-              </Button>
+              {viewMode !== "create" && (
+                <Button size="sm" variant="ghost" onClick={handleToggleEdit}>
+                  Cancel
+                </Button>
+              )}
             </>
           ) : (
-            <Button size="sm" variant="outline" onClick={handleToggleEdit}>
-              <Plus className="h-4 w-4 mr-1" />
-              Add New Delivery Note
-            </Button>
+            viewMode !== "create" && (
+              <Button size="sm" variant="outline" onClick={handleToggleEdit}>
+                <Plus className="h-4 w-4 mr-1" />
+                Add New Delivery Note
+              </Button>
+            )
           )}
         </div>
       )}
@@ -131,133 +139,30 @@ export function DeliveryPivotTable({
         </div>
       )}
 
-      {/* Desktop: Scrollable table */}
-      <div className="hidden sm:block overflow-x-auto">
+      {/* Scrollable table for all screen sizes */}
+      <div className="relative overflow-x-auto">
         <Table>
           <PivotTableHeader
             pivotData={pivotData}
-            showEdit={showEdit && canEdit}
+            showEdit={showEdit && effectiveCanEdit}
             onDownloadDN={downloadDN}
             isProjectManager={isProjectManager}
             editingDnName={editHook.editingDnName}
             canEditDn={editHook.canEditDn}
             onEditDn={handleStartEdit}
+            viewMode={viewMode}
           />
           <PivotTableBody
             pivotData={pivotData}
-            showEdit={showEdit && canEdit}
+            showEdit={showEdit && effectiveCanEdit}
             submitHook={submitHook}
             isProjectManager={isProjectManager}
             editingDnName={editHook.editingDnName}
             editedQuantities={editHook.editedQuantities}
             onEditQuantityChange={editHook.handleEditQuantityChange}
+            viewMode={viewMode}
           />
         </Table>
-      </div>
-
-      {/* Mobile: Stacked card view */}
-      <div className="block sm:hidden">
-        {pivotData.rows.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground text-sm">
-            No items found
-          </div>
-        ) : (
-          <div className="divide-y">
-            {pivotData.rows.map((row) => (
-              <div key={row.itemId} className="p-3 space-y-2">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="font-medium text-sm">{row.itemName}</p>
-                    <p className="text-xs text-muted-foreground">{row.unit}</p>
-                  </div>
-                  <div className="text-right">
-                    {!isProjectManager && (
-                      <p className="text-xs text-muted-foreground">
-                        Ordered: {row.orderedQty}
-                      </p>
-                    )}
-                    <p className="text-sm font-medium">
-                      Received: {row.totalReceived}
-                    </p>
-                  </div>
-                </div>
-                {/* DN deliveries */}
-                {pivotData.dnColumns.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
-                    {pivotData.dnColumns.map((col) => {
-                      const qty = row.dnQuantities[col.dnName];
-                      if (qty == null) return null;
-                      return (
-                        <span
-                          key={col.dnName}
-                          className="text-xs bg-muted px-1.5 py-0.5 rounded"
-                        >
-                          DN-{col.noteNo}: {qty}
-                        </span>
-                      );
-                    })}
-                  </div>
-                )}
-                {/* Edit input for mobile (create mode) */}
-                {showEdit &&
-                  canEdit &&
-                  !editHook.editingDnName &&
-                  !row.isFullyDelivered && (
-                    <div className="pt-1">
-                      <Input
-                        type="number"
-                        className="h-8 text-sm"
-                        placeholder="New qty"
-                        value={
-                          submitHook.newlyDeliveredQuantities[row.itemId] || ""
-                        }
-                        onChange={(e) =>
-                          submitHook.handleNewlyDeliveredChange(
-                            row.itemId,
-                            e.target.value,
-                            row.remainingQty
-                          )
-                        }
-                        min={0}
-                        max={row.remainingQty}
-                        disabled={row.isFullyDelivered}
-                      />
-                    </div>
-                  )}
-                {/* Edit input for mobile (edit existing DN mode) */}
-                {editHook.editingDnName && (
-                  <div className="pt-1">
-                    <Label className="text-xs text-muted-foreground mb-1 block">
-                      Edit qty (DN-
-                      {pivotData.dnColumns.find(
-                        (c) => c.dnName === editHook.editingDnName
-                      )?.noteNo}
-                      )
-                    </Label>
-                    <Input
-                      type="number"
-                      className="h-8 text-sm"
-                      placeholder="0"
-                      value={
-                        editHook.editedQuantities[row.itemItemId] ?? ""
-                      }
-                      onChange={(e) => {
-                        const currentDnQty =
-                          row.dnQuantities[editHook.editingDnName!] ?? 0;
-                        editHook.handleEditQuantityChange(
-                          row.itemItemId,
-                          e.target.value,
-                          row.remainingQty + currentDnQty
-                        );
-                      }}
-                      min={0}
-                    />
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Create confirmation dialog */}

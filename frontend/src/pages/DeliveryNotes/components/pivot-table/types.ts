@@ -52,6 +52,13 @@ export interface DeliveryPivotTableProps {
   isEmbedded?: boolean;
   /** Hide the "Ordered" column for Project Managers */
   isProjectManager?: boolean;
+  /**
+   * Controls the pivot table display mode:
+   * - "create": auto-opens new entry form, hides existing DN columns
+   * - "view-only": read-only display, no edit/create actions
+   * - "full": default interactive mode with all features
+   */
+  viewMode?: "create" | "view-only" | "full";
 }
 
 export interface PivotTableMetadataBarProps {
