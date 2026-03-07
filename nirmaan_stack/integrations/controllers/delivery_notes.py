@@ -24,6 +24,8 @@ def recalculate_po_delivery_fields(po_name):
 
     # Reset all received_quantity to 0
     for item in po.get("items"):
+        if item.category == "Additional Charges":
+            continue
         item.received_quantity = 0
 
     # Get all remaining DN records for this PO
@@ -49,6 +51,8 @@ def recalculate_po_delivery_fields(po_name):
 
         # Update PO items
         for item in po.get("items"):
+            if item.category == "Additional Charges":
+                continue
             if item.item_id in delivered_by_item:
                 item.received_quantity = delivered_by_item[item.item_id]
 
@@ -68,4 +72,3 @@ def recalculate_po_delivery_fields(po_name):
         po.latest_delivery_date = None
 
     po.save(ignore_permissions=True)
-    frappe.db.commit()
