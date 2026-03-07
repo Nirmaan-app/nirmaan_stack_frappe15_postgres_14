@@ -1,4 +1,5 @@
 import { TailSpin } from "react-loader-spinner";
+import { useSearchParams } from "react-router-dom";
 import { useUserData } from "@/hooks/useUserData";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
@@ -18,11 +19,18 @@ export default function DeliveryNote() {
     refetchDNs,
   } = useDeliveryNoteData();
 
+  const [searchParams] = useSearchParams();
+  const viewMode = searchParams.get("mode") === "create"
+    ? "create" as const
+    : searchParams.get("mode") === "view"
+      ? "view-only" as const
+      : "full" as const;
+
   const userData = useUserData();
   const isProjectManager = userData?.role === "Nirmaan Project Manager Profile";
   const { isCEOHold } = useCEOHoldGuard(data?.project ?? undefined);
 
-  const displayDnId = formatDisplayId(deliveryNoteId ?? undefined, DOCUMENT_PREFIX.DELIVERY_NOTE);
+  const displayPoId = formatDisplayId(poId ?? undefined, DOCUMENT_PREFIX.PURCHASE_ORDER);
 
   const canEdit =
     !!data &&
@@ -30,6 +38,12 @@ export default function DeliveryNote() {
     (DELIVERY_EDIT_ROLES as readonly string[]).includes(userData.role) &&
     !isCEOHold &&
     ["Dispatched", "Partially Delivered"].includes(data.status);
+
+  const pageTitle = viewMode === "create"
+    ? `New Delivery Note - ${displayPoId}`
+    : viewMode === "view-only"
+      ? `Delivery History - ${displayPoId}`
+      : displayPoId;
 
   if (isLoading) {
     return (
@@ -58,7 +72,7 @@ export default function DeliveryNote() {
 
   return (
     <div className="container mx-auto px-4 py-4 max-w-6xl space-y-4">
-      <h1 className="text-xl font-bold text-foreground">{`${displayDnId}/M`}</h1>
+      <h1 className="text-xl font-bold text-foreground">{pageTitle}</h1>
 
       {isCEOHold && <CEOHoldBanner className="mb-2" />}
 
@@ -68,6 +82,12 @@ export default function DeliveryNote() {
         showNavLinks
       />
 
+      {viewMode === "create" && dnRecords.length === 0 && (
+        <div className="rounded-md border border-blue-200 bg-blue-50 dark:bg-blue-950/30 px-4 py-3 text-sm text-blue-700 dark:text-blue-300">
+          No delivery updates recorded yet. Enter quantities below to create the first delivery note.
+        </div>
+      )}
+
       <DeliveryPivotTable
         po={data}
         dnRecords={dnRecords}
@@ -75,6 +95,7 @@ export default function DeliveryNote() {
         onDnRefetch={refetchDNs}
         canEdit={canEdit}
         isProjectManager={isProjectManager}
+        viewMode={viewMode}
       />
     </div>
   );
