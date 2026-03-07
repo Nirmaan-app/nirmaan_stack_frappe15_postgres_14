@@ -13,7 +13,7 @@ def get_delivery_notes(procurement_order):
         fields=[
             "name", "procurement_order", "project", "vendor",
             "note_no", "delivery_date", "updated_by_user",
-            "nirmaan_attachment", "notes", "is_stub",
+            "nirmaan_attachment", "notes", "is_stub", "is_return",
             "creation", "modified"
         ],
         order_by="note_no asc",
@@ -59,7 +59,7 @@ def get_project_delivery_notes(project_id):
         fields=[
             "name", "procurement_order", "project", "vendor",
             "note_no", "delivery_date", "updated_by_user",
-            "nirmaan_attachment", "notes", "is_stub",
+            "nirmaan_attachment", "notes", "is_stub", "is_return",
             "creation", "modified"
         ],
         order_by="creation desc",
