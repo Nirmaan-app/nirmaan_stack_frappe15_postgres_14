@@ -74,6 +74,8 @@ export interface DeliveryPivotTableProps {
   viewMode?: "create" | "view-only" | "full";
   canReturn?: boolean;
   returnCount?: number;
+  /** Called after successful DN creation (e.g., to navigate away) */
+  onAfterCreate?: () => void;
 }
 
 export interface PivotTableMetadataBarProps {

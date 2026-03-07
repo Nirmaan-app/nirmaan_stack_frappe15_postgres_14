@@ -33,6 +33,7 @@ export function DeliveryPivotTable({
   isProjectManager = false,
   viewMode = "full",
   canReturn = false,
+  onAfterCreate,
 }: DeliveryPivotTableProps) {
   const pivotData = useDeliveryPivotData(po, dnRecords);
   const submitHook = useDeliverySubmit({
@@ -81,10 +82,11 @@ export function DeliveryPivotTable({
   );
 
   const handleConfirmSubmit = useCallback(async () => {
-    await submitHook.handleSubmit();
+    const success = await submitHook.handleSubmit();
     setShowEdit(false);
     setConfirmDialog(false);
-  }, [submitHook.handleSubmit]);
+    if (success) onAfterCreate?.();
+  }, [submitHook.handleSubmit, onAfterCreate]);
 
   const handleConfirmEdit = useCallback(async () => {
     await editHook.submitEdit();

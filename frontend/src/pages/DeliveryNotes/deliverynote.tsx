@@ -1,5 +1,5 @@
 import { TailSpin } from "react-loader-spinner";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useUserData } from "@/hooks/useUserData";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
@@ -19,6 +19,7 @@ export default function DeliveryNote() {
     refetchDNs,
   } = useDeliveryNoteData();
 
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const viewMode = searchParams.get("mode") === "create"
     ? "create" as const
@@ -97,6 +98,7 @@ export default function DeliveryNote() {
         canEdit={canEdit}
         isProjectManager={isProjectManager}
         viewMode={viewMode}
+        onAfterCreate={viewMode === "create" ? () => navigate("/prs&milestones/delivery-notes?view=create") : undefined}
       />
     </div>
   );
