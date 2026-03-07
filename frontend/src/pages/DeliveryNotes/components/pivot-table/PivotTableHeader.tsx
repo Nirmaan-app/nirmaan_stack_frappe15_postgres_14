@@ -18,7 +18,7 @@ const USERS_LIST_PARAMS = { fields: ["name", "full_name"] as ("name" | "full_nam
 interface PivotTableHeaderProps {
   pivotData: PivotData;
   showEdit: boolean;
-  onDownloadDN: (deliveryDate?: string) => Promise<void>;
+  onDownloadDN: (deliveryDate?: string, noteNo?: string | number) => Promise<void>;
   isProjectManager?: boolean;
   // Edit DN props
   editingDnName?: string | null;
@@ -114,7 +114,7 @@ export function PivotTableHeader({
                           variant="ghost"
                           size="icon"
                           className="h-5 w-5"
-                          onClick={() => onDownloadDN(col.deliveryDate)}
+                          onClick={() => onDownloadDN(col.deliveryDate, col.noteNo)}
                         >
                           <Printer className="h-3 w-3" />
                         </Button>
@@ -158,7 +158,9 @@ export function PivotTableHeader({
 
         {/* Total received column */}
         <TableHead className="text-right text-xs font-medium uppercase tracking-wider text-muted-foreground min-w-[80px] sm:min-w-[90px]">
-          Total Received
+          <div className="flex flex-col items-end gap-1 px-1">
+            <span>Total Received</span>
+          </div>
         </TableHead>
       </TableRow>
     </TableHeader>

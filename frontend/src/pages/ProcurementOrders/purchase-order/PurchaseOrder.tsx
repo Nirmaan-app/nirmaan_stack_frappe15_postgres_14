@@ -1628,6 +1628,7 @@ export const PurchaseOrder = ({
                     returnCount={dnRecords.filter(dn => dn.is_return === 1).length}
                     isEmbedded
                     isProjectManager={isProjectManager}
+                    isLocked={isLocked}
                   />
                 </AccordionContent>
               </AccordionItem>
