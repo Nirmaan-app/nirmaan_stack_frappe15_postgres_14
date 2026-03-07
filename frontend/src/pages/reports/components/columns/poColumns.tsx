@@ -254,7 +254,7 @@ export const basePOColumnsForPM: ColumnDef<POReportRowData>[] = [
         <div className="flex items-center">
           {name}
           <Link
-            to={`/prs&milestones/delivery-notes/${name.replaceAll("/", "&=")}`}
+            to={`/prs&milestones/delivery-notes/${name.replaceAll("/", "&=")}?mode=create`}
           >
             <Info className="text-blue-500 h-3 w-3 ml-1 mt-0.5" />
           </Link>
