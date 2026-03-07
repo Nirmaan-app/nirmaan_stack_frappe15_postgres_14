@@ -1,10 +1,12 @@
-import { ProcurementOrder, PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders";
+import { PurchaseOrderItem } from "@/types/NirmaanStack/ProcurementOrders";
 
 export type RevisionItemType = "Original" | "New" | "Revised" | "Replace" | "Deleted";
 
 export interface RevisionItem extends Partial<PurchaseOrderItem> {
   item_type: RevisionItemType;
   original_row_id?: string;
+  category?: string;
+  procurement_package?: string;
 }
 
 export interface PaymentTerm {

@@ -55,6 +55,29 @@ export const PORevisionDialog: React.FC<PORevisionDialogProps> = (props) => {
             toast({ title: "Justification Required", description: "Please provide a reason for this revision.", variant: "destructive" });
             return;
         }
+
+        const invalidRateItem = revisionItems.find(item => item.item_type !== 'Deleted' && (item.quote === undefined || item.quote <= 0));
+        if (invalidRateItem) {
+             toast({ title: "Invalid Rate", description: `Rate must be greater than 0 for item: ${invalidRateItem.item_name || 'Unknown'}`, variant: "destructive" });
+             return;
+        }
+
+        const invalidQtyItem = revisionItems.find(item => {
+             if (item.item_type === 'Deleted') return false;
+             const minQty = (item.item_type !== 'New' && item.received_quantity) ? item.received_quantity : 0;
+             return (item.quantity === undefined || item.quantity <= 0 || item.quantity < minQty);
+        });
+
+        if (invalidQtyItem) {
+             const minQty = (invalidQtyItem.item_type !== 'New' && invalidQtyItem.received_quantity) ? invalidQtyItem.received_quantity : 0;
+             if (minQty > 0) {
+                 toast({ title: "Invalid Quantity", description: `Quantity cannot go below ${minQty} (already delivered) for item: ${invalidQtyItem.item_name || 'Unknown'}`, variant: "destructive" });
+             } else {
+                 toast({ title: "Invalid Quantity", description: `Quantity must be greater than 0 for item: ${invalidQtyItem.item_name || 'Unknown'}`, variant: "destructive" });
+             }
+             return;
+        }
+
         setStep(2);
     } else if (step === 2) {
         if (difference.inclGst > 0) {
@@ -87,9 +110,11 @@ export const PORevisionDialog: React.FC<PORevisionDialogProps> = (props) => {
           setStep={setStep} 
           differenceAmount={difference.inclGst} 
           poName={po.name} 
+          vendorName={po.vendor_name}
+          projectName={po.project_name}
         />
 
-        <div className="space-y-8">
+        <div className="space-y-4">
             {step === 1 && (
                 <Step1ReviseItems 
                     revisionItems={revisionItems}
@@ -104,6 +129,10 @@ export const PORevisionDialog: React.FC<PORevisionDialogProps> = (props) => {
                     difference={difference}
                     netImpact={netImpact}
                     itemOptions={itemOptions}
+                    isCustom={!!po.custom}
+                    poTotalAmount={po.total_amount || 0}
+                    poAmountPaid={po.amount_paid || 0}
+                    poAmountDelivered={po.po_amount_delivered || 0}
                 />
             )}
 

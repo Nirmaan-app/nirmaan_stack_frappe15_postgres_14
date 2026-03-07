@@ -75,17 +75,17 @@ export const useRevisionCategories = (workPackage?: string) => {
   const response = useFrappeGetDocList<Category>(
     "Category",
     {
-      fields: ["name", "tax"],
+      fields: ["name", "tax", "work_package"],
       filters: [
         [
           "work_package",
           "in",
-          [workPackage || "", "Tool & Equipments", "Additional Charges"],
+          [workPackage || "NOT YET DEFINED", "Tool & Equipments", "Additional Charges"],
         ],
       ],
       limit: 0,
     },
-    workPackage ? poRevisionKeys.categories(workPackage) : null
+    poRevisionKeys.categories(workPackage || "default")
   );
   useApiErrorLogger(response.error, {
     hook: "useRevisionCategories",
@@ -112,8 +112,8 @@ export const useRevisionItems = (
           : [["name", "=", "INVALID"]],
       limit: 0,
     },
-    categoryNames.length > 0 && workPackage
-      ? poRevisionKeys.items(workPackage)
+    categoryNames.length > 0
+      ? poRevisionKeys.items(workPackage || "default")
       : null
   );
   useApiErrorLogger(response.error, {
@@ -141,8 +141,8 @@ export const useRevisionCategoryMakelist = (
           : [["category", "=", "INVALID"]],
       limit: 0,
     },
-    categoryNames.length > 0 && workPackage
-      ? poRevisionKeys.categoryMakelist(workPackage)
+    categoryNames.length > 0
+      ? poRevisionKeys.categoryMakelist(workPackage || "default")
       : null
   );
   useApiErrorLogger(response.error, {
@@ -224,32 +224,71 @@ export const useApprovalInvoices = (poId?: string) => {
   return response;
 };
 
+// ─── Categories & Packages (for custom items) ───────────────
+
+export const useProcurementPackages = () => {
+  const response = useFrappeGetDocList("Procurement Packages", {
+    fields: ["*"],
+    filters: [["name", "!=", "Services"]],
+    orderBy: { field: "name", order: "asc" },
+    limit: 100,
+  });
+  useApiErrorLogger(response.error, {
+    hook: "useProcurementPackages",
+    api: "Procurement Packages List",
+    feature: "po-revision",
+    doctype: "Procurement Packages",
+  });
+  return response;
+};
+
+export const useCategories = () => {
+  const response = useFrappeGetDocList("Category", {
+    fields: ["*"],
+    filters: [["work_package", "!=", "Services"]],
+    orderBy: { field: "category_name", order: "asc" },
+    limit: 10000,
+  });
+  useApiErrorLogger(response.error, {
+    hook: "useCategories",
+    api: "Category List",
+    feature: "po-revision",
+    doctype: "Category",
+  });
+  return response;
+};
+
 // ─── Candidate POs (for negative flow adjustment) ────────────
+
+import { useFrappeGetCall } from "frappe-react-sdk";
 
 export const useCandidatePOs = (
   vendor: string | undefined,
+  currentPO: string | undefined,
   enabled: boolean = true
 ) => {
-  const response = useFrappeGetDocList<ProcurementOrder>(
-    "Procurement Orders",
+  const response = useFrappeGetCall<{ message: any[] }>(
+    PO_REVISION_APIS.getCandidatePOs,
     {
-      fields: ["name", "vendor", "total_amount", "amount_paid"],
-      filters: [
-        ["vendor", "=", vendor || ""],
-        ["status", "in", ["PO Approved"]],
-      ],
-      limit: 100,
+      vendor: vendor || "",
+      current_po: currentPO || ""
     },
-    enabled && vendor ? poRevisionKeys.candidatePOs(vendor) : null
+    enabled && vendor && currentPO ? poRevisionKeys.candidatePOs(vendor) : null
   );
+  
+  // To keep compatibility with existing components that expect an array directly on `.data`
+  const formattedResponse = {
+      ...response,
+      data: response.data?.message || undefined
+  };
+
   useApiErrorLogger(response.error, {
     hook: "useCandidatePOs",
-    api: "Candidate POs List",
+    api: "get_adjustment_candidate_pos",
     feature: "po-revision",
-    doctype: "Procurement Orders",
     entity_id: vendor,
   });
-  return response;
+  return formattedResponse;
 };
 
 // ─── PO Lock Check ───────────────────────────────────────────
@@ -267,6 +306,25 @@ export const usePOLockCheck = (poId: string | undefined) => {
     api: "check_po_in_pending_revisions",
     feature: "po-revision",
     entity_id: poId,
+  });
+
+  return { data, isLoading, error, mutate };
+};
+
+// ─── Bulk PO Lock Check ──────────────────────────────────────
+
+export const useAllLockedPOs = () => {
+  const { call } = useFrappePostCall(PO_REVISION_APIS.getAllLocked);
+
+  const { data, isLoading, error, mutate } = useSWR(
+    poRevisionKeys.allLocked(),
+    () => call({}).then((res) => res.message || [])
+  );
+
+  useApiErrorLogger(error, {
+    hook: "useAllLockedPOs",
+    api: "get_all_locked_po_names",
+    feature: "po-revision",
   });
 
   return { data, isLoading, error, mutate };

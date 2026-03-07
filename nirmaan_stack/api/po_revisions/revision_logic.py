@@ -60,6 +60,8 @@ def make_po_revisions(po_id, justification, revision_items, total_amount_differe
                     "original_rate": flt(item.get("original_rate")),
                     "original_amount": flt(item.get("original_amount")),
                     "original_tax": flt(item.get("original_tax")),
+                    "original_category": item.get("original_category"),
+                    "original_procurement_package": item.get("original_procurement_package"),
                 })
 
             # Revision Details - Skip for "Original" and "Deleted" items
@@ -73,6 +75,21 @@ def make_po_revisions(po_id, justification, revision_items, total_amount_differe
                     "revision_rate": flt(item.get("quote")),
                     "revision_amount": flt(item.get("amount")),
                     "revision_tax": flt(item.get("tax")),
+                })
+                
+                # Ensure category/package metadata is explicitly drafted so it's not lost
+                cat = item.get("category") or item.get("original_category")
+                pkg = item.get("procurement_package") or item.get("original_procurement_package")
+                
+                # Fallback to backend lookup if the frontend didn't provide it (e.g. for catalog items)
+                if not cat or not pkg:
+                    fetched_cat, fetched_pkg = _get_item_metadata(item.get("item_id"))
+                    cat = cat or fetched_cat
+                    pkg = pkg or fetched_pkg
+                    
+                row_data.update({
+                    "revision_category": cat,
+                    "revision_procurement_package": pkg
                 })
 
             rev_po.append("revision_items", row_data)
@@ -98,12 +115,10 @@ def make_po_revisions(po_id, justification, revision_items, total_amount_differe
 
 def _split_target_po_term(target_po_id, transfer_amount, payment_name, source_po_id):
     """
-    Finds the first available 'Created' term on the Target PO, reduces it,
-    and inserts a new 'Credit' term right below it linked to the payment.
+    Deducts the given credit amount from the 'Created' terms of the Target PO
+    and appends a single 'Credit' term at the end to represent the transferred payment.
 
     Use Case: Used during the negative revision flow when excess credit is transferred "Against-po".
-    What it does: Accurately reduces the target PO's pending payments by the credit amount
-    from the revised source PO.
     """
     target_po = frappe.get_doc("Procurement Orders", target_po_id)
     if not target_po.payment_terms: return
@@ -111,33 +126,31 @@ def _split_target_po_term(target_po_id, transfer_amount, payment_name, source_po
     credit_remaining = transfer_amount
     new_terms = []
     
+    # First, simply reduce the existing "Created" terms
     for term in target_po.payment_terms:
-        # If we still have credit to apply and this term is unpaid
         if credit_remaining > 0 and term.term_status == "Created":
             term_amount = flt(term.amount)
-            # We can only deduct up to what the term currently holds
             reduction = min(term_amount, credit_remaining)
             
             if reduction > 0:
-                # Reduce the original term
                 term.amount = term_amount - reduction
-                new_terms.append(term.as_dict())
-                
-                # Create the new split reserved term
-                split_term = {
-                    "label": frappe.utils.cstr(f"{term.label} (Credit from PO {source_po_id})")[:140],
-                    "amount": reduction,
-                    "percentage": 0, # Percentage will be recalculated on approval if needed, keep 0 for draft
-                    "term_status": "Paid", # Keeps it un-usable by regular GRNs
-                    "payment_type": term.payment_type,
-                    "project_payment": payment_name
-                }
-                new_terms.append(split_term)
                 credit_remaining -= reduction
-            else:
-                new_terms.append(term.as_dict())
-        else:
+                
+        # Only keep terms that are not exactly 0. 
+        # Negative terms (Returns) or remaining positive balance should be preserved.
+        if abs(flt(term.amount)) > 0:
             new_terms.append(term.as_dict())
+                
+    # Next, append exactly ONE consolidated credit term for the entire transfer_amount
+    split_term = {
+        "label": frappe.utils.cstr(f"Credit PO {source_po_id}")[:140],
+        "amount": transfer_amount,
+        "percentage": 0, # Percentage will be recalculated on approval if needed, keep 0 for draft
+        "term_status": "Paid", # Keeps it un-usable by regular GRNs
+        "payment_type": target_po.payment_terms[0].payment_type if target_po.payment_terms else "",
+        "project_payment": payment_name
+    }
+    new_terms.append(split_term)
             
     # Set and save the newly cascaded terms
     target_po.set("payment_terms", new_terms)
@@ -264,9 +277,21 @@ def sync_original_po_items(revision_doc):
             new_row.make = rev_item.revision_make
             new_row.tax_amount = (new_row.amount * new_row.tax) / 100
             new_row.total_amount = new_row.amount + new_row.tax_amount
+            new_row.received_quantity = 0.0 # Explicitly initialize so it isn't None
+
+            # Assign metadata mapped during draft creation
+            cat = rev_item.revision_category
+            pkg = rev_item.revision_procurement_package
             
-            # Fetch and assign metadata
-            cat, pkg = _get_item_metadata(new_row.item_id)
+            # Fallback for older drafts or misses
+            if not cat or not pkg:
+                fetched_cat, fetched_pkg = _get_item_metadata(new_row.item_id)
+                cat = cat or fetched_cat
+                pkg = pkg or fetched_pkg
+                
+            if not cat:
+                frappe.throw(_("Category is missing for item '{0}'. Please reject this draft and recreate the revision.").format(new_row.item_name))
+
             new_row.category = cat
             new_row.procurement_package = pkg
             
@@ -284,6 +309,18 @@ def sync_original_po_items(revision_doc):
                 orig_row.tax_amount = (orig_row.amount * orig_row.tax) / 100
                 orig_row.total_amount = orig_row.amount + orig_row.tax_amount
                 
+                # Ensure category isn't lost on old custom items
+                if rev_item.revision_category:
+                    orig_row.category = rev_item.revision_category
+                if rev_item.revision_procurement_package:
+                    orig_row.procurement_package = rev_item.revision_procurement_package
+                
+                # Final safety check
+                if not orig_row.category:
+                    orig_row.category, orig_row.procurement_package = _get_item_metadata(orig_row.item_id)
+                if not orig_row.category:
+                    frappe.throw(_("Category is required for Revised Item '{0}'. Please recreate this revision.").format(orig_row.item_name))
+
                 rev_item.item_status = "Approved"
             else:
                 frappe.throw(_("Original item row {0} not found for revision.").format(rev_item.original_row_id))
@@ -306,6 +343,21 @@ def sync_original_po_items(revision_doc):
                 orig_row.tax_amount = (orig_row.amount * orig_row.tax) / 100
                 orig_row.total_amount = orig_row.amount + orig_row.tax_amount
                 
+                # Ensure category is correctly assigned for replacements
+                if rev_item.revision_category:
+                    orig_row.category = rev_item.revision_category
+                if rev_item.revision_procurement_package:
+                    orig_row.procurement_package = rev_item.revision_procurement_package
+                
+                if not orig_row.category:
+                    orig_row.category, orig_row.procurement_package = _get_item_metadata(orig_row.item_id)
+                if not orig_row.category:
+                    frappe.throw(_("Category is required for Replaced Item '{0}'. Please recreate this revision.").format(orig_row.item_name))
+
+                # For a full replacement, we ensure received is treated safely
+                if not getattr(orig_row, 'received_quantity', None):
+                    orig_row.received_quantity = 0.0
+                
                 rev_item.item_status = "Approved"
             else:
                 frappe.throw(_("Original row '{0}' not found. Cannot perform Replacement.").format(rev_item.original_row_id))
@@ -321,9 +373,8 @@ def sync_original_po_items(revision_doc):
                 original_po.get("items").remove(orig_row)
                 rev_item.item_status = "Approved"
 
-    # Re-calculate parent totals — handled automatically by .save() → validate()
-    # if hasattr(original_po, 'calculate_totals_from_items'):
-    #      original_po.calculate_totals_from_items()
+    # Re-calculate parent totals
+    original_po.calculate_totals_from_items()
 
     # Re-evaluate delivery status after item sync
     # If the PO was Partially Delivered, revised quantities may now match received quantities
@@ -460,6 +511,7 @@ def _create_project_payment(po_id, project, vendor, amt, status, utr=None, attac
         pay.utr = utr
     if attachment:
         pay.payment_attachment = attachment
+        pay.utr = f"VR-{po_id}"
         
     pay.flags.from_revision = True  # Skip ALL project_payments.py hooks (validation, on_update, commit)
     pay.save(ignore_permissions=True)
@@ -526,10 +578,6 @@ def _reduce_payment_terms_lifo(original_po, reduction_needed, new_total):
     # Calculate negative return terms manually appended
     return_amount = sum(flt(t.amount) for t in original_po.payment_terms if "Return" in (t.label or "") and flt(t.amount) < 0)
 
-    # Validation: Ensure we don't reduce below what is already locked (Paid/Requested), offsetting the return
-    if new_total < (locked_amount + return_amount):
-        frappe.throw(f"Revision calculation reduces amount below already paid/requested terms. Revert not possible.")
-
     locked_term_dicts = [t.as_dict() for t in locked_terms]
     modifiable_term_dicts = [t.as_dict() for t in modifiable_terms]
 
@@ -551,6 +599,27 @@ def _reduce_payment_terms_lifo(original_po, reduction_needed, new_total):
     return_terms = [t.as_dict() for t in original_po.payment_terms if "Return" in (t.label or "")]
     final_modifiable_terms = [d for d in modifiable_term_dicts if flt(d.get("amount")) > 0.01]
     
+    # NEW: If there is still a reduction deficit (overpayment), create an automatic Return term
+    if reduction_needed_for_terms > 0.01:
+        # Create a standalone negative Project Payment for internal ledger balancing
+        pay_adjustment = _create_project_payment(
+            po_id=original_po.name, 
+            project=original_po.project, 
+            vendor=original_po.vendor,
+            amt=-reduction_needed_for_terms, 
+            status="Paid"
+        )
+        # Create the corresponding PO Payment Term
+        auto_return_term = {
+            "label": frappe.utils.cstr("Return - Overpayment Adjustment")[:140],
+            "amount": -reduction_needed_for_terms,
+            "percentage": 0.0,
+            "term_status": "Return",
+            "payment_type": original_po.payment_terms[0].payment_type if original_po.payment_terms else "",
+            "project_payment": pay_adjustment.name
+        }
+        return_terms.append(auto_return_term)
+
     # Reset child table with the corrected list
     original_po.set("payment_terms", locked_term_dicts + final_modifiable_terms + return_terms)
 
@@ -623,7 +692,7 @@ def process_negative_returns(revision_doc):
                     po_id=revision_doc.revised_po, project=revision_doc.project, vendor=revision_doc.vendor,
                     amt=-t_amount, status="Paid"
                 )
-                _append_return_payment_term(original_po, pay_out, f"Return - Against PO {t_po_id}", -t_amount)
+                _append_return_payment_term(original_po, pay_out, f"RA PO {t_po_id}", -t_amount)
 
                 # CREATE Adjustment In NOW
                 pay_in = _create_project_payment(
@@ -643,7 +712,7 @@ def process_negative_returns(revision_doc):
                 utr=entry.get("utr"),
                 attachment=entry.get("refund_attachment")
             )
-            _append_return_payment_term(original_po, pay_refund, "Return - Vendor Refund", -amount)
+            _append_return_payment_term(original_po, pay_refund, "RA Vendor", -amount)
 
         # C. Ad-hoc
         elif r_type == "Ad-hoc":
@@ -654,7 +723,7 @@ def process_negative_returns(revision_doc):
                 po_id=revision_doc.revised_po, project=revision_doc.project, vendor=revision_doc.vendor,
                 amt=-amount, status="Paid"
             )
-            _append_return_payment_term(original_po, pay_adhoc, frappe.utils.cstr(f"Return - Adhoc")[:140], -amount)
+            _append_return_payment_term(original_po, pay_adhoc, frappe.utils.cstr(f"RA Adhoc")[:140], -amount)
             
             # CREATE PROJECT EXPENSE
             if expense_type:
@@ -667,7 +736,7 @@ def process_negative_returns(revision_doc):
                 expense.payment_date = nowdate()
                 expense.payment_by = revision_doc.owner
                 comment_text = entry.get("comment", "").strip()
-                expense.comment = f"{revision_doc.revised_po}\n{comment_text}" if comment_text else revision_doc.revised_po
+                expense.comment = f"{comment_text}" if comment_text else revision_doc.revised_po
                 
                 expense.save(ignore_permissions=True)
 
@@ -717,24 +786,50 @@ def on_reject_revision(revision_name):
         frappe.throw(_("Rejection failed: {0}").format(str(e)))
 
 
-# @frappe.whitelist()
-# def get_adjustment_candidate_pos(vendor, current_po):
-#     """
-#     Returns a list of approved POs for the same vendor that could potentially 
-#     receive a payment adjustment 'In'.
+@frappe.whitelist()
+def get_adjustment_candidate_pos(vendor, current_po):
+    """
+    Returns a list of approved POs for the same vendor that could potentially 
+    receive a payment adjustment 'In'.
 
-#     Use Case: Used by the frontend dropdown during a Negative Revision.
-#     What it does: Fetches a list of other active, approved Procurement Orders for the 
-#     same vendor where excess credit from a revision could be transferred.
-#     """
-#     return frappe.get_all("Procurement Orders", 
-#         filters={
-#             "vendor": vendor,
-#             "docstatus": 1,
-#             "name": ["!=", current_po],
-#             "status": ["not in", ["Cancelled", "Closed"]]
-#         },
-#         fields=["name", "total_amount", "vendor_name", "creation", "project", "project_name"],
-#         order_by="creation desc",
-#         limit=50
-#     )
+    Use Case: Used by the frontend dropdown during a Negative Revision.
+    What it does: Fetches a list of other active, approved Procurement Orders for the 
+    same vendor where excess credit from a revision could be transferred.
+    """
+    pos = frappe.get_all("Procurement Orders", 
+        filters={
+            "vendor": vendor,
+            "name": ["!=", current_po],
+            "status": ["in", ["PO Approved", "Dispatched", "Partially Delivered","Delivered"]]
+        },
+        fields=["name", "vendor", "total_amount", "amount_paid", "vendor_name", "creation", "project", "project_name", "status"],
+        order_by="creation desc",
+        limit=0
+    )
+    
+    valid_pos = []
+    
+    # Import the bulk lock checker
+    from nirmaan_stack.api.po_revisions.revision_po_check import get_all_locked_po_names
+    
+    # Get all currently locked POs once
+    locked_po_names = get_all_locked_po_names()
+
+    # Calculate the sum of 'Created' payment terms for each PO
+    for po in pos:
+        # Check if the PO is already involved in another Pending Revision using the pre-fetched list
+        if po.name in locked_po_names:
+            continue # Skip this PO, it's locked
+            
+        created_amount = frappe.db.sql("""
+            SELECT SUM(amount)
+            FROM `tabPO Payment Terms`
+            WHERE parent = %s AND term_status = 'Created'
+        """, (po.name,))[0][0]
+        
+        po.created_terms_amount = created_amount or 0.0
+        
+        if po.created_terms_amount > 100:
+            valid_pos.append(po)
+
+    return valid_pos

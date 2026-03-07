@@ -712,7 +712,8 @@ export const PODetails: React.FC<PODetailsProps> = ({
               <div className="flex  items-center mb-2 mt-4 pt-3 border-t border-dashed border-gray-200">
                   <p className="text-[10px] mr-5 font-semibold text-gray-400 uppercase tracking-wider">Invoices</p>
               {/* Conditional Revision Warning or Standard Link */}
-              {["Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) && !isLocked && !PoPaymentTermsValidationSafe && (
+              {/* && !po?.custom  */}
+              {["Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) && !isLocked && !PoPaymentTermsValidationSafe &&(
                   (totalUploadedInvoiceAmount  && po?.total_amount && Math.abs(totalUploadedInvoiceAmount - po.total_amount) > 1) ? (
                       <div className="flex items-center text-xs text-red-500 bg-red-50 px-2 py-1 rounded">
                           <span className="mr-1">Total PO Amount and Total Invoice Amount is not matching. Revise the PO to handle this amount change?</span>
@@ -747,19 +748,19 @@ export const PODetails: React.FC<PODetailsProps> = ({
                       {/* Total Amount of Invoices Uploaded */}
                       <div className="space-y-0.5">
                           <p className="text-xs text-gray-500">Overall Invoices Amount</p>
-                          <p className="text-sm font-semibold">{totalUploadedInvoiceAmount ? formatToRoundedIndianRupee(totalUploadedInvoiceAmount) : "--"}</p>
+                          <p className="text-sm font-medium">{totalUploadedInvoiceAmount ? formatToRoundedIndianRupee(totalUploadedInvoiceAmount) : "--"}</p>
                       </div>
 
                       {/* Invoices Pending Approval */}
                       <div className="space-y-0.5">
                           <p className="text-xs text-gray-500">Invoices Amount Approval Pending</p>
-                          <p className="text-sm font-semibold">{totalPendingInvoiceAmount ? formatToRoundedIndianRupee(totalPendingInvoiceAmount) : "--"}</p>
+                          <p className="text-sm font-medium text-orange-500">{totalPendingInvoiceAmount ? formatToRoundedIndianRupee(totalPendingInvoiceAmount) : "--"}</p>
                       </div>
 
                       {/* Total Invoices Approved */}
                       <div className="space-y-0.5">
                           <p className="text-xs text-gray-500">Invoices Amount Approved</p>
-                          <p className="text-sm font-semibold">{totalApprovedInvoiceAmount ? formatToRoundedIndianRupee(totalApprovedInvoiceAmount) : "--"}</p>
+                          <p className="text-sm font-medium text-green-600">{totalApprovedInvoiceAmount ? formatToRoundedIndianRupee(totalApprovedInvoiceAmount) : "--"}</p>
                       </div>
                   </div>
               </div>
@@ -976,7 +977,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   <TooltipTrigger asChild>
                     <Button
                       size="sm"
-                      disabled={!isValid}
+                      disabled={!isValid||isLocked}
                       onClick={isValid ? toggleDispatchPODialog : undefined}
                       className="h-8 px-2.5 shrink-0"
                     >
@@ -989,10 +990,10 @@ export const PODetails: React.FC<PODetailsProps> = ({
                       side="bottom"
                       className="bg-background border border-border text-foreground w-80"
                     >
-                      <ValidationMessages
-                        title="Required Before Dispatch"
-                        errors={errors}
-                      />
+                        <ValidationMessages
+                          title="Required Before Dispatch"
+                          errors={errors}
+                        />
                     </TooltipContent>
                   ) : (
                     <TooltipContent className="sm:hidden">Dispatch PO</TooltipContent>

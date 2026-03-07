@@ -45,6 +45,9 @@ The "Revise PO" button initiates the PO Revision workflow from the Procurement O
   The "Revise PO" button is highly conditional and only appears if **ALL** of the following base constraints are met:
   1. **Valid Status:** The PO's status must be `"Dispatched"`, `"Partially Delivered"`, or `"Delivered"`.
   2. **Not Locked:** The PO must *not* currently be locked by an existing pending revision (`isLocked === false`).
+  
+  > [!NOTE]
+  > Previously, Custom POs were excluded from revisions (`!po.custom`). This restriction has been removed to allow all PO types to benefit from the revision workflow.
 
   If the base constraints are met, the button renders if there is a discrepancy between the PO amount and uploaded invoices:
 
@@ -96,7 +99,21 @@ The dialog relies heavily on Frappe React SDK hooks (`useFrappeGetDocList`, `use
    * `Procurement Requests`: Fetches the PR to determine the Work Package.
    * `Category`, `Items`, & `Category Makelist`: Fetches valid categories, items, taxes, and makes allowed for this specific Work Package to populate the "Add/Edit Item" dropdowns.
    * `Vendor Invoices`: Fetches all invoices linked to the PO to help the user reference them while revising.
-   * `Procurement Orders` (Candidate POs): Fetches all other "Approved" POs for this specific vendor. This is used in Step 2 (Negative Flow) to allow the user to select a target PO to transfer credit to.
+   * `Procurement Orders` (Candidate POs) & **Bulk Lock Logic**: 
+     * To transfer credit to "Another PO" during a negative revision, the system must fetch eligible candidates.
+     * **API:** Uses `get_adjustment_candidate_pos` in `revision_logic.py`.
+     * **Eligibility Criteria for Target POs:**
+       1. Must belong to the exact same vendor.
+       2. Must be in `PO Approved`, `Dispatched`, `Partially Delivered`, or `Delivered` status.
+       3. **Lock Check:** The API internally calls a bulk lock check (`get_all_locked_po_names`). If a candidate PO is currently locked by any pending revision (either as an original or target), it is vigorously filtered out and omitted from the dropdown.
+       4. **Absorbable Limit:** The API calculates the sum of all `"Created"` (unpaid) payment terms for that PO. If this absorbable limit is `< ₹100`, the PO is strictly hidden because there's no remaining milestone to absorb the credit.
+     * **Frontend Cache:** The bulk lock list itself is globally cached via `useAllLockedPOs()` in `data/usePORevisionQueries.ts`.
+     * **Merge PO Block & Rules (`PurchaseOrder.tsx`):** The system applies strict frontend and backend filters to allow merging POs:
+       1. **Base SQL Filters:** Must be the same project, same vendor, exactly `"PO Approved"` status, and `docstatus != 2`.
+       2. **Custom Overwrite:** `custom` must not be `"true"`.
+       3. **Payment Integrity:** The candidate PO must *not* have any existing Project Payments attached to it (`!AllPoPaymentsList.some(...)`).
+       4. **Lock Check:** The candidate PO must NOT be present in the `lockedPOs` array.
+       5. **Payment Type Match:** The candidate PO must possess payment terms, and its `payment_type` MUST exactly match the `payment_type` of the main PO being merged into.
 2. **File Uploads:**
    * Uses the `upload()` function to attach proof/receipt documents if the user selects the "Refunded" method in Step 2.
 3. **Submission Endpoint:**
@@ -144,7 +161,7 @@ The dialog relies heavily on Frappe React SDK hooks (`useFrappeGetDocList`, `use
            ]
          }]
        }
-     }
+     ]
      ```
 
      *Negative Flow (Difference < 0):*
@@ -152,7 +169,7 @@ The dialog relies heavily on Frappe React SDK hooks (`useFrappeGetDocList`, `use
      {
        "list": {
          "type": "Refund Adjustment",
-         "auto_absorbed_amount": 2000.0, // Amount auto-absorbed directly from unpaid "Created" terms (if any)
+         "auto_adjusted_amount": 2000.0, // Amount auto-adjusted directly from unpaid "Created" terms (if any)
          "Details": [{
            "status": "Pending",
            "amount": 2000.0,
@@ -168,7 +185,7 @@ The dialog relies heavily on Frappe React SDK hooks (`useFrappeGetDocList`, `use
            "refund_date": "2026-02-27", "refund_attachment": "/files/receipt.pdf"
          }]
        }
-     }
+     ]
      ```
 
 ### Step-by-Step Logic
@@ -180,6 +197,18 @@ The dialog relies heavily on Frappe React SDK hooks (`useFrappeGetDocList`, `use
      * The **Unit** cannot be changed.
      * The **Delete Icon** is disabled.
      * The **Quantity** cannot be reduced below the already `received_quantity` (e.g., if 7 items were received, the user can revise the quantity to 8 or 10, but not 6).
+   * **Custom PO Specialized UI:** If the PO is a "Custom PO" (`po.custom === true`), the following UI adjustments are made to Step 1:
+     * **Item Name**: Uses a free-text `Input` field instead of `ReactSelect`, allowing users to type any item name.
+     * **Make Column**: The "Make" column is completely hidden from the table as it's not applicable to custom entry items.
+     * **Units & Tax**: These continue to use standard dropdowns (`SelectUnit` and `Select`) for data consistency.
+   * **Add New Item (`AddNewItemDialog`):**
+     * Users can click "+ Add Item" to introduce brand new rows to the PO.
+     * For **Standard POs**, the dialog provides a dropdown of all catalog items filtered by the current work package. When an item is selected, its underlying `Category` and `Procurement Package` metadata are automatically extracted and permanently attached to the new row.
+     * For **Custom POs**, users type a free text Item Name. Because there is no catalog ID to pull metadata from, the dialog explicitly forces the user to manually select a **Category** and a **Procurement Package** from dropdowns. This ensures backend reporting and categorical logic do not break when revising Custom POs.
+   * **Add Charges (`AddChargeDialog`):**
+     * Users can click "+ Add Charges" to quickly add standard "Additional Charges" (e.g., Freight, Loading/Unloading).
+     * The dialog strictly filters the item catalog to only show items where `category === "Additional Charges"`.
+     * Like standard items, when a predefined charge is selected, its `Category` ("Additional Charges") and its `Tax` percentage are safely attached to the new `RevisionItem` payload.
    * **Validation:** To proceed to Step 2, the user *must* provide a text `justification`.
 2. **Step 2 (Financial Adjustment):**
    * **Validation (Positive Flow):** If the amount increased, the sum of all newly allocated Payment Terms *must* exactly equal the difference amount to proceed (`Math.abs(totalAllocated - Math.abs(difference.inclGst)) < 1`).
@@ -278,31 +307,34 @@ Once a Manager reviews the "Pending" `PO Revisions` document and decides to appr
    * **If < 0 (Negative Flow):** It calls `process_negative_returns`. This function is strictly responsible for routing the "excess" money that the vendor now owes us back onto the books. It parses `payment_return_details` for `"Refund Adjustment"`. Depending on the `return_type` selected on the frontend, it executes one of three paths:
      1. **`Vendor-has-refund` (Direct Refund):** 
         * It creates a real `"Paid"` `Project Payments` document against the current PO for a *negative* amount (representing cash coming back).
-        * It appends a tracking row to the Original PO's `payment_terms` table with the negative amount, and explicitly sets its status to **`"Return"`**. It labels this row `"Return - Vendor Refund"` to visibly track this on the PO level.
+        * The payment's `utr` is explicitly prefixed exactly with `VR-[Original PO ID]` (e.g., `VR-PO-00Z-001`) to flag it clearly as a "Vendor Return" for accounting reconciliation.
+        * It appends a tracking row to the Original PO's `payment_terms` table with the negative amount, and explicitly sets its status to **`"Return"`**. It labels this row `"RA Vendor"` to visibly track this on the PO level.
      2. **`Ad-hoc` (Expense Offset):** 
-        * Similar to a refund, it creates a `"Paid"` `Project Payment` against the current PO for the negative amount.
-        * It also instantiates a new `"Project Expenses"` document tracking this exact expense amount, attributing it to the original Vendor, current Project, and associating the user-selected `Expense Type` and description.
-        * Finally, it appends a tracking term labeled `"Return - Adhoc [description]"` with a negative amount and status **`"Return"`**.
+        * Similar to a refund, it creates a `"Paid"` `Project Payment` against the current PO for the negative amount (also using the `VR-` UTR prefix).
+        * It also instantiates a new `"Project Expenses"` document tracking this exact expense amount, attributing it to the original Vendor, current Project, and associating the user-selected `Expense Type` and a clean user-typed description.
+        * Finally, it appends a tracking term labeled `"RA Adhoc [description]"` with a negative amount and status **`"Return"`**.
      3. **`Against-po` (Contra Credit Transfer):** 
         This is the most complex flow. It moves the negative credit from the revised PO to effectively "pay off" future milestones on a completely different open PO for the exact same vendor.
         
         * **What happens to the ORIGINAL PO (The one being revised):**
-          * It generates a real `Project Payment` record for a *negative* amount against this Original PO to represent the credit note out.
-          * It appends a tracking term to the Original PO's `payment_terms` table labeled `"Return - Against PO [Target PO ID]"`. Its amount is negative and its status is **`"Return"`**. This visibly closes the loop on the Original PO UI to show exactly where the credit went.
+          * It generates a real `Project Payment` record for a *negative* amount against this Original PO to represent the credit note out (`VR-` prefix applied).
+          * It appends a tracking term to the Original PO's `payment_terms` table labeled `"RA PO [Target PO ID]"`. Its amount is negative and its status is **`"Return"`**. This visibly closes the loop on the Original PO UI to show exactly where the credit went.
           
         * **What happens to the TARGET PO (The one receiving the credit):**
           * It generates a real, positive `"Paid"` `Project Payment` assigned directly to this Target PO to represent the credit "arriving".
-          * **Target PO Payment Term Split (`_split_target_po_term`):** It physically opens the Target PO document and actively applies the credit to its future milestones:
+          * **Target PO Payment Term Consolidation (`_split_target_po_term`):** It actively applies the credit to its future milestones cleanly without splitting rows unnecessarily:
              1. It loops through the Target PO's `payment_terms` from top to bottom.
              2. It targets terms where `term_status == "Created"` (unpaid future milestones).
              3. When it finds one, it **reduces** that term's `amount` by the credit limit.
-             4. Immediately beneath it, it **inserts a new row** labeled `"[Original Label] (Credit from PO [Source Original PO])"`. It sets this new row's status strictly to **`"Paid"`** and permanently links it to the positive Project Payment. This effectively "reserves" and pays off that chunk of the milestone early, so a future Goods Receipt doesn't try to bill for it again.
-             5. If there is still credit leftover, it cascades down the list to the next `"Created"` term and repeats the split.
-             6. Finally, it forcefully recalculates the percentages on the Target PO so they gracefully sum back to 100%, and saves the Target PO to the database.
+             4. **Cleanup:** If the credit offset reduces a "Created" term's amount to exactly `0`, that fragmented row is entirely deleted from the table.
+             5. Once the total credit amount has been successfully reduced from the target's pending milestones (or we run out of created terms), it appends **one single unified term** automatically labeled `"Credit PO [Source Original PO]"` at the very bottom of the table. 
+             6. It sets this new consolidated row's status strictly to **`"Paid"`** and permanently links it to the positive Project Payment. This effectively "reserves" and pays off those milestones via credit, without causing the `payment_terms` table to bloat with duplicates.
+             7. Finally, it forcefully recalculates the percentages on the Target PO so they gracefully sum back to 100%, and saves the Target PO to the database.
              
       **Final Negative Step — LIFO Reduction & Amount Paid Recalculation:**
       After routing the return money, the API does two things:
       1. Executes a Last-In, First-Out (LIFO) reduction (`_reduce_payment_terms_lifo`) on the Original PO's unpaid `"Created"` payment terms starting from the bottom, shrinking them until they perfectly account for the new, cheaper Grand Total.
+         * **Excessive Returns Safeguard:** If a PO was heavily revised downward (e.g., from ₹10k to ₹2k), but the vendor had *already* been paid ₹8k, the LIFO reduction will run out of "Created" terms to shrink, creating a "reduction deficit". To prevent a crash, the system automatically appends a new row to the table with a **negative amount**, status `"Return"`, and label `"Overpayment Return Required"`. This ensures the arithmetic sum of all terms matches the new, smaller `total_amount` perfectly.
       2. Calls `_recalculate_amount_paid()` on both the original PO and all affected target POs. This manually sums all `"Paid"` Project Payments for each PO and updates their `amount_paid` field. This is necessary because the normal `project_payments.py` hooks that do this automatically are intentionally skipped during the revision flow (see Section 10).
 
 4. **Step 3: Finalizing the Draft**

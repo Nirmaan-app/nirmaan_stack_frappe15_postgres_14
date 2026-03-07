@@ -131,7 +131,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { PaymentTerm, POTotals, DeliveryDataType } from "@/types/NirmaanStack/ProcurementOrders";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 import { PORevisionWarning } from "@/pages/PORevision/PORevisionWarning";
-import { usePOLockCheck } from "@/pages/PORevision/data/usePORevisionQueries";
+import { usePOLockCheck, useAllLockedPOs } from "@/pages/PORevision/data/usePORevisionQueries";
 
 interface PurchaseOrderProps {
   summaryPage?: boolean;
@@ -170,6 +170,8 @@ export const PurchaseOrder = ({
 
   const { data: lockData } = usePOLockCheck(poId);
   const isLocked = lockData?.is_locked || false;
+
+  const { data: allLockedPOs } = useAllLockedPOs();
 
   const [orderData, setOrderData] = useState<PurchaseOrderItem[]>([]);
   const [PO, setPO] = useState<ProcurementOrder | null>(null);
@@ -472,7 +474,8 @@ export const PurchaseOrder = ({
       .filter(
         (item) =>
           item.custom !== "true" &&
-          !AllPoPaymentsList.some((j) => j.document_name === item.name)
+          !AllPoPaymentsList.some((j) => j.document_name === item.name) &&
+          !allLockedPOs?.includes(item.name)
       )
       .map((item) => item.name); // We only need the names for the next step.
 
@@ -727,7 +730,7 @@ export const PurchaseOrder = ({
     }
   };
 
-  console.log("PO?.payment_terms",PO?.payment_terms)
+  // console.log("PO?.payment_terms",PO?.payment_terms)
   const handleAmendPo = async () => {
     setLoadingFuncName("handleAmendPo");
 
@@ -1284,7 +1287,8 @@ export const PurchaseOrder = ({
   return (
     <div className="flex-1 space-y-4">
       <PORevisionWarning poId={poId} />
-      {MERGEPOVALIDATIONS && (
+      
+      {MERGEPOVALIDATIONS && !isLocked &&(
         <>
           <Alert variant="warning" className="">
             <AlertTitle className="text-sm flex items-center gap-2">

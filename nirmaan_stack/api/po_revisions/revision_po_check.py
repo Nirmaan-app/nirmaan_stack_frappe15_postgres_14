@@ -96,3 +96,52 @@ def _check_pending_as_target(po_id):
                         return rev.name # Found it! This PO is locked as a target.
 
     return False
+@frappe.whitelist()
+def get_all_locked_po_names():
+    """
+    Returns a unique list of all PO names currently involved in a Pending 
+    PO Revision (as Original or Target).
+    Useful for bulk filtering (e.g. merge candidates).
+    """
+    # 1. Get all Original POs in pending revisions
+    original_pos = frappe.get_all(
+        "PO Revisions",
+        filters={"status": "Pending"},
+        pluck="revised_po"
+    )
+    locked_set = set(original_pos)
+
+    # 2. Get all Target POs from pending revisions
+    pending_details = frappe.get_all(
+        "PO Revisions",
+        filters={"status": "Pending"},
+        fields=["payment_return_details"]
+    )
+
+    for rev in pending_details:
+        data = rev.get("payment_return_details")
+        if not data:
+            continue
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except Exception:
+                continue
+        
+        block = data.get("list")
+        if not isinstance(block, dict) or block.get("type") != "Refund Adjustment":
+            continue
+            
+        entries = block.get("Details", [])
+        if not isinstance(entries, list):
+            entries = [entries] if entries else []
+            
+        for entry in entries:
+            if isinstance(entry, dict) and entry.get("return_type") == "Against-po":
+                targets = entry.get("target_pos", [])
+                if isinstance(targets, list):
+                    for target in targets:
+                        if isinstance(target, dict) and target.get("po_number"):
+                            locked_set.add(target.get("po_number"))
+
+    return list(locked_set)

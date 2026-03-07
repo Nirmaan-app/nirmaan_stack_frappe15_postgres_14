@@ -1,5 +1,4 @@
-import React from "react";
-import { useToast } from "@/components/ui/use-toast";
+import React, { useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Info, ClipboardList, Plus, Undo, Trash2, Edit3, Eye } from "lucide-react";
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
@@ -14,6 +13,8 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { RevisionItem, SummaryData, DifferenceData } from "../../types";
 import { InvoicesSection } from "./InvoicesSection";
 import { ImpactSummaryTable } from "./ImpactSummaryTable";
+import { AddNewItemDialog } from "./AddNewItemDialog";
+import { AddChargeDialog } from "./AddChargeDialog";
 import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 
 interface Step1ReviseItemsProps {
@@ -21,7 +22,7 @@ interface Step1ReviseItemsProps {
   invoices?: VendorInvoice[];
   justification: string;
   setJustification: (val: string) => void;
-  handleAddItem: () => void;
+  handleAddItem: (item?: RevisionItem) => void;
   handleUpdateItem: (idx: number, updates: Partial<RevisionItem>) => void;
   handleRemoveItem: (idx: number) => void;
   beforeSummary: SummaryData;
@@ -29,6 +30,10 @@ interface Step1ReviseItemsProps {
   difference: DifferenceData;
   netImpact: number;
   itemOptions?: { label: string; value: string; item_id: string; item_name: string; make: string; available_makes: string[]; unit: string; category: string; tax: number }[];
+  isCustom?: boolean;
+  poTotalAmount: number;
+  poAmountPaid: number;
+  poAmountDelivered: number;
 }
 
 export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
@@ -44,17 +49,37 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
   difference,
   netImpact,
   itemOptions = [],
+  isCustom = false,
+  poTotalAmount,
+  poAmountPaid,
+  poAmountDelivered,
 }) => {
-  const { toast } = useToast();
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [isAddChargeDialogOpen, setIsAddChargeDialogOpen] = useState(false);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-4">
       <Alert className="bg-blue-50 border-blue-100 py-3">
         <Info className="h-4 w-4 text-blue-600" />
         <AlertDescription className="text-blue-700 text-xs">
           Note: Once submitted, this PO revision will be locked for 7 days. Please review all line items and amount changes carefully before proceeding.
         </AlertDescription>
       </Alert>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 border rounded-xl bg-gray-50/50">
+          <div className="space-y-1">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">PO Amount (incl. GST)</p>
+              <p className="text-sm font-bold text-gray-900">{formatToIndianRupee(poTotalAmount)}</p>
+          </div>
+          <div className="space-y-1 border-l-0 sm:border-l sm:pl-4 border-gray-100">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">PO Amount Paid</p>
+              <p className="text-sm font-bold text-emerald-600">{formatToIndianRupee(poAmountPaid)}</p>
+          </div>
+          <div className="space-y-1 border-l-0 sm:border-l sm:pl-4 border-gray-100">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">PO Amount Delivered</p>
+              <p className="text-sm font-medium text-blue-600">{formatToIndianRupee(poAmountDelivered)}</p>
+          </div>
+      </div>
 
       <InvoicesSection invoices={invoices} />
 
@@ -64,9 +89,16 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
             <ClipboardList className="h-4 w-4 text-red-600" />
             <h3 className="font-bold text-[13px] text-gray-700 uppercase tracking-tight"> Item Revision</h3>
           </div>
-          <Button variant="outline" size="sm" onClick={handleAddItem} className="text-red-500 border-red-500 hover:bg-red-50 text-[11px] h-8 font-bold px-4">
-            <Plus className="h-3 w-3 mr-1" /> Add New Item
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setIsAddChargeDialogOpen(true)} className="text-blue-600 border-blue-200 hover:bg-blue-50 text-[11px] h-8 font-bold px-4">
+              <Plus className="h-3 w-3 mr-1" /> Add Charges
+            </Button>
+            
+              <Button variant="outline" size="sm" onClick={() => setIsAddDialogOpen(true)} className="text-red-500 border-red-500 hover:bg-red-50 text-[11px] h-8 font-bold px-4">
+                <Plus className="h-3 w-3 mr-1" /> Add New Item
+              </Button>
+            
+          </div>
         </div>
         <div className="border rounded-md overflow-visible bg-white pb-24">
           <Table>
@@ -74,7 +106,7 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
               <TableRow>
                 <TableHead className="w-[40px] pl-3"></TableHead>
                 <TableHead className="w-[340px]">ITEM NAME</TableHead>
-                <TableHead className="w-[200px]">MAKE</TableHead>
+                {!isCustom && <TableHead className="w-[200px]">MAKE</TableHead>}
                 <TableHead className="w-[100px]">UNIT</TableHead>
                 <TableHead className="w-[100px]">QTY</TableHead>
                 <TableHead className="w-[120px]">RATE</TableHead>
@@ -125,7 +157,23 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                       </HoverCard>
                     </TableCell>
                     <TableCell>
-                      {item.item_type !== 'Deleted'  && item.item_type !== 'Revised' ? (
+                      {isCustom ? (
+                        <Input
+                          value={item.item_name}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            const isOriginal = item.item_type === 'Original';
+                            let typeUpdates: Partial<RevisionItem> = {};
+                            if (isOriginal && val !== item.item_name) {
+                              typeUpdates = { item_type: 'Replace', original_row_id: item.name };
+                            }
+                            handleUpdateItem(idx, { ...typeUpdates, item_name: val });
+                          }}
+                          disabled={isDeleted || item.category === 'Additional Charges'}
+                          placeholder="Item Name..."
+                          className="text-xs font-bold h-9"
+                        />
+                      ) : item.item_type !== 'Deleted'  && item.item_type !== 'Revised' ? (
                         <ReactSelect
                           options={itemOptions.filter(opt => !revisionItems.some(ri => ri.item_id === opt.item_id && ri.item_type !== 'Deleted'))}
                           value={
@@ -186,40 +234,52 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                         </div>
                       )}
                     </TableCell>
+                    {!isCustom && (
                     <TableCell>
-                      <ReactSelect
-                        options={
-                          (() => {
-                            const optionItem = itemOptions.find(opt => opt.item_id === item.item_id);
-                            const makes = optionItem?.available_makes || (item.make ? [item.make] : []);
-                            return makes.map(m => ({ label: m, value: m }));
-                          })()
-                        }
-                        value={item.make ? { label: item.make, value: item.make } : null}
-                        onChange={(selected: any) => handleUpdateItem(idx, { make: selected?.value || "" })}
-                        isDisabled={isDeleted || !item.item_id}
-                        placeholder="Make..."
-                        isClearable
-                        styles={{
-                          control: (base) => ({
-                            ...base,
-                            minHeight: '36px',
-                            height: '36px',
-                            fontSize: '12px',
-                            fontWeight: 600,
-                          }),
-                          valueContainer: (base) => ({
-                            ...base,
-                            padding: '0 8px',
-                          }),
-                          input: (base) => ({
-                            ...base,
-                            margin: 0,
-                            padding: 0,
-                          }),
-                        }}
-                      />
+                      {isCustom ? (
+                        <Input
+                          value={item.make}
+                          onChange={(e) => handleUpdateItem(idx, { make: e.target.value })}
+                          disabled={isDeleted}
+                          placeholder="Make..."
+                          className="text-xs font-bold h-9"
+                        />
+                      ) : (
+                        <ReactSelect
+                          options={
+                            (() => {
+                              const optionItem = itemOptions.find(opt => opt.item_id === item.item_id);
+                              const makes = optionItem?.available_makes || (item.make ? [item.make] : []);
+                              return makes.map(m => ({ label: m, value: m }));
+                            })()
+                          }
+                          value={item.make ? { label: item.make, value: item.make } : null}
+                          onChange={(selected: any) => handleUpdateItem(idx, { make: selected?.value || "" })}
+                          isDisabled={isDeleted || !item.item_id}
+                          placeholder="Make..."
+                          isClearable
+                          styles={{
+                            control: (base) => ({
+                              ...base,
+                              minHeight: '36px',
+                              height: '36px',
+                              fontSize: '12px',
+                              fontWeight: 600,
+                            }),
+                            valueContainer: (base) => ({
+                              ...base,
+                              padding: '0 8px',
+                            }),
+                            input: (base) => ({
+                              ...base,
+                              margin: 0,
+                              padding: 0,
+                            }),
+                          }}
+                        />
+                      )}
                     </TableCell>
+                    )}
                     <TableCell>
                       <SelectUnit 
                         value={item.unit || ""} 
@@ -235,20 +295,10 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                         value={item.quantity} 
                         onChange={(e) => {
                            const val = parseFloat(e.target.value) || 0;
-                           const minQty = (item.item_type !== 'New' && item.received_quantity) ? item.received_quantity : 0;
-                           if (val < minQty) {
-                               handleUpdateItem(idx, { quantity: minQty });
-                               toast({
-                                 title: "Minimum Qty Reached",
-                                 description: `Qty cannot go below ${minQty} (already delivered). Check the 👁 eye icon for details.`,
-                                 variant: "destructive",
-                               });
-                           } else {
-                               handleUpdateItem(idx, { quantity: val });
-                           }
+                           handleUpdateItem(idx, { quantity: val });
                         }}
                         disabled={isDeleted}
-                        className="text-xs font-bold h-9"
+                        className={`text-xs font-bold h-9 ${!isDeleted && (item.quantity === undefined || item.quantity <= 0 || item.quantity < ((item.item_type !== 'New' && item.received_quantity) ? item.received_quantity : 0)) ? 'border-red-500 ring-1 ring-red-500 focus-visible:ring-red-500 bg-red-50/50' : ''}`}
                       />
                     </TableCell>
                     <TableCell>
@@ -259,7 +309,7 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                               value={item.quote} 
                               onChange={(e) => handleUpdateItem(idx, { quote: parseFloat(e.target.value) || 0 })}
                               disabled={isDeleted}
-                              className="text-xs font-bold pl-5 h-9"
+                              className={`text-xs font-bold pl-5 h-9 ${!isDeleted && (item.quote === undefined || item.quote <= 0) ? 'border-red-500 ring-1 ring-red-500 focus-visible:ring-red-500 bg-red-50/50' : ''}`}
                           />
                        </div>
                     </TableCell>
@@ -273,7 +323,6 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="0">0%</SelectItem>
                           <SelectItem value="5">5%</SelectItem>
                           <SelectItem value="12">12%</SelectItem>
                           <SelectItem value="18">18%</SelectItem>
@@ -308,13 +357,7 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
       </div>
 
       <div className="grid grid-cols-2 gap-10 pt-4">
-        <ImpactSummaryTable 
-          beforeSummary={beforeSummary}
-          afterSummary={afterSummary}
-          difference={difference}
-          netImpact={netImpact}
-        />
-
+       
         <div className="space-y-4">
           <div className="flex items-center gap-2">
             <Edit3 className="h-4 w-4 text-red-600" />
@@ -332,7 +375,32 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
               />
           </div>
         </div>
+        <ImpactSummaryTable 
+          beforeSummary={beforeSummary}
+          afterSummary={afterSummary}
+          difference={difference}
+          netImpact={netImpact}
+        />
+
       </div>
+
+      <AddNewItemDialog
+        open={isAddDialogOpen}
+        onOpenChange={setIsAddDialogOpen}
+        onAdd={handleAddItem}
+        isCustom={isCustom}
+        itemOptions={itemOptions}
+        revisionItems={revisionItems}
+      />
+
+      <AddChargeDialog
+        open={isAddChargeDialogOpen}
+        onOpenChange={setIsAddChargeDialogOpen}
+        onAdd={handleAddItem}
+        isCustom={isCustom}
+        itemOptions={itemOptions}
+        revisionItems={revisionItems}
+      />
     </div>
   );
 };

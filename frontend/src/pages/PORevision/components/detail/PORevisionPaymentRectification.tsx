@@ -20,7 +20,7 @@ export default function PORevisionPaymentRectification({ paymentData }: PORevisi
     const type = data?.list?.type;
     const details = data?.list?.Details || [];
 
-    if (!type || details.length === 0) return null;
+    // if (!type || details.length === 0) return null;
 
     return (
         <div className="space-y-4 mt-6">
@@ -74,13 +74,13 @@ export default function PORevisionPaymentRectification({ paymentData }: PORevisi
                         <div className="space-y-2">
                             <h4 className="text-sm font-bold text-green-600 flex items-center gap-2">
                                 <ShieldCheck className="w-4 h-4" />
-                                Auto-Absorbed by Payment Terms:
+                                Auto-Adjusted by Payment Terms:
                             </h4>
                             <div className="rounded-md border shadow-sm bg-green-50 overflow-x-auto">
                                 <Table>
                                     <TableHeader className="bg-green-100/50">
                                         <TableRow>
-                                            <TableHead className="font-semibold text-green-800 h-10 w-full">AMOUNT ABSORBED</TableHead>
+                                            <TableHead className="font-semibold text-green-800 h-10 w-full">AMOUNT ADJUSTED</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -106,7 +106,6 @@ export default function PORevisionPaymentRectification({ paymentData }: PORevisi
                                                 <TableRow>
                                                     <TableHead className="font-semibold text-slate-700 h-10 uppercase tracking-wider text-xs">SELECTED PO</TableHead>
                                                     <TableHead className="font-semibold text-slate-700 h-10 uppercase tracking-wider text-xs">TOTAL REFUND AMOUNT</TableHead>
-                                                    <TableHead className="font-semibold text-slate-700 h-10 uppercase tracking-wider text-xs">AMOUNT PAYABLE</TableHead>
                                                     <TableHead className="font-semibold text-slate-700 h-10 uppercase tracking-wider text-xs">ADJUSTMENT APPLIED</TableHead>
                                                 </TableRow>
                                             </TableHeader>
@@ -115,8 +114,6 @@ export default function PORevisionPaymentRectification({ paymentData }: PORevisi
                                                     <TableRow key={tidx}>
                                                         <TableCell className="font-medium text-slate-800">{tpo.po_number}</TableCell>
                                                         <TableCell>{formatCurrency(detail.amount || 0)}</TableCell>
-                                                        {/* For payable we'd ideally get tpo balance, but just showing adjustment mapping for now */}
-                                                        <TableCell className="text-slate-600">-</TableCell>
                                                         <TableCell className="text-slate-800 font-medium">-{formatCurrency(tpo.amount || 0)}</TableCell>
                                                     </TableRow>
                                                 ))}
