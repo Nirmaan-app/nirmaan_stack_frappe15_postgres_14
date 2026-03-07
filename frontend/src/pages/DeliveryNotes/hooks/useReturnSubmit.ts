@@ -4,6 +4,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { parseNumber } from "@/utils/parseNumber";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
+import { ADDITIONAL_CHARGES_CATEGORY } from "../components/pivot-table/types";
 
 const NUMERIC_INPUT_PATTERN = /^[0-9]*\.?[0-9]*$/;
 
@@ -116,6 +117,7 @@ export function useReturnSubmit({
 
       const originalItem = poItems.find((item) => item.name === itemKey);
       if (!originalItem) return;
+      if (originalItem.category === ADDITIONAL_CHARGES_CATEGORY) return;
 
       const alreadyDelivered = originalItem.received_quantity ?? 0;
       modifiedItems[itemKey] = alreadyDelivered - returnQty;

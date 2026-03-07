@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { DeliveryNote } from "@/types/NirmaanStack/DeliveryNotes";
-import { PivotData, PivotRow, DNColumn } from "../components/pivot-table/types";
+import { PivotData, PivotRow, DNColumn, ADDITIONAL_CHARGES_CATEGORY } from "../components/pivot-table/types";
 
 export function useDeliveryPivotData(
   po: ProcurementOrder | null,
@@ -34,8 +34,13 @@ export function useDeliveryPivotData(
       }
     }
 
-    // 3. Map PO items → PivotRow[]
-    const rows: PivotRow[] = po.items.map((item) => {
+    // 3. Filter out Additional Charges items (cost add-ons, not physical materials)
+    const regularItems = po.items.filter(
+      (item) => item.category !== ADDITIONAL_CHARGES_CATEGORY
+    );
+
+    // 4. Map PO items → PivotRow[]
+    const rows: PivotRow[] = regularItems.map((item) => {
       const totalReceived = item.received_quantity ?? 0;
       const remainingQty = Math.max(0, item.quantity - totalReceived);
 
