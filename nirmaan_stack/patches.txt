@@ -90,3 +90,4 @@ nirmaan_stack.patches.v3_0.backfill_design_tracker_onboarding_phase
 nirmaan_stack.patches.v3_0.sync_items_to_tds_repository #v2
 nirmaan_stack.patches.v3_0.backfill_handover_na_tasks
 nirmaan_stack.patches.v3_0.migrate_delivery_data_to_delivery_notes #v5
+nirmaan_stack.patches.v3_0.remove_additional_charges_from_delivery_notes
