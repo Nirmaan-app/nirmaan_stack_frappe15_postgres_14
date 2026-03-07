@@ -14,6 +14,7 @@ export interface PivotRow {
   totalReceived: number;
   remainingQty: number;
   isFullyDelivered: boolean;
+  isOverDelivered: boolean;
   comment?: string;
 }
 

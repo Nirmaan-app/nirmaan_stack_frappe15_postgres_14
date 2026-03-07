@@ -71,7 +71,7 @@ export function useDeliverySubmit({
   );
 
   const handleNewlyDeliveredChange = useCallback(
-    (itemId: string, value: string, maxAllowed: number) => {
+    (itemId: string, value: string, _maxAllowed: number) => {
       // Handle clearing input
       if (value === "") {
         setNewlyDeliveredQuantities((prev) => {
@@ -85,13 +85,9 @@ export function useDeliverySubmit({
       // Validate input format — only numbers and single decimal point
       if (!/^[0-9]*\.?[0-9]*$/.test(value)) return;
 
-      const numericValue = parseFloat(value);
-      const finalValue =
-        numericValue > maxAllowed ? String(maxAllowed) : value;
-
       setNewlyDeliveredQuantities((prev) => ({
         ...prev,
-        [itemId]: finalValue,
+        [itemId]: value,
       }));
     },
     []

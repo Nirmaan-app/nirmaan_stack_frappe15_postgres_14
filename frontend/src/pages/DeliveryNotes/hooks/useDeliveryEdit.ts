@@ -118,7 +118,7 @@ export function useDeliveryEdit({
     (
       itemItemId: string,
       value: string,
-      maxAllowed: number
+      _maxAllowed: number
     ) => {
       // Handle clearing input
       if (value === "") {
@@ -133,13 +133,9 @@ export function useDeliveryEdit({
       // Validate input format — only numbers and single decimal point
       if (!/^[0-9]*\.?[0-9]*$/.test(value)) return;
 
-      const numericValue = parseFloat(value);
-      const finalValue =
-        numericValue > maxAllowed ? String(maxAllowed) : value;
-
       setEditedQuantities((prev) => ({
         ...prev,
-        [itemItemId]: finalValue,
+        [itemItemId]: value,
       }));
     },
     []
