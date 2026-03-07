@@ -22,7 +22,8 @@
   "items_section",
   "items",
   "status_section",
-  "is_stub"
+  "is_stub",
+  "is_return"
  ],
  "fields": [
   {
@@ -121,6 +122,13 @@
    "fieldname": "is_stub",
    "fieldtype": "Check",
    "label": "Is Stub (Legacy)"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_return",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Return Note"
   }
  ],
  "grid_page_length": 50,
