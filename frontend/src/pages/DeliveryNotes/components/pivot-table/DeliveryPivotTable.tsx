@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table } from "@/components/ui/table";
-import { Plus, RotateCcw } from "lucide-react";
+import { Plus, RotateCcw,Printer } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { useDeliveryPivotData } from "../../hooks/useDeliveryPivotData";
 import { useDeliverySubmit } from "../../hooks/useDeliverySubmit";
@@ -110,77 +110,96 @@ export function DeliveryPivotTable({
 
   return (
     <div className={isEmbedded ? "" : "border rounded-lg bg-card"}>
-      {/* Action bar for create mode */}
-      {effectiveCanEdit && !editHook.editingDnName && (
+
+     
+      {/* Action bar for create mode & download */}
+      {!editHook.editingDnName && (viewMode !== "create" || effectiveCanEdit) && (
         <div
           className={`flex flex-col sm:flex-row items-end sm:items-center justify-end gap-2 ${
             isEmbedded ? "pb-3" : "px-4 py-3 border-b"
           }`}
         >
-          {showEdit ? (
+          {viewMode !== "create" && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 border-red-500 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/30"
+              onClick={() => downloadDN()}
+              disabled={dnRecords.length === 0}
+            >
+              <Printer className="h-4 w-4 mr-1" />
+              Download All DN
+            </Button>
+          )}
+
+          {effectiveCanEdit && (
             <>
-              <Button
-                size="sm"
-                onClick={() => setConfirmDialog(true)}
-                disabled={!submitHook.hasChanges || isLocked}
-              >
-                Update
-              </Button>
-              {viewMode !== "create" && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={handleToggleEdit}
-                >
-                  Cancel
-                </Button>
-              )}
-              {isLocked && (
-                <p className="text-xs text-red-600 font-medium">
-                 This PO is currently under revision, so editing is disabled.
-                </p>
-              )}
-            </>
-          ) : showReturn ? (
-            <>
-              <Button
-                size="sm"
-                variant="destructive"
-                onClick={() => setReturnConfirmDialog(true)}
-                disabled={!returnHook.hasChanges}
-              >
-                Submit Return
-              </Button>
-              <Button size="sm" variant="ghost" onClick={handleToggleReturn}>
-                Cancel
-              </Button>
-            </>
-          ) : (
-            viewMode !== "create" && (
-              <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2">
-                <Button size="sm" variant="outline" onClick={handleToggleEdit} disabled={isLocked}>
-                  <Plus className="h-4 w-4 mr-1" />
-                  Add New Delivery Note
-                </Button>
-                {canReturn && dnRecords.length > 0 && (
+              {showEdit ? (
+                <>
                   <Button
                     size="sm"
-                    variant="outline"
-                    className="text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-950/30"
-                    onClick={handleToggleReturn}
-                    disabled={isLocked}
+                    onClick={() => setConfirmDialog(true)}
+                    disabled={!submitHook.hasChanges || isLocked}
                   >
-                    <RotateCcw className="h-4 w-4 mr-1" />
-                    Return Items
+                    Update
                   </Button>
-                )}
-                {isLocked && (
-                  <p className="text-xs text-red-600 font-medium">
-                    This PO is currently under revision, so editing is disabled.
-                  </p>
-                )}
-              </div>
-            )
+                  {viewMode !== "create" && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={handleToggleEdit}
+                    >
+                      Cancel
+                    </Button>
+                  )}
+                  {isLocked && (
+                    <p className="text-xs text-red-600 font-medium">
+                      This PO is currently under revision, so editing is disabled.
+                    </p>
+                  )}
+                </>
+              ) : showReturn ? (
+                <>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => setReturnConfirmDialog(true)}
+                    disabled={!returnHook.hasChanges}
+                  >
+                    Submit Return
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={handleToggleReturn}>
+                    Cancel
+                  </Button>
+                </>
+              ) : (
+                viewMode !== "create" && (
+                  <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2">
+                    <Button size="sm" variant="outline" onClick={handleToggleEdit} disabled={isLocked}>
+                      <Plus className="h-4 w-4 mr-1" />
+                      Add New Delivery Note
+                    </Button>
+                    {canReturn && dnRecords.length > 0 && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-950/30"
+                        onClick={handleToggleReturn}
+                        disabled={isLocked}
+                      >
+                        <RotateCcw className="h-4 w-4 mr-1" />
+                        Return Items
+                      </Button>
+                    )}
+                    {isLocked && (
+                      <p className="text-xs text-red-600 font-medium">
+                        This PO is currently under revision, so editing is disabled.
+                      </p>
+                    )}
+                  </div>
+                )
+              )}
+            </>
           )}
         </div>
       )}
