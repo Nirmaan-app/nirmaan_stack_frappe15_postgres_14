@@ -127,21 +127,41 @@ Check in `PODetails.tsx`:
 
 | File | Purpose |
 |------|---------|
-| `src/pages/DeliveryNotes/deliverynotes.tsx` | DN hub (3 views: dashboard, create, view existing) |
-| `src/pages/DeliveryNotes/deliverynote.tsx` | Individual DN detail page |
-| `src/pages/DeliveryNotes/constants.ts` | `encodeFrappeId`, `decodeFrappeId`, `deriveDnIdFromPoId`, `derivePoIdFromDnId`, route helpers |
-| `src/pages/DeliveryNotes/components/deliveryNoteItemsDisplay.tsx` | Recording form (qty inputs, attachment, date, confirmation) |
-| `src/pages/DeliveryNotes/components/DeliveryHistory.tsx` | Delivery history timeline table |
-| `src/pages/DeliveryNotes/components/DeliveryNotePrintLayout.tsx` | Print layout component |
-| `src/pages/DeliveryNotes/hooks/useDeliveryNoteData.ts` | Decodes DN ID from URL, derives PO ID, fetches PO doc |
-| `src/pages/DeliveryNotes/hooks/usePrintHistroy.tsx` | Print history management hook |
+| `src/pages/DeliveryNotes/deliverynotes.tsx` | DN hub (3 views: dashboard, create, view existing). Dashboard cards → project select → PO list |
+| `src/pages/DeliveryNotes/deliverynote.tsx` | Individual DN detail page. Supports `?mode=create\|view\|full` via query param |
+| `src/pages/DeliveryNotes/constants.ts` | `encodeFrappeId`, `decodeFrappeId`, `deriveDnIdFromPoId`, `STATUS_BADGE_VARIANT`, route helpers |
+| `src/pages/DeliveryNotes/components/DNDetailDialog.tsx` | Dialog showing DN items table (used in View Existing accordion) |
+| `src/pages/DeliveryNotes/components/pivot-table/` | Pivot table subsystem (see below) |
+
+**Pivot Table Components** (`components/pivot-table/`):
+
+| File | Purpose |
+|------|---------|
+| `DeliveryPivotTable.tsx` | Main orchestrator: create/edit modes, confirmation dialogs, viewMode support |
+| `PivotTableHeader.tsx` | Column headers with DN metadata, edit/print buttons, user name resolution |
+| `PivotTableBody.tsx` | Item rows with DN qty columns, inline edit inputs, fully-delivered highlighting |
+| `PivotTableMetadataBar.tsx` | PO metadata bar (PO/PR nav links, vendor, project, status badge, delivery contact) |
+| `types.ts` | `PivotRow`, `DNColumn`, `PivotData`, `DeliveryPivotTableProps`, `DELIVERY_EDIT_ROLES` |
+
+**Hooks** (`hooks/`):
+
+| File | Purpose |
+|------|---------|
+| `useDeliveryNoteData.ts` | Decodes DN ID from URL, derives PO ID, fetches PO doc + DN records |
+| `useDeliveryPivotData.ts` | Transforms PO items + DN records into pivot table rows/columns |
+| `useDeliverySubmit.ts` | New DN creation: quantity tracking, date, attachment, submit logic |
+| `useDeliveryEdit.ts` | Existing DN editing: init from column, quantity changes, submit edits |
+| `useDownloadDN.ts` | DN PDF download by delivery date |
+| `useProjectDeliveryNotes.ts` | Fetches all DNs for a project, groups by PO (`dnsByPO` map) |
 
 ### Backend — Core API
 
 | File | Purpose |
 |------|---------|
 | `nirmaan_stack/api/delivery_notes/update_delivery_note.py` | Main endpoint: updates PO `received_quantity`, calculates status/amount, creates DN record |
+| `nirmaan_stack/api/delivery_notes/edit_delivery_note.py` | Edit existing DN quantities with role-based permissions |
 | `nirmaan_stack/api/delivery_notes/get_delivery_notes.py` | Read APIs: `get_delivery_notes(po)`, `get_project_delivery_notes(project)` |
+| `nirmaan_stack/api/delivery_notes/get_project_pos.py` | `get_project_pos_with_items()`: POs for a project with child items (for search in Create view) |
 | `nirmaan_stack/api/delivery_notes/update_invoice_data.py` | Creates/deletes Vendor Invoices (shares `delivery_notes/` package) |
 | `nirmaan_stack/integrations/controllers/delivery_notes.py` | `on_update` + `on_trash` hooks: recalculate PO delivery fields when DN updated or deleted |
 
