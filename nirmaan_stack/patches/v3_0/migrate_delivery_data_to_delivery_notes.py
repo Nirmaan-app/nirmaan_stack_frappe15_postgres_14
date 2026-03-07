@@ -73,6 +73,10 @@ def execute():
         "dns_skipped": 0,
         "dns_zero_items": 0,
         "errors": 0,
+        "catchall_pos_processed": 0,
+        "catchall_dns_created": 0,
+        "catchall_dns_skipped": 0,
+        "catchall_errors": 0,
     }
 
     # Collect detailed issues for the log
@@ -88,7 +92,7 @@ def execute():
         FROM "tabProcurement Orders"
         WHERE status IN ('Partially Delivered', 'Delivered')
         AND delivery_data IS NOT NULL
-        ORDER BY creation ASC
+        ORDER BY modified ASC
         """,
         as_dict=True,
     )
@@ -324,6 +328,157 @@ def execute():
 
     frappe.db.commit()
 
+    # ---- PASS 2: Catch-all for POs with no delivery_data ----
+    log.section("PASS 2: CATCH-ALL FOR POs WITHOUT DELIVERY DATA")
+
+    print("\n" + "=" * 60)
+    print("PASS 2: CATCH-ALL FOR POs WITHOUT DELIVERY DATA")
+    print("=" * 60)
+
+    catchall_pos = frappe.db.sql(
+        """
+        SELECT name, project, vendor, modified
+        FROM "tabProcurement Orders"
+        WHERE status IN ('Partially Delivered', 'Delivered')
+        AND (delivery_data IS NULL OR delivery_data = '' OR delivery_data = '{}')
+        ORDER BY modified ASC
+        """,
+        as_dict=True,
+    )
+
+    print(f"Found {len(catchall_pos)} POs without delivery_data")
+    log.write(f"Found {len(catchall_pos)} POs without delivery_data")
+
+    catchall_batch_count = 0
+
+    for po in catchall_pos:
+        stats["catchall_pos_processed"] += 1
+        try:
+            note_no = 1
+
+            # Idempotency: skip if DN already exists for this PO with note_no=1
+            existing = frappe.db.exists(
+                "Delivery Notes",
+                {"procurement_order": po.name, "note_no": note_no},
+            )
+            if existing:
+                stats["catchall_dns_skipped"] += 1
+                skipped_details.append((
+                    po.name,
+                    f"Catch-all: DN already exists for note_no={note_no}",
+                    f"existing={existing}",
+                ))
+                continue
+
+            # Fetch PO items (excluding Additional Charges)
+            po_items = frappe.get_all(
+                "Purchase Order Item",
+                filters={"parent": po.name},
+                fields=["item_id", "item_name", "unit", "quantity", "category",
+                         "make", "procurement_package"],
+                limit_page_length=0,
+            )
+
+            child_items = []
+            for item in po_items:
+                if item.category == "Additional Charges":
+                    continue
+                child_items.append({
+                    "item_id": item.item_id or "",
+                    "item_name": item.item_name or "",
+                    "make": item.make or "",
+                    "unit": item.unit or "",
+                    "category": item.category or "",
+                    "procurement_package": item.procurement_package or "",
+                    "delivered_quantity": float(item.quantity or 0),
+                })
+
+            if not child_items:
+                stats["catchall_dns_skipped"] += 1
+                skipped_details.append((
+                    po.name,
+                    "Catch-all: No non-Additional-Charges items found",
+                    "",
+                ))
+                continue
+
+            # Use PO's modified date as delivery_date
+            delivery_date = str(po.modified).split(" ")[0] if po.modified else None
+            creation_time = str(po.modified) if po.modified else None
+
+            expected_name = po.name.replace("PO/", "DN/", 1) + f"/{note_no}" if po.name.startswith("PO/") else f"{po.name}/{note_no}"
+
+            try:
+                dn = frappe.new_doc("Delivery Notes")
+                dn.update({
+                    "procurement_order": po.name,
+                    "project": po.project,
+                    "vendor": po.vendor,
+                    "note_no": note_no,
+                    "delivery_date": delivery_date,
+                    "is_stub": 0,
+                    "is_return": 0,
+                })
+
+                for ci in child_items:
+                    dn.append("items", ci)
+
+                dn.flags.ignore_permissions = True
+                dn.flags.ignore_mandatory = True
+                dn.insert()
+
+                # Preserve timestamps using PO's modified date (best-effort)
+                if creation_time:
+                    try:
+                        frappe.db.set_value(
+                            "Delivery Notes", dn.name,
+                            {"creation": creation_time, "modified": creation_time},
+                            update_modified=False,
+                        )
+                    except Exception:
+                        pass
+
+                    try:
+                        frappe.db.sql(
+                            """
+                            UPDATE "tabDelivery Note Item"
+                            SET creation = %(ts)s, modified = %(ts)s
+                            WHERE parent = %(parent)s
+                            """,
+                            {"ts": creation_time, "parent": dn.name},
+                        )
+                    except Exception:
+                        pass
+
+                stats["catchall_dns_created"] += 1
+                log.write(f"  Created catch-all DN: {dn.name} for PO={po.name}")
+
+            except Exception as e:
+                stats["catchall_errors"] += 1
+                tb = frappe.get_traceback()
+                dn_insert_failures.append((
+                    po.name, "catch-all", note_no, expected_name,
+                    str(e), tb,
+                ))
+                print(f"  FAIL catch-all DN: PO={po.name}: {str(e)}")
+                continue
+
+            catchall_batch_count += 1
+            if catchall_batch_count >= batch_size:
+                frappe.db.commit()
+                catchall_batch_count = 0
+
+        except Exception as e:
+            stats["catchall_errors"] += 1
+            tb = frappe.get_traceback()
+            error_details.append((po.name, "catch-all", str(e), tb))
+            frappe.log_error(
+                title="Delivery Data Migration Error (Catch-all)",
+                message=f"Failed catch-all for PO {po.name}: {str(e)}\n{tb}",
+            )
+
+    frappe.db.commit()
+
     final_count = frappe.db.count("Delivery Notes")
 
     # ---- Write separate failures log if any DN inserts failed ----
@@ -363,6 +518,11 @@ def execute():
     print(f"  DN skipped (zero items):    {stats['dns_zero_items']}")
     print(f"  DN insert failures:         {len(dn_insert_failures)}")
     print(f"  Other errors:               {stats['errors'] - len(dn_insert_failures)}")
+    print(f"\n  --- Catch-all (Pass 2) ---")
+    print(f"  Catch-all POs processed:    {stats['catchall_pos_processed']}")
+    print(f"  Catch-all DNs created:      {stats['catchall_dns_created']}")
+    print(f"  Catch-all DNs skipped:      {stats['catchall_dns_skipped']}")
+    print(f"  Catch-all errors:           {stats['catchall_errors']}")
     print(f"\n  Total Delivery Notes:       {existing_count} -> {final_count} (+{final_count - existing_count})")
     print(f"  Log file: {log.log_path}")
     if fail_log_path:
@@ -378,6 +538,13 @@ def execute():
     log.write(f"DN records skipped (exist): {stats['dns_skipped']}")
     log.write(f"DN skipped (zero items):    {stats['dns_zero_items']}")
     log.write(f"Errors:                     {stats['errors']}")
+    log.write(f"")
+    log.write(f"--- Catch-all (Pass 2) ---")
+    log.write(f"Catch-all POs processed:    {stats['catchall_pos_processed']}")
+    log.write(f"Catch-all DNs created:      {stats['catchall_dns_created']}")
+    log.write(f"Catch-all DNs skipped:      {stats['catchall_dns_skipped']}")
+    log.write(f"Catch-all errors:           {stats['catchall_errors']}")
+    log.write(f"")
     log.write(f"Total Delivery Notes:       {existing_count} -> {final_count} (+{final_count - existing_count})")
 
     if dn_insert_failures:
@@ -422,5 +589,6 @@ def execute():
     frappe.logger().info(
         f"Delivery data migration: created={stats['dns_created']}, "
         f"skipped={stats['dns_skipped']}, zero_items={stats['dns_zero_items']}, "
-        f"errors={stats['errors']}, log={log.log_path}"
+        f"errors={stats['errors']}, catchall_created={stats['catchall_dns_created']}, "
+        f"catchall_errors={stats['catchall_errors']}, log={log.log_path}"
     )
