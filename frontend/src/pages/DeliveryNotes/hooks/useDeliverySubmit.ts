@@ -9,6 +9,7 @@ import {
 import { parseNumber } from "@/utils/parseNumber";
 import { safeJsonParse } from "../constants";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
+import { ADDITIONAL_CHARGES_CATEGORY } from "../components/pivot-table/types";
 
 interface UseDeliverySubmitOptions {
   po: ProcurementOrder;
@@ -29,7 +30,7 @@ interface UseDeliverySubmitReturn {
     value: string,
     maxAllowed: number
   ) => void;
-  handleSubmit: () => Promise<void>;
+  handleSubmit: () => Promise<boolean>;
   resetForm: () => void;
 }
 
@@ -70,7 +71,7 @@ export function useDeliverySubmit({
   );
 
   const handleNewlyDeliveredChange = useCallback(
-    (itemId: string, value: string, maxAllowed: number) => {
+    (itemId: string, value: string, _maxAllowed: number) => {
       // Handle clearing input
       if (value === "") {
         setNewlyDeliveredQuantities((prev) => {
@@ -84,13 +85,9 @@ export function useDeliverySubmit({
       // Validate input format — only numbers and single decimal point
       if (!/^[0-9]*\.?[0-9]*$/.test(value)) return;
 
-      const numericValue = parseFloat(value);
-      const finalValue =
-        numericValue > maxAllowed ? String(maxAllowed) : value;
-
       setNewlyDeliveredQuantities((prev) => ({
         ...prev,
-        [itemId]: finalValue,
+        [itemId]: value,
       }));
     },
     []
@@ -123,20 +120,21 @@ export function useDeliverySubmit({
 
         const originalItem = po.items.find((item) => item.name === itemId);
         if (!originalItem) return;
+        if (originalItem.category === ADDITIONAL_CHARGES_CATEGORY) return;
 
         const alreadyDelivered = originalItem.received_quantity ?? 0;
         modifiedItems[itemId] = alreadyDelivered + newlyDeliveredQty;
       }
     );
 
-    if (hasInvalid) return;
+    if (hasInvalid) return false;
     if (Object.keys(modifiedItems).length === 0 && !selectedAttachment) {
       toast({
         title: "No Changes",
         description:
           "Please enter a delivery quantity or attach a challan.",
       });
-      return;
+      return false;
     }
 
     try {
@@ -157,7 +155,7 @@ export function useDeliverySubmit({
             description: "Failed to upload delivery challan",
             variant: "destructive",
           });
-          return;
+          return false;
         }
       }
 
@@ -212,12 +210,14 @@ export function useDeliverySubmit({
           description: response.message.message,
           variant: "success",
         });
+        return true;
       } else if (response.message.status === 400) {
         toast({
           title: "Failed!",
           description: response.message.error,
           variant: "destructive",
         });
+        return false;
       }
     } catch (error) {
       console.error("Error updating delivery note:", error);
@@ -227,6 +227,7 @@ export function useDeliverySubmit({
         variant: "destructive",
       });
     }
+    return false;
   }, [
     po,
     newlyDeliveredQuantities,

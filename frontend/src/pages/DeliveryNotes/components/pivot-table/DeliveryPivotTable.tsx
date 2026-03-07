@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table } from "@/components/ui/table";
-import { Plus, RotateCcw,Printer } from "lucide-react";
+import { Plus, RotateCcw, Printer } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { useDeliveryPivotData } from "../../hooks/useDeliveryPivotData";
 import { useDeliverySubmit } from "../../hooks/useDeliverySubmit";
@@ -34,6 +34,7 @@ export function DeliveryPivotTable({
   viewMode = "full",
   canReturn = false,
   isLocked = false,
+  onAfterCreate,
 }: DeliveryPivotTableProps) {
   const pivotData = useDeliveryPivotData(po, dnRecords);
   const submitHook = useDeliverySubmit({
@@ -82,10 +83,11 @@ export function DeliveryPivotTable({
   );
 
   const handleConfirmSubmit = useCallback(async () => {
-    await submitHook.handleSubmit();
+    const success = await submitHook.handleSubmit();
     setShowEdit(false);
     setConfirmDialog(false);
-  }, [submitHook.handleSubmit]);
+    if (success) onAfterCreate?.();
+  }, [submitHook.handleSubmit, onAfterCreate]);
 
   const handleConfirmEdit = useCallback(async () => {
     await editHook.submitEdit();
@@ -111,13 +113,12 @@ export function DeliveryPivotTable({
   return (
     <div className={isEmbedded ? "" : "border rounded-lg bg-card"}>
 
-     
+
       {/* Action bar for create mode & download */}
       {!editHook.editingDnName && (viewMode !== "create" || effectiveCanEdit) && (
         <div
-          className={`flex flex-col sm:flex-row items-end sm:items-center justify-end gap-2 ${
-            isEmbedded ? "pb-3" : "px-4 py-3 border-b"
-          }`}
+          className={`flex flex-col sm:flex-row items-end sm:items-center justify-end gap-2 ${isEmbedded ? "pb-3" : "px-4 py-3 border-b"
+            }`}
         >
           {viewMode !== "create" && (
             <Button
@@ -207,9 +208,8 @@ export function DeliveryPivotTable({
       {/* Action bar for edit mode */}
       {editHook.editingDnName && (
         <div
-          className={`flex flex-col sm:flex-row items-end sm:items-center justify-end gap-2 ${
-            isEmbedded ? "pb-3" : "px-4 py-3 border-b"
-          }`}
+          className={`flex flex-col sm:flex-row items-end sm:items-center justify-end gap-2 ${isEmbedded ? "pb-3" : "px-4 py-3 border-b"
+            }`}
         >
           <span className="text-sm text-muted-foreground sm:mr-auto text-right sm:text-left">
             Editing {editHook.editingDnName}

@@ -1,5 +1,5 @@
 import { TailSpin } from "react-loader-spinner";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useUserData } from "@/hooks/useUserData";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
@@ -22,6 +22,7 @@ export default function DeliveryNote() {
     refetchDNs,
   } = useDeliveryNoteData();
 
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const viewMode = searchParams.get("mode") === "create"
     ? "create" as const
@@ -43,7 +44,7 @@ export default function DeliveryNote() {
     !!userData?.role &&
     (DELIVERY_EDIT_ROLES as readonly string[]).includes(userData.role) &&
     !isCEOHold &&
-    ["Dispatched", "Partially Delivered"].includes(data.status);
+    ["Dispatched", "Partially Delivered", "Delivered"].includes(data.status);
 
   const pageTitle = viewMode === "create"
     ? `New Delivery Note - ${displayPoId}`
@@ -85,7 +86,7 @@ export default function DeliveryNote() {
           <MessageCircleWarning className="h-4 w-4 !text-red-600 dark:!text-red-400" />
           <AlertTitle className="text-red-800 dark:text-red-200">PO is Locked</AlertTitle>
           <AlertDescription>
-            This Purchase Order is currently locked (e.g., due to a pending revision). 
+            This Purchase Order is currently locked (e.g., due to a pending revision).
             You cannot add new delivery updates or return items at this time.
           </AlertDescription>
         </Alert>
@@ -115,6 +116,7 @@ export default function DeliveryNote() {
         isProjectManager={isProjectManager}
         viewMode={viewMode}
         isLocked={isLocked}
+        onAfterCreate={viewMode === "create" ? () => navigate("/prs&milestones/delivery-notes?view=create") : undefined}
       />
     </div>
   );

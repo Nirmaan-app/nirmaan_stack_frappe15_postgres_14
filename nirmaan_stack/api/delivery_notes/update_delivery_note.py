@@ -26,10 +26,14 @@ def calculate_delivered_amount(order_items: list) -> float:
     total_delivered_value = 0.0
     for item in order_items:
         quote = safe_float(item.get("quote"))
-        received_qty = safe_float(item.get("received_quantity"))
         tax_percent = safe_float(item.get("tax"))
 
-        item_base_value = quote * received_qty
+        if item.get("category") == "Additional Charges":
+            qty = safe_float(item.get("quantity"))  # ordered qty, always full
+        else:
+            qty = safe_float(item.get("received_quantity"))
+
+        item_base_value = quote * qty
         item_tax_amount = item_base_value * (tax_percent / 100)
 
         total_delivered_value += item_base_value + item_tax_amount
@@ -58,6 +62,12 @@ def update_delivery_note(po_id: str, modified_items: dict, delivery_data: dict =
 
         po = frappe.get_doc("Procurement Orders", po_id)
 
+        # Lock PO row to prevent concurrent note_no races
+        frappe.db.sql(
+            'SELECT name FROM "tabProcurement Orders" WHERE name = %s FOR UPDATE',
+            po_id,
+        )
+
         # Return-specific role validation
         RETURN_ROLES = [
             "Nirmaan Admin Profile",
@@ -73,27 +83,19 @@ def update_delivery_note(po_id: str, modified_items: dict, delivery_data: dict =
         # Capture old received quantities BEFORE mutation
         old_received = {}
         for item in po.get("items"):
+            if item.category == "Additional Charges":
+                continue
             old_received[item.name] = safe_float(item.get("received_quantity"))
 
         # Validate return quantities won't result in negative received_quantity
         if is_return:
             for item in po.get("items"):
+                if item.category == "Additional Charges":
+                    continue
                 if item.name in modified_items:
                     new_qty = safe_float(modified_items[item.name])
                     if new_qty < 0:
                         frappe.throw(f"Return quantity exceeds received quantity for {item.item_name}")
-
-        # Update received quantities in original order (mutates in-place)
-        updated_order = update_order_items(po.get("items"), modified_items)
-
-        # Calculate the total delivered amount using the updated item list
-        delivered_amount = calculate_delivered_amount(updated_order)
-        po.po_amount_delivered = delivered_amount
-
-        # Update order list and status
-        po.items = updated_order
-        po.status = calculate_order_status(updated_order)
-        po.latest_delivery_date = datetime.now()
 
         # Handle delivery challan attachment
         attachment_doc = None
@@ -101,9 +103,6 @@ def update_delivery_note(po_id: str, modified_items: dict, delivery_data: dict =
             attachment_doc = create_attachment_doc(
                 po, delivery_challan_attachment, "po delivery challan"
             )
-
-        # Save procurement order updates
-        po.save()
 
         # Create Delivery Notes record
         _create_delivery_note_record(
@@ -116,7 +115,6 @@ def update_delivery_note(po_id: str, modified_items: dict, delivery_data: dict =
         return {
             "status": 200,
             "message": f"Updated {len(modified_items)} items in {po_id}",
-            "updated_order": updated_order
         }
 
     except Exception as e:
@@ -132,9 +130,12 @@ def update_delivery_note(po_id: str, modified_items: dict, delivery_data: dict =
 def _create_delivery_note_record(po, modified_items, old_received,
                                   delivery_data, attachment_doc, is_return=False):
     """Create a Delivery Notes record from the delivery update."""
-    # Calculate note_no = count of existing DNs for this PO + 1
-    existing_count = frappe.db.count("Delivery Notes", {"procurement_order": po.name})
-    note_no = existing_count + 1
+    # Calculate note_no = max existing note_no for this PO + 1
+    result = frappe.db.sql(
+        'SELECT COALESCE(MAX(note_no), 0) AS max_no FROM "tabDelivery Notes" WHERE procurement_order = %s',
+        po.name, as_dict=True,
+    )
+    note_no = result[0].max_no + 1
 
     # Extract delivery_date from delivery_data keys
     delivery_date = None
@@ -166,6 +167,8 @@ def _create_delivery_note_record(po, modified_items, old_received,
 
     # Add child items — only items that were actually modified with a positive delta
     for item_obj in po.get("items"):
+        if item_obj.category == "Additional Charges":
+            continue
         item_key = item_obj.name
         if item_key not in modified_items:
             continue
@@ -197,18 +200,6 @@ def _create_delivery_note_record(po, modified_items, old_received,
     dn.insert()
 
 
-def update_order_items(original: list, modified: dict) -> list:
-    """
-    Safely updates the 'received_quantity' on the original Document objects in-place.
-    'original' is a list of Frappe Document objects for the child table.
-    """
-    for item_object in original:
-        new_value = modified.get(item_object.name, item_object.received_quantity or 0)
-        item_object.received_quantity = new_value
-
-    return original
-
-
 def calculate_order_status(order: list) -> str:
     """
     Determine order status based on received quantities.
@@ -217,11 +208,15 @@ def calculate_order_status(order: list) -> str:
     if not order:
         return "Empty"
 
-    total_items = len(order)
+    total_items = 0
     delivered_items = 0
     delta = 2.5
 
     for item in order:
+        if item.get("category") == "Additional Charges":
+            continue
+        total_items += 1
+
         quantity = item.get("quantity", 0)
         received = item.get("received_quantity", 0)
 
@@ -238,6 +233,8 @@ def calculate_order_status(order: list) -> str:
         if item_is_delivered:
             delivered_items += 1
 
+    if total_items == 0:
+        return "Delivered"
     if delivered_items == total_items:
         return "Delivered"
     return "Partially Delivered"

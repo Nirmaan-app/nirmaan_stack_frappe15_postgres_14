@@ -1623,7 +1623,7 @@ export const PurchaseOrder = ({
                     dnRecords={dnRecords}
                     onPoMutate={poMutate}
                     onDnRefetch={() => fetchDNs({ procurement_order: poId })}
-                    canEdit={(DELIVERY_EDIT_ROLES as readonly string[]).includes(userData?.role) && !isCEOHold && ["Dispatched", "Partially Delivered"].includes(PO?.status || "")}
+                    canEdit={(DELIVERY_EDIT_ROLES as readonly string[]).includes(userData?.role) && !isCEOHold && ["Dispatched", "Partially Delivered", "Delivered"].includes(PO?.status || "")}
                     canReturn={(RETURN_NOTE_ROLES as readonly string[]).includes(userData?.role) && !isCEOHold && ["Dispatched", "Partially Delivered", "Delivered"].includes(PO?.status || "")}
                     returnCount={dnRecords.filter(dn => dn.is_return === 1).length}
                     isEmbedded

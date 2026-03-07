@@ -14,6 +14,7 @@ export interface PivotRow {
   totalReceived: number;
   remainingQty: number;
   isFullyDelivered: boolean;
+  isOverDelivered: boolean;
   comment?: string;
 }
 
@@ -33,6 +34,9 @@ export interface PivotData {
   rows: PivotRow[];
   dnColumns: DNColumn[];
 }
+
+/** Category string for cost add-on items excluded from DN/DC/MIR */
+export const ADDITIONAL_CHARGES_CATEGORY = "Additional Charges";
 
 /** Roles allowed to edit delivery notes */
 export const DELIVERY_EDIT_ROLES = [
@@ -71,6 +75,8 @@ export interface DeliveryPivotTableProps {
   canReturn?: boolean;
   returnCount?: number;
   isLocked?: boolean;
+  /** Called after successful DN creation (e.g., to navigate away) */
+  onAfterCreate?: () => void;
 }
 
 export interface PivotTableMetadataBarProps {
