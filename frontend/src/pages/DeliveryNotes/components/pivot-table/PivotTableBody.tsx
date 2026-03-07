@@ -5,7 +5,7 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
-import { CheckCircle2, ArrowDown, MessageCircleMore } from "lucide-react";
+import { CheckCircle2, ArrowDown, MessageCircleMore, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PivotData } from "./types";
 
@@ -57,15 +57,22 @@ export function PivotTableBody({
           key={row.itemId}
           className={cn(
             viewMode !== "create" &&
-              row.isFullyDelivered &&
-              "bg-green-50 dark:bg-green-950/30"
+              row.isOverDelivered
+                ? "bg-amber-50 dark:bg-amber-950/30"
+                : viewMode !== "create" && row.isFullyDelivered
+                  ? "bg-green-50 dark:bg-green-950/30"
+                  : undefined
           )}
         >
           {/* Sticky: Item Name */}
           <TableCell
             className={cn(
               "sticky left-0 z-20 py-1.5 px-1.5 sm:px-2 max-w-[140px] sm:max-w-[180px] shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]",
-              viewMode !== "create" && row.isFullyDelivered ? "bg-green-50 dark:bg-green-950/30" : "bg-background"
+              viewMode !== "create" && row.isOverDelivered
+                ? "bg-amber-50 dark:bg-amber-950/30"
+                : viewMode !== "create" && row.isFullyDelivered
+                  ? "bg-green-50 dark:bg-green-950/30"
+                  : "bg-background"
             )}
           >
             <div className="text-sm line-clamp-2 break-words">
@@ -104,8 +111,6 @@ export function PivotTableBody({
             const currentDnQty = row.dnQuantities[col.dnName] ?? 0;
 
             if (isEditingThisCol) {
-              // Editable input for the DN being edited
-              const effectiveMax = row.remainingQty + currentDnQty;
               return (
                 <TableCell
                   key={col.dnName}
@@ -119,10 +124,9 @@ export function PivotTableBody({
                       onEditQuantityChange?.(
                         row.itemItemId,
                         e.target.value,
-                        effectiveMax
+                        Infinity
                       )
                     }
-                    max={effectiveMax}
                     min={0}
                     placeholder="0"
                   />
@@ -161,11 +165,9 @@ export function PivotTableBody({
                   submitHook.handleNewlyDeliveredChange(
                     row.itemId,
                     e.target.value,
-                    row.remainingQty
+                    Infinity
                   )
                 }
-                disabled={row.isFullyDelivered}
-                max={row.remainingQty}
                 min={0}
                 placeholder="0"
               />
@@ -198,7 +200,9 @@ export function PivotTableBody({
           <TableCell className="py-1.5 px-2 text-right tabular-nums text-xs font-medium">
             {row.totalReceived}
             {viewMode !== "create" && (
-              row.isFullyDelivered ? (
+              row.isOverDelivered ? (
+                <AlertTriangle className="inline ml-1 h-3 w-3 text-amber-600" />
+              ) : row.isFullyDelivered ? (
                 <CheckCircle2 className="inline ml-1 h-3 w-3 text-green-600" />
               ) : row.totalReceived > 0 ? (
                 <ArrowDown className="inline ml-1 h-3 w-3 text-primary" />

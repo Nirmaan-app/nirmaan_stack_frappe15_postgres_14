@@ -54,6 +54,7 @@ export function useDeliveryPivotData(
         totalReceived,
         remainingQty,
         isFullyDelivered: totalReceived >= item.quantity,
+        isOverDelivered: totalReceived > item.quantity,
         comment: item.comment,
       };
     });
