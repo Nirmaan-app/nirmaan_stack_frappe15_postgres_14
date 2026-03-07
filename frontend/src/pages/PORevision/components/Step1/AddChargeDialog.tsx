@@ -74,10 +74,6 @@ export const AddChargeDialog: React.FC<AddChargeDialogProps> = ({
       return;
     }
 
-    if (!quantity || quantity <= 0) {
-      toast({ title: "Validation Error", description: "Quantity must be greater than 0.", variant: "destructive" });
-      return;
-    }
     if (!quote || quote <= 0) {
       toast({ title: "Validation Error", description: "Rate must be greater than 0.", variant: "destructive" });
       return;
@@ -92,7 +88,7 @@ export const AddChargeDialog: React.FC<AddChargeDialogProps> = ({
       item_id: item_id || undefined,
       make: "", // Charges typically don't have a make
       unit,
-      quantity: Number(quantity),
+      quantity: 1,
       quote: Number(quote),
       tax: Number(tax),
       item_type: "New",
@@ -153,10 +149,11 @@ export const AddChargeDialog: React.FC<AddChargeDialogProps> = ({
               <Label className="text-xs">Quantity <span className="text-red-500">*</span></Label>
               <Input
                 type="number"
-                min={0}
-                value={quantity}
-                onChange={(e) => setQuantity(e.target.value ? parseFloat(e.target.value) : "")}
-                className="text-xs h-9"
+                min={1}
+                max={1}
+                value={1}
+                disabled={true}
+                className="text-xs h-9 bg-gray-50 font-bold"
               />
             </div>
           </div>

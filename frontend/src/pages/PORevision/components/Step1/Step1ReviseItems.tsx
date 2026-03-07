@@ -292,13 +292,14 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                       <Input 
                         type="number"
                         min={item.item_type !== 'New' && (item.received_quantity || 0) > 0 ? item.received_quantity : 0}
-                        value={item.quantity} 
+                        value={item.category === 'Additional Charges' ? 1 : item.quantity} 
                         onChange={(e) => {
+                           if (item.category === 'Additional Charges') return;
                            const val = parseFloat(e.target.value) || 0;
                            handleUpdateItem(idx, { quantity: val });
                         }}
-                        disabled={isDeleted}
-                        className={`text-xs font-bold h-9 ${!isDeleted && (item.quantity === undefined || item.quantity <= 0 || item.quantity < ((item.item_type !== 'New' && item.received_quantity) ? item.received_quantity : 0)) ? 'border-red-500 ring-1 ring-red-500 focus-visible:ring-red-500 bg-red-50/50' : ''}`}
+                        disabled={isDeleted || item.category === 'Additional Charges'}
+                        className={`text-xs font-bold h-9 ${!isDeleted && item.category !== 'Additional Charges' && (item.quantity === undefined || item.quantity <= 0 || item.quantity < ((item.item_type !== 'New' && item.received_quantity) ? item.received_quantity : 0)) ? 'border-red-500 ring-1 ring-red-500 focus-visible:ring-red-500 bg-red-50/50' : ''} ${item.category === 'Additional Charges' ? 'bg-gray-50' : ''}`}
                       />
                     </TableCell>
                     <TableCell>
