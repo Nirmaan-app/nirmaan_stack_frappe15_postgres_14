@@ -34,6 +34,9 @@ export interface PivotData {
   dnColumns: DNColumn[];
 }
 
+/** Category string for cost add-on items excluded from DN/DC/MIR */
+export const ADDITIONAL_CHARGES_CATEGORY = "Additional Charges";
+
 /** Roles allowed to edit delivery notes */
 export const DELIVERY_EDIT_ROLES = [
   "Nirmaan Admin Profile",

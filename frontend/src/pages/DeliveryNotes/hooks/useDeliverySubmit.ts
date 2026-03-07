@@ -9,6 +9,7 @@ import {
 import { parseNumber } from "@/utils/parseNumber";
 import { safeJsonParse } from "../constants";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
+import { ADDITIONAL_CHARGES_CATEGORY } from "../components/pivot-table/types";
 
 interface UseDeliverySubmitOptions {
   po: ProcurementOrder;
@@ -123,6 +124,7 @@ export function useDeliverySubmit({
 
         const originalItem = po.items.find((item) => item.name === itemId);
         if (!originalItem) return;
+        if (originalItem.category === ADDITIONAL_CHARGES_CATEGORY) return;
 
         const alreadyDelivered = originalItem.received_quantity ?? 0;
         modifiedItems[itemId] = alreadyDelivered + newlyDeliveredQty;
