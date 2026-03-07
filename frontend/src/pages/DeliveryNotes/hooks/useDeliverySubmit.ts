@@ -30,7 +30,7 @@ interface UseDeliverySubmitReturn {
     value: string,
     maxAllowed: number
   ) => void;
-  handleSubmit: () => Promise<void>;
+  handleSubmit: () => Promise<boolean>;
   resetForm: () => void;
 }
 
@@ -127,14 +127,14 @@ export function useDeliverySubmit({
       }
     );
 
-    if (hasInvalid) return;
+    if (hasInvalid) return false;
     if (Object.keys(modifiedItems).length === 0 && !selectedAttachment) {
       toast({
         title: "No Changes",
         description:
           "Please enter a delivery quantity or attach a challan.",
       });
-      return;
+      return false;
     }
 
     try {
@@ -155,7 +155,7 @@ export function useDeliverySubmit({
             description: "Failed to upload delivery challan",
             variant: "destructive",
           });
-          return;
+          return false;
         }
       }
 
@@ -210,12 +210,14 @@ export function useDeliverySubmit({
           description: response.message.message,
           variant: "success",
         });
+        return true;
       } else if (response.message.status === 400) {
         toast({
           title: "Failed!",
           description: response.message.error,
           variant: "destructive",
         });
+        return false;
       }
     } catch (error) {
       console.error("Error updating delivery note:", error);
@@ -225,6 +227,7 @@ export function useDeliverySubmit({
         variant: "destructive",
       });
     }
+    return false;
   }, [
     po,
     newlyDeliveredQuantities,

@@ -75,6 +75,8 @@ export interface DeliveryPivotTableProps {
   canReturn?: boolean;
   returnCount?: number;
   isLocked?: boolean;
+  /** Called after successful DN creation (e.g., to navigate away) */
+  onAfterCreate?: () => void;
 }
 
 export interface PivotTableMetadataBarProps {
