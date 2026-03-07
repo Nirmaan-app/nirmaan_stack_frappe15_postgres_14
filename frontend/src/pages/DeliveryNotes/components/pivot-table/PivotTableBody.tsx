@@ -30,6 +30,12 @@ interface PivotTableBodyProps {
     maxAllowed: number
   ) => void;
   viewMode?: "create" | "view-only" | "full";
+  // Return entry props
+  showReturn?: boolean;
+  returnHook?: {
+    returnQuantities: Record<string, string>;
+    handleReturnQuantityChange: (itemKey: string, value: string, maxAllowed: number) => void;
+  };
 }
 
 export function PivotTableBody({
@@ -41,6 +47,8 @@ export function PivotTableBody({
   editedQuantities,
   onEditQuantityChange,
   viewMode = "full",
+  showReturn = false,
+  returnHook,
 }: PivotTableBodyProps) {
   return (
     <TableBody>
@@ -126,10 +134,15 @@ export function PivotTableBody({
             return (
               <TableCell
                 key={col.dnName}
-                className="py-1.5 px-2 text-right tabular-nums text-xs"
+                className={cn(
+                  "py-1.5 px-2 text-right tabular-nums text-xs",
+                  col.isReturn && "bg-red-50/30 dark:bg-red-950/10"
+                )}
               >
-                {currentDnQty > 0 ? (
-                  currentDnQty
+                {currentDnQty !== 0 ? (
+                  <span className={cn(currentDnQty < 0 && "text-red-600 dark:text-red-400")}>
+                    {currentDnQty}
+                  </span>
                 ) : (
                   <span className="text-muted-foreground">--</span>
                 )}
@@ -159,6 +172,28 @@ export function PivotTableBody({
             </TableCell>
           )}
 
+          {/* Return entry column */}
+          {showReturn && !editingDnName && (
+            <TableCell className="py-1.5 px-2 text-center bg-red-50/30 dark:bg-red-950/10">
+              <Input
+                type="number"
+                className="h-7 w-16 text-xs text-center mx-auto"
+                value={returnHook?.returnQuantities[row.itemId] || ""}
+                onChange={(e) =>
+                  returnHook?.handleReturnQuantityChange(
+                    row.itemId,
+                    e.target.value,
+                    row.totalReceived
+                  )
+                }
+                disabled={row.totalReceived <= 0}
+                max={row.totalReceived}
+                min={0}
+                placeholder="0"
+              />
+            </TableCell>
+          )}
+
           {/* Total Received */}
           <TableCell className="py-1.5 px-2 text-right tabular-nums text-xs font-medium">
             {row.totalReceived}
@@ -180,6 +215,7 @@ export function PivotTableBody({
               (isProjectManager ? 2 : 3) +
               (viewMode !== "create" ? pivotData.dnColumns.length : 0) +
               (showEdit && !editingDnName ? 1 : 0) +
+              (showReturn && !editingDnName ? 1 : 0) +
               1
             }
             className="text-center py-8 text-muted-foreground text-sm"

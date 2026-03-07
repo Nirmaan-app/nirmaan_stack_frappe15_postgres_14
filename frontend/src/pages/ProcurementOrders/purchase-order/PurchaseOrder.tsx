@@ -113,7 +113,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import ReactSelect, { components } from "react-select";
-import { DeliveryPivotTable, DELIVERY_EDIT_ROLES } from "@/pages/DeliveryNotes/components/pivot-table";
+import { DeliveryPivotTable, DELIVERY_EDIT_ROLES, RETURN_NOTE_ROLES } from "@/pages/DeliveryNotes/components/pivot-table";
 import { InvoiceDialog } from "../invoices-and-dcs/components/InvoiceDialog";
 import POAttachments from "./components/POAttachments";
 import POPaymentTermsCard from "./components/POPaymentTermsCard";
@@ -1624,6 +1624,8 @@ export const PurchaseOrder = ({
                     onPoMutate={poMutate}
                     onDnRefetch={() => fetchDNs({ procurement_order: poId })}
                     canEdit={(DELIVERY_EDIT_ROLES as readonly string[]).includes(userData?.role) && !isCEOHold && ["Dispatched", "Partially Delivered"].includes(PO?.status || "")}
+                    canReturn={(RETURN_NOTE_ROLES as readonly string[]).includes(userData?.role) && !isCEOHold && ["Dispatched", "Partially Delivered", "Delivered"].includes(PO?.status || "")}
+                    returnCount={dnRecords.filter(dn => dn.is_return === 1).length}
                     isEmbedded
                     isProjectManager={isProjectManager}
                   />

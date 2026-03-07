@@ -23,6 +23,7 @@ import { PivotTableMetadataBarProps } from "./types";
 export function PivotTableMetadataBar({
   po,
   dnCount,
+  returnCount,
   showNavLinks = false,
 }: PivotTableMetadataBarProps) {
   const navigate = useNavigate();
@@ -127,11 +128,22 @@ export function PivotTableMetadataBar({
         <div className="flex items-center gap-1">
           <ClipboardList className="h-3.5 w-3.5 shrink-0" />
           <span>
-            {dnCount}
+            {dnCount - (returnCount ?? 0)}
             <span className="hidden sm:inline">
-              {" "}delivery note{dnCount !== 1 ? "s" : ""}
+              {" "}delivery note{(dnCount - (returnCount ?? 0)) !== 1 ? "s" : ""}
             </span>
           </span>
+          {(returnCount ?? 0) > 0 && (
+            <>
+              <span className="text-muted-foreground">,</span>
+              <span className="text-red-600 dark:text-red-400">
+                {returnCount}
+                <span className="hidden sm:inline">
+                  {" "}return{returnCount !== 1 ? "s" : ""}
+                </span>
+              </span>
+            </>
+          )}
         </div>
 
         {deliveryContact.name && (

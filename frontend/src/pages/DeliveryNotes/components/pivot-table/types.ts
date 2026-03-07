@@ -25,6 +25,7 @@ export interface DNColumn {
   creationDate?: string;
   updatedBy?: string;
   hasAttachment: boolean;
+  isReturn: boolean;
 }
 
 /** Complete pivot data derived from PO + DN records */
@@ -38,6 +39,14 @@ export const DELIVERY_EDIT_ROLES = [
   "Nirmaan Admin Profile",
   "Nirmaan PMO Executive Profile",
   "Nirmaan Project Manager Profile",
+  "Nirmaan Project Lead Profile",
+  "Nirmaan Procurement Executive Profile",
+] as const;
+
+/** Roles allowed to create return notes */
+export const RETURN_NOTE_ROLES = [
+  "Nirmaan Admin Profile",
+  "Nirmaan PMO Executive Profile",
   "Nirmaan Project Lead Profile",
   "Nirmaan Procurement Executive Profile",
 ] as const;
@@ -59,11 +68,14 @@ export interface DeliveryPivotTableProps {
    * - "full": default interactive mode with all features
    */
   viewMode?: "create" | "view-only" | "full";
+  canReturn?: boolean;
+  returnCount?: number;
 }
 
 export interface PivotTableMetadataBarProps {
   po: ProcurementOrder;
   dnCount: number;
+  returnCount?: number;
   /** Show navigation links to PO/PR (true on DN page, false on PO page) */
   showNavLinks?: boolean;
 }

@@ -7,4 +7,4 @@ export type {
   DeliveryPivotTableProps,
   PivotTableMetadataBarProps,
 } from "./types";
-export { DELIVERY_EDIT_ROLES } from "./types";
+export { DELIVERY_EDIT_ROLES, RETURN_NOTE_ROLES } from "./types";

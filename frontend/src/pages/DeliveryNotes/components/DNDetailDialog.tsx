@@ -28,7 +28,9 @@ export function DNDetailDialog({ dn, open, onOpenChange }: DNDetailDialogProps) 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>{dn.name}</DialogTitle>
+          <DialogTitle className={dn.is_return === 1 ? "text-red-600" : ""}>
+            {dn.is_return === 1 ? `Return Note - ${dn.name.replace(/^DN-/, "RN-")}` : dn.name}
+          </DialogTitle>
           <div className="flex items-center gap-3 text-sm text-muted-foreground pt-1">
             <span>{formatDate(dn.delivery_date)}</span>
             {dn.updated_by_user && <span>by {dn.updated_by_user}</span>}
@@ -48,8 +50,8 @@ export function DNDetailDialog({ dn, open, onOpenChange }: DNDetailDialogProps) 
                 <TableRow key={item.name || idx}>
                   <TableCell className="text-sm">{item.item_name}</TableCell>
                   <TableCell className="text-center text-xs">{item.unit}</TableCell>
-                  <TableCell className="text-right tabular-nums text-sm">
-                    {item.delivered_quantity}
+                  <TableCell className={`text-right tabular-nums text-sm ${dn.is_return === 1 ? "text-red-600" : ""}`}>
+                    {dn.is_return === 1 ? `-${item.delivered_quantity}` : item.delivered_quantity}
                   </TableCell>
                 </TableRow>
               ))}

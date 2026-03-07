@@ -79,6 +79,7 @@ export default function DeliveryNote() {
       <PivotTableMetadataBar
         po={data}
         dnCount={dnRecords.length}
+        returnCount={dnRecords.filter(dn => dn.is_return === 1).length}
         showNavLinks
       />
 
