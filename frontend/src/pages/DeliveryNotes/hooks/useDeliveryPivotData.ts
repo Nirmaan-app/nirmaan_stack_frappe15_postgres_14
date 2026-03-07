@@ -20,6 +20,7 @@ export function useDeliveryPivotData(
         creationDate: dn.creation,
         updatedBy: dn.updated_by_user,
         hasAttachment: !!dn.nirmaan_attachment,
+        isReturn: dn.is_return === 1,
       }));
 
     // 2. Build delivery map: item_id → { dn_name → delivered_quantity }

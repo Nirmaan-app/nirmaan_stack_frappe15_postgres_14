@@ -21,6 +21,7 @@ export interface DeliveryNote {
   notes?: string;
   items: DeliveryNoteItem[];
   is_stub: 0 | 1;
+  is_return?: 0 | 1;
   creation: string;
   modified: string;
 }

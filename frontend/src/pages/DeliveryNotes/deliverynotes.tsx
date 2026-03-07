@@ -532,13 +532,13 @@ const DeliveryNotes: React.FC = () => {
                                             <TableRow key={dn.name}>
                                               <TableCell>
                                                 <button
-                                                  className="text-sm font-medium text-primary hover:underline"
+                                                  className={`text-sm font-medium hover:underline ${dn.is_return === 1 ? "text-red-600" : "text-primary"}`}
                                                   onClick={() => {
                                                     setSelectedDN(dn);
                                                     setDnDialogOpen(true);
                                                   }}
                                                 >
-                                                  {dn.name}
+                                                  {dn.is_return === 1 ? dn.name.replace(/^DN-/, "RN-") : dn.name}
                                                 </button>
                                               </TableCell>
                                               <TableCell className="text-center text-sm">
@@ -622,13 +622,13 @@ const DeliveryNotes: React.FC = () => {
                                       className="flex items-center justify-between text-sm"
                                     >
                                       <button
-                                        className="text-primary hover:underline font-medium"
+                                        className={`hover:underline font-medium ${dn.is_return === 1 ? "text-red-600" : "text-primary"}`}
                                         onClick={() => {
                                           setSelectedDN(dn);
                                           setDnDialogOpen(true);
                                         }}
                                       >
-                                        {dn.name}
+                                        {dn.is_return === 1 ? dn.name.replace(/^DN-/, "RN-") : dn.name}
                                       </button>
                                       <div className="flex items-center gap-2">
                                         <span className="text-muted-foreground text-xs">

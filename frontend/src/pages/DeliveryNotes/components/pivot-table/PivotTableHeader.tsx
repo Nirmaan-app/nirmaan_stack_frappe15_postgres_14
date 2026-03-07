@@ -6,7 +6,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Pencil, Printer } from "lucide-react";
+import { Pencil, Printer, RotateCcw } from "lucide-react";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { formatDate } from "@/utils/FormatDate";
@@ -25,6 +25,7 @@ interface PivotTableHeaderProps {
   canEditDn?: (col: DNColumn) => boolean;
   onEditDn?: (col: DNColumn) => void;
   viewMode?: "create" | "view-only" | "full";
+  showReturn?: boolean;
 }
 
 export function PivotTableHeader({
@@ -36,6 +37,7 @@ export function PivotTableHeader({
   canEditDn,
   onEditDn,
   viewMode = "full",
+  showReturn = false,
 }: PivotTableHeaderProps) {
   const { data: usersList } = useFrappeGetDocList<NirmaanUsers>(
     "Nirmaan Users",
@@ -79,14 +81,22 @@ export function PivotTableHeader({
                 key={col.dnName}
                 className={cn(
                   "text-right text-xs font-medium text-muted-foreground min-w-[80px] sm:min-w-[100px]",
-                  isEditing && "bg-primary/5"
+                  isEditing && "bg-primary/5",
+                  col.isReturn && !isEditing && "bg-red-50/50 dark:bg-red-950/20"
                 )}
               >
                 <div className="flex flex-col items-end gap-0.5 py-0.5">
-                  <span className="uppercase tracking-wider font-semibold text-foreground/80">
-                    DN-{col.noteNo}
+                  <span className={cn(
+                    "uppercase tracking-wider font-semibold",
+                    col.isReturn ? "text-red-700 dark:text-red-400" : "text-foreground/80"
+                  )}>
+                    {col.isReturn ? "RN" : "DN"}-{col.noteNo}
                   </span>
-                  <span className="text-[10px] font-normal border-b border-primary/30 pb-0.5">
+                  {col.isReturn && <RotateCcw className="h-3 w-3 inline ml-0.5" />}
+                  <span className={cn(
+                    "text-[10px] font-normal border-b pb-0.5",
+                    col.isReturn ? "border-red-300/50" : "border-primary/30"
+                  )}>
                     {formatDate(col.deliveryDate)}
                   </span>
                   {userName && (
@@ -109,7 +119,7 @@ export function PivotTableHeader({
                           <Printer className="h-3 w-3" />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>Download DN-{col.noteNo}</TooltipContent>
+                      <TooltipContent>Download {col.isReturn ? "RN" : "DN"}-{col.noteNo}</TooltipContent>
                     </Tooltip>
                     {showEditBtn && (
                       <Tooltip>
@@ -123,7 +133,7 @@ export function PivotTableHeader({
                             <Pencil className="h-3 w-3" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>Edit DN-{col.noteNo}</TooltipContent>
+                        <TooltipContent>Edit {col.isReturn ? "RN" : "DN"}-{col.noteNo}</TooltipContent>
                       </Tooltip>
                     )}
                   </div>
@@ -136,6 +146,13 @@ export function PivotTableHeader({
         {showEdit && !editingDnName && (
           <TableHead className="text-center text-xs font-medium uppercase tracking-wider text-muted-foreground bg-primary/5 min-w-[70px] sm:min-w-[80px]">
             New Entry
+          </TableHead>
+        )}
+
+        {/* Return entry column header */}
+        {showReturn && !editingDnName && (
+          <TableHead className="text-center text-xs font-medium uppercase tracking-wider text-red-700 dark:text-red-400 bg-red-50/30 dark:bg-red-950/10 min-w-[70px] sm:min-w-[80px]">
+            Return
           </TableHead>
         )}
 
