@@ -70,6 +70,7 @@ export interface DeliveryPivotTableProps {
   viewMode?: "create" | "view-only" | "full";
   canReturn?: boolean;
   returnCount?: number;
+  isLocked?: boolean;
 }
 
 export interface PivotTableMetadataBarProps {

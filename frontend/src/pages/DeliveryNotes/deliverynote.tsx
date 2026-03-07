@@ -5,6 +5,9 @@ import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 import { useDeliveryNoteData } from "./hooks/useDeliveryNoteData";
 import { DeliveryPivotTable, PivotTableMetadataBar, DELIVERY_EDIT_ROLES } from "./components/pivot-table";
+import { usePOLockCheck } from "@/pages/PORevision/data/usePORevisionQueries";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { MessageCircleWarning } from "lucide-react";
 import { DOCUMENT_PREFIX, formatDisplayId } from "./constants";
 
 export default function DeliveryNote() {
@@ -29,6 +32,9 @@ export default function DeliveryNote() {
   const userData = useUserData();
   const isProjectManager = userData?.role === "Nirmaan Project Manager Profile";
   const { isCEOHold } = useCEOHoldGuard(data?.project ?? undefined);
+
+  const { data: lockData } = usePOLockCheck(poId ?? undefined);
+  const isLocked = lockData?.is_locked || false;
 
   const displayPoId = formatDisplayId(poId ?? undefined, DOCUMENT_PREFIX.PURCHASE_ORDER);
 
@@ -74,6 +80,17 @@ export default function DeliveryNote() {
     <div className="container mx-auto px-4 py-4 max-w-6xl space-y-4">
       <h1 className="text-xl font-bold text-foreground">{pageTitle}</h1>
 
+      {isLocked && (
+        <Alert variant="destructive" className="bg-red-50 border-red-200 text-red-800 dark:bg-red-900/30 dark:border-red-800 dark:text-red-200">
+          <MessageCircleWarning className="h-4 w-4 !text-red-600 dark:!text-red-400" />
+          <AlertTitle className="text-red-800 dark:text-red-200">PO is Locked</AlertTitle>
+          <AlertDescription>
+            This Purchase Order is currently locked (e.g., due to a pending revision). 
+            You cannot add new delivery updates or return items at this time.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {isCEOHold && <CEOHoldBanner className="mb-2" />}
 
       <PivotTableMetadataBar
@@ -97,6 +114,7 @@ export default function DeliveryNote() {
         canEdit={canEdit}
         isProjectManager={isProjectManager}
         viewMode={viewMode}
+        isLocked={isLocked}
       />
     </div>
   );
