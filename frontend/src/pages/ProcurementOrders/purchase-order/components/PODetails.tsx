@@ -711,6 +711,8 @@ export const PODetails: React.FC<PODetailsProps> = ({
             </div>
           </div>
 
+       
+
           {/* ═══════════════════════════════════════════════════════════════════
               SECTION 5: ACTIONS - Compact minimalist buttons
           ═══════════════════════════════════════════════════════════════════ */}
@@ -1419,6 +1421,19 @@ export const PODetails: React.FC<PODetailsProps> = ({
         poItems={poItemsForSelector}
         onSuccess={handlePDDUploadSuccess}
       />
+
+         {/* PO Revision History */}
+        {po?.name && <PORevisionHistory poId={po.name} />}
+
+      {/* PO Revision Dialog */}
+      {po && (
+        <PORevisionDialog
+          open={openRevisionDialog}
+          onClose={() => setOpenRevisionDialog(false)}
+          po={po}
+          onSuccess={poMutate}
+        />
+      )}
 
     </div>
   );
