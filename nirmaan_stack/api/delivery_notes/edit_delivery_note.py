@@ -5,7 +5,6 @@ from datetime import date
 ALWAYS_EDIT_ROLES = [
     "Nirmaan Admin Profile",
     "Nirmaan PMO Executive Profile",
-    "Nirmaan Procurement Executive Profile",
     "Nirmaan Project Lead Profile",
 ]
 
