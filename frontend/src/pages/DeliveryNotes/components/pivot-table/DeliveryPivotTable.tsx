@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback ,useEffect} from "react";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -21,7 +21,9 @@ import { useDeliveryEdit } from "../../hooks/useDeliveryEdit";
 import { useDownloadDN } from "../../hooks/useDownloadDN";
 import { PivotTableHeader } from "./PivotTableHeader";
 import { PivotTableBody } from "./PivotTableBody";
+import { VendorDCDialog } from "../VendorDCDialog";
 import { DeliveryPivotTableProps, DNColumn } from "./types";
+import { DeliveryNote } from "@/types/NirmaanStack/DeliveryNotes";
 
 export function DeliveryPivotTable({
   po,
@@ -46,7 +48,7 @@ export function DeliveryPivotTable({
     onSuccess: onPoMutate,
     onDnRefetch,
   });
-  const { downloadDN } = useDownloadDN(po.name);
+   const { downloadDN, downloadVendorDC } = useDownloadDN(po.name);
   const returnHook = useReturnSubmit({
     poId: po.name,
     poItems: po.items,
@@ -62,6 +64,8 @@ export function DeliveryPivotTable({
   const [confirmDialog, setConfirmDialog] = useState(false);
   const [editConfirmDialog, setEditConfirmDialog] = useState(false);
   const [returnConfirmDialog, setReturnConfirmDialog] = useState(false);
+  const [vendorDCOpen, setVendorDCOpen] = useState(false);
+  const [selectedDnForDC, setSelectedDnForDC] = useState<DeliveryNote | null>(null);
 
   // Toggle create mode — cancel edit mode if active
   const handleToggleEdit = useCallback(() => {
@@ -109,6 +113,22 @@ export function DeliveryPivotTable({
     setShowReturn(false);
     setReturnConfirmDialog(false);
   }, [returnHook.handleSubmit]);
+
+  const handleOpenVendorDC = useCallback((col: DNColumn) => {
+    const dn = dnRecords.find(d => d.name === col.dnName);
+    if (dn) {
+      setSelectedDnForDC(dn);
+      setVendorDCOpen(true);
+    }
+  }, [dnRecords,vendorDCOpen]);
+
+
+  const handleGenerateVendorDC = useCallback((modifiedItems: any[]) => {
+    if (selectedDnForDC) {
+        downloadVendorDC(selectedDnForDC.name, modifiedItems);
+    }
+    setVendorDCOpen(false);
+  }, [selectedDnForDC, downloadVendorDC]);
 
   return (
     <div className={isEmbedded ? "" : "border rounded-lg bg-card"}>
@@ -238,6 +258,7 @@ export function DeliveryPivotTable({
             editingDnName={editHook.editingDnName}
             canEditDn={editHook.canEditDn}
             onEditDn={handleStartEdit}
+            onOpenVendorDC={handleOpenVendorDC}
             viewMode={viewMode}
             showReturn={showReturn && !editHook.editingDnName}
           />
@@ -368,6 +389,13 @@ export function DeliveryPivotTable({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <VendorDCDialog
+        dn={selectedDnForDC}
+        open={vendorDCOpen}
+        onOpenChange={setVendorDCOpen}
+        onGenerate={handleGenerateVendorDC}
+      />
     </div>
   );
 }
