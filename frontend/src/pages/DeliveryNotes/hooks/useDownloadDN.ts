@@ -73,5 +73,54 @@ export function useDownloadDN(poId?: string) {
     [poId, toast]
   );
 
-  return { downloadDN };
+  const downloadVendorDC = useCallback(
+    async (dnId: string, modifiedItems: any[]) => {
+      try {
+        toast({ 
+          title: "Generating Vendor Challan", 
+          description: `Generating PDF for ${dnId}...` 
+        });
+
+        const formatName = "Vendor Delivery Challan";
+        const itemsJson = JSON.stringify(modifiedItems.map(item => ({
+            item_name: item.item_name,
+            delivered_quantity: item.delivered_quantity,
+            unit: item.unit
+        })));
+
+        const printUrl = `/api/method/frappe.utils.print_format.download_pdf?doctype=Delivery%20Notes&name=${dnId}&format=${encodeURIComponent(formatName)}&no_letterhead=0&items_json=${encodeURIComponent(itemsJson)}`;
+
+        const response = await fetch(printUrl);
+        if (!response.ok) throw new Error("Failed to generate PDF");
+
+        const blob = await response.blob();
+        const fileName = `Vendor_DC_${dnId}.pdf`;
+
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", fileName);
+        document.body.appendChild(link);
+        link.click();
+
+        link.remove();
+        window.URL.revokeObjectURL(url);
+
+        toast({
+          title: "Success",
+          description: "Vendor Delivery Challan downloaded.",
+        });
+      } catch (error) {
+        console.error("Download error:", error);
+        toast({
+          title: "Error",
+          description: "Failed to download vendor delivery challan.",
+          variant: "destructive",
+        });
+      }
+    },
+    [toast]
+  );
+
+  return { downloadDN, downloadVendorDC };
 }
