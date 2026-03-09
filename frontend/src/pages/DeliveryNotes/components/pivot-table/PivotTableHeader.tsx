@@ -6,7 +6,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Pencil, Printer, RotateCcw } from "lucide-react";
+import { Pencil, Printer, RotateCcw,PrinterCheck } from "lucide-react";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { formatDate } from "@/utils/FormatDate";
@@ -19,6 +19,7 @@ interface PivotTableHeaderProps {
   pivotData: PivotData;
   showEdit: boolean;
   onDownloadDN: (deliveryDate?: string, noteNo?: string | number) => Promise<void>;
+  onOpenVendorDC?: (col: DNColumn) => void;
   isProjectManager?: boolean;
   // Edit DN props
   editingDnName?: string | null;
@@ -32,6 +33,7 @@ export function PivotTableHeader({
   pivotData,
   showEdit,
   onDownloadDN,
+  onOpenVendorDC,
   isProjectManager = false,
   editingDnName,
   canEditDn,
@@ -122,6 +124,7 @@ export function PivotTableHeader({
                       <TooltipContent>Download {col.isReturn ? "RN" : "DN"}-{col.noteNo}</TooltipContent>
                     </Tooltip>
                     {showEditBtn && (
+                      <>
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button
@@ -135,6 +138,20 @@ export function PivotTableHeader({
                         </TooltipTrigger>
                         <TooltipContent>Edit {col.isReturn ? "RN" : "DN"}-{col.noteNo}</TooltipContent>
                       </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5 text-muted-foreground hover:text-foreground"
+                            onClick={() => onOpenVendorDC?.(col)}
+                          >
+                            <PrinterCheck className="h-3 w-3" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Vendor Delivery Challan {col.isReturn ? "RN" : "DN"}-{col.noteNo}</TooltipContent>
+                      </Tooltip>
+                      </>
                     )}
                   </div>
                 </div>
