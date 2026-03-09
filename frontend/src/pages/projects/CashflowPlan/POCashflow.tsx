@@ -1,6 +1,4 @@
 import { useState, useMemo } from "react";
-import { useFrappeGetDocList, useFrappeDeleteDoc } from "frappe-react-sdk";
-import { format } from "date-fns";
 import { safeFormatDateDD_MMM_YYYY } from "@/lib/utils";
 import { Trash2, ChevronDown, Edit2 ,CirclePlus} from "lucide-react";
 import {
@@ -25,7 +23,8 @@ import { EditPOCashflowForm } from "./components/EditPOCashflowForm";
 //     return <div>Edit Form Here</div>;
 // };
 import { useParams } from "react-router-dom";
-
+import { useCashflowPlans } from "@/pages/projects/data/cashflow-plan/useCashflowPlanQueries";
+import { useDeleteCashflowPlan } from "@/pages/projects/data/cashflow-plan/useCashflowPlanMutations";
 
 // Helper to safely parse items
 const cashFlowJsonToArray = (plan: any): any[] => {
@@ -54,30 +53,9 @@ export const POCashflow = ({ dateRange, isOverview }: { dateRange?: { from?: Dat
     return <POCashflowContent projectId={projectId} dateRange={dateRange} isOverview={isOverview} />;
 }
 
-const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashflowContentProps) => { 
-
-    const { docListFilters } = useMemo(() => {
-        const filters: any[] = [["project", "=", projectId], ["type", "in", ["Existing PO","New PO"]]];
-
-        if (dateRange?.from && dateRange?.to) {
-            filters.push([
-                "planned_date", 
-                "Between", 
-                [format(dateRange.from, "yyyy-MM-dd"), format(dateRange.to, "yyyy-MM-dd")]
-            ]);
-        }
-
-        return { docListFilters: filters };
-    }, [projectId, dateRange]);
-
+const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashflowContentProps) => {
     // Fetch Plans
-    const { data: existingPlans, isLoading: isLoadingPlans, mutate: refreshPlans } = useFrappeGetDocList("Cashflow Plan", {
-        fields: ["name", "id_link","type", "planned_date", "planned_amount", "creation", "critical_po_category", "critical_po_task", "critical_po_sub_category", "items", "remarks", "vendor","vendor_name", "estimated_price"],
-        filters: docListFilters,
-        orderBy: { field: "creation", order: "desc" },
-        limit:0
-    });
-
+    const { data: existingPlans, isLoading: isLoadingPlans, mutate: refreshPlans } = useCashflowPlans(projectId, ["Existing PO", "New PO"], dateRange);
 
     const [planForms, setPlanForms] = useState<number[]>([]);
     const [expandedPlans, setExpandedPlans] = useState<string[]>([]);
@@ -97,12 +75,12 @@ const POCashflowContent = ({ projectId, dateRange, isOverview = false }: POCashf
         setExpandedPlans(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]);
     };
 
-    const { deleteDoc } = useFrappeDeleteDoc();
+    const { deleteCashflow } = useDeleteCashflowPlan();
 
     const confirmDelete = async () => {
         if (!deleteId) return;
         try {
-            await deleteDoc("Cashflow Plan", deleteId);
+            await deleteCashflow(deleteId);
             refreshPlans();
             setDeleteId(null);
         } catch (e) {

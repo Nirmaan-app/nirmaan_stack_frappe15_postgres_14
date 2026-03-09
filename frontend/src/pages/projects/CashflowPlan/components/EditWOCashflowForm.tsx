@@ -1,15 +1,14 @@
 import { useState, useEffect, useMemo } from "react";
 import { CheckCircle } from "lucide-react";
-import { useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useCashflowVendors } from "@/pages/projects/data/cashflow-plan/useCashflowPlanQueries";
+import { useUpdateCashflowPlan } from "@/pages/projects/data/cashflow-plan/useCashflowPlanMutations";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { format } from "date-fns";
-
 import { useToast } from "@/components/ui/use-toast";
 import Select from "react-select";
 import { CashflowDatePicker } from "./CashflowDatePicker";
@@ -24,24 +23,14 @@ interface EditWOCashflowFormProps {
 
 export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess }: EditWOCashflowFormProps) => {
     const { toast } = useToast();
-    const { updateDoc, loading: isUpdating } = useFrappeUpdateDoc();
+    const { updateCashflow, loading: isUpdating } = useUpdateCashflowPlan();
     const isExistingWO = plan?.type === "Existing WO";
 
     // State
     const [plannedAmount, setPlannedAmount] = useState<string>("");
     const [plannedDate, setPlannedDate] = useState<Date | undefined>(undefined);
     
-    // Existing WO specific - Read Only Items
-    const existingItems = useMemo(() => {
-        if (!isExistingWO || !plan?.items) return [];
-        try {
-            const raw = plan.items;
-            const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
-            return data?.list || (Array.isArray(data) ? data : []);
-        } catch (e) {
-            return [];
-        }
-    }, [plan, isExistingWO]);
+ 
 
     // New WO specific
     const [description, setDescription] = useState("");
@@ -50,14 +39,10 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
     const [isCustomVendor, setIsCustomVendor] = useState(false);
 
     // Fetch Vendors for edit (enabled for all types)
-    const { data: vendors, isLoading: isLoadingVendors } = useFrappeGetDocList("Vendors", {
-        fields: ["name", "vendor_name"],
-        limit: 0,
-        enabled: isOpen
-    });
+    const { data: vendors, isLoading: isLoadingVendors } = useCashflowVendors(isOpen);
 
     const vendorOptions = useMemo(() => [
-        ...(vendors || []).map(v => ({ value: v.name, label: v.vendor_name })),
+        ...(vendors || []).map((v: any) => ({ value: v.name, label: v.vendor_name })),
         { label: "Others", value: "__others__" }
     ], [vendors]);
 
@@ -121,10 +106,10 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
     // Update vendor label when options load if needed
     useEffect(() => {
         if (vendors && plan?.vendor && !isCustomVendor) {
-             const found = vendors.find(v => v.name === plan.vendor);
-             if (found) {
-                 setVendor({ value: found.name, label: found.vendor_name });
-             }
+            const found = vendors.find((v: any) => v.name === plan.vendor);
+            if (found) {
+                setVendor({ value: found.name, label: found.vendor_name });
+            }
         }
     }, [vendors, plan, isCustomVendor]);
 
@@ -142,7 +127,7 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
 
         const updateData: any = {
             planned_amount: parseFloat(plannedAmount),
-            planned_date: format(plannedDate, "yyyy-MM-dd"),
+            planned_date: plannedDate ? format(plannedDate, "yyyy-MM-dd") : "",
             vendor: isCustomVendor ? "" : vendor.value,
             vendor_name: vendor.label
         };
@@ -167,7 +152,7 @@ export const EditWOCashflowForm = ({ isOpen, projectId, plan, onClose, onSuccess
         }
 
         try {
-            await updateDoc("Cashflow Plan", plan.name, updateData);
+            await updateCashflow(plan.name, updateData);
             toast({ title: "Success", description: "WO Cashflow Plan updated." });
             onSuccess();
             onClose();

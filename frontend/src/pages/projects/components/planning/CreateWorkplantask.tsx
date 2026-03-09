@@ -1,7 +1,7 @@
 
 import { useState, useEffect } from "react";
-import { useFrappeCreateDoc, useFrappeUpdateDoc } from "frappe-react-sdk";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { useCreateWorkPlan, useUpdateWorkPlan } from "@/pages/projects/data/work-plan/useWorkPlanMutations";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -62,9 +62,9 @@ export const CreateWorkplantask = ({
         }
     }, [initialData]);
 
-    const { createDoc, loading: creating } = useFrappeCreateDoc();
-    const { updateDoc, loading: updating } = useFrappeUpdateDoc();
-    
+    const { createWorkPlan, loading: creating } = useCreateWorkPlan();
+    const { updateWorkPlan, loading: updating } = useUpdateWorkPlan();
+
     const loading = creating || updating;
 
     const handleChange = (field: string, value: string) => {
@@ -94,7 +94,7 @@ export const CreateWorkplantask = ({
 
         try {
             if (isEditMode && docName) {
-                await updateDoc("Work Plan", docName, {
+                await updateWorkPlan(docName, {
                     ...formData,
                 });
                 toast({
@@ -103,7 +103,7 @@ export const CreateWorkplantask = ({
                     variant: "success",
                 });
             } else {
-                await createDoc("Work Plan", {
+                await createWorkPlan({
                     ...defaultValues,
                     wp_zone: defaultValues.zone, // Use zone value for wp_zone as requested
                     ...formData,

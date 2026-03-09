@@ -4,7 +4,7 @@ import { urlStateManager } from "@/utils/urlStateManager";
 import { startOfDay, addDays, parseISO, format } from "date-fns";
 import { DateRange } from "react-day-picker";
 import { SevenDayPlanningHeader } from "../components/planning/SevenDayPlanningHeader";
-import { CashflowTabs, CASHFLOW_TABS, CashflowTabValue, CASHFLOW_TAB_CONFIG } from "./CashflowTabs";
+import { CashflowTabs, CASHFLOW_TABS, CashflowTabValue, } from "./CashflowTabs";
 import { POCashflow } from "./POCashflow";
 import { WOCashflow } from "./WOCashflow";
 import { MiscCashflow } from "./MiscCashflow";
@@ -27,7 +27,7 @@ interface CashflowPlanProps {
     isOverview?: boolean;
 }
 
-import { useFrappeGetDoc } from "frappe-react-sdk";
+import { useProjectForCashflow } from "@/pages/projects/data/cashflow-plan/useCashflowPlanQueries";
 
 export const CashflowPlan = ({ projectId, isOverview }: CashflowPlanProps) => {
     // --- State & Hooks ---
@@ -37,8 +37,8 @@ export const CashflowPlan = ({ projectId, isOverview }: CashflowPlanProps) => {
     const [isDownloadingAll, setIsDownloadingAll] = React.useState(false);
     const [downloadingTab, setDownloadingTab] = React.useState<CashflowTabValue | null>(null);
 
-    const { data: projectDoc } = useFrappeGetDoc("Projects", projectId);
-    
+    const { data: projectDoc } = useProjectForCashflow(projectId);
+
     // --- Tabs Logic ---
     const activeTab = useMemo(() => {
         if (Object.values(CASHFLOW_TABS).includes(tabParam as any)) {

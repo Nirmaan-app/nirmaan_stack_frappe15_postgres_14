@@ -13,7 +13,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useUpdateCriticalPOTask } from "@/pages/projects/data/critical-po/useCriticalPOMutations";
 import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
 import { Link } from "react-router-dom";
 
@@ -29,7 +29,7 @@ export const LinkedPOsColumn: React.FC<LinkedPOsColumnProps> = ({ task, projectI
   const [poToUnlink, setPoToUnlink] = useState<string | null>(null);
   const [isUnlinking, setIsUnlinking] = useState(false);
 
-  const { updateDoc } = useFrappeUpdateDoc();
+  const { updateDoc } = useUpdateCriticalPOTask();
 
   // Parse linked POs
   const linkedPOs = useMemo(() => {
@@ -72,9 +72,9 @@ export const LinkedPOsColumn: React.FC<LinkedPOsColumnProps> = ({ task, projectI
       // Remove the PO from the list
       const updatedPOs = linkedPOs.filter((po: string) => po !== poToUnlink);
 
-      await updateDoc("Critical PO Tasks", task.name, {
+      await updateDoc(task.name, {
         associated_pos: JSON.stringify({ pos: updatedPOs }),
-      });
+      }, projectId);
 
       toast({
         title: "Success",

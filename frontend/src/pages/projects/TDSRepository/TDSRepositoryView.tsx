@@ -4,7 +4,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Download, Loader2 } from 'lucide-react';
-import { useFrappeGetDocList, useFrappeGetDoc, FrappeContext, FrappeConfig } from 'frappe-react-sdk';
+import { FrappeContext, FrappeConfig } from 'frappe-react-sdk';
+import { useTdsHistoryItems, useProjectDoc } from '../data/tds/useTdsQueries';
 import { format } from 'date-fns';
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
@@ -35,13 +36,9 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
 
 
     // Fetch TDS history data directly for export
-    const { data: historyData } = useFrappeGetDocList("Project TDS Item List", {
-        fields: ["*"],
-        filters: [["tdsi_project_id", "=", projectId]],
-        limit: 0  // Fetch all records
-    });
+    const { data: historyData } = useTdsHistoryItems(projectId);
 
-    const { data: projectData } = useFrappeGetDoc("Projects", projectId);
+    const { data: projectData } = useProjectDoc(projectId);
     const projectName = projectData?.project_name || projectId;
 
     // Export History to CSV

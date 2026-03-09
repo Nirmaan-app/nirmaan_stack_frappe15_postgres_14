@@ -1,9 +1,7 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useParams } from "react-router-dom";
-import { useFrappeGetDocList, useFrappeDeleteDoc } from "frappe-react-sdk";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { format } from "date-fns";
 import { ChevronDown, Trash2, Edit2, ChevronRight, CirclePlus } from "lucide-react";
 import {
   AlertDialog,
@@ -18,6 +16,8 @@ import {
 import { AddWOCashflowForm } from "./components/AddWOCashflowForm";
 import { EditWOCashflowForm } from "./components/EditWOCashflowForm";
 import { safeFormatDateDD_MMM_YYYY } from "@/lib/utils";
+import { useCashflowPlans } from "@/pages/projects/data/cashflow-plan/useCashflowPlanQueries";
+import { useDeleteCashflowPlan } from "@/pages/projects/data/cashflow-plan/useCashflowPlanMutations";
 
 // ... imports
 
@@ -32,35 +32,10 @@ const WOCashflowContent = ({ projectId, dateRange, isOverview = false }: { proje
     const [expandedPlans, setExpandedPlans] = useState<string[]>([]);
     const [editingPlan, setEditingPlan] = useState<any>(null);
     const [deleteId, setDeleteId] = useState<string | null>(null);
-    const { deleteDoc } = useFrappeDeleteDoc();
 
-    const docListFilters = useMemo(() => {
-        const filters: any[] = [
-            ["project", "=", projectId],
-            ["type", "in", ["Existing WO", "New WO"]]
-        ];
+    const { deleteCashflow } = useDeleteCashflowPlan();
 
-        if (dateRange?.from && dateRange?.to) {
-            filters.push([
-                "planned_date", 
-                "Between", 
-                [format(dateRange.from, "yyyy-MM-dd"), format(dateRange.to, "yyyy-MM-dd")]
-            ]);
-        }
-        return filters;
-    }, [projectId, dateRange]);
-
-    const { data: plans, isLoading, mutate: refreshPlans } = useFrappeGetDocList("Cashflow Plan", {
-        fields: ["name", "type", "id_link", "planned_date", "planned_amount", "vendor","vendor_name", "remarks", "creation", "estimated_price","items"],
-        filters: docListFilters,
-        orderBy: { field: "creation", order: "desc" },
-        limit: 0
-    });
-
-    // We also need vendor names. We can fetch them or map them if `vendor` field is just ID.
-    // Usually standard `useFrappeGetDocList` doesn't auto-fetch linked names unless requested `vendor.vendor_name`.
-    // Let's optimize by fetching vendor name directly.
-    
+    const { data: plans, isLoading, mutate: refreshPlans } = useCashflowPlans(projectId, ["Existing WO", "New WO"], dateRange);
 
     const togglePlan = (name: string) => {
         setExpandedPlans(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]);
@@ -69,7 +44,7 @@ const WOCashflowContent = ({ projectId, dateRange, isOverview = false }: { proje
     const confirmDelete = async () => {
         if (!deleteId) return;
         try {
-            await deleteDoc("Cashflow Plan", deleteId);
+            await deleteCashflow(deleteId);
             refreshPlans();
             setDeleteId(null);
         } catch (e) {

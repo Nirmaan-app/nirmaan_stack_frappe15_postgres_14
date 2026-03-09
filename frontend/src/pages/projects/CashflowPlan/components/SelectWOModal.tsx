@@ -3,10 +3,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useFrappePostCall } from "frappe-react-sdk";
+import { useCashflowProjectWOs } from "@/pages/projects/data/cashflow-plan/useCashflowPlanQueries";
 import { useState, useEffect, useMemo } from "react";
 import { Search } from "lucide-react";
-import { formatCurrency } from "@/utils/formatters"; // Assuming utility exists, else will define simple one
 
 interface GenericWO {
     name: string;
@@ -22,16 +21,13 @@ interface SelectWOModalProps {
     onClose: () => void;
     projectId: string;
     onConfirm: (selectedWOs: GenericWO[]) => void;
-    existingPlanIds?: string[]; // To maybe disable already selected ones?
 }
 
-export const SelectWOModal = ({ isOpen, onClose, projectId, onConfirm, existingPlanIds = [] }: SelectWOModalProps) => {
+export const SelectWOModal = ({ isOpen, onClose, projectId, onConfirm }: SelectWOModalProps) => {
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedWOs, setSelectedWOs] = useState<Set<string>>(new Set());
 
-    const { call: fetchWOs, result: woResult, loading } = useFrappePostCall<{ wos: GenericWO[] }>(
-        "nirmaan_stack.api.seven_days_planning.cashflow_plan_api.get_all_project_wos"
-    );
+    const { call: fetchWOs, result: woResult, loading } = useCashflowProjectWOs();
 
     useEffect(() => {
         if (isOpen && projectId) {
@@ -44,8 +40,8 @@ export const SelectWOModal = ({ isOpen, onClose, projectId, onConfirm, existingP
     const allWOs = woResult?.message?.wos || [];
 
     const filteredWOs = useMemo(() => {
-        return allWOs.filter(wo => 
-            wo.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        return allWOs.filter((wo: GenericWO) =>
+            wo.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
             wo.vendor_name?.toLowerCase().includes(searchQuery.toLowerCase())
         );
     }, [allWOs, searchQuery]);
@@ -61,7 +57,7 @@ export const SelectWOModal = ({ isOpen, onClose, projectId, onConfirm, existingP
     };
 
     const handleConfirm = () => {
-        const selectedObjects = allWOs.filter(wo => selectedWOs.has(wo.name));
+        const selectedObjects = allWOs.filter((wo: GenericWO) => selectedWOs.has(wo.name));
         onConfirm(selectedObjects);
         onClose();
     };
@@ -113,7 +109,7 @@ export const SelectWOModal = ({ isOpen, onClose, projectId, onConfirm, existingP
                                         </TableCell>
                                     </TableRow>
                                 ) : (
-                                    filteredWOs.map((wo) => (
+                                    filteredWOs.map((wo: GenericWO) => (
                                         <TableRow key={wo.name} className="hover:bg-gray-50">
                                             <TableCell>
                                                 <Checkbox

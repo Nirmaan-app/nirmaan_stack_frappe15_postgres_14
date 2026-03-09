@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from "react";
-import { useFrappeGetCall, useFrappeGetDoc, useFrappeGetDocList, useFrappeDeleteDoc } from "frappe-react-sdk";
+import { useProjectDocForMaterialPlan, useMaterialDeliveryPlans } from "@/pages/projects/data/material-plan/useMaterialPlanQueries";
+import { useDeleteMaterialDeliveryPlan } from "@/pages/projects/data/material-plan/useMaterialPlanMutations";
 import { format, addDays, startOfDay, parseISO } from "date-fns";
 import { safeFormatDateDD_MMM_YYYY } from "@/lib/utils";
-import { Loader2, AlertCircle, ChevronDown, ChevronUp, Package, Calendar, Trash2, Download, Edit2 } from "lucide-react";
+import { Loader2, ChevronDown, Trash2, Download, Edit2 } from "lucide-react";
 import { SevenDayPlanningHeader } from "./SevenDayPlanningHeader";
 import { DateRange } from "react-day-picker";
 import { useUrlParam } from "@/hooks/useUrlParam";
@@ -99,7 +100,7 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
     const [expandedPlans, setExpandedPlans] = useState<string[]>([]); // State for Collapsible Rows
 
     const { toast } = useToast();
-    const { deleteDoc } = useFrappeDeleteDoc();
+    const { deleteMaterialPlan } = useDeleteMaterialDeliveryPlan();
 
     const [deleteDialogState, setDeleteDialogState] = useState<{
         isOpen: boolean;
@@ -112,7 +113,7 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
     const confirmDelete = async () => {
         if (deleteDialogState.planName) {
             try {
-                await deleteDoc("Material Delivery Plan", deleteDialogState.planName);
+                await deleteMaterialPlan(deleteDialogState.planName);
                 toast({
                     title: "Success",
                     description: "Plan deleted successfully",
@@ -198,7 +199,7 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
     };
 
     // 1. Fetch Project Document
-    const { data: projectDoc } = useFrappeGetDoc("Projects", projectId);
+    const { data: projectDoc } = useProjectDocForMaterialPlan(projectId);
 
     const docListFilters = useMemo(() => {
         const filters: any[] = [["project", "=", projectId]];
@@ -215,12 +216,7 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
     }, [projectId, startDate, endDate]);
 
     // 2. Fetch Existing Material Delivery Plans
-    const { data: existingPlans, isLoading: isLoadingPlans, mutate: refreshPlans } = useFrappeGetDocList("Material Delivery Plan", {
-        fields: ["name", "po_link", "package_name", "critical_po_category", "critical_po_task", "critical_po_sub_category", "delivery_date", "mp_items", "creation", "po_type"],
-        filters: docListFilters,
-        orderBy: { field: "creation", order: "desc" },
-        limit:0
-    });
+    const { data: existingPlans, isLoading: isLoadingPlans, mutate: refreshPlans } = useMaterialDeliveryPlans(projectId, docListFilters);
 
     // console.log("existingPlans",existingPlans)
     // Extract unique packages from child table for Options

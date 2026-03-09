@@ -1,7 +1,8 @@
 
 
 import React, { useMemo, useState, useEffect } from "react";
-import { useFrappeGetCall, useFrappeGetDoc, useFrappeDeleteDoc } from "frappe-react-sdk";
+import { useWorkPlanData, useProjectDocForWorkPlan, WorkPlanItem, WorkPlanDoc } from "@/pages/projects/data/work-plan/useWorkPlanQueries";
+import { useDeleteWorkPlan } from "@/pages/projects/data/work-plan/useWorkPlanMutations";
 import { format, addDays, startOfDay, parseISO } from "date-fns";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AlertCircle, Loader2, ChevronDown, ChevronUp, Pencil, Trash2, Download, Play, Flag, Activity, TrendingUp, Target, Zap, MessageCircle } from "lucide-react";
@@ -43,32 +44,7 @@ interface SevendaysWorkPlanProps {
     projectName?: string;
 }
 
-export interface WorkPlanItem {
-    project: string;
-    zone: string;
-    work_milestone_name: string;
-    work_header: string;
-    status: string;
-    progress: number;
-    expected_starting_date: string;
-    expected_completion_date: string;
-    work_plan_doc?: WorkPlanDoc[];
-    source: string;
-    weightage?: number;
-    dpr_name?: string;
-}
-
-export interface WorkPlanDoc {
-    name: string;
-    wp_title: string;
-    wp_status: string;
-    wp_start_date: string;
-    wp_end_date: string;
-    wp_description: string;
-    wp_progress?: string;
-    wp_estimate_completion_date?: string;
-    wp_remarks?: string;
-}
+export { type WorkPlanItem, type WorkPlanDoc };
 
 export const getColorForProgress = (value: number): string => {
     const val = Math.round(value);
@@ -297,7 +273,7 @@ const MilestoneRow = ({ item, onAddTask, onEditTask, onDeleteTask, onEditMilesto
                                     </div> */}
                                     {/* Data Rows - Enterprise Minimalist Cards with Labels */}
                                     {workPlans.map((plan) => {
-                                        const progressNum = parseInt(plan.wp_progress || '0', 10);
+                                        const progressNum = parseInt(String(plan.wp_progress || '0'), 10);
 
                                         return (
                                             <div
@@ -613,29 +589,15 @@ export const SevendaysWorkPlan = ({
     const [isMainExpanded, _setIsMainExpanded] = useState(true);
 
     const { toast } = useToast();
-    const { deleteDoc } = useFrappeDeleteDoc();
+    const { deleteWorkPlan } = useDeleteWorkPlan();
 
-    const shouldFetch = projectId;
-    const { data: result, error, isLoading: loading, mutate } = useFrappeGetCall<{
-        message: {
-            data: Record<string, WorkPlanItem[]>;
-            reason: string | null;
-        }
-    }>(
-        shouldFetch
-            ? "nirmaan_stack.api.seven_days_planning.work_plan_api.get_work_plan"
-            : null,
-        shouldFetch
-            ? {
-                project: projectId,
-                start_date: startDate ? format(startDate, "yyyy-MM-dd") : undefined,
-                end_date: endDate ? format(endDate, "yyyy-MM-dd") : undefined,
-            }
-            : undefined
+    const { data: result, error, isLoading: loading, mutate } = useWorkPlanData(
+        projectId,
+        startDate ? format(startDate, "yyyy-MM-dd") : undefined,
+        endDate ? format(endDate, "yyyy-MM-dd") : undefined
     );
 
-
-    const { data: projectDoc } = useFrappeGetDoc("Projects", projectId);
+    const { data: projectDoc } = useProjectDocForWorkPlan(projectId);
     const zones: string[] = useMemo(() => {
         if (!projectDoc?.project_zones) return [];
         return projectDoc.project_zones.map((z: any) => z.zone_name).sort();
@@ -734,6 +696,7 @@ export const SevendaysWorkPlan = ({
             wp_description: string;
             wp_progress?: number;
             wp_estimate_completion_date?: string;
+            wp_remarks?: string;
         } | null;
     }>({
         isOpen: false,
@@ -774,7 +737,7 @@ export const SevendaysWorkPlan = ({
                     wp_start_date: plan.wp_start_date,
                     wp_end_date: plan.wp_end_date,
                     wp_description: plan.wp_description,
-                    wp_progress: plan.wp_progress ? parseFloat(plan.wp_progress) : 0,
+                    wp_progress: plan.wp_progress ? parseFloat(String(plan.wp_progress)) : 0,
                     wp_estimate_completion_date: plan.wp_estimate_completion_date,
                     wp_remarks: plan.wp_remarks
                 }
@@ -818,7 +781,7 @@ export const SevendaysWorkPlan = ({
         const planName = deleteDialogState.planName;
         if (planName) {
             try {
-                await deleteDoc("Work Plan", planName);
+                await deleteWorkPlan(planName);
                 toast({
                     title: "Success",
                     description: "Task deleted successfully",

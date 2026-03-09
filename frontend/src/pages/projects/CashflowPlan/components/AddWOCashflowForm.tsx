@@ -1,20 +1,17 @@
 import { useState, useMemo } from "react";
-import { FolderOpen, Plus, X, Calendar as CalendarIcon, Edit2, Trash2, Folder, CheckCircle } from "lucide-react";
+import { X, Calendar as Folder, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { SelectWOModal } from "./SelectWOModal";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
-import { cn } from "@/lib/utils";
 import Select from "react-select";
-import { useFrappeGetDocList, useFrappeCreateDoc } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
 import { CashflowDatePicker } from "./CashflowDatePicker";
+import { useCashflowVendors } from "@/pages/projects/data/cashflow-plan/useCashflowPlanQueries";
+import { useCreateCashflowPlan } from "@/pages/projects/data/cashflow-plan/useCashflowPlanMutations";
 
 interface GenericWO {
     name: string;
@@ -55,17 +52,14 @@ export const AddWOCashflowForm = ({ projectId, onClose, onSuccess }: AddWOCashfl
     });
     const [isCustomVendor, setIsCustomVendor] = useState(false);
 
-    const { data: vendors, isLoading: isLoadingVendors } = useFrappeGetDocList("Vendors", {
-        fields: ["name", "vendor_name"],
-        limit: 0
-    });
+    const { data: vendors, isLoading: isLoadingVendors } = useCashflowVendors();
 
     const vendorOptions = useMemo(() => [
         ...(vendors || []).map(v => ({ value: v.name, label: v.vendor_name })),
         { label: "Others", value: "__others__" }
     ], [vendors]);
 
-    const { createDoc, loading: isSubmitting } = useFrappeCreateDoc();
+    const { createCashflow, loading: isSubmitting } = useCreateCashflowPlan();
 
     // Handlers
     const handleConfirmSelection = (wos: GenericWO[]) => {
@@ -99,7 +93,7 @@ export const AddWOCashflowForm = ({ projectId, onClose, onSuccess }: AddWOCashfl
         let successCount = 0;
         for (const plan of validPlans) {
             try {
-                await createDoc("Cashflow Plan", {
+                await createCashflow({
                     project: projectId,
                     type: "Existing WO",
                     id_link: plan.name,
@@ -185,7 +179,7 @@ export const AddWOCashflowForm = ({ projectId, onClose, onSuccess }: AddWOCashfl
         }
 
         try {
-            await createDoc("Cashflow Plan", {
+            await createCashflow({
                 project: projectId,
                 type: "New WO",
                 vendor: isCustomVendor ? "" : newPlan.vendor.value,
