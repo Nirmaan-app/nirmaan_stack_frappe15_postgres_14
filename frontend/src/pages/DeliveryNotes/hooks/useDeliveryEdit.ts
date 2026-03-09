@@ -69,6 +69,8 @@ export function useDeliveryEdit({
 
   const canEditDn = useCallback(
     (col: DNColumn): boolean => {
+      if (col.isReturn) return false;
+
       const role = userData?.role;
       if (!role || role === "Loading" || role === "Error") return false;
 

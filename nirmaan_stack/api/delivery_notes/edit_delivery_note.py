@@ -69,10 +69,45 @@ def edit_delivery_note(dn_name: str, modified_items: dict):
 
         _check_edit_permission(dn)
 
-        # Update delivered_quantity for modified items
+        if dn.is_return:
+            frappe.throw(
+                "Return notes cannot be edited. Create a new delivery note instead.",
+                frappe.ValidationError,
+            )
+
+        processed_item_ids = set()
+
+        # Update existing DN items
         for item in dn.items:
             if item.item_id in modified_items:
                 item.delivered_quantity = float(modified_items[item.item_id])
+                processed_item_ids.add(item.item_id)
+
+        # Add new items not already in the DN
+        po = frappe.get_doc("Procurement Orders", dn.procurement_order)
+        po_items_by_id = {
+            i.item_id: i for i in po.get("items")
+            if i.category != "Additional Charges"
+        }
+
+        for item_id, qty in modified_items.items():
+            if item_id in processed_item_ids:
+                continue
+            new_qty = float(qty)
+            if new_qty <= 0:
+                continue
+            po_item = po_items_by_id.get(item_id)
+            if not po_item:
+                continue
+            dn.append("items", {
+                "item_id": po_item.item_id,
+                "item_name": po_item.item_name,
+                "make": getattr(po_item, "make", None),
+                "unit": po_item.unit,
+                "category": po_item.category,
+                "procurement_package": getattr(po_item, "procurement_package", None),
+                "delivered_quantity": new_qty,
+            })
 
         # Remove items where delivered_quantity <= 0
         dn.items = [
