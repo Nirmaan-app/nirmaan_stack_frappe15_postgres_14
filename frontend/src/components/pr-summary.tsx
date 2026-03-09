@@ -428,7 +428,7 @@ useEffect(() => {
                         <CardHeader>
                             <CardTitle className="text-xl text-red-600">Associated Delivery Notes:</CardTitle>
                             <div className="overflow-x-auto">
-                                {po_data?.filter(item => ["Dispatched", "Delivered", "Partially Delivered"].includes(item.status)).length === 0 ? <p>No DNs generated as of now</p>
+                                {po_data?.filter(item => ["Partially Dispatched", "Dispatched", "Delivered", "Partially Delivered"].includes(item.status)).length === 0 ? <p>No DNs generated as of now</p>
                                     :
                                     <Table>
                                         <TableHeader>
@@ -439,7 +439,7 @@ useEffect(() => {
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                            {po_data?.filter(item => ["Dispatched", "Delivered", "Partially Delivered"].includes(item.status)).map((po) => {
+                                            {po_data?.filter(item => ["Partially Dispatched", "Dispatched", "Delivered", "Partially Delivered"].includes(item.status)).map((po) => {
                                                 return (
                                                     <TableRow key={po.name}>
                                                         <TableCell>

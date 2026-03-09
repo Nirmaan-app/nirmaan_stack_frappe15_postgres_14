@@ -46,7 +46,7 @@ interface POWithItems {
   vendor_name: string;
   dispatch_date: string;
   status: string;
-  items?: { item_name: string; item_id: string; parent: string }[];
+  items?: { item_name: string; item_id: string; parent: string; is_dispatched?: number }[];
 }
 
 interface POBasic {
@@ -156,7 +156,7 @@ const DeliveryNotes: React.FC = () => {
     shouldFetchCreate
       ? {
           project_id: selectedProject,
-          statuses: JSON.stringify(["Dispatched", "Partially Delivered"]),
+          statuses: JSON.stringify(["Partially Dispatched", "Dispatched", "Partially Delivered"]),
         }
       : undefined,
     shouldFetchCreate ? undefined : null
@@ -339,7 +339,7 @@ const DeliveryNotes: React.FC = () => {
                             <TableCell>
                               <Badge
                                 variant={
-                                  po.status === "Dispatched" ? "orange" : "green"
+                                  ["Dispatched", "Partially Dispatched"].includes(po.status) ? "orange" : "green"
                                 }
                               >
                                 {po.status}
@@ -372,7 +372,7 @@ const DeliveryNotes: React.FC = () => {
                               </span>
                               <Badge
                                 variant={
-                                  po.status === "Dispatched" ? "orange" : "green"
+                                  ["Dispatched", "Partially Dispatched"].includes(po.status) ? "orange" : "green"
                                 }
                               >
                                 {po.status}

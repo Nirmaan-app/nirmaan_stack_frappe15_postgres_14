@@ -212,6 +212,7 @@ export const Step2NegativeFlow: React.FC<Step2NegativeFlowProps> = ({
                                                         <Badge variant="outline" className={`ml-2 text-[10px] px-2 py-0 h-4 border-none ${
                                                             cand.status === 'PO Approved' ? 'bg-green-100 text-green-700' :
                                                             cand.status === 'Dispatched' ? 'bg-blue-100 text-blue-700' :
+                                                            cand.status === 'Partially Dispatched' ? 'bg-amber-100 text-amber-700' :
                                                             cand.status === 'Partially Delivered' ? 'bg-yellow-100 text-yellow-700' :
                                                             'bg-gray-100 text-gray-700'
                                                         }`}>
