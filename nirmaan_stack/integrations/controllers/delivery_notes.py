@@ -6,6 +6,14 @@ from nirmaan_stack.api.delivery_notes.update_delivery_note import (
 )
 
 
+def _has_undispatched_items(po):
+    """Check if the PO has any non-Additional-Charges items that are not dispatched."""
+    for item in po.get("items"):
+        if item.category != "Additional Charges" and not item.is_dispatched:
+            return True
+    return False
+
+
 def on_update(doc, method):
     """Recalculate PO delivery fields when a DN is updated."""
     if doc.procurement_order:
@@ -58,7 +66,13 @@ def recalculate_po_delivery_fields(po_name):
 
     # Recalculate PO fields
     po.po_amount_delivered = calculate_delivered_amount(po.get("items"))
-    po.status = calculate_order_status(po.get("items"))
+
+    # Partially Dispatched is sticky: if undispatched items remain, preserve the status
+    # regardless of delivery progress. Normal status calc only resumes once all items are dispatched.
+    if _has_undispatched_items(po):
+        po.status = "Partially Dispatched"
+    else:
+        po.status = calculate_order_status(po.get("items"))
 
     # Update latest_delivery_date from remaining DNs
     if remaining_dns:

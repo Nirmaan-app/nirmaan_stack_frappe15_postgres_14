@@ -182,6 +182,7 @@ doc_events = {
         "after_delete": "nirmaan_stack.integrations.controllers.procurement_requests.after_delete"
     },
     "Procurement Orders": {
+        "validate": "nirmaan_stack.integrations.controllers.procurement_orders.validate",
         "after_insert": "nirmaan_stack.integrations.controllers.procurement_orders.after_insert",
         "on_update": "nirmaan_stack.integrations.controllers.procurement_orders.on_update",
         "on_trash": [
