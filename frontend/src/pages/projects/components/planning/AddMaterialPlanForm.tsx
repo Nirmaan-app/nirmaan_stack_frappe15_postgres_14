@@ -8,8 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useFrappePostCall } from "frappe-react-sdk";
-import { useCreateMaterialDeliveryPlan } from "@/pages/projects/data/material-plan/useMaterialPlanMutations";
+import { useCreateMaterialDeliveryPlan, useFetchAllPOs, useFetchCategoriesAndTasks, useFetchDataV2 } from "@/pages/projects/data/material-plan/useMaterialPlanMutations";
 import { useToast } from "@/components/ui/use-toast";
 import { CategoryTaskSelector } from "./CategoryTaskSelector";
 import { AllPOsModal } from "./AllPOsModal";
@@ -110,20 +109,11 @@ export const AddMaterialPlanForm = ({ planNumber, projectId, projectPackages, on
     // ==========================================================================
     
     // Fetch Categories and Tasks
-    const { call: fetchCategoriesAndTasks, result: catTaskResult, loading: isLoadingCatTasks } = useFrappePostCall<any>(
-        "nirmaan_stack.api.seven_days_planning.material_plan_api.get_categories_and_tasks"
-    );
-    
+    const { fetchCategoriesAndTasks, catTaskResult, isLoadingCatTasks } = useFetchCategoriesAndTasks();
     // Fetch POs/Items for Task (V2 API)
-    const { call: fetchDataV2, result: dataV2Result, loading: isLoadingDataV2 } = useFrappePostCall<any>(
-        "nirmaan_stack.api.seven_days_planning.material_plan_api.get_material_plan_data_v2"
-    );
-    
+    const { fetchDataV2, dataV2Result, isLoadingDataV2 } = useFetchDataV2();
     // Fetch All Project POs (for "See All POs" modal)
-    const { call: fetchAllPOs, result: allPOsResult, loading: isLoadingAllPOs } = useFrappePostCall<any>(
-        "nirmaan_stack.api.seven_days_planning.material_plan_api.get_all_project_pos"
-    );
-    
+    const { fetchAllPOs, allPOsResult, isLoadingAllPOs } = useFetchAllPOs();
     // Create Material Delivery Plan
     const { createMaterialPlan, loading: isCreating } = useCreateMaterialDeliveryPlan();
 
