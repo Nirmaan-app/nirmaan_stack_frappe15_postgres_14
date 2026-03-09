@@ -19,6 +19,7 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | [domain/projects.md](./domain/projects.md) | Projects | Project status lifecycle, ProjectSelect component, status restrictions |
 | [domain/ceo-hold.md](./domain/ceo-hold.md) | CEO Hold | Project hold status, blocked operations, guard hooks |
 | [domain/delivery-notes.md](./domain/delivery-notes.md) | Delivery Notes | DN doctype, DN Item child table, APIs, received_quantity, 51-point linkage map |
+| [domain/po-status-map.md](./domain/po-status-map.md) | PO Status | Full PO status lifecycle, all codebase usage (28 frontend + 19 backend files), cross-module linkages, DataTable/API call map |
 
 ### Module References (in-code)
 
@@ -92,7 +93,8 @@ const { role, user_id } = useUserData();
         ├── invoices.md        # Invoice management & 2B reconciliation
         ├── milestones.md      # Daily progress reports & zone tracking
         ├── projects.md        # Project status lifecycle & frontend behavior
-        └── ceo-hold.md        # CEO Hold status & blocked operations
+        ├── ceo-hold.md        # CEO Hold status & blocked operations
+        └── po-status-map.md   # PO status lifecycle & full codebase usage map
 ```
 
 ---
