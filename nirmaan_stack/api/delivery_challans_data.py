@@ -21,7 +21,7 @@ def get_delivery_challan_pos_with_categories(project_id=None):
 	"""
 	# Build filters for Procurement Orders
 	filters = {
-		"status": ["in", ["Partially Delivered", "Delivered"]]
+		"status": ["in", ["Partially Dispatched", "Partially Delivered", "Delivered"]]
 	}
 
 	if project_id:
@@ -89,7 +89,8 @@ def get_delivery_challan_pos_with_categories(project_id=None):
 					"total_amount": flt(item.total_amount) if item.total_amount else 0,
 					"amount": flt(item.amount) if item.amount else 0,
 					"procurement_package": item.procurement_package,
-					"comment": item.comment
+					"comment": item.comment,
+				"is_dispatched": item.is_dispatched
 				})
 
 			# Increment category counts for this PO
@@ -154,7 +155,7 @@ def get_unique_categories_for_delivery_challans(project_id=None):
 		}
 	"""
 	filters = {
-		"status": ["in", ["Partially Delivered", "Delivered"]]
+		"status": ["in", ["Partially Dispatched", "Partially Delivered", "Delivered"]]
 	}
 
 	if project_id:
