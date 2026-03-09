@@ -29,7 +29,7 @@ import {
   Paperclip,
   MessageSquare,
   Phone,
-  Send,
+  PackageCheck,
   Trash2Icon,
   TriangleAlert,
   Undo2,
@@ -37,6 +37,7 @@ import {
 } from "lucide-react";
 import { useCriticalPOTaskLinking } from "../hooks/useCriticalPOTaskLinking";
 import { CriticalPOTaskLinkingSection } from "./CriticalPOTaskLinkingSection";
+import { DispatchItemSelector } from "./DispatchItemSelector";
 import { LinkedCriticalPOTag } from "./LinkedCriticalPOTag";
 import {
   Collapsible,
@@ -246,6 +247,17 @@ export const PODetails: React.FC<PODetailsProps> = ({
   const [contactSectionExpanded, setContactSectionExpanded] = useState(false);
   const [dispatchConfirmDialog, setDispatchConfirmDialog] = useState(false);
 
+  const [selectedDispatchItems, setSelectedDispatchItems] = useState<string[]>([]);
+  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState<string>("");
+
+  const { data: dnCountForPO } = useFrappeGetDocList("Delivery Notes", {
+    filters: [["procurement_order", "=", po?.name || ""]],
+    fields: ["name"],
+    limit: 1,
+  }, ["Dispatched", "Partially Dispatched"].includes(po?.status || "") ? undefined : null);
+
+  const hasDNsForPO = (dnCountForPO || []).length > 0;
+
   // Critical PO Task Linking hook
   const criticalPOLinking = useCriticalPOTaskLinking({
     projectId: po?.project || "",
@@ -264,34 +276,43 @@ export const PODetails: React.FC<PODetailsProps> = ({
     setEmail(e.target.value);
   }, []);
 
+  const handleDispatchSelectionChange = useCallback((selectedNames: string[]) => {
+    setSelectedDispatchItems(selectedNames);
+  }, []);
+
   const handleDispatchPO = async (linkCriticalTasks: boolean = false) => {
     if (isCEOHold) {
       showBlockedToast();
       return;
     }
     try {
-      // If linking to critical tasks, do that first (now supports multiple)
+      // If linking to critical tasks, do that first
       if (linkCriticalTasks && criticalPOLinking.selectedTasks.length > 0) {
         const linkResult = await criticalPOLinking.linkPOToTasks();
         if (!linkResult.success) {
-          // Linking failed (at least one task failed), don't proceed with dispatch
           return;
         }
       }
 
-      // Create the update payload with status "Dispatched"
-      const updateData: {
-        status: string;
-        delivery_contact?: string;
-        dispatch_date: string;
-      } = {
-        status: "Dispatched",
-        dispatch_date: new Date().toLocaleString("en-US", {
-          timeZone: "Asia/Kolkata",
-        }), // Set current timestamp
+      // Build items update — mark selected items as dispatched
+      const updatedItems = po.items.map((item) => ({
+        ...item,
+        is_dispatched: item.is_dispatched || selectedDispatchItems.includes(item.name) ? 1 : 0,
+      }));
+
+      // Determine new status
+      const dispatchableItems = updatedItems.filter((i) => i.category !== "Additional Charges");
+      const allDispatched = dispatchableItems.every((i) => i.is_dispatched);
+      const newStatus = allDispatched ? "Dispatched" : "Partially Dispatched";
+
+      // Build update payload
+      const updateData: Record<string, any> = {
+        items: updatedItems,
+        status: newStatus,
+        dispatch_date: new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }),
+        expected_delivery_date: expectedDeliveryDate || null,
       };
 
-      // If either contact field is provided, add the delivery_contact key
       if (contactPerson.name || contactPerson.number) {
         updateData.delivery_contact = `${contactPerson.name}:${contactPerson.number}`;
       }
@@ -302,23 +323,20 @@ export const PODetails: React.FC<PODetailsProps> = ({
 
       toast({
         title: "Success!",
-        description: `PO: ${po.name} status updated to 'Dispatched' successfully!`,
+        description: `PO: ${po.name} status updated to '${newStatus}' successfully!`,
         variant: "success",
       });
 
-      // Reset critical PO linking state
       criticalPOLinking.resetSelection();
       setDispatchConfirmDialog(false);
+      setSelectedDispatchItems([]);
+      setExpectedDeliveryDate("");
       toggleDispatchPODialog();
 
-      navigate(
-        `/purchase-orders/${po.name.replaceAll("/", "&=")}?tab=Dispatched+PO`
-      );
+      const tabParam = allDispatched ? "Dispatched+PO" : "Partially+Dispatched+PO";
+      navigate(`/purchase-orders/${po.name.replaceAll("/", "&=")}?tab=${tabParam}`);
     } catch (error: any) {
-      console.log(
-        "error while updating the status of the PO to dispatch",
-        error?.message
-      );
+      console.log("error while updating the status of the PO to dispatch", error?.message);
       toast({
         title: "Failed!",
         description: `PO: ${po.name} Updation Failed!`,
@@ -338,11 +356,20 @@ export const PODetails: React.FC<PODetailsProps> = ({
       showBlockedToast();
       return;
     }
+    if (hasDNsForPO) {
+      toast({
+        title: "Cannot revert",
+        description: "Delivery Notes exist for this PO. Delete them first to revert.",
+        variant: "destructive",
+      });
+      return;
+    }
     try {
       await updateDoc("Procurement Orders", po.name, {
         status: "PO Approved",
         delivery_contact: null,
-        dispatch_date: null, // Clear the dispatch_date
+        dispatch_date: null,
+        expected_delivery_date: null,
       });
 
       await poMutate();
@@ -354,9 +381,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
         variant: "success",
       });
 
-      navigate(
-        `/purchase-orders/${po.name.replaceAll("/", "&=")}?tab=Approved+PO`
-      );
+      navigate(`/purchase-orders/${po.name.replaceAll("/", "&=")}?tab=Approved+PO`);
     } catch (error) {
       toast({
         title: "Failed!",
@@ -559,7 +584,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   variant={
                     po?.status === "PO Approved"
                       ? "default"
-                      : po?.status === "Dispatched"
+                      : ["Dispatched", "Partially Dispatched"].includes(po?.status || "")
                         ? "orange"
                         : po?.status === "Inactive" ? "red" : "green"
                   }
@@ -625,7 +650,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 <p className="text-[10px] mr-5 font-semibold text-gray-400 uppercase tracking-wider">Invoices</p>
                 {/* Conditional Revision Warning or Standard Link */}
                 {/* && !po?.custom  */}
-                {["Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) && !isLocked && !PoPaymentTermsValidationSafe && (
+                {["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) && !isLocked && !PoPaymentTermsValidationSafe && (
                   (totalUploadedInvoiceAmount && po?.total_amount && Math.abs(totalUploadedInvoiceAmount - po.total_amount) > 1) ? (
                     <div className="flex items-center text-xs text-red-500 bg-red-50 px-2 py-1 rounded">
                       <span className="mr-1">Total PO Amount and Total Invoice Amount is not matching. Revise the PO to handle this amount change?</span>
@@ -721,7 +746,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
             {po?.status !== "PO Approved" && po?.status !== "Inactive" && (
               <>
                 {/* Upload DC - shown for delivered statuses */}
-                {["Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) &&
+                {["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) &&
                   ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) && (
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -740,7 +765,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   )}
 
                 {/* Upload MIR - shown for delivered statuses */}
-                {["Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) &&
+                {["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(po?.status) &&
                   ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) && (
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -782,7 +807,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
             {!summaryPage &&
               !accountsPage &&
               !estimatesViewing &&
-              po?.status === "Dispatched" &&
+              ["Dispatched", "Partially Dispatched"].includes(po?.status || "") &&
               !((poPayments || [])?.length > 0) &&
               ["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
                 <Tooltip>
@@ -864,7 +889,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
             {!summaryPage &&
               !accountsPage &&
               !estimatesViewing &&
-              po?.status === "PO Approved" &&
+              ["PO Approved", "Partially Dispatched"].includes(po?.status || "") &&
               ["Nirmaan Procurement Executive Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile"].includes(role) && (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -874,8 +899,8 @@ export const PODetails: React.FC<PODetailsProps> = ({
                       onClick={isValid ? toggleDispatchPODialog : undefined}
                       className="h-8 px-2.5 shrink-0"
                     >
-                      <Send className="h-3.5 w-3.5 sm:mr-1.5" />
-                      <span className="hidden sm:inline text-xs">Dispatch PO</span>
+                      <PackageCheck className="h-3.5 w-3.5 sm:mr-1.5" />
+                      <span className="hidden sm:inline text-xs">Mark Dispatched Items</span>
                     </Button>
                   </TooltipTrigger>
                   {!isValid ? (
@@ -889,7 +914,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                       />
                     </TooltipContent>
                   ) : (
-                    <TooltipContent className="sm:hidden">Dispatch PO</TooltipContent>
+                    <TooltipContent className="sm:hidden">Mark Dispatched Items</TooltipContent>
                   )}
                 </Tooltip>
               )}
@@ -1002,6 +1027,8 @@ export const PODetails: React.FC<PODetailsProps> = ({
             if (!open) {
               criticalPOLinking.resetSelection();
               setContactSectionExpanded(false);
+              setSelectedDispatchItems([]);
+              setExpectedDeliveryDate("");
             }
           }}
         >
@@ -1014,7 +1041,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
               <div className="flex items-start justify-between">
                 <div>
                   <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-1">
-                    Dispatch Purchase Order
+                    Mark Dispatched Items
                   </p>
                   <h2 className="text-lg font-semibold text-slate-800">
                     Send to{" "}
@@ -1032,6 +1059,30 @@ export const PODetails: React.FC<PODetailsProps> = ({
 
             {/* Scrollable Content */}
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 bg-slate-50">
+
+              {/* Item Selection Section */}
+              <DispatchItemSelector
+                items={po?.items || []}
+                onSelectionChange={handleDispatchSelectionChange}
+                disabled={update_loading}
+              />
+
+              {/* Expected Delivery Date */}
+              <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-6 h-6 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center">
+                    <PackageCheck className="w-3.5 h-3.5" />
+                  </div>
+                  <span className="text-sm font-semibold text-slate-700">Expected Delivery Date</span>
+                  <span className="text-xs text-slate-400 ml-auto">Optional</span>
+                </div>
+                <Input
+                  type="date"
+                  className="h-9 text-sm"
+                  value={expectedDeliveryDate}
+                  onChange={(e) => setExpectedDeliveryDate(e.target.value)}
+                />
+              </div>
 
               {/* Critical PO Task Linking Section */}
               <CriticalPOTaskLinkingSection linkingState={criticalPOLinking} />
@@ -1251,21 +1302,24 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 </Button>
                 <Button
                   size="sm"
-                  className={`h-9 shadow-sm ${criticalPOLinking.hasCriticalPOSetup &&
-                    criticalPOLinking.selectedTasks.length === 0 &&
-                    !criticalPOLinking.isPoAlreadyLinked
-                    ? "bg-slate-300 text-slate-500 cursor-not-allowed"
-                    : "bg-amber-500 hover:bg-amber-600 text-white"
-                    }`}
+                  className={`h-9 shadow-sm ${
+                    selectedDispatchItems.length === 0 ||
+                    (criticalPOLinking.hasCriticalPOSetup &&
+                      criticalPOLinking.selectedTasks.length === 0 &&
+                      !criticalPOLinking.isPoAlreadyLinked)
+                      ? "bg-slate-300 text-slate-500 cursor-not-allowed"
+                      : "bg-amber-500 hover:bg-amber-600 text-white"
+                  }`}
                   onClick={handleMarkAsDispatchedClick}
                   disabled={
-                    criticalPOLinking.hasCriticalPOSetup &&
-                    criticalPOLinking.selectedTasks.length === 0 &&
-                    !criticalPOLinking.isPoAlreadyLinked
+                    selectedDispatchItems.length === 0 ||
+                    (criticalPOLinking.hasCriticalPOSetup &&
+                      criticalPOLinking.selectedTasks.length === 0 &&
+                      !criticalPOLinking.isPoAlreadyLinked)
                   }
                 >
-                  <Send className="w-4 h-4 mr-1.5" />
-                  Mark as Dispatched
+                  <PackageCheck className="w-4 h-4 mr-1.5" />
+                  Confirm Dispatch
                 </Button>
               </div>
               <p className="text-xs text-slate-400 text-center mt-3">
@@ -1282,7 +1336,9 @@ export const PODetails: React.FC<PODetailsProps> = ({
               <DialogTitle>
                 {criticalPOLinking.selectedTasks.length > 0
                   ? `Confirm Linking to ${criticalPOLinking.selectedTasks.length} Task${criticalPOLinking.selectedTasks.length > 1 ? 's' : ''}`
-                  : "Confirm PO Dispatch"}
+                  : selectedDispatchItems.length < (po?.items?.filter(i => i.category !== "Additional Charges" && i.is_dispatched !== 1).length || 0)
+                    ? "Confirm Partial Dispatch"
+                    : "Confirm Full Dispatch"}
               </DialogTitle>
               <DialogDescription>
                 {criticalPOLinking.selectedTasks.length > 0 ? (

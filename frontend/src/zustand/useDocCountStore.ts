@@ -10,6 +10,7 @@ export interface SidebarCountsData {
     po: {
         "all": number;
         "PO Approved": number;
+        "Partially Dispatched": number;
         "Dispatched": number;
         "Partially Delivered": number;
         "Delivered": number;
@@ -82,6 +83,7 @@ export const useDocCountStore = create<Store>()(
         po: {
             "all": 0,
             "PO Approved": 0,
+            "Partially Dispatched": 0,
             "Dispatched": 0,
             "Partially Delivered": 0,
             "Delivered": 0,

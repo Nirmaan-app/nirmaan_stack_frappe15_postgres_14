@@ -484,7 +484,7 @@ export const ReleasePOSelect: React.FC = () => {
                 }
             }
         },
-        ...([PO_TABS.DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO].includes(tab as any) ? [
+        ...([PO_TABS.PARTIALLY_DISPATCHED_PO, PO_TABS.DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO].includes(tab as any) ? [
             {
                 id: "invoice_amount",
                 header: ({ column }) => {
@@ -587,7 +587,7 @@ export const ReleasePOSelect: React.FC = () => {
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
                 cell: ({ row }) => {
                     const status = row.getValue<string>("status");
-                    const variant = status === "PO Approved" ? "gray" : status === "Dispatched" ? "blue" : ["Partially Delivered", "Delivered"].includes(status) ? "green" : "destructive";
+                    const variant = status === "PO Approved" ? "gray" : status === "Partially Dispatched" ? "orange" : status === "Dispatched" ? "blue" : ["Partially Delivered", "Delivered"].includes(status) ? "green" : "destructive";
                     return (
                         <Badge variant={variant} className="text-xs">{status}</Badge>
                     );
@@ -610,7 +610,7 @@ export const ReleasePOSelect: React.FC = () => {
     // --- useServerDataTable Hook Instantiation ---
     // Only instantiate if the current tab is supposed to show a data table
     const shouldShowTable = useMemo(() =>
-        [PO_TABS.APPROVED_PO, PO_TABS.DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO, PO_TABS.ALL_POS, PO_TABS.MERGED_POS].includes(tab as any),
+        [PO_TABS.APPROVED_PO, PO_TABS.PARTIALLY_DISPATCHED_PO, PO_TABS.DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO, PO_TABS.ALL_POS, PO_TABS.MERGED_POS].includes(tab as any),
         [tab]);
 
     // --- Tab Change Handler ---

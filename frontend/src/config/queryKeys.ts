@@ -191,7 +191,7 @@ export const queryKeys = {
 // PO Reports Tab Options
 export const getPOReportListOptions = (): POListParams => ({
   fields: PO_REPORT_FIELDS,
-  filters: [["status", "in", ["Dispatched", "Partially Delivered", "Delivered"]]],
+  filters: [["status", "in", ["Dispatched", "Partially Dispatched", "Partially Delivered", "Delivered"]]],
   limit: 100000, // Consider pagination in future if needed
   orderBy: { field: 'creation', order: 'desc' },
 });
