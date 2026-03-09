@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import ReactSelect from "react-select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   AlertCircle,
   AlertTriangle,
+  Unlink,
   X,
 } from "lucide-react";
 import { formatDate } from "@/utils/FormatDate";
@@ -19,6 +20,16 @@ import {
   TaskOption,
 } from "../hooks/useCriticalPOTaskLinking";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 // React-Select custom styles for enterprise theme - now with multi-select support
 const selectStyles = {
@@ -131,10 +142,14 @@ export const CriticalPOTaskLinkingSection: React.FC<CriticalPOTaskLinkingSection
     removeTask,
     selectedTasksDetails,
     linkedPOsToSelectedTasks,
-    poLinkedToOtherTasks,
+    initiallyLinkedTasks,
+    unlinkTask,
+    isLinking,
   } = linkingState;
 
-  // Determine if task selection is mandatory
+  const [unlinkConfirmTask, setUnlinkConfirmTask] = useState<string | null>(null);
+
+  // Mandatory only when no tasks are already linked
   const isMandatory = hasCriticalPOSetup && !isPoAlreadyLinked;
   const showValidationError = isMandatory && selectedTasks.length === 0;
 
@@ -148,6 +163,11 @@ export const CriticalPOTaskLinkingSection: React.FC<CriticalPOTaskLinkingSection
     const parts = fullName.split("/");
     return parts.length > 1 ? parts[1] : fullName;
   };
+
+  // Find the task being confirmed for unlink
+  const taskToUnlink = unlinkConfirmTask
+    ? initiallyLinkedTasks.find((t) => t.value === unlinkConfirmTask)
+    : null;
 
   if (isLoading) {
     return (
@@ -170,259 +190,326 @@ export const CriticalPOTaskLinkingSection: React.FC<CriticalPOTaskLinkingSection
   }
 
   return (
-    <div className={`bg-white border rounded-lg shadow-sm transition-all duration-200 ${
-      showValidationError
-        ? "border-red-300 ring-1 ring-red-200"
-        : "border-slate-200"
-    }`}>
-      {/* Section Header */}
-      <div className={`px-4 py-3 border-b ${
-        showValidationError ? "border-red-100 bg-red-50/30" : "border-slate-100"
+    <>
+      <div className={`bg-white border rounded-lg shadow-sm transition-all duration-200 ${
+        showValidationError
+          ? "border-red-300 ring-1 ring-red-200"
+          : "border-slate-200"
       }`}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className={`w-6 h-6 rounded-full text-white flex items-center justify-center ${
-              showValidationError ? "bg-red-500" : "bg-amber-500"
-            }`}>
-              <Link2 className="w-3.5 h-3.5" />
+        {/* Section Header */}
+        <div className={`px-4 py-3 border-b ${
+          showValidationError ? "border-red-100 bg-red-50/30" : "border-slate-100"
+        }`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className={`w-6 h-6 rounded-full text-white flex items-center justify-center ${
+                showValidationError ? "bg-red-500" : "bg-amber-500"
+              }`}>
+                <Link2 className="w-3.5 h-3.5" />
+              </div>
+              <span className="text-sm font-semibold text-slate-700">
+                Critical PO Task Linking
+              </span>
             </div>
-            <span className="text-sm font-semibold text-slate-700">
-              Critical PO Task Linking
-            </span>
+            {hasCriticalPOSetup && (
+              <Badge
+                className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 ${
+                  isPoAlreadyLinked || selectedTasks.length > 0
+                    ? "bg-emerald-100 text-emerald-700 border-emerald-200"
+                    : "bg-red-100 text-red-700 border-red-200 animate-pulse"
+                }`}
+              >
+                {isPoAlreadyLinked
+                  ? `${initiallyLinkedTasks.length} Linked`
+                  : selectedTasks.length > 0
+                    ? `${selectedTasks.length} Selected`
+                    : "Required"}
+              </Badge>
+            )}
           </div>
-          {isMandatory && (
-            <Badge
-              className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 ${
-                selectedTasks.length > 0
-                  ? "bg-emerald-100 text-emerald-700 border-emerald-200"
-                  : "bg-red-100 text-red-700 border-red-200 animate-pulse"
-              }`}
-            >
-              {selectedTasks.length > 0
-                ? `${selectedTasks.length} Selected`
-                : "Required"}
-            </Badge>
+        </div>
+
+        <div className="p-4 space-y-4">
+          {!hasCriticalPOSetup ? (
+            /* No Setup State */
+            <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-md border border-dashed border-slate-300">
+              <Package className="w-5 h-5 text-slate-400" />
+              <div>
+                <p className="text-sm text-slate-600">
+                  Critical PO linking not available
+                </p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Setup Critical PO Categories for this project first
+                </p>
+              </div>
+            </div>
+          ) : (
+            /* Setup Exists */
+            <>
+              {/* Already Linked Tasks — read-only with unlink option */}
+              {initiallyLinkedTasks.length > 0 && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-md space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-blue-700 uppercase tracking-wide">
+                      Currently Linked ({initiallyLinkedTasks.length})
+                    </span>
+                    <CheckCircle2 className="w-4 h-4 text-blue-500" />
+                  </div>
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                    {initiallyLinkedTasks.map((taskOption) => {
+                      const task = taskOption.data;
+                      return (
+                        <div
+                          key={taskOption.value}
+                          className="flex items-center justify-between p-2 bg-white rounded border border-blue-200 text-xs"
+                        >
+                          <div className="flex-1 min-w-0 mr-2">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-slate-800 truncate">
+                                {task.item_name}
+                              </span>
+                              {task.sub_category && (
+                                <span className="text-slate-400 truncate">
+                                  ({task.sub_category})
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3 mt-0.5 text-slate-500">
+                              <span>{task.critical_po_category}</span>
+                              <span>|</span>
+                              <span>Due: {formatDate(task.po_release_date)}</span>
+                            </div>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setUnlinkConfirmTask(taskOption.value)}
+                            disabled={isLinking}
+                            className="h-6 px-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 shrink-0"
+                          >
+                            <Unlink className="h-3 w-3 mr-1" />
+                            <span className="text-[10px]">Unlink</span>
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Category Dropdown */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium text-slate-500">
+                  Filter by Category (optional)
+                </Label>
+                <ReactSelect<CategoryOption>
+                  options={categoryOptions}
+                  placeholder="Search or select category to filter..."
+                  isClearable
+                  styles={selectStyles}
+                  menuPosition="fixed"
+                  menuShouldBlockScroll={false}
+                  value={selectedCategory}
+                  onChange={(newValue) => setSelectedCategory(newValue as CategoryOption | null)}
+                  filterOption={(option, input) =>
+                    option.label.toLowerCase().includes(input.toLowerCase())
+                  }
+                />
+              </div>
+
+              {/* Task Dropdown — only for adding NEW tasks */}
+              <div className="space-y-1.5">
+                <Label className={`text-xs font-medium ${
+                  showValidationError ? "text-red-600" : "text-slate-500"
+                }`}>
+                  {isPoAlreadyLinked ? "Add More Tasks" : "Tasks"}{" "}
+                  {isMandatory && <span className="text-red-500">*</span>}
+                  <span className="font-normal text-slate-400 ml-1">(select one or more)</span>
+                </Label>
+                <ReactSelect<TaskOption, true>
+                  isMulti
+                  options={filteredTaskOptions}
+                  placeholder={isPoAlreadyLinked ? "Add additional tasks..." : "Search and select tasks..."}
+                  isClearable
+                  styles={{
+                    ...selectStyles,
+                    control: (base: any, state: any) => ({
+                      ...selectStyles.control(base, state),
+                      borderColor: showValidationError
+                        ? "#fca5a5"
+                        : state.isFocused
+                        ? "#f59e0b"
+                        : "#e2e8f0",
+                      boxShadow: showValidationError
+                        ? "0 0 0 1px #fca5a5"
+                        : state.isFocused
+                        ? "0 0 0 1px #f59e0b"
+                        : "none",
+                    }),
+                  }}
+                  menuPosition="fixed"
+                  menuShouldBlockScroll={false}
+                  value={selectedTasks}
+                  onChange={(newValue) => setSelectedTasks(newValue as TaskOption[])}
+                  filterOption={taskFilterOption}
+                  noOptionsMessage={() =>
+                    selectedCategory
+                      ? "No tasks found in this category"
+                      : "No more tasks available"
+                  }
+                  closeMenuOnSelect={false}
+                />
+              </div>
+
+              {/* Validation Error Message */}
+              {showValidationError && (
+                <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-md">
+                  <AlertTriangle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-xs font-semibold text-red-700">
+                      At least one task must be selected
+                    </p>
+                    <p className="text-xs text-red-600 mt-0.5">
+                      Select one or more Critical PO Tasks to link this PO before dispatching.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Newly Selected Tasks Details Card */}
+              {selectedTasksDetails.length > 0 && (
+                <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-md space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">
+                      New Tasks to Link ({selectedTasksDetails.length})
+                    </span>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                  </div>
+
+                  {/* Cross-category notice */}
+                  {hasTasksFromOtherCategories && (
+                    <p className="text-xs text-amber-600 -mt-1">
+                      Includes tasks from other categories
+                    </p>
+                  )}
+
+                  {/* Task List with remove buttons */}
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {selectedTasks.map((taskOption) => {
+                      const task = taskOption.data;
+                      return (
+                        <div
+                          key={taskOption.value}
+                          className="flex items-center justify-between p-2 bg-white rounded border border-emerald-200 text-xs"
+                        >
+                          <div className="flex-1 min-w-0 mr-2">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-slate-800 truncate">
+                                {task.item_name}
+                              </span>
+                              {task.sub_category && (
+                                <span className="text-slate-400 truncate">
+                                  ({task.sub_category})
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3 mt-0.5 text-slate-500">
+                              <span>{task.critical_po_category}</span>
+                              <span>|</span>
+                              <span>Due: {formatDate(task.po_release_date)}</span>
+                            </div>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeTask(taskOption.value)}
+                            className="h-6 w-6 p-0 text-slate-400 hover:text-red-500 hover:bg-red-50 shrink-0"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Linked POs Warning - POs already linked to selected tasks */}
+                  {linkedPOsToSelectedTasks.length > 0 && (
+                    <div className="pt-2 mt-2 border-t border-emerald-200">
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+                        <div>
+                          <p className="text-xs text-slate-600">
+                            <span className="text-amber-600 font-medium">
+                              {linkedPOsToSelectedTasks.length} other PO(s) linked to selected task(s):
+                            </span>
+                          </p>
+                          <div className="flex flex-wrap gap-1.5 mt-1.5">
+                            {linkedPOsToSelectedTasks.map((po) => (
+                              <div key={po} className="flex items-center gap-1 bg-white rounded border border-slate-200 px-1.5 py-0.5">
+                                <Badge
+                                  variant="outline"
+                                  className="text-xs font-mono border-none px-0"
+                                >
+                                  {extractPOId(po)}
+                                </Badge>
+                                <ItemsHoverCard
+                                  parentDoc={{ name: po }}
+                                  parentDoctype="Procurement Orders"
+                                  childTableName="items"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
 
-      <div className="p-4 space-y-4">
-        {!hasCriticalPOSetup ? (
-          /* No Setup State */
-          <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-md border border-dashed border-slate-300">
-            <Package className="w-5 h-5 text-slate-400" />
-            <div>
-              <p className="text-sm text-slate-600">
-                Critical PO linking not available
-              </p>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Setup Critical PO Categories for this project first
-              </p>
-            </div>
-          </div>
-        ) : (
-          /* Setup Exists - Show Dropdowns */
-          <>
-            {/* Category Dropdown */}
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-slate-500">
-                Filter by Category (optional)
-              </Label>
-              <ReactSelect<CategoryOption>
-                options={categoryOptions}
-                placeholder="Search or select category to filter..."
-                isClearable
-                styles={selectStyles}
-                menuPosition="fixed"
-                menuShouldBlockScroll={false}
-                value={selectedCategory}
-                onChange={(newValue) => setSelectedCategory(newValue as CategoryOption | null)}
-                filterOption={(option, input) =>
-                  option.label.toLowerCase().includes(input.toLowerCase())
+      {/* Unlink Confirmation Dialog */}
+      <AlertDialog open={!!unlinkConfirmTask} onOpenChange={(open) => !open && setUnlinkConfirmTask(null)}>
+        <AlertDialogContent className="sm:max-w-[400px]">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-red-600">
+              <Unlink className="w-5 h-5" />
+              Unlink Critical PO Task?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to unlink this PO from{" "}
+              <span className="font-semibold text-slate-700">
+                "{taskToUnlink?.data.item_name}"
+              </span>
+              ? This action takes effect immediately.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isLinking}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              disabled={isLinking}
+              onClick={async () => {
+                if (unlinkConfirmTask) {
+                  await unlinkTask(unlinkConfirmTask);
+                  setUnlinkConfirmTask(null);
                 }
-              />
-            </div>
-
-            {/* Task Dropdown - NOW MULTI-SELECT */}
-            <div className="space-y-1.5">
-              <Label className={`text-xs font-medium ${
-                showValidationError ? "text-red-600" : "text-slate-500"
-              }`}>
-                Tasks {isMandatory && <span className="text-red-500">*</span>}
-                <span className="font-normal text-slate-400 ml-1">(select one or more)</span>
-              </Label>
-              <ReactSelect<TaskOption, true>
-                isMulti
-                options={filteredTaskOptions}
-                placeholder="Search and select tasks..."
-                isClearable
-                styles={{
-                  ...selectStyles,
-                  control: (base: any, state: any) => ({
-                    ...selectStyles.control(base, state),
-                    borderColor: showValidationError
-                      ? "#fca5a5"
-                      : state.isFocused
-                      ? "#f59e0b"
-                      : "#e2e8f0",
-                    boxShadow: showValidationError
-                      ? "0 0 0 1px #fca5a5"
-                      : state.isFocused
-                      ? "0 0 0 1px #f59e0b"
-                      : "none",
-                  }),
-                }}
-                menuPosition="fixed"
-                menuShouldBlockScroll={false}
-                value={selectedTasks}
-                onChange={(newValue) => setSelectedTasks(newValue as TaskOption[])}
-                filterOption={taskFilterOption}
-                noOptionsMessage={() =>
-                  selectedCategory
-                    ? "No tasks found in this category"
-                    : "No tasks available"
-                }
-                closeMenuOnSelect={false}
-              />
-            </div>
-
-            {/* Validation Error Message */}
-            {showValidationError && (
-              <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-md">
-                <AlertTriangle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-xs font-semibold text-red-700">
-                    At least one task must be selected
-                  </p>
-                  <p className="text-xs text-red-600 mt-0.5">
-                    Select one or more Critical PO Tasks to link this PO before dispatching.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Selected Tasks Details Card - Now shows multiple tasks */}
-            {selectedTasksDetails.length > 0 && (
-              <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-md space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">
-                    Selected Tasks ({selectedTasksDetails.length})
-                  </span>
-                  <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                </div>
-
-                {/* Cross-category notice */}
-                {hasTasksFromOtherCategories && (
-                  <p className="text-xs text-amber-600 -mt-1">
-                    Includes tasks from other categories
-                  </p>
-                )}
-
-                {/* Task List with remove buttons */}
-                <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {selectedTasks.map((taskOption) => {
-                    const task = taskOption.data;
-                    return (
-                      <div
-                        key={taskOption.value}
-                        className="flex items-center justify-between p-2 bg-white rounded border border-emerald-200 text-xs"
-                      >
-                        <div className="flex-1 min-w-0 mr-2">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-slate-800 truncate">
-                              {task.item_name}
-                            </span>
-                            {task.sub_category && (
-                              <span className="text-slate-400 truncate">
-                                ({task.sub_category})
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-3 mt-0.5 text-slate-500">
-                            <span>{task.critical_po_category}</span>
-                            <span>|</span>
-                            <span>Due: {formatDate(task.po_release_date)}</span>
-                          </div>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeTask(taskOption.value)}
-                          className="h-6 w-6 p-0 text-slate-400 hover:text-red-500 hover:bg-red-50 shrink-0"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Cross-Task Conflict Warning - PO already linked to OTHER tasks */}
-                {poLinkedToOtherTasks.length > 0 && (
-                  <div className="pt-2 mt-2 border-t border-emerald-200">
-                    <div className="flex items-start gap-2 p-2 bg-amber-50 rounded-md border border-amber-200">
-                      <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
-                      <div>
-                        <p className="text-xs font-medium text-amber-700">
-                          This PO is already linked to other task(s):
-                        </p>
-                        <ul className="mt-1 space-y-0.5">
-                          {poLinkedToOtherTasks.map((linkedTask) => (
-                            <li
-                              key={linkedTask.taskName}
-                              className="text-xs text-slate-600"
-                            >
-                              • {linkedTask.itemName}{" "}
-                              <span className="text-slate-400">({linkedTask.category})</span>
-                            </li>
-                          ))}
-                        </ul>
-                        <p className="text-xs text-amber-600 mt-1.5 font-medium">
-                          These links will be preserved.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Linked POs Warning - POs already linked to selected tasks */}
-                {linkedPOsToSelectedTasks.length > 0 && (
-                  <div className="pt-2 mt-2 border-t border-emerald-200">
-                    <div className="flex items-start gap-2">
-                      <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
-                      <div>
-                        <p className="text-xs text-slate-600">
-                          <span className="text-amber-600 font-medium">
-                            {linkedPOsToSelectedTasks.length} other PO(s) linked to selected task(s):
-                          </span>
-                        </p>
-                        <div className="flex flex-wrap gap-1.5 mt-1.5">
-                          {linkedPOsToSelectedTasks.map((po) => (
-                            <div key={po} className="flex items-center gap-1 bg-white rounded border border-slate-200 px-1.5 py-0.5">
-                              <Badge
-                                variant="outline"
-                                className="text-xs font-mono border-none px-0"
-                              >
-                                {extractPOId(po)}
-                              </Badge>
-                              <ItemsHoverCard
-                                parentDoc={{ name: po }}
-                                parentDoctype="Procurement Orders"
-                                childTableName="items"
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    </div>
+              }}
+            >
+              {isLinking ? (
+                <TailSpin width={16} height={16} color="#fff" />
+              ) : (
+                "Unlink"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 };
