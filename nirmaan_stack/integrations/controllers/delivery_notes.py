@@ -16,6 +16,8 @@ def _has_undispatched_items(po):
 
 def on_update(doc, method):
     """Recalculate PO delivery fields when a DN is updated."""
+    if doc.flags.get("skip_po_recalculate"):
+        return
     if doc.procurement_order:
         recalculate_po_delivery_fields(doc.procurement_order)
 

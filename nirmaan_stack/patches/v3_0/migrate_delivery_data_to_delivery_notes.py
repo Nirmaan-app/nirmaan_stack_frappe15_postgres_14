@@ -6,11 +6,16 @@ This patch:
 1. Queries all POs where status IN ("Partially Delivered", "Delivered")
 2. Parses the delivery_data JSON field
 3. For each delivery event (sorted by date key):
-   - Creates a Delivery Notes record with child items
+   - Positive deltas (to > from): Creates a Delivery Notes record with child items
+   - Negative deltas (to < from): Adjusts (reduces) the most recently created DN
+     for this PO using LIFO walk-back. If a DN item reaches 0, the child row is
+     deleted. If all child rows are removed, the DN itself is deleted.
+   - Zero deltas: Skipped
    - Sets is_stub=0 (full record)
-4. Preserves original timestamps for historical accuracy (both parent DN and child items)
-5. Does NOT modify or delete the delivery_data JSON on the PO
-6. Writes a detailed log file to site logs directory
+4. Note numbers are only consumed when a DN is actually created (no gaps)
+5. Preserves original timestamps for historical accuracy (both parent DN and child items)
+6. Does NOT modify or delete the delivery_data JSON on the PO
+7. Writes a detailed log file to site logs directory
 
 Idempotency: Checks if a DN with the same procurement_order + note_no already exists.
 """
@@ -73,6 +78,9 @@ def execute():
         "dns_skipped": 0,
         "dns_zero_items": 0,
         "errors": 0,
+        "adjustments_applied": 0,
+        "dns_deleted_after_adjustment": 0,
+        "unresolvable_negatives": 0,
         "catchall_pos_processed": 0,
         "catchall_dns_created": 0,
         "catchall_dns_skipped": 0,
@@ -84,6 +92,12 @@ def execute():
     dn_insert_failures = []  # (po_name, date_key, note_no, expected_name, error_message, traceback)
     skipped_details = []     # (po_name, reason, extra_info)
     zero_item_details = []   # (po_name, date_key, note_no, raw_items_count)
+    adjustment_details = []  # (po_name, date_key, item_name, delta, target_dn, old_qty, new_qty)
+    unresolvable_details = [] # (po_name, date_key, item_name, remaining_delta)
+
+    # Track created DNs per PO for negative adjustment lookups
+    # {po_name: [(dn_name, [{"item_name": str, "qty": float, "child_name": str}, ...]), ...]}
+    created_dns = {}
 
     # Query all POs that have delivery data
     pos = frappe.db.sql(
@@ -109,7 +123,8 @@ def execute():
             # Build lookup from PO Items for authoritative field values
             po_items = frappe.get_all("Purchase Order Item",
                 filters={"parent": po.name},
-                fields=["item_name", "item_id", "category", "make", "procurement_package"],
+                fields=["item_name", "item_id", "category", "make", "procurement_package",
+                         "unit", "received_quantity"],
                 limit_page_length=0)
             po_item_lookup = {}
             for pi in po_items:
@@ -151,8 +166,8 @@ def execute():
 
             # Sort events by date key (chronological)
             sorted_dates = sorted(delivery_events.keys())
-            # Track note_nos used for this PO (DB + this run) to resolve collisions
-            used_note_nos = set()
+            # Running counter — only increments when a DN is actually created
+            next_note_no = 1
 
             for date_key in sorted_dates:
                 event = delivery_events[date_key]
@@ -166,18 +181,144 @@ def execute():
                     ))
                     continue
 
-                note_no = int(event.get("note_no", 0))
+                # Parse delivery date from date_key (remove timestamp if present)
+                delivery_date = date_key.split(" ")[0] if date_key else None
+                if delivery_date:
+                    try:
+                        datetime.strptime(delivery_date, "%Y-%m-%d")
+                    except ValueError:
+                        skipped_details.append((
+                            po.name,
+                            f"Invalid date_key format",
+                            f"date_key={date_key!r}",
+                        ))
+                        delivery_date = None
 
-                if note_no == 0:
-                    # If note_no not set, derive from position
-                    note_no = sorted_dates.index(date_key) + 1
+                # Get updated_by
+                updated_by = event.get("updated_by")
 
-                # Resolve duplicate note_no within this PO
-                original_note_no = note_no
-                while note_no in used_note_nos:
-                    note_no += 1
-                if note_no != original_note_no:
-                    log.write(f"  note_no collision: PO={po.name} date_key={date_key} original={original_note_no} -> reassigned={note_no}")
+                # Get attachment
+                attachment_id = event.get("attachment_id") or event.get("dc_attachment_id")
+
+                # Split items into positive (new delivery) and negative (return/correction)
+                raw_items = event.get("items", [])
+                child_items = []
+                negative_items = []
+                for item in raw_items:
+                    from_qty = float(item.get("from", 0) or 0)
+                    to_qty = float(item.get("to", 0) or 0)
+                    delta = to_qty - from_qty
+
+                    item_name = item.get("item_name", "")
+                    matched = po_item_lookup.get(item_name)
+
+                    if delta > 0:
+                        child_items.append({
+                            "item_id": matched.item_id if matched else item.get("item_id", ""),
+                            "item_name": item_name,
+                            "make": matched.make if matched else item.get("make", ""),
+                            "unit": item.get("unit", ""),
+                            "category": matched.category if matched else item.get("category", ""),
+                            "procurement_package": matched.procurement_package if matched else "",
+                            "delivered_quantity": delta,
+                        })
+                    elif delta < 0:
+                        negative_items.append({
+                            "item_name": item_name,
+                            "delta": delta,  # negative value
+                        })
+                    # delta == 0 → skip
+
+                # Apply negative adjustments to previously created DNs (LIFO)
+                if negative_items:
+                    po_dns = created_dns.get(po.name, [])
+                    for neg_item in negative_items:
+                        remaining = abs(neg_item["delta"])
+
+                        # Walk backwards through created DNs for this PO
+                        for dn_entry in reversed(po_dns):
+                            if remaining <= 0:
+                                break
+                            dn_name, dn_items_info = dn_entry
+                            for di in dn_items_info:
+                                if remaining <= 0:
+                                    break
+                                if di["item_name"] != neg_item["item_name"]:
+                                    continue
+                                if di["qty"] <= 0:
+                                    continue
+
+                                old_qty = di["qty"]
+                                reduction = min(remaining, old_qty)
+                                new_qty = old_qty - reduction
+                                remaining -= reduction
+
+                                # Update the child row in DB
+                                if new_qty > 0:
+                                    frappe.db.set_value(
+                                        "Delivery Note Item", di["child_name"],
+                                        "delivered_quantity", new_qty,
+                                        update_modified=False,
+                                    )
+                                else:
+                                    # Remove the child row entirely
+                                    frappe.db.sql(
+                                        """DELETE FROM "tabDelivery Note Item" WHERE name = %(name)s""",
+                                        {"name": di["child_name"]},
+                                    )
+
+                                # Update in-memory tracking
+                                di["qty"] = new_qty
+
+                                adjustment_details.append((
+                                    po.name, date_key, neg_item["item_name"],
+                                    neg_item["delta"], dn_name, old_qty, new_qty,
+                                ))
+                                stats["adjustments_applied"] += 1
+
+                        # Check if any DN became empty after adjustments
+                        for dn_entry in list(po_dns):
+                            dn_name, dn_items_info = dn_entry
+                            if all(di["qty"] <= 0 for di in dn_items_info):
+                                # Delete the empty DN record
+                                try:
+                                    frappe.db.sql(
+                                        """DELETE FROM "tabDelivery Note Item" WHERE parent = %(parent)s""",
+                                        {"parent": dn_name},
+                                    )
+                                    frappe.db.sql(
+                                        """DELETE FROM "tabDelivery Notes" WHERE name = %(name)s""",
+                                        {"name": dn_name},
+                                    )
+                                    po_dns.remove(dn_entry)
+                                    stats["dns_deleted_after_adjustment"] += 1
+                                    stats["dns_created"] -= 1  # offset the earlier increment
+                                    log.write(f"  Deleted empty DN {dn_name} after negative adjustments")
+                                except Exception as e:
+                                    log.write(f"  WARN: Failed to delete empty DN {dn_name}: {str(e)}")
+
+                        if remaining > 0:
+                            stats["unresolvable_negatives"] += 1
+                            unresolvable_details.append((
+                                po.name, date_key, neg_item["item_name"], -remaining,
+                            ))
+                            log.write(
+                                f"  UNRESOLVABLE: PO={po.name} date={date_key} "
+                                f"item={neg_item['item_name']} excess={-remaining}"
+                            )
+
+                # If no positive items, skip DN creation (counter doesn't increment)
+                if not child_items:
+                    if not negative_items:
+                        # Truly zero — all items had delta == 0
+                        stats["dns_zero_items"] += 1
+                        zero_item_details.append((
+                            po.name, date_key, 0, len(raw_items),
+                        ))
+                    continue
+
+                # Assign sequential note_no only when creating a DN
+                note_no = next_note_no
 
                 # Idempotency check
                 existing = frappe.db.exists(
@@ -191,61 +332,10 @@ def execute():
                         f"DN already exists for note_no={note_no}",
                         f"existing={existing}, date_key={date_key}",
                     ))
-                    used_note_nos.add(note_no)
+                    next_note_no += 1
                     continue
 
-                used_note_nos.add(note_no)
-
-                # Parse delivery date from date_key (remove timestamp if present)
-                delivery_date = date_key.split(" ")[0] if date_key else None
-                if delivery_date:
-                    try:
-                        datetime.strptime(delivery_date, "%Y-%m-%d")
-                    except ValueError:
-                        skipped_details.append((
-                            po.name,
-                            f"Invalid date_key format",
-                            f"date_key={date_key!r}, note_no={note_no}",
-                        ))
-                        delivery_date = None
-
-                # Get updated_by
-                updated_by = event.get("updated_by")
-
-                # Get attachment
-                attachment_id = event.get("attachment_id") or event.get("dc_attachment_id")
-
-                # Build child items, tracking skipped zero-delta items
-                raw_items = event.get("items", [])
-                child_items = []
-                for item in raw_items:
-                    from_qty = float(item.get("from", 0) or 0)
-                    to_qty = float(item.get("to", 0) or 0)
-                    delta = to_qty - from_qty
-
-                    if delta <= 0:
-                        continue
-
-                    # Match to PO Item for authoritative field values
-                    item_name = item.get("item_name", "")
-                    matched = po_item_lookup.get(item_name)
-
-                    child_items.append({
-                        "item_id": matched.item_id if matched else item.get("item_id", ""),
-                        "item_name": item_name,
-                        "make": matched.make if matched else item.get("make", ""),
-                        "unit": item.get("unit", ""),
-                        "category": matched.category if matched else item.get("category", ""),
-                        "procurement_package": matched.procurement_package if matched else "",
-                        "delivered_quantity": delta,
-                    })
-
-                if not child_items:
-                    stats["dns_zero_items"] += 1
-                    zero_item_details.append((
-                        po.name, date_key, note_no, len(raw_items),
-                    ))
-                    continue
+                next_note_no += 1
 
                 # Create DN record
                 # Expected name: DN/<series>/<project>/<fin_year>/<note_no>
@@ -269,7 +359,15 @@ def execute():
 
                     dn.flags.ignore_permissions = True
                     dn.flags.ignore_mandatory = True
+                    dn.flags.skip_po_recalculate = True
                     dn.insert()
+
+                    # Track created DN for future negative adjustments and post-processing
+                    dn_items_info = [
+                        {"item_name": ci["item_name"], "item_id": ci["item_id"], "qty": ci["delivered_quantity"], "child_name": child.name}
+                        for child, ci in zip(dn.items, child_items)
+                    ]
+                    created_dns.setdefault(po.name, []).append((dn.name, dn_items_info))
 
                     # Preserve original timestamps on the parent DN record
                     # Use the date_key as creation time if possible
@@ -311,6 +409,81 @@ def execute():
                     ))
                     print(f"  FAIL DN insert: PO={po.name} note_no={note_no} name={expected_name}: {str(e)}")
                     continue
+
+            # ---- Post-processing: reconcile DN items with current PO items ----
+            po_dns_list = created_dns.get(po.name, [])
+            if po_dns_list:
+                # Build set of valid PO item_ids (excluding Additional Charges)
+                valid_po_items = {}
+                for pi in po_items:
+                    if pi.category != "Additional Charges" and pi.item_id:
+                        valid_po_items[pi.item_id] = pi
+
+                first_dn_with_removals = None
+                covered_item_ids = set()
+
+                # Step 1: Remove DN items whose item_id is not in current PO
+                for dn_name, dn_items_info in po_dns_list:
+                    had_removals = False
+                    for di in list(dn_items_info):
+                        if di["item_id"] not in valid_po_items:
+                            frappe.db.sql(
+                                """DELETE FROM "tabDelivery Note Item" WHERE name = %(name)s""",
+                                {"name": di["child_name"]},
+                            )
+                            dn_items_info.remove(di)
+                            had_removals = True
+                            log.write(
+                                f"  Removed stale item: PO={po.name} DN={dn_name} "
+                                f"item_id={di['item_id']} item_name={di['item_name']}"
+                            )
+                        else:
+                            covered_item_ids.add(di["item_id"])
+
+                    if had_removals and first_dn_with_removals is None:
+                        first_dn_with_removals = dn_name
+
+                # Step 2: Find PO items not covered by any DN
+                uncovered_item_ids = set(valid_po_items.keys()) - covered_item_ids
+
+                # Step 3: Add uncovered items to the first DN that had removals
+                if uncovered_item_ids and first_dn_with_removals:
+                    dn_doc = frappe.get_doc("Delivery Notes", first_dn_with_removals)
+                    for item_id in uncovered_item_ids:
+                        pi = valid_po_items[item_id]
+                        dn_doc.append("items", {
+                            "item_id": pi.item_id,
+                            "item_name": pi.item_name,
+                            "make": pi.make or "",
+                            "unit": pi.unit or "",
+                            "category": pi.category or "",
+                            "procurement_package": pi.procurement_package or "",
+                            "delivered_quantity": float(pi.received_quantity or 0),
+                        })
+                        log.write(
+                            f"  Added PO item: PO={po.name} DN={first_dn_with_removals} "
+                            f"item_id={pi.item_id} item_name={pi.item_name} "
+                            f"qty={pi.received_quantity}"
+                        )
+                    dn_doc.flags.ignore_permissions = True
+                    dn_doc.flags.ignore_mandatory = True
+                    dn_doc.flags.skip_po_recalculate = True
+                    dn_doc.save()
+
+                # Step 4: Delete DNs left empty after removals
+                for dn_name, dn_items_info in list(po_dns_list):
+                    if not dn_items_info:
+                        frappe.db.sql(
+                            """DELETE FROM "tabDelivery Note Item" WHERE parent = %(name)s""",
+                            {"name": dn_name},
+                        )
+                        frappe.db.sql(
+                            """DELETE FROM "tabDelivery Notes" WHERE name = %(name)s""",
+                            {"name": dn_name},
+                        )
+                        po_dns_list.remove((dn_name, dn_items_info))
+                        stats["dns_created"] -= 1
+                        log.write(f"  Deleted empty DN after reconciliation: {dn_name}")
 
             batch_count += 1
             if batch_count >= batch_size:
@@ -425,6 +598,7 @@ def execute():
 
                 dn.flags.ignore_permissions = True
                 dn.flags.ignore_mandatory = True
+                dn.flags.skip_po_recalculate = True
                 dn.insert()
 
                 # Preserve timestamps using PO's modified date (best-effort)
@@ -516,6 +690,9 @@ def execute():
     print(f"  DN records created:         {stats['dns_created']}")
     print(f"  DN records skipped (exist): {stats['dns_skipped']}")
     print(f"  DN skipped (zero items):    {stats['dns_zero_items']}")
+    print(f"  Negative adjustments:       {stats['adjustments_applied']}")
+    print(f"  DNs deleted (empty):        {stats['dns_deleted_after_adjustment']}")
+    print(f"  Unresolvable negatives:     {stats['unresolvable_negatives']}")
     print(f"  DN insert failures:         {len(dn_insert_failures)}")
     print(f"  Other errors:               {stats['errors'] - len(dn_insert_failures)}")
     print(f"\n  --- Catch-all (Pass 2) ---")
@@ -537,6 +714,9 @@ def execute():
     log.write(f"DN records created:         {stats['dns_created']}")
     log.write(f"DN records skipped (exist): {stats['dns_skipped']}")
     log.write(f"DN skipped (zero items):    {stats['dns_zero_items']}")
+    log.write(f"Negative adjustments:       {stats['adjustments_applied']}")
+    log.write(f"DNs deleted (empty):        {stats['dns_deleted_after_adjustment']}")
+    log.write(f"Unresolvable negatives:     {stats['unresolvable_negatives']}")
     log.write(f"Errors:                     {stats['errors']}")
     log.write(f"")
     log.write(f"--- Catch-all (Pass 2) ---")
@@ -573,14 +753,28 @@ def execute():
             if extra:
                 log.write(f"    detail: {extra}")
 
+    if adjustment_details:
+        log.section(f"NEGATIVE ADJUSTMENTS ({len(adjustment_details)} total)")
+        log.write("Items with negative deltas (returns/corrections) applied to previous DNs.")
+        log.write("")
+        for po_name, date_key, item_name, delta, target_dn, old_qty, new_qty in adjustment_details:
+            log.write(f"  PO={po_name}  date={date_key}  item={item_name}  delta={delta}  DN={target_dn}  qty: {old_qty} -> {new_qty}")
+
+    if unresolvable_details:
+        log.section(f"UNRESOLVABLE NEGATIVES ({len(unresolvable_details)} total)")
+        log.write("Negative deltas that could not be fully absorbed by existing DNs (data inconsistency).")
+        log.write("")
+        for po_name, date_key, item_name, remaining in unresolvable_details:
+            log.write(f"  PO={po_name}  date={date_key}  item={item_name}  unabsorbed={remaining}")
+
     if zero_item_details:
         log.section(f"ZERO-ITEM DELIVERY EVENTS ({len(zero_item_details)} total)")
-        log.write("These events had items in delivery_data but all had delta <= 0 (no actual delivery).")
+        log.write("These events had items in delivery_data but all had delta == 0 (no actual delivery).")
         log.write("")
         for po_name, date_key, note_no, raw_count in zero_item_details:
             log.write(f"  PO={po_name}  date={date_key}  note_no={note_no}  raw_items={raw_count}")
 
-    if not error_details and not skipped_details and not zero_item_details:
+    if not error_details and not skipped_details and not zero_item_details and not adjustment_details and not unresolvable_details:
         log.section("ALL CLEAN")
         log.write("No errors, no skipped POs, no zero-item events.")
 
@@ -589,6 +783,9 @@ def execute():
     frappe.logger().info(
         f"Delivery data migration: created={stats['dns_created']}, "
         f"skipped={stats['dns_skipped']}, zero_items={stats['dns_zero_items']}, "
+        f"adjustments={stats['adjustments_applied']}, "
+        f"dns_deleted={stats['dns_deleted_after_adjustment']}, "
+        f"unresolvable={stats['unresolvable_negatives']}, "
         f"errors={stats['errors']}, catchall_created={stats['catchall_dns_created']}, "
         f"catchall_errors={stats['catchall_errors']}, log={log.log_path}"
     )
