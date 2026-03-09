@@ -280,14 +280,14 @@ export const PODetails: React.FC<PODetailsProps> = ({
     setSelectedDispatchItems(selectedNames);
   }, []);
 
-  const handleDispatchPO = async (linkCriticalTasks: boolean = false) => {
+  const handleDispatchPO = async () => {
     if (isCEOHold) {
       showBlockedToast();
       return;
     }
     try {
-      // If linking to critical tasks, do that first
-      if (linkCriticalTasks && criticalPOLinking.selectedTasks.length > 0) {
+      // Link PO to newly selected critical PO tasks (add-only)
+      if (criticalPOLinking.hasCriticalPOSetup && criticalPOLinking.selectedTasks.length > 0) {
         const linkResult = await criticalPOLinking.linkPOToTasks();
         if (!linkResult.success) {
           return;
@@ -300,10 +300,42 @@ export const PODetails: React.FC<PODetailsProps> = ({
         is_dispatched: item.is_dispatched || selectedDispatchItems.includes(item.name) ? 1 : 0,
       }));
 
-      // Determine new status
+      // Determine new status — accounts for existing deliveries
       const dispatchableItems = updatedItems.filter((i) => i.category !== "Additional Charges");
       const allDispatched = dispatchableItems.every((i) => i.is_dispatched);
-      const newStatus = allDispatched ? "Dispatched" : "Partially Dispatched";
+
+      let newStatus: string;
+      if (!allDispatched) {
+        newStatus = "Partially Dispatched";
+      } else {
+        // All dispatched — check delivery progress (mirrors backend calculate_order_status)
+        const DELTA = 2.5;
+        let totalItems = 0;
+        let deliveredItems = 0;
+        let anyReceived = false;
+
+        for (const item of dispatchableItems) {
+          totalItems++;
+          const qty = Number(item.quantity) || 0;
+          const received = Number(item.received_quantity) || 0;
+          if (received > 0) anyReceived = true;
+
+          const isFloat = qty % 1 !== 0 || received % 1 !== 0;
+          const isDelivered = isFloat
+            ? received >= qty - (qty * DELTA) / 100
+            : received >= qty;
+
+          if (isDelivered) deliveredItems++;
+        }
+
+        if (deliveredItems === totalItems && totalItems > 0) {
+          newStatus = "Delivered";
+        } else if (anyReceived) {
+          newStatus = "Partially Delivered";
+        } else {
+          newStatus = "Dispatched";
+        }
+      }
 
       // Build update payload
       const updateData: Record<string, any> = {
@@ -333,7 +365,13 @@ export const PODetails: React.FC<PODetailsProps> = ({
       setExpectedDeliveryDate("");
       toggleDispatchPODialog();
 
-      const tabParam = allDispatched ? "Dispatched+PO" : "Partially+Dispatched+PO";
+      const statusToTab: Record<string, string> = {
+        "Dispatched": "Dispatched+PO",
+        "Partially Dispatched": "Partially+Dispatched+PO",
+        "Partially Delivered": "Partially+Delivered+PO",
+        "Delivered": "Delivered+PO",
+      };
+      const tabParam = statusToTab[newStatus] || "Dispatched+PO";
       navigate(`/purchase-orders/${po.name.replaceAll("/", "&=")}?tab=${tabParam}`);
     } catch (error: any) {
       console.log("error while updating the status of the PO to dispatch", error?.message);
@@ -1029,6 +1067,9 @@ export const PODetails: React.FC<PODetailsProps> = ({
               setContactSectionExpanded(false);
               setSelectedDispatchItems([]);
               setExpectedDeliveryDate("");
+            } else {
+              // Pre-populate from existing PO data for subsequent dispatches
+              setExpectedDeliveryDate(po?.expected_delivery_date || "");
             }
           }}
         >
@@ -1074,11 +1115,11 @@ export const PODetails: React.FC<PODetailsProps> = ({
                     <PackageCheck className="w-3.5 h-3.5" />
                   </div>
                   <span className="text-sm font-semibold text-slate-700">Expected Delivery Date</span>
-                  <span className="text-xs text-slate-400 ml-auto">Optional</span>
+                  <span className={`text-xs ml-auto font-medium ${expectedDeliveryDate ? "text-emerald-500" : "text-red-500"}`}>Required</span>
                 </div>
                 <Input
                   type="date"
-                  className="h-9 text-sm"
+                  className={`h-9 text-sm ${!expectedDeliveryDate ? "border-red-300 focus-visible:ring-red-400" : ""}`}
                   value={expectedDeliveryDate}
                   onChange={(e) => setExpectedDeliveryDate(e.target.value)}
                 />
@@ -1284,10 +1325,19 @@ export const PODetails: React.FC<PODetailsProps> = ({
 
             {/* Footer - Sticky Actions */}
             <div className="px-5 py-4 border-t border-slate-200 bg-white">
-              {/* Disabled State Warning - now checks for multi-select */}
+              {/* Disabled State Warning - missing date */}
+              {!expectedDeliveryDate && (
+                <div className="mb-3 flex items-center justify-center gap-2 p-2 bg-red-50 border border-red-200 rounded-md">
+                  <TriangleAlert className="w-3.5 h-3.5 text-red-500" />
+                  <span className="text-xs font-medium text-red-600">
+                    Expected Delivery Date is required to enable dispatch
+                  </span>
+                </div>
+              )}
+              {/* Disabled State Warning - missing critical PO task */}
               {criticalPOLinking.hasCriticalPOSetup &&
-                criticalPOLinking.selectedTasks.length === 0 &&
-                !criticalPOLinking.isPoAlreadyLinked && (
+                !criticalPOLinking.isPoAlreadyLinked &&
+                criticalPOLinking.selectedTasks.length === 0 && (
                   <div className="mb-3 flex items-center justify-center gap-2 p-2 bg-red-50 border border-red-200 rounded-md">
                     <TriangleAlert className="w-3.5 h-3.5 text-red-500" />
                     <span className="text-xs font-medium text-red-600">
@@ -1304,18 +1354,16 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   size="sm"
                   className={`h-9 shadow-sm ${
                     selectedDispatchItems.length === 0 ||
-                    (criticalPOLinking.hasCriticalPOSetup &&
-                      criticalPOLinking.selectedTasks.length === 0 &&
-                      !criticalPOLinking.isPoAlreadyLinked)
+                    !expectedDeliveryDate ||
+                    !criticalPOLinking.selectionValid
                       ? "bg-slate-300 text-slate-500 cursor-not-allowed"
                       : "bg-amber-500 hover:bg-amber-600 text-white"
                   }`}
                   onClick={handleMarkAsDispatchedClick}
                   disabled={
                     selectedDispatchItems.length === 0 ||
-                    (criticalPOLinking.hasCriticalPOSetup &&
-                      criticalPOLinking.selectedTasks.length === 0 &&
-                      !criticalPOLinking.isPoAlreadyLinked)
+                    !expectedDeliveryDate ||
+                    !criticalPOLinking.selectionValid
                   }
                 >
                   <PackageCheck className="w-4 h-4 mr-1.5" />
@@ -1413,7 +1461,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   Cancel
                 </Button>
                 <Button
-                  onClick={() => handleDispatchPO(criticalPOLinking.selectedTasks.length > 0)}
+                  onClick={() => handleDispatchPO()}
                   className="bg-amber-500 hover:bg-amber-600"
                 >
                   <CheckCheck className="h-4 w-4 mr-1" />
