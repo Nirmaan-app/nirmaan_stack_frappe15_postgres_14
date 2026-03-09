@@ -284,6 +284,10 @@ def sync_original_po_items(revision_doc):
             new_row.total_amount = new_row.amount + new_row.tax_amount
             new_row.received_quantity = 0.0 # Explicitly initialize so it isn't None
 
+            # Auto-dispatch new items if PO is already in a post-dispatch state
+            if original_po.status in ("Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"):
+                new_row.is_dispatched = 1
+
             # Assign metadata mapped during draft creation
             cat = rev_item.revision_category
             pkg = rev_item.revision_procurement_package
