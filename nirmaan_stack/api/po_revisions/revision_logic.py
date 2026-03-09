@@ -811,7 +811,7 @@ def get_adjustment_candidate_pos(vendor, current_po):
         filters={
             "vendor": vendor,
             "name": ["!=", current_po],
-            "status": ["in", ["PO Approved", "Dispatched", "Partially Delivered","Delivered"]]
+            "status": ["in", ["PO Approved", "Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"]]
         },
         fields=["name", "vendor", "total_amount", "amount_paid", "vendor_name", "creation", "project", "project_name", "status"],
         order_by="creation desc",
