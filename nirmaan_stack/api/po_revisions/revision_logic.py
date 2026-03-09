@@ -381,12 +381,26 @@ def sync_original_po_items(revision_doc):
     # Re-calculate parent totals
     original_po.calculate_totals_from_items()
 
-    # Re-evaluate delivery status after item sync
-    # If the PO was Partially Delivered, revised quantities may now match received quantities
-    if original_po.status in ("Partially Delivered", "Delivered"):
+    # Re-evaluate status after item sync for any post-approval PO
+    if original_po.status in ("Partially Dispatched", "Partially Delivered", "Delivered"):
         updated_items = original_po.get("items", [])
-        original_po.status = calculate_order_status(updated_items)
-        # original_po.po_amount_delivered = calculate_delivered_amount(updated_items)
+        # Re-evaluate dispatch completeness first
+        dispatchable = [i for i in updated_items if i.category != "Additional Charges"]
+        has_undispatched = any(not getattr(i, 'is_dispatched', 0) for i in dispatchable)
+
+        if has_undispatched:
+            original_po.status = "Partially Dispatched"
+        elif original_po.status in ("Partially Delivered", "Delivered"):
+            # All dispatched + had deliveries → recalculate delivery status
+            original_po.status = calculate_order_status(updated_items)
+        else:
+            # Was Partially Dispatched, now all dispatched
+            # Check if any deliveries exist to determine Dispatched vs PD/D
+            has_deliveries = any(flt(getattr(i, 'received_quantity', 0)) > 0 for i in dispatchable)
+            if has_deliveries:
+                original_po.status = calculate_order_status(updated_items)
+            else:
+                original_po.status = "Dispatched"
          
     original_po.flags.ignore_validate_update_after_submit = True
     original_po.save(ignore_permissions=True)
