@@ -183,6 +183,8 @@ export const VendorMaterialOrdersTable: React.FC<
             variant={
               ["Partially Delivered", "Delivered"].includes(row.original.status)
                 ? "green"
+                : ["Partially Dispatched"].includes(row.original.status)
+                ? "yellow"
                 : "outline"
             }
           >

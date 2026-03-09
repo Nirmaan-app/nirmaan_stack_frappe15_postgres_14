@@ -87,7 +87,7 @@ export default function POReports() {
       case "PO with Excess Payments":
         return `POs with status "Partially Delivered" or "Delivered" where Amount Paid > Total PO Amount + ₹${payment_delta.toLocaleString("en-IN")}`;
       case "Dispatched for 1 days":
-        return 'POs with status "Dispatched" where dispatch date is 1 or more days ago';
+        return 'POs with status "Dispatched" or "Partially Dispatched" where dispatch date is 1 or more days ago';
       default:
         return null;
     }
@@ -168,7 +168,7 @@ export default function POReports() {
           const poDoc = row.originalDoc;
 
           // 1. Guard against missing or invalid data
-          if (poDoc.status !== "Dispatched" || !poDoc.dispatch_date) {
+          if ((poDoc.status !== "Dispatched" && poDoc.status !== "Partially Dispatched") || !poDoc.dispatch_date) {
             return false;
           }
 

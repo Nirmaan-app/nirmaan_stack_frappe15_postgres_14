@@ -39,8 +39,13 @@ export function useDeliveryPivotData(
       (item) => item.category !== ADDITIONAL_CHARGES_CATEGORY
     );
 
+    // For Partially Dispatched POs, only show items that have been dispatched
+    const eligibleItems = po.status === "Partially Dispatched"
+      ? regularItems.filter(item => item.is_dispatched === 1)
+      : regularItems;
+
     // 4. Map PO items → PivotRow[]
-    const rows: PivotRow[] = regularItems.map((item) => {
+    const rows: PivotRow[] = eligibleItems.map((item) => {
       const totalReceived = item.received_quantity ?? 0;
       const remainingQty = Math.max(0, item.quantity - totalReceived);
 
@@ -60,5 +65,5 @@ export function useDeliveryPivotData(
     });
 
     return { rows, dnColumns };
-  }, [po?.items, dnRecords]);
+  }, [po?.items, po?.status, dnRecords]);
 }

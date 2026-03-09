@@ -141,6 +141,14 @@ const PROCUREMENT_SECTIONS: DashboardSection[] = [
         countKey: "po.PO Approved",
       },
       {
+        id: "partially-dispatched-po",
+        title: "Partially Dispatched",
+        description: "Partial dispatch",
+        linkTo: "/purchase-orders?tab=Partially%20Dispatched%20PO",
+        Icon: PackageCheck,
+        countKey: "po.Partially Dispatched",
+      },
+      {
         id: "dispatched-po",
         title: "Dispatched PO",
         description: "In transit",
