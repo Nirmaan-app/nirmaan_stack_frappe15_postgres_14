@@ -31,7 +31,7 @@ def get_project_pos_with_items(project_id, statuses=None):
     all_items = frappe.get_all(
         "Purchase Order Item",
         filters={"parent": ["in", po_names]},
-        fields=["parent", "item_name", "item_id"],
+        fields=["parent", "item_name", "item_id", "is_dispatched"],
         limit_page_length=0,
     )
 

@@ -155,7 +155,7 @@ def download_all_dns(project):
         dt, 
         filters={
             "project": project, 
-            "status": ["in", ["Delivered", "Partially Delivered"]]
+            "status": ["in", ["Delivered", "Partially Delivered", "Partially Dispatched"]]
         }, 
         fields=["name"], 
         order_by="creation desc"
