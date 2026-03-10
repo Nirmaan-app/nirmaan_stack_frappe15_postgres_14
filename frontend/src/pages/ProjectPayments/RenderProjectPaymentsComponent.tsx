@@ -6,6 +6,8 @@ import { urlStateManager } from "@/utils/urlStateManager";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useFrappeGetCall } from "frappe-react-sdk";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Info } from "lucide-react";
 // --- Tab Configuration ---
 import {
     PP_TABS, PP_ADMIN_TAB_OPTIONS, PP_NEW_PAYMENTS_TAB_OPTIONS, PP_REM_TAB_OPTIONS, PP_ALL_TAB_OPTIONS, PP_ADMIN_ROLES, PP_ACCOUNTANT_ROLES, PP_PROJECT_ROLES, PPTabOption,
