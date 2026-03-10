@@ -129,6 +129,9 @@ import { PaymentTerm, POTotals } from "@/types/NirmaanStack/ProcurementOrders";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 import { PORevisionWarning } from "@/pages/PORevision/PORevisionWarning";
 import { usePOLockCheck, useAllLockedPOs } from "@/pages/PORevision/data/usePORevisionQueries";
+import { AmendAddChargeDialog } from "./components/AmendAddChargeDialog";
+import { Items } from "@/types/NirmaanStack/Items";
+import { Category } from "@/types/NirmaanStack/Category";
 
 interface PurchaseOrderProps {
   summaryPage?: boolean;
@@ -282,7 +285,7 @@ export const PurchaseOrder = ({
   }
 
   interface Operation {
-    operation: "delete" | "quantity_change" | "make_change" | "tax_change";
+    operation: "delete" | "quantity_change" | "make_change" | "tax_change" | "add";
     item: PurchaseOrderItem;
     previousQuantity?: number;
     previousMakeList?: string;
@@ -353,6 +356,12 @@ export const PurchaseOrder = ({
     setShowAddNewMake((prevState) => !prevState);
   }, [showAddNewMake]);
 
+  const [isAddChargeDialogOpen, setIsAddChargeDialogOpen] = useState(false);
+
+  const toggleAddChargeDialog = useCallback(() => {
+    setIsAddChargeDialogOpen((prev) => !prev);
+  }, []);
+
   const { toggleRequestPaymentDialog } = useDialogStore();
 
   const { updateDoc } = useFrappeUpdateDoc();
@@ -398,6 +407,36 @@ export const PurchaseOrder = ({
     useFrappePostCall(
       "nirmaan_stack.api.po_merge_and_unmerge.get_full_po_details" // This path looks correct based on your Python file
     );
+
+  const { data: chargeCategories } = useFrappeGetDocList<Category>("Category", {
+    fields: ["name", "tax", "work_package"],
+    filters: [["work_package", "=", "Additional Charges"]],
+    limit: 0,
+  });
+
+  const chargeCategoryNames = useMemo(() => chargeCategories?.map(c => c.name) || [], [chargeCategories]);
+
+  const { data: chargeItemsList } = useFrappeGetDocList<Items>("Items", {
+    fields: ["name", "item_name", "category", "unit_name"],
+    filters: chargeCategoryNames.length > 0 ? [["category", "in", chargeCategoryNames]] : [["name", "=", "INVALID"]],
+    limit: 0,
+  }, chargeCategoryNames.length > 0 ? "AdditionalChargeItems" : null);
+
+  const chargeItemOptions = useMemo(() => {
+    if (!chargeItemsList || !chargeCategories) return [];
+    return chargeItemsList.map(item => {
+      const cat = chargeCategories.find(c => c.name === item.category);
+      return {
+        label: item.item_name,
+        value: item.name,
+        item_id: item.name,
+        item_name: item.item_name,
+        unit: item.unit_name || "Nos",
+        category: item.category,
+        tax: parseFloat(cat?.tax || "0")
+      };
+    });
+  }, [chargeItemsList, chargeCategories]);
 
   const {
     data: usersList,
@@ -814,9 +853,17 @@ export const PurchaseOrder = ({
 
     try {
       // This part only runs if the validation above passes
+      const itemsToSubmit = orderData.map((item) => {
+        if (item.name.startsWith("NEW-CHARGE-")) {
+          const { name, ...rest } = item;
+          return rest;
+        }
+        return item;
+      });
+
       await updateDoc("Procurement Orders", poId, {
         status: "PO Amendment",
-        items: orderData,
+        items: itemsToSubmit,
       });
       if (comment) {
         await createDoc("Nirmaan Comments", {
@@ -886,6 +933,14 @@ export const PurchaseOrder = ({
   const handleUnAmendAll = () => {
     setOrderData(PO?.items || []);
     setStack([]);
+  };
+
+  const handleAddCharge = (newCharge: PurchaseOrderItem) => {
+    setOrderData(prev => [...prev, newCharge]);
+    setStack(prev => [...prev, {
+      operation: "add" as const,
+      item: newCharge,
+    }]);
   };
 
   useEffect(() => {
@@ -1031,6 +1086,9 @@ export const PurchaseOrder = ({
         }
         return item;
       });
+    } else if (lastOperation.operation === "add") {
+      // Remove the added charge
+      updatedOrderData = updatedOrderData.filter(item => item.name !== lastOperation.item.name);
     }
 
     setOrderData(updatedOrderData); // Set the restored array
@@ -1977,25 +2035,35 @@ export const PurchaseOrder = ({
                     <div className="text-red-700 text-sm font-light">
                       Order List
                     </div>
-                    {stack.length !== 0 && (
-                      <div className="flex items-center space-x-2">
-                        <HoverCard>
-                          <HoverCardTrigger asChild>
-                            <Button
-                              onClick={() => UndoDeleteOperation()}
-                              className="flex items-center gap-1"
-                            >
-                              <Undo className="mr-2 max-md:w-4 max-md:h-4" />{" "}
-                              {/* Undo Icon */}
-                              Undo
-                            </Button>
-                          </HoverCardTrigger>
-                          <HoverCardContent className="bg-gray-800 text-white p-2 rounded-md shadow-lg mr-[100px]">
-                            Click to undo the last operation
-                          </HoverCardContent>
-                        </HoverCard>
-                      </div>
-                    )}
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={toggleAddChargeDialog}
+                        className="text-blue-600 border-blue-200 hover:bg-blue-50 text-[11px] h-8 font-bold px-4"
+                      >
+                        Add Charges
+                      </Button>
+                      {stack.length !== 0 && (
+                        <div className="flex items-center space-x-2">
+                          <HoverCard>
+                            <HoverCardTrigger asChild>
+                              <Button
+                                onClick={() => UndoDeleteOperation()}
+                                className="flex items-center gap-1"
+                              >
+                                <Undo className="mr-2 max-md:w-4 max-md:h-4" />{" "}
+                                {/* Undo Icon */}
+                                Undo
+                              </Button>
+                            </HoverCardTrigger>
+                            <HoverCardContent className="bg-gray-800 text-white p-2 rounded-md shadow-lg mr-[100px]">
+                              Click to undo the last operation
+                            </HoverCardContent>
+                          </HoverCard>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <table className="table-auto w-full">
@@ -2041,7 +2109,7 @@ export const PurchaseOrder = ({
                               {item.quantity}
                             </td>
                             <td className="w-[10%] border-b-2 py-1 text-sm text-center">
-                              <div className="flex items-center justify-center">
+                              <div className="flex items-center justify-center gap-1">
                                 {item.category != "Additional Charges" && (
                                   <Pencil
                                     onClick={() => {
@@ -2073,6 +2141,12 @@ export const PurchaseOrder = ({
                                       toggleAmendEditItemDialog();
                                     }}
                                     className="w-4 h-4 cursor-pointer"
+                                  />
+                                )}
+                                {item.name.startsWith("NEW-CHARGE-") && (
+                                  <Trash2
+                                    onClick={() => handleDelete(item.name)}
+                                    className="w-4 h-4 cursor-pointer text-red-500"
                                   />
                                 )}
                               </div>
@@ -2425,6 +2499,13 @@ export const PurchaseOrder = ({
         project={PO?.project || "Unknown"}
         vendor={PO?.vendor || "Unknown"}
         onSuccess={poPaymentsMutate}
+      />
+      <AmendAddChargeDialog
+        open={isAddChargeDialogOpen}
+        onOpenChange={setIsAddChargeDialogOpen}
+        onAdd={handleAddCharge}
+        itemOptions={chargeItemOptions}
+        orderData={orderData}
       />
     </div>
   );
