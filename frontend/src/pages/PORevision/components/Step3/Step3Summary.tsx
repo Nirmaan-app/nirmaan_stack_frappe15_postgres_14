@@ -57,7 +57,7 @@ export const Step3Summary: React.FC<Step3SummaryProps> = ({
                                 {revisionItems.filter(i => i.item_type !== "Original").map((item, idx) => {
                                     const amount = (item.quantity || 0) * (item.quote || 0);
                                     const totalAmount = amount + (amount * (item.tax || 0) / 100);
-                                    const original = item.original_row_id ? po.items.find(i => i.name === item.original_row_id) : null;
+                                    const original = item.original_row_id ? po.items?.find(i => i.name === item.original_row_id) : null;
                                     const details = [];
                                     if (original && (item.item_type === "Revised" || item.item_type === "Replace")) {
                                         if (item.quantity !== original.quantity) details.push(`Qty: ${original.quantity} → ${item.quantity}`);
