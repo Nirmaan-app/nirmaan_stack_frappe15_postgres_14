@@ -1129,6 +1129,7 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   type="date"
                   className={`h-9 text-sm ${!expectedDeliveryDate ? "border-red-300 focus-visible:ring-red-400" : ""}`}
                   value={expectedDeliveryDate}
+                  min={new Date().toISOString().split("T")[0]}
                   onChange={(e) => setExpectedDeliveryDate(e.target.value)}
                 />
               </div>
