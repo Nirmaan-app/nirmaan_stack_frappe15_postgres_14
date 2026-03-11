@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Settings2 } from 'lucide-react';
+import { useUserData } from "@/hooks/useUserData";
 import { SetupTDSRepositoryDialog, TDSRepositoryData } from './components';
 
 interface NoTDSRepositoryViewProps {
@@ -9,6 +10,7 @@ interface NoTDSRepositoryViewProps {
 }
 
 export const NoTDSRepositoryView: React.FC<NoTDSRepositoryViewProps> = ({ onConfirm, isLoading = false }) => {
+    const { role } = useUserData();
     const [isSetupDialogOpen, setIsSetupDialogOpen] = useState(false);
 
     return (
@@ -25,6 +27,7 @@ export const NoTDSRepositoryView: React.FC<NoTDSRepositoryViewProps> = ({ onConf
                     onClick={() => setIsSetupDialogOpen(true)}
                     size="lg"
                     className="bg-red-600 hover:bg-red-700"
+                    disabled={role === "Nirmaan Procurement Executive Profile"}
                 >
                     Configure TDS Repository 
                 </Button>

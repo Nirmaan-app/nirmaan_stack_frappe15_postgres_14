@@ -50,7 +50,7 @@ import {
   ShoppingCart,
   SquareSquare,
   Store,
-  UsersRound
+  UsersRound,Waypoints
 } from "lucide-react";
 import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -363,15 +363,7 @@ export function NewSidebar() {
       ]
       : []),
 
-    ...(role == "Nirmaan Estimates Executive Profile"
-      ? [
-        {
-          key: '/tds-repository',
-          icon: List,
-          label: 'TDS Repository',
-        },
-      ]
-      : []),
+   
 
     ...([
       "Nirmaan Procurement Executive Profile",
@@ -518,6 +510,15 @@ export function NewSidebar() {
           key: '/reports',
           icon: ClipboardMinus,
           label: 'Reports',
+        },
+      ]
+      : []),
+       ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
+      ? [
+        {
+          key: '/tds-repository',
+          icon: Waypoints,
+          label: 'TDS Repository',
         },
       ]
       : []),

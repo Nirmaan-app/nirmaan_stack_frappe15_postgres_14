@@ -485,7 +485,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           key: PROJECT_PAGE_TABS.MATERIAL_USAGE,
         },
         {
-          label: "TDS Repository",
+          label: "TDS",
           key: PROJECT_PAGE_TABS.TDS_REPOSITORY,
         },
         {
@@ -535,7 +535,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           key: PROJECT_PAGE_TABS.MATERIAL_USAGE,
         },
         {
-          label: "TDS Repository",
+          label: "TDS",
           key: PROJECT_PAGE_TABS.TDS_REPOSITORY,
         },
         {
@@ -600,7 +600,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         key: PROJECT_PAGE_TABS.MATERIAL_USAGE,
       },
       {
-        label: "TDS Repository",
+        label: "TDS",
         key: PROJECT_PAGE_TABS.TDS_REPOSITORY,
       },
       // Hide Project Makes from Accountant
