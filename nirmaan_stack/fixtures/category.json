@@ -8,7 +8,7 @@
   "name": "Vesda",
   "new_items": "false",
   "tax": "18",
-  "work_package": "WLD & RR"
+  "work_package": "Critical Room ELV"
  },
  {
   "category_name": "WLD-RR Services",
@@ -558,7 +558,7 @@
   "name": "WLD",
   "new_items": "false",
   "tax": "18",
-  "work_package": "WLD & RR"
+  "work_package": "Critical Room ELV"
  },
  {
   "category_name": "RR",
@@ -569,7 +569,7 @@
   "name": "RR",
   "new_items": "false",
   "tax": "18",
-  "work_package": "WLD & RR"
+  "work_package": "Critical Room ELV"
  },
  {
   "category_name": "Miscellaneous Services",
