@@ -13,6 +13,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { useProjectReportCalculations } from "../hooks/useProjectReportCalculations";
 import {
   formatValueToLakhsString,
+  formatValueToLakhsNumber,
   getClientProjectColumns,
 } from "./columns/projectColumns";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
@@ -290,28 +291,28 @@ function CashSheetReport() {
 
     const dataToExport = rowsToExport.map((row: any) => ({
       project_name: row.project_name || row.name,
-      project_value: formatValueToLakhsString(row.project_value_gst),
-      client_invoiced: formatValueToLakhsString(row.totalProjectInvoiced),
-      inflow: formatValueToLakhsString(row.totalInflow),
-      outflow: formatValueToLakhsString(row.totalOutflow),
-      liability: formatValueToLakhsString(row.totalLiabilities),
-      gap: formatValueToLakhsString(row.cashflowGap),
-      po_sr_value: formatValueToLakhsString(row.totalInvoiced),
-      po_sr_invoiced: formatValueToLakhsString(row.totalPoSrInvoiced),
-      purchase_over_credit: formatValueToLakhsString(row.TotalPurchaseOverCredit),
+      project_value: formatValueToLakhsNumber(row.project_value_gst),
+      client_invoiced: formatValueToLakhsNumber(row.totalProjectInvoiced),
+      inflow: formatValueToLakhsNumber(row.totalInflow),
+      outflow: formatValueToLakhsNumber(row.totalOutflow),
+      liability: formatValueToLakhsNumber(row.totalLiabilities),
+      gap: formatValueToLakhsNumber(row.cashflowGap),
+      po_sr_value: formatValueToLakhsNumber(row.totalInvoiced),
+      po_sr_invoiced: formatValueToLakhsNumber(row.totalPoSrInvoiced),
+      purchase_over_credit: formatValueToLakhsNumber(row.TotalPurchaseOverCredit),
     }));
 
     const exportColumnsConfig = [
       { header: "Project Name", accessorKey: "project_name" },
-      { header: "Value (incl. GST)", accessorKey: "project_value" },
-      { header: "Client Invoiced (incl. GST)", accessorKey: "client_invoiced" },
-      { header: "Inflow", accessorKey: "inflow" },
-      { header: "Outflow", accessorKey: "outflow" },
-      { header: "Current Liability", accessorKey: "liability" },
-      { header: "Cashflow Gap", accessorKey: "gap" },
-      { header: "Total PO+SR Value(incl. GST)", accessorKey: "po_sr_value" },
-      { header: "Total PO+SR Invoice Received", accessorKey: "po_sr_invoiced" },
-      { header: "Total Purchase Over Credit", accessorKey: "purchase_over_credit" },
+      { header: "Value incl. GST (in Lakhs)", accessorKey: "project_value" },
+      { header: "Client Invoiced incl. GST (in Lakhs)", accessorKey: "client_invoiced" },
+      { header: "Inflow (in Lakhs)", accessorKey: "inflow" },
+      { header: "Outflow (in Lakhs)", accessorKey: "outflow" },
+      { header: "Current Liability (in Lakhs)", accessorKey: "liability" },
+      { header: "Cashflow Gap (in Lakhs)", accessorKey: "gap" },
+      { header: "Total PO+SR Value incl. GST (in Lakhs)", accessorKey: "po_sr_value" },
+      { header: "Total PO+SR Invoice Received (in Lakhs)", accessorKey: "po_sr_invoiced" },
+      { header: "Total Purchase Over Credit (in Lakhs)", accessorKey: "purchase_over_credit" },
     ];
 
     try {
