@@ -14,6 +14,7 @@ import { formatDate } from "@/utils/FormatDate";
 import { DeliveryNote } from "@/types/NirmaanStack/DeliveryNotes";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { useFrappeGetDocList } from "frappe-react-sdk";
+import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 
 interface VendorDeliveryNotesTableProps {
   vendorId: string;
@@ -48,18 +49,14 @@ export const VendorDeliveryNotesTable: React.FC<VendorDeliveryNotesTableProps> =
     [vendorId]
   );
 
-  // Fetch users for name lookup
-  const { data: usersData } = useFrappeGetDocList<{ name: string; full_name: string }>(
-    "User",
-    { fields: ["name", "full_name"], limit: 0 },
-    "users_lookup_for_vendor_dn"
-  );
+  // Fetch users for name lookup via shared hook
+  const { data: nirmaanUsers } = useUsersList();
 
   const userMap = useMemo(() => {
     const map = new Map<string, string>();
-    usersData?.forEach(u => map.set(u.name, u.full_name));
+    nirmaanUsers?.forEach(u => map.set(u.name, u.full_name));
     return map;
-  }, [usersData]);
+  }, [nirmaanUsers]);
 
   // Fetch projects for name lookup
   const { data: projectsData } = useFrappeGetDocList<Projects>(
@@ -162,11 +159,14 @@ export const VendorDeliveryNotesTable: React.FC<VendorDeliveryNotesTableProps> =
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Note #" />
         ),
-        cell: ({ row }) => (
-          <div className="text-center font-medium">
-            {row.original.note_no}
-          </div>
-        ),
+        cell: ({ row }) => {
+          const prefix = row.original.is_return ? "RN" : "DN";
+          return (
+            <div className="font-medium">
+              {prefix}-{row.original.note_no}
+            </div>
+          );
+        },
         size: 80,
       },
       {
@@ -246,7 +246,7 @@ export const VendorDeliveryNotesTable: React.FC<VendorDeliveryNotesTableProps> =
   // --- Row styling for return notes ---
   const getRowClassName = useCallback(
     (row: TanRow<DeliveryNote>) =>
-      row.original.is_return ? "bg-red-50 hover:bg-red-100" : undefined,
+      row.original.is_return ? "bg-red-50 hover:bg-red-200" : undefined,
     []
   );
 
