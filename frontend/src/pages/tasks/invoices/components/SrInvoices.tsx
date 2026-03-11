@@ -61,6 +61,7 @@ interface SrInvoiceItem {
     reconciled_date?: string | null;
     reconciled_by?: string | null;
     reconciliation_proof_attachment_id?: string | null;
+    modified_by?: string;
 }
 
 interface AllSrInvoicesDataCallResponse {
@@ -258,6 +259,24 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId, vendorName }) 
                             )}
                         </div>
                     );
+                },
+                size: 150,
+            },
+            {
+                accessorKey: "modified_by",
+                header: ({ column }) => <DataTableColumnHeader column={column} title={<span className="whitespace-normal leading-tight">Last Modified By</span>} />,
+                cell: ({ row }) => {
+                    const userId = row.original.modified_by;
+                    if (!userId) return <span className="text-gray-400">-</span>;
+                    const fullName = getUserFullName(userId);
+                    return <div className="font-medium">{fullName}</div>;
+                },
+                filterFn: (row, id, value) => value.includes(row.getValue(id)),
+                meta: {
+                    exportHeaderName: "Modified By",
+                    exportValue: (row: SrInvoiceItem) => {
+                        return row.modified_by ? getUserFullName(row.modified_by) : "-";
+                    },
                 },
                 size: 150,
             },
