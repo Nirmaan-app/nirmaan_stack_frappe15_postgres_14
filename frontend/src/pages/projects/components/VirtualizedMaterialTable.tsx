@@ -1,7 +1,6 @@
 // components/VirtualizedMaterialTable.tsx (Full, Refactored File)
 
 import * as React from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowDown, ArrowUp, ChevronsUpDown, EyeOff, ListX } from 'lucide-react';
 
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
@@ -82,8 +81,7 @@ const SortableHeader: React.FC<SortableHeaderProps> = ({
 interface VirtualizedMaterialTableProps {
   // The data to display, which is already filtered and sorted by the parent.
   items: MaterialUsageDisplayItem[];
-  estimatedRowHeight?: number;
-  
+
   // Props for filter components
   categoryOptions: { label: string; value: string }[];
   categoryFilter: Set<string>;
@@ -112,30 +110,10 @@ interface VirtualizedMaterialTableProps {
 }
 
 export const VirtualizedMaterialTable: React.FC<VirtualizedMaterialTableProps> = (props) => {
-  const { items, estimatedRowHeight = 48, hiddenColumns, remainingReportDate, remainingSubmittedBy } = props;
-  const parentRef = React.useRef<HTMLDivElement>(null);
+  const { items, hiddenColumns, remainingReportDate, remainingSubmittedBy } = props;
 
-  // --- A. VIRTUALIZATION LOGIC ---
-  // This hook from @tanstack/react-virtual is the key to performance.
-  // It calculates which rows should be visible in the viewport.
-  const rowVirtualizer = useVirtualizer({
-    count: items.length, // Total number of items in the list.
-    getScrollElement: () => parentRef.current, // The scrollable container element.
-    estimateSize: () => estimatedRowHeight, // An estimate for performance; doesn't need to be exact.
-    overscan: 10, // Renders 10 extra items above and below the viewport for smoother scrolling.
-  });
-
-  // `getVirtualItems()` returns a small array of only the rows that should be rendered.
-  const virtualRows = rowVirtualizer.getVirtualItems();
-
-  // This is the "magic" of virtualization. To make the scrollbar behave correctly,
-  // we create empty spacer elements at the top and bottom of the rendered list.
-  const paddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
-  const paddingBottom = virtualRows.length > 0 ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1].end : 0;
-  
-  // --- B. DYNAMIC LAYOUT CALCULATION ---
   // Calculate the number of visible columns to correctly set the `colSpan` for placeholder rows.
-  const totalColumns = 16; // Total columns: Item Name, Category, Billing Cat, Unit, Est Qty, Ordered Qty, DN Qty, Remaining Qty, DC Qty, MIR Qty, PO Amount, Delivery Status, PO Numbers, DCs, MIRs, PO Status
+  const totalColumns = 16;
   const visibleColumnCount = totalColumns - hiddenColumns.size;
     
   // Helper function to bundle all sorting-related props for the SortableHeader.
@@ -150,7 +128,7 @@ export const VirtualizedMaterialTable: React.FC<VirtualizedMaterialTableProps> =
 
   // --- C. RENDER LOGIC ---
   return (
-    <div ref={parentRef} className="rounded-md border overflow-x-auto max-h-[70vh] overflow-y-auto">
+    <div className="rounded-md border overflow-x-auto max-h-[70vh] overflow-y-auto">
       <Table>
         <TableHeader className='bg-background sticky top-0 z-[40]'>
           <TableRow>
@@ -218,20 +196,11 @@ export const VirtualizedMaterialTable: React.FC<VirtualizedMaterialTableProps> =
           </TableRow>
         </TableHeader>
         <TableBody>
-          {/* Top padding row to simulate the position of un-rendered items */}
-          {paddingTop > 0 && (<TableRow><td colSpan={visibleColumnCount} style={{ height: `${paddingTop}px` }} /></TableRow>)}
-          
-          {/* Message for when no items are found after filtering */}
-          {virtualRows.length === 0 && (<TableRow><TableCell colSpan={visibleColumnCount} className="h-24 text-center">No results found.</TableCell></TableRow>)}
-          
-          {/* The main rendering loop: iterates over the small `virtualRows` array */}
-          {virtualRows.map(virtualRow => {
-            const item = items[virtualRow.index];
-            return (<MaterialTableRow key={item.uniqueKey || `item-${virtualRow.index}`} item={item} hiddenColumns={hiddenColumns} />);
-          })}
+          {items.length === 0 && (<TableRow><TableCell colSpan={visibleColumnCount} className="h-24 text-center">No results found.</TableCell></TableRow>)}
 
-          {/* Bottom padding row */}
-          {paddingBottom > 0 && (<TableRow><td colSpan={visibleColumnCount} style={{ height: `${paddingBottom}px` }} /></TableRow>)}
+          {items.map((item, index) => (
+            <MaterialTableRow key={item.uniqueKey || `item-${index}`} item={item} hiddenColumns={hiddenColumns} />
+          ))}
         </TableBody>
       </Table>
     </div>
