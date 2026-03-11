@@ -87,9 +87,11 @@ function DashboardCard({
 function DNDownloadButton({
   poId,
   deliveryDate,
+  noteNo,
 }: {
   poId: string;
   deliveryDate: string;
+  noteNo: string | number;
 }) {
   const { downloadDN } = useDownloadDN(poId);
   return (
@@ -97,7 +99,7 @@ function DNDownloadButton({
       variant="ghost"
       size="icon"
       className="h-7 w-7"
-      onClick={() => downloadDN(deliveryDate)}
+      onClick={() => downloadDN(deliveryDate, noteNo)}
     >
       <Download className="h-3.5 w-3.5" />
     </Button>
@@ -529,7 +531,7 @@ const DeliveryNotes: React.FC = () => {
                                         </TableHeader>
                                         <TableBody>
                                           {dns.map((dn) => (
-                                            <TableRow key={dn.name}>
+                                            <TableRow key={dn.name} className={dn.is_return === 1 ? "bg-red-100/80" : ""}>
                                               <TableCell>
                                                 <button
                                                   className={`text-sm font-medium hover:underline ${dn.is_return === 1 ? "text-red-600" : "text-primary"}`}
@@ -554,6 +556,7 @@ const DeliveryNotes: React.FC = () => {
                                                 <DNDownloadButton
                                                   poId={po.name}
                                                   deliveryDate={dn.delivery_date}
+                                                  noteNo={dn.note_no}
                                                 />
                                               </TableCell>
                                             </TableRow>
@@ -619,7 +622,7 @@ const DeliveryNotes: React.FC = () => {
                                   {dns.map((dn) => (
                                     <div
                                       key={dn.name}
-                                      className="flex items-center justify-between text-sm"
+                                      className={`flex items-center justify-between text-sm ${dn.is_return === 1 ? "bg-red-100/80 -mx-2 px-2 py-1 rounded" : ""}`}
                                     >
                                       <button
                                         className={`hover:underline font-medium ${dn.is_return === 1 ? "text-red-600" : "text-primary"}`}
@@ -637,6 +640,7 @@ const DeliveryNotes: React.FC = () => {
                                         <DNDownloadButton
                                           poId={po.name}
                                           deliveryDate={dn.delivery_date}
+                                          noteNo={dn.note_no}
                                         />
                                       </div>
                                     </div>
