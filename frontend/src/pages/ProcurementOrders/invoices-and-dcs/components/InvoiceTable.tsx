@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Trash2 } from 'lucide-react';
+import { Trash2, Pencil } from 'lucide-react';
 import { formatDate } from 'date-fns';
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { VendorInvoice } from '@/types/NirmaanStack/VendorInvoice';
@@ -21,6 +21,8 @@ interface InvoiceTableProps {
     items: VendorInvoice[] | undefined | null;
     /** Function called when the view/invoice number link is clicked */
     onViewAttachment: (attachmentId: string | undefined) => void;
+    /** Function called when the edit button is clicked */
+    onEditEntry?: (item: VendorInvoice) => void;
     /** Function called when the delete button is clicked */
     onDeleteEntry?: (invoiceId: string) => void;
     /** Loading state of the delete button */
@@ -36,6 +38,7 @@ interface InvoiceTableProps {
 export const InvoiceTable: React.FC<InvoiceTableProps> = ({
     items,
     onViewAttachment,
+    onEditEntry,
     onDeleteEntry,
     isLoading,
     canDeleteEntry,
@@ -66,7 +69,7 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
                     <TableHead className="text-black font-bold">Invoice No.</TableHead>
                     <TableHead className="w-[120px] text-black font-bold">Status</TableHead>
                     <TableHead className="w-[150px] text-black font-bold">Uploaded By</TableHead>
-                    {!hideActions && <TableHead className="w-[100px] text-center text-black font-bold">Actions</TableHead>}
+                    {!hideActions && <TableHead className="w-[120px] text-center text-black font-bold">Actions</TableHead>}
                 </TableRow>
             </TableHeader>
             <TableBody>
@@ -101,7 +104,18 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
                                     {getUserName ? getUserName(invoice.uploaded_by) : invoice.uploaded_by || '--'}
                                 </TableCell>
                                 {!hideActions && <TableCell className="text-center space-x-1">
-                                    {showDeleteButton ? (
+                                    {onEditEntry && (
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="text-blue-600 hover:text-blue-800"
+                                            onClick={() => onEditEntry(invoice)}
+                                            title={`Edit Invoice ${invoice.invoice_no}`}
+                                        >
+                                            <Pencil className="h-4 w-4" />
+                                        </Button>
+                                    )}
+                                    {showDeleteButton && (
                                         <Dialog>
                                             <DialogTrigger asChild>
                                                 <Button
@@ -125,7 +139,7 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
                                                     {isLoading ? <TailSpin color="red" height={40} width={40} /> : (
                                                         <>
                                                             <DialogClose asChild>
-                                                                <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
+                                                                 <Button variant={"outline"} className="border-primary text-primary">Cancel</Button>
                                                             </DialogClose>
                                                             <Button disabled={isLoading} onClick={() => onDeleteEntry?.(invoice.name)}>Confirm</Button>
                                                         </>
@@ -133,7 +147,8 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
                                                 </div>
                                             </DialogContent>
                                         </Dialog>
-                                    ) : "--"}
+                                    )}
+                                    {!onEditEntry && !showDeleteButton && "--"}
                                 </TableCell>}
                             </TableRow>
                         );

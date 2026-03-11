@@ -12,7 +12,7 @@ import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { toast } from "@/components/ui/use-toast";
 import { useFrappePostCall, useFrappeFileUpload } from "frappe-react-sdk";
 import { Loader2, FilePenLine, Trash2, Plus, Pencil, X } from "lucide-react";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState, useEffect } from "react";
 import { formatDate } from "@/utils/FormatDate";
 import type { CustomerPODetail } from "./AddCustomerPODialog";
 import type { PaymentTerm } from "./AddCustomerPODialog";
@@ -80,6 +80,23 @@ export const EditCustomerPODialog: React.FC<EditCustomerPODialogProps> = ({
   const { upload, loading: uploadLoading } = useFrappeFileUpload();
 
   const totalLoading = updateLoading || uploadLoading;
+  
+  // EFFECT: Synchronize state with poDetail prop when opened or prop changes
+  useEffect(() => {
+    if (open) {
+      setFormData({
+        customer_po_number: poDetail.customer_po_number,
+        customer_po_value_inctax: poDetail.customer_po_value_inctax,
+        customer_po_value_exctax: poDetail.customer_po_value_exctax,
+        customer_po_link: poDetail?.customer_po_link || "",
+        customer_po_creation_date: poDetail.customer_po_creation_date,
+        customer_po_attachment: poDetail?.customer_po_attachment || "",
+        file: null,
+      });
+      setPaymentTerms(parsePaymentTerms(poDetail.customer_po_payment_terms));
+      setLinkOrAttachmentChoice(poDetail?.customer_po_attachment ? "attachment" : "link");
+    }
+  }, [open, poDetail]);
 
   const handleInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -110,14 +127,8 @@ export const EditCustomerPODialog: React.FC<EditCustomerPODialogProps> = ({
   }, []);
 
   const isLinkAttachmentValid = useMemo(() => {
-    if (linkOrAttachmentChoice === "link") {
-      return formData.customer_po_link.trim() !== "";
-    }
-    if (linkOrAttachmentChoice === "attachment") {
-      return formData.file !== null || !!formData.customer_po_attachment;
-    }
-    return false;
-  }, [linkOrAttachmentChoice, formData]);
+    return true;
+  }, []);
 
   const isFormValid = useMemo(() => {
     return (
@@ -189,11 +200,17 @@ export const EditCustomerPODialog: React.FC<EditCustomerPODialogProps> = ({
         refetchProjectData();
         onClose();
       })
-      .catch((err) => {
+      .catch((err: any) => {
         console.error(err);
+        const rawException = err?.exception;
+        const specificMessage = rawException 
+            ? rawException.split(': ').slice(1).join(': ').trim() 
+            : null;
+
+        const errorMessage = specificMessage || err?.messages?.[0]?.message || err?.message || "An unknown error occurred.";
         toast({
           title: "Error",
-          description: "Failed to update Customer PO.",
+          description: `Failed to update Customer PO: ${errorMessage.replace(/<[^>]*>?/gm, '')}`,
           variant: "destructive",
         });
       });
@@ -288,13 +305,12 @@ export const EditCustomerPODialog: React.FC<EditCustomerPODialogProps> = ({
 
           {linkOrAttachmentChoice === "link" && (
             <div className="space-y-2">
-              <Label htmlFor="customer_po_link">PO Link <span className="text-red-500">*</span></Label>
+              <Label htmlFor="customer_po_link">PO Link</Label>
               <Input
                 id="customer_po_link"
                 type="url"
                 value={formData.customer_po_link}
                 onChange={handleInputChange}
-                required
               />
             </div>
           )}
@@ -439,18 +455,29 @@ export const EditCustomerPODialog: React.FC<EditCustomerPODialogProps> = ({
             </Button>
           </div>
 
-          <Button type="submit" disabled={!isFormValid || totalLoading}>
-            {totalLoading ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <FilePenLine className="mr-2 h-4 w-4" />
-            )}
-            {totalLoading
-              ? uploadLoading
-                ? "Uploading File..."
-                : "Updating PO..."
-              : "Update Customer PO"}
-          </Button>
+          <div className="flex gap-4">
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={onClose} 
+                className="flex-1"
+                disabled={totalLoading}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!isFormValid || totalLoading} className="flex-1">
+                {totalLoading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <FilePenLine className="mr-2 h-4 w-4" />
+                )}
+                {totalLoading
+                  ? uploadLoading
+                    ? "Uploading File..."
+                    : "Updating PO..."
+                  : "Update Customer PO"}
+              </Button>
+          </div>
         </form>
       </DialogContent>
     </Dialog>

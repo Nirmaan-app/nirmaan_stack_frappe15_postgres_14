@@ -567,7 +567,7 @@ export const PaymentTermsDialog: React.FC<PaymentTermsDialogProps> = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto p-6">
         {step === "select" ? renderSelectStep() : renderDetailsStep()}
       </DialogContent>
     </Dialog>

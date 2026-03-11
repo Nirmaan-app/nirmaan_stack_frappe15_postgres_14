@@ -14,6 +14,7 @@ import {
     TooltipTrigger 
 } from "@/components/ui/tooltip";
 import { useFrappeDeleteDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import { useUserData } from "@/hooks/useUserData";
 import { toast } from "@/components/ui/use-toast";
 import {
     AlertDialog,
@@ -54,6 +55,7 @@ interface ProjectTDSItem {
 const DOCTYPE = "Project TDS Item List";
 
 export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, refreshTrigger = 0, onDataChange }) => {
+    const { role } = useUserData();
     const { deleteDoc } = useFrappeDeleteDoc();
     const [itemToDelete, setItemToDelete] = useState<string | null>(null);
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -77,6 +79,8 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
         }
         return map;
     }, [nirmaanUsers]);
+
+    const canManageTDS = role !== "Nirmaan Procurement Executive Profile";
 
     // --- 2. Define Columns (with dependency on userMap) ---
     const columns = useMemo<ColumnDef<ProjectTDSItem>[]>(() => [
@@ -228,23 +232,25 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
                 exportHeaderName: "BOQ Ref"
             }
         },
-        {
-            id: "actions",
-            header: "Actions",
-            cell: ({ row }) => (
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-red-400 hover:text-red-600 hover:bg-red-50"
-                    onClick={() => handleDeleteClick(row.original.name)}
-                >
-                    <Trash2 className="h-4 w-4" />
-                </Button>
-            ),
-            size: 80,
-            enableSorting: false,
-        }
-    ], [userMap]);
+        ...(canManageTDS ? [
+            {
+                id: "actions",
+                header: "Actions",
+                cell: ({ row }: { row: any }) => (
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-red-400 hover:text-red-600 hover:bg-red-50"
+                        onClick={() => handleDeleteClick(row.original.name)}
+                    >
+                        <Trash2 className="h-4 w-4" />
+                    </Button>
+                ),
+                size: 80,
+                enableSorting: false,
+            }
+        ] : [])
+    ], [userMap, role, canManageTDS]);
 
     const searchableFields: SearchFieldOption[] = [
         { label: "Item Name", value: "tds_item_name" },

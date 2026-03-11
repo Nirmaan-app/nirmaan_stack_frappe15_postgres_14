@@ -66,25 +66,6 @@ import frappe
 from frappe.utils import cint, flt
 from frappe import _
 
-# --- HELPER FUNCTION FOR FRACTIONAL/ERROR RESPONSE ---
-def set_error_response(message, status_code=417):
-    """Sets the frappe.response object (which is a dict) for an error."""
-    frappe.response["message"] = message
-    frappe.response["exc_type"] = "Exception"
-    frappe.response["_server_messages"] = frappe.message_log or []
-    frappe.response["http_status_code"] = status_code
-    return frappe.response
-
-# --- HELPER FUNCTION FOR SUCCESS RESPONSE ---
-def set_success_response(message_data, status_code=200):
-    """Sets the frappe.response object (which is a dict) for a successful return."""
-    # Ensure message_data is a dict to be updated/returned
-    if isinstance(message_data, str):
-        message_data = {"message": message_data}
-        
-    frappe.response.update(message_data)
-    frappe.response["http_status_code"] = status_code
-    return frappe.response
 
 # --- THE MAIN FUNCTION ---
 @frappe.whitelist()
@@ -94,11 +75,11 @@ def update_customer_po_with_validation(project_name, updated_po_detail):
     
     # Check 2: Input Existence and Format
     if not updated_po_detail or not isinstance(updated_po_detail, dict):
-        return set_error_response(_("Invalid or missing PO detail data."))
+        frappe.throw(_("Invalid or missing PO detail data."))
         
     current_row_name = updated_po_detail.get('name')
     if not current_row_name:
-        return set_error_response(_("Child row name is missing for update operation."))
+        frappe.throw(_("Child row name is missing for update operation."))
         
     # Check 3: Business Logic / Field Validation
     po_number = updated_po_detail.get('customer_po_number')
@@ -106,17 +87,12 @@ def update_customer_po_with_validation(project_name, updated_po_detail):
     po_creation_date = updated_po_detail.get('customer_po_creation_date')
 
     if not po_number or not str(po_number).strip():
-        return set_error_response(_("PO Number is a required field."))
+        frappe.throw(_("PO Number is a required field."))
     if not po_creation_date:
-        return set_error_response(_("PO Date is a required field."))
+        frappe.throw(_("PO Date is a required field."))
     if po_incl_tax <= 0:
-        return set_error_response(_("PO Value (Incl. Tax) must be greater than zero."))
+        frappe.throw(_("PO Value (Incl. Tax) must be greater than zero."))
 
-    po_link = updated_po_detail.get('customer_po_link')
-    po_attachment = updated_po_detail.get('customer_po_attachment')
-    if not po_link and not po_attachment:
-        return set_error_response(_("Either a PO Link or a PO Attachment must be provided."))
-        
     # ------------------- END VALIDATION AND INITIAL CHECKS -------------------
 
     try:
@@ -128,7 +104,7 @@ def update_customer_po_with_validation(project_name, updated_po_detail):
         for row in project.customer_po_details:
             # We check for a match AND ensure the row found is NOT the one we are currently updating
             if row.customer_po_number == po_number and row.name != current_row_name:
-                 return set_success_response({"status": "Duplicate"}) # Use your custom status
+                 return {"status": "Duplicate"} 
         
         
         # 3. Get the specific child row document using the correct list comprehension (FIX for AttributeError)
@@ -136,7 +112,7 @@ def update_customer_po_with_validation(project_name, updated_po_detail):
         updated_row = next((row for row in project.customer_po_details if row.name == current_row_name), None)
         
         if not updated_row:
-             return set_error_response(_("Customer PO row not found for the given ID."))
+             frappe.throw(_("Customer PO row not found for the given ID."))
 
         # 4. Update ONLY the incoming values
         for key, value in updated_po_detail.items():
@@ -150,11 +126,11 @@ def update_customer_po_with_validation(project_name, updated_po_detail):
         frappe.db.commit()
 
         # Success Response
-        return set_success_response({"status": "Success"})
+        return {"status": "Success"}
 
     except frappe.exceptions.DuplicateEntryError:
         # Fallback in case DocType validation catches a different duplicate scenario
-        return set_success_response({"status": "Duplicate"})
+        return {"status": "Duplicate"}
         
     except Exception as e:
         # --- Error Handling (Fixed) ---
@@ -162,7 +138,7 @@ def update_customer_po_with_validation(project_name, updated_po_detail):
         frappe.log_error(title="Customer PO Update Error", message=traceback_message)
         print(f"--- Customer PO Update Error Traceback ---\n{traceback_message}\n------------------------------------------")
         
-        return set_error_response(f"An unexpected error occurred during PO update: {e}")
+        frappe.throw(_("An unexpected error occurred during PO update: {0}").format(str(e)))
 
 
 

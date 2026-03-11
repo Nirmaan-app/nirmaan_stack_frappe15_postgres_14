@@ -101,6 +101,7 @@ import { TDSRepositoryTab } from "./TDSRepository/TDSRepositoryTab";
 
 import { KeyedMutator } from "swr";
 import { useUrlParam } from "@/hooks/useUrlParam";
+import { ProjectQueryKeys } from "./queries";
 
 const projectStatuses = [
   { value: "WIP", label: "WIP", color: "text-yellow-500", icon: HardHat },
@@ -154,12 +155,6 @@ export interface FilterParameters {
   limit_start?: number
 }
 
-export const ProjectQueryKeys = {
-  project: (projectId: string) => ['projects', 'single', projectId],
-  customer: (customerId: string) => ['customers', 'single', customerId],
-  quotes: (parameters: FilterParameters) => ['Approved Quotations', 'list', { ...parameters }],
-  estimates: (parameters: FilterParameters) => ['Project Estimates', 'list', { ...parameters }]
-}
 
 const Project: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
@@ -490,7 +485,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           key: PROJECT_PAGE_TABS.MATERIAL_USAGE,
         },
         {
-          label: "TDS Repository",
+          label: "TDS",
           key: PROJECT_PAGE_TABS.TDS_REPOSITORY,
         },
         {
@@ -540,7 +535,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           key: PROJECT_PAGE_TABS.MATERIAL_USAGE,
         },
         {
-          label: "TDS Repository",
+          label: "TDS",
           key: PROJECT_PAGE_TABS.TDS_REPOSITORY,
         },
         {
@@ -605,7 +600,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         key: PROJECT_PAGE_TABS.MATERIAL_USAGE,
       },
       {
-        label: "TDS Repository",
+        label: "TDS",
         key: PROJECT_PAGE_TABS.TDS_REPOSITORY,
       },
       // Hide Project Makes from Accountant

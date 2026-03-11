@@ -46,6 +46,13 @@ export type DialogStore = {
   setNewInvoiceDialog: (open: boolean) => void;
   toggleNewInvoiceDialog: () => void;
 
+  // Edit Invoice Dialog
+  editInvoiceDialog: boolean;
+  setEditInvoiceDialog: (open: boolean) => void;
+  toggleEditInvoiceDialog: () => void;
+  selectedInvoice: any | null;
+  setSelectedInvoice: (invoice: any | null) => void;
+
   // New ProjectInvoice Dialog
   newProjectInvoiceDialog: boolean;
   setNewProjectInvoiceDialog: (open: boolean) => void;
@@ -124,6 +131,12 @@ export const useDialogStore = create<DialogStore>((set) => ({
   newInvoiceDialog: false,
   setNewInvoiceDialog: (open: boolean) => set({ newInvoiceDialog: open }),
   toggleNewInvoiceDialog: () => set((state) => ({ newInvoiceDialog: !state.newInvoiceDialog })),
+
+  editInvoiceDialog: false,
+  setEditInvoiceDialog: (open: boolean) => set({ editInvoiceDialog: open }),
+  toggleEditInvoiceDialog: () => set((state) => ({ editInvoiceDialog: !state.editInvoiceDialog })),
+  selectedInvoice: null,
+  setSelectedInvoice: (invoice: any | null) => set({ selectedInvoice: invoice }),
 
   newProjectInvoiceDialog: false,
   setNewProjectInvoiceDialog: (open: boolean) => set({ newProjectInvoiceDialog: open }),

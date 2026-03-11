@@ -697,7 +697,7 @@ console.log("mergedData",mergedData);
                 filterFn: facetedFilterFn,
             },
             // MODIFIED COLUMN: Consolidated Assigned Users/Leads
-            getAssigneesColumn<ProjectProgressReportRow>("name", assignmentsLookup, ["Nirmaan Project Manager Profile"]),
+            getAssigneesColumn<ProjectProgressReportRow>("name", assignmentsLookup, ["Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile"]),
         ];
 
         // Dynamic Date columns
@@ -852,7 +852,7 @@ cell: ({ row }) => {
 
         // UPDATED Dependency Array for useMemo
         return [...baseColumns, ...dynamicColumns];
-    }, [dynamicDateColumns, navigate]); 
+    }, [dynamicDateColumns, navigate, assignmentsLookup]); 
 
     // --- 5. Use Server Data Table (Client Mode) ---
     const {
@@ -938,7 +938,7 @@ cell: ({ row }) => {
             console.error("Export failed:", e);
             toast({ title: "Export Error", description: "Could not generate CSV file.", variant: "destructive" });
         }
-    }, [dynamicDateColumns]);
+    }, [dynamicDateColumns, table, assignmentsLookup]);
 
 
     const isLoadingOverall = isProjectsLoading || isReportsLoading   || isTableHookLoading;

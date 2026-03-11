@@ -50,7 +50,7 @@ import {
   ShoppingCart,
   SquareSquare,
   Store,
-  UsersRound
+  UsersRound,Waypoints
 } from "lucide-react";
 import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -363,15 +363,7 @@ export function NewSidebar() {
       ]
       : []),
 
-    ...(role == "Nirmaan Estimates Executive Profile"
-      ? [
-        {
-          key: '/tds-repository',
-          icon: List,
-          label: 'TDS Repository',
-        },
-      ]
-      : []),
+   
 
     ...([
       "Nirmaan Procurement Executive Profile",
@@ -481,7 +473,7 @@ export function NewSidebar() {
         {
           key: '/invoice-reconciliation',
           icon: ReceiptText,
-          label: 'Invoice Recon',
+          label: 'Vendor Invoice Recon',
         },
       ]
       : []),
@@ -518,6 +510,15 @@ export function NewSidebar() {
           key: '/reports',
           icon: ClipboardMinus,
           label: 'Reports',
+        },
+      ]
+      : []),
+       ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
+      ? [
+        {
+          key: '/tds-repository',
+          icon: Waypoints,
+          label: 'TDS Repository',
         },
       ]
       : []),
@@ -738,7 +739,7 @@ export function NewSidebar() {
               >
                 <SidebarMenuItem>
 
-                  {new Set(["Dashboard", "Item Price Search", "TDS Repository", "Procurement Requests", "Purchase Orders", "PO Revisions Approval", "Project Payments", "Credit Payments", "Sent Back Requests", "Projects", "Work Orders", "In-Flow Payments", "Invoice Recon", "Reports",
+                  {new Set(["Dashboard", "Item Price Search", "TDS Repository", "Procurement Requests", "Purchase Orders", "PO Revisions Approval", "Project Payments", "Credit Payments", "Sent Back Requests", "Projects", "Work Orders", "In-Flow Payments", "Vendor Invoice Recon", "Reports",
                     "Design Tracker", "PO Tracker", "Work Plan Tracker", "Material Plan Tracker", "Cashflow Plan Tracker", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses", "Users", "Assets", "Vendors", "Customers", "Products", "TDS Approval"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
