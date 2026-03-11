@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useFrappeGetCall, useFrappeGetDoc } from "frappe-react-sdk";
 import ProjectSelect from "@/components/custom-select/project-select";
 import { RemainingItemsForm } from "./components/RemainingItemsForm";
@@ -49,7 +49,7 @@ function UpdateInventoryContent({ projectId, projectName }: { projectId: string;
     projectId ? `today_report_${projectId}_${todayStr}` : undefined
   );
 
-  const { data: latestReport } = useFrappeGetCall<{
+  const { data: latestReport, isLoading: latestLoading } = useFrappeGetCall<{
     message: { report_date: string | null; submitted_by: string | null; submitted_by_full_name: string | null; items: Record<string, any> };
   }>(
     "nirmaan_stack.api.remaining_items_report.get_latest_remaining_quantities",
@@ -66,15 +66,10 @@ function UpdateInventoryContent({ projectId, projectName }: { projectId: string;
   const isWithinCooldown = !todayExists && daysSinceLastReport < 3;
   const daysUntilNextUpdate = isWithinCooldown ? 3 - daysSinceLastReport : 0;
 
-  const [mode, setMode] = useState<Mode>("create");
+  const [editOverride, setEditOverride] = useState(false);
+  const mode: Mode = editOverride ? "edit" : (todayExists || isWithinCooldown) ? "summary" : "create";
 
-  useEffect(() => {
-    if (todayExists) setMode("summary");
-    else if (isWithinCooldown) setMode("summary");
-    else setMode("create");
-  }, [todayExists, isWithinCooldown]);
-
-  const isLoading = itemsLoading || todayLoading;
+  const isLoading = itemsLoading || todayLoading || latestLoading;
 
   const cooldownReport = isWithinCooldown ? {
     exists: true,
@@ -100,7 +95,7 @@ function UpdateInventoryContent({ projectId, projectName }: { projectId: string;
           }
           todayReportExists={todayExists}
         />
-        <p className="text-sm text-muted-foreground">No eligible items (total amount &gt; &#8377;5,000) found for this project.</p>
+        <p className="text-sm text-muted-foreground">No eligible items found. Items must have total amount &gt; &#8377;5,000 and at least one delivery.</p>
       </>
     );
   }
@@ -120,7 +115,7 @@ function UpdateInventoryContent({ projectId, projectName }: { projectId: string;
         <ReportSummaryCard
           report={isWithinCooldown ? cooldownReport : todayReport?.message}
           totalItems={eligibleItems.length}
-          onEdit={isWithinCooldown ? undefined : () => setMode("edit")}
+          onEdit={isWithinCooldown ? undefined : () => setEditOverride(true)}
           cooldownMessage={isWithinCooldown
             ? `Next update available in ${daysUntilNextUpdate} day${daysUntilNextUpdate !== 1 ? "s" : ""}`
             : undefined}
@@ -133,8 +128,10 @@ function UpdateInventoryContent({ projectId, projectName }: { projectId: string;
           eligibleItems={eligibleItems}
           existingReport={todayReport?.message}
           mutateTodayReport={mutateTodayReport}
-          setMode={setMode}
+          onCancel={() => setEditOverride(false)}
+          onSuccess={() => setEditOverride(false)}
           mode={mode}
+          latestReportItems={latestReport?.message?.items ?? null}
         />
       )}
     </>
@@ -148,8 +145,10 @@ function RemainingItemsFormWrapper({
   eligibleItems,
   existingReport,
   mutateTodayReport,
-  setMode,
+  onCancel,
+  onSuccess,
   mode,
+  latestReportItems,
 }: {
   projectId: string;
   projectName: string;
@@ -157,8 +156,10 @@ function RemainingItemsFormWrapper({
   eligibleItems: any[];
   existingReport?: { exists: boolean; name?: string; status?: string; items?: any[] };
   mutateTodayReport: () => Promise<any>;
-  setMode: (mode: Mode) => void;
+  onCancel: () => void;
+  onSuccess: () => void;
   mode: Mode;
+  latestReportItems: Record<string, any> | null;
 }) {
   const {
     entries,
@@ -168,10 +169,12 @@ function RemainingItemsFormWrapper({
     validationErrors,
     filledCount,
     totalCount,
+    copyPreviousValues,
+    hasPreviousReport,
   } = useRemainingItemsForm(projectId, eligibleItems, existingReport, async () => {
     await mutateTodayReport();
-    setMode("summary");
-  });
+    onSuccess();
+  }, latestReportItems);
 
   return (
     <RemainingItemsForm
@@ -183,9 +186,11 @@ function RemainingItemsFormWrapper({
       isSubmitting={isSubmitting}
       validationErrors={validationErrors}
       isEditing={mode === "edit"}
-      onCancel={mode === "edit" ? () => setMode("summary") : undefined}
+      onCancel={mode === "edit" ? onCancel : undefined}
       filledCount={filledCount}
       totalCount={totalCount}
+      onCopyPrevious={copyPreviousValues}
+      hasPreviousReport={hasPreviousReport}
     />
   );
 }

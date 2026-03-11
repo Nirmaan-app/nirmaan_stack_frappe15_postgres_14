@@ -16,7 +16,8 @@ export function useRemainingItemsForm(
   projectId: string,
   eligibleItems: EligibleItem[],
   existingReport?: { exists: boolean; items?: any[] },
-  onSuccess?: () => void
+  onSuccess?: () => void,
+  previousReportItems?: Record<string, any> | null
 ) {
   // Build initial entries: merge eligible items with existing report data if editing
   const initialEntries = useMemo((): FormEntry[] => {
@@ -75,6 +76,23 @@ export function useRemainingItemsForm(
       return next;
     });
   }, []);
+
+  const hasPreviousReport = !!previousReportItems && Object.keys(previousReportItems).length > 0;
+
+  const copyPreviousValues = useCallback(() => {
+    if (!previousReportItems) return;
+    setEntries((prev) =>
+      prev.map((entry) => {
+        const key = `${entry.category}_${entry.item_id}`;
+        const prevItem = previousReportItems[key];
+        if (prevItem && prevItem.remaining_quantity !== -1 && prevItem.remaining_quantity != null) {
+          return { ...entry, remaining_quantity: prevItem.remaining_quantity };
+        }
+        return entry;
+      })
+    );
+    setValidationErrors(new Map());
+  }, [previousReportItems]);
 
   const filledCount = entries.filter(e => e.remaining_quantity !== null).length;
   const totalCount = entries.length;
@@ -140,5 +158,7 @@ export function useRemainingItemsForm(
     validationErrors,
     filledCount,
     totalCount,
+    copyPreviousValues,
+    hasPreviousReport,
   };
 }

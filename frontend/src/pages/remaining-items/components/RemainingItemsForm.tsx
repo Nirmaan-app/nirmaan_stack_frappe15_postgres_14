@@ -2,6 +2,17 @@ import React, { useState } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Copy } from "lucide-react";
 import { FormEntry } from "../hooks/useRemainingItemsForm";
 import { DeclarationDialog } from "./DeclarationDialog";
 
@@ -17,6 +28,8 @@ interface RemainingItemsFormProps {
   onCancel?: () => void;
   filledCount: number;
   totalCount: number;
+  onCopyPrevious?: () => void;
+  hasPreviousReport?: boolean;
 }
 
 export const RemainingItemsForm: React.FC<RemainingItemsFormProps> = ({
@@ -31,12 +44,15 @@ export const RemainingItemsForm: React.FC<RemainingItemsFormProps> = ({
   onCancel,
   filledCount,
   totalCount,
+  onCopyPrevious,
+  hasPreviousReport,
 }) => {
   // Group entries by category for section headers
   const categories = Array.from(new Set(entries.map((e) => e.category)));
 
   const allFilled = filledCount === totalCount;
   const [declarationOpen, setDeclarationOpen] = useState(false);
+  const [copyDialogOpen, setCopyDialogOpen] = useState(false);
 
   return (
     <div className="space-y-3">
@@ -45,6 +61,41 @@ export const RemainingItemsForm: React.FC<RemainingItemsFormProps> = ({
           Editing today's report for {projectName}
         </div>
       ) : null}
+
+      {hasPreviousReport && onCopyPrevious ? (
+        <div className="flex justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCopyDialogOpen(true)}
+          >
+            <Copy className="h-4 w-4 mr-1.5" />
+            Copy Previous Report
+          </Button>
+        </div>
+      ) : null}
+
+      <AlertDialog open={copyDialogOpen} onOpenChange={setCopyDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Copy previous report values?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will fill quantities from the last submitted report. Items not in the previous report will remain empty. You can still edit values before submitting.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                onCopyPrevious?.();
+                setCopyDialogOpen(false);
+              }}
+            >
+              Copy Values
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <div className="rounded-md border overflow-x-auto">
         <Table>

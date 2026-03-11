@@ -9,7 +9,7 @@ against their delivered quantities.
 import json
 
 import frappe
-from frappe.utils import today
+from frappe.utils import today, date_diff
 
 
 @frappe.whitelist()
@@ -30,6 +30,23 @@ def submit_remaining_items_report(project, report_date, items):
         {"project": project, "report_date": report_date},
         "name",
     )
+
+    # Enforce 3-day cooldown for NEW reports only (edits of today's report bypass)
+    if not existing:
+        latest = frappe.get_all(
+            "Remaining Items Report",
+            filters={"project": project, "status": "Submitted"},
+            fields=["report_date"],
+            order_by="report_date desc",
+            limit=1,
+        )
+        if latest:
+            days_since = date_diff(today(), str(latest[0].report_date))
+            if days_since < 3:
+                frappe.throw(
+                    f"A report was submitted {days_since} day(s) ago. "
+                    f"Next report allowed after {3 - days_since} more day(s)."
+                )
 
     if existing:
         # Update existing report

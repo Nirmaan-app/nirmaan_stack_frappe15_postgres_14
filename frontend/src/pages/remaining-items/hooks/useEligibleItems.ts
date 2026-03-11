@@ -34,6 +34,7 @@ export function useEligibleItems(projectId: string) {
       .filter((item) => !toolEquipmentCategories.has(item.categoryName))
       .filter((item) => item.categoryName !== "Additional Charges")
       .filter((item) => (item.totalAmount ?? 0) > 5000)
+      .filter((item) => (item.deliveredQuantity ?? 0) > 0)
       .map((item) => ({
         itemId: item.itemId || "",
         itemName: item.itemName || "",
