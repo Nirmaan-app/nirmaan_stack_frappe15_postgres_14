@@ -523,6 +523,8 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
     isAggregatesLoading, // NEW
     columnFilters, // NEW: To display applied filters
     groupByResult, // NEW
+    exportAllRows,
+    isExporting,
   } = useServerDataTable<NonProjectExpensesType>({
     doctype: DOCTYPE,
     columns: columnsDefinition, // *** PASS THE DEFINED COLUMNS HERE ***
@@ -604,6 +606,8 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
         dateFilterColumns={NPE_DATE_COLUMNS}
         showExportButton={true}
         onExport={"default"}
+        onExportAll={exportAllRows}
+        isExporting={isExporting}
         exportFileName={`Non_Project_Expenses_${urlContext}`}
         summaryCard={
           <NonProjectExpenseSummaryCard

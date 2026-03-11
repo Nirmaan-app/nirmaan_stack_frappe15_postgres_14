@@ -552,6 +552,8 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     // isRowSelectionActive,
     refetch,
     columnFilters,
+    exportAllRows,
+    isExporting,
   } = useServerDataTable<ProjectPayments>({
     doctype: DOCTYPE,
     columns: columns,
@@ -735,6 +737,8 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           dateFilterColumns={dateColumns}
           showExportButton={true} // Optional
           onExport={"default"}
+          onExportAll={exportAllRows}
+          isExporting={isExporting}
           exportFileName={`Approve_Payments_${formatDate(new Date())}`}
           getRowClassName={getRowClassName}
         // toolbarActions={...} // Optional

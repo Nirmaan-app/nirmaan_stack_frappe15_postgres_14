@@ -692,6 +692,8 @@ export const Projects: React.FC<ProjectsProps> = ({
     totalCount,
     isLoading: listIsLoading,
     error: listError,
+    exportAllRows,
+    isExporting,
     searchTerm,
     setSearchTerm,
     selectedSearchField,
@@ -878,6 +880,8 @@ export const Projects: React.FC<ProjectsProps> = ({
             dateFilterColumns={PROJECT_DATE_COLUMNS}
             showExportButton={true}
             onExport={"default"}
+            onExportAll={exportAllRows}
+            isExporting={isExporting}
             exportFileName="Projects_Report"
             getRowClassName={getRowClassName}
           />

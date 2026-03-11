@@ -426,6 +426,8 @@ export const VendorMaterialOrdersTable: React.FC<
     isLoading: tableLoading,
     error: tableError,
     totalCount,
+    exportAllRows,
+    isExporting,
     // ... other props from useServerDataTable ...
     searchTerm,
     setSearchTerm,
@@ -457,6 +459,8 @@ export const VendorMaterialOrdersTable: React.FC<
       dateFilterColumns={["modified", "creation", "expected_delivery_date", "latest_delivery_date"]}
       showExportButton={true}
       onExport={"default"}
+      onExportAll={exportAllRows}
+      isExporting={isExporting}
       exportFileName={`${vendorName}_Material_Orders`}
     />
   );

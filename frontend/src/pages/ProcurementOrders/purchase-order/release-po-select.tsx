@@ -85,7 +85,7 @@ const PODataTableWrapper: React.FC<{
             additionalFilters: staticFiltersForTab,
         });
 
-        const { columnFilters, searchTerm, selectedSearchField } = serverDataTable;
+        const { columnFilters, searchTerm, selectedSearchField, exportAllRows, isExporting } = serverDataTable;
 
         // --- Dynamic Facet Values ---
         const { facetOptions: projectFacetOptions, isLoading: isProjectFacetLoading } = useFacetValues({
@@ -144,6 +144,8 @@ const PODataTableWrapper: React.FC<{
                 dateFilterColumns={dateColumns}
                 showExportButton={true}
                 onExport={'default'}
+                onExportAll={exportAllRows}
+                isExporting={isExporting}
                 exportFileName={exportFileName}
                 getRowClassName={getRowClassName}
             />

@@ -279,7 +279,9 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
         searchTerm,
         setSearchTerm,
         columnFilters,
-        refetch: refetchTable
+        refetch: refetchTable,
+        exportAllRows,
+        isExporting,
     } = useServerDataTable<ProjectTDSItem>({
         doctype: DOCTYPE,
         columns: columns,
@@ -454,8 +456,10 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
             searchTerm={searchTerm}
             onSearchTermChange={setSearchTerm}
             facetFilterOptions={facetFilterOptions}
-            showExportButton={true} 
+            showExportButton={true}
             onExport="default"
+            onExportAll={exportAllRows}
+            isExporting={isExporting}
         />
 
         <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>

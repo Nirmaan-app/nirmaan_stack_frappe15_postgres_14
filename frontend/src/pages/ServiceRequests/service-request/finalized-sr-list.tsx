@@ -467,6 +467,8 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
     searchTerm,
     setSearchTerm,
     columnFilters,
+    exportAllRows,
+    isExporting,
   } = useServerDataTable<ServiceRequests>({
     doctype: DOCTYPE,
     columns: columns,
@@ -582,6 +584,8 @@ export const FinalizedSRList: React.FC<FinalizedSRListProps> = ({
           dateFilterColumns={dateColumns}
           showExportButton={true}
           onExport={"default"}
+          onExportAll={exportAllRows}
+          isExporting={isExporting}
           exportFileName={
             vendorName ? `${vendorName}_Finalized_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}` : `Finalized_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}`
           }

@@ -401,6 +401,8 @@ export const ApproveSelectSR: React.FC = () => {
     columnFilters,
     isRowSelectionActive,
     refetch,
+    exportAllRows,
+    isExporting,
   } = useServerDataTable<ServiceRequests>({
     doctype: DOCTYPE,
     columns: columns,
@@ -519,6 +521,8 @@ export const ApproveSelectSR: React.FC = () => {
           dateFilterColumns={dateColumns}
           showExportButton={true}
           onExport={"default"}
+          onExportAll={exportAllRows}
+          isExporting={isExporting}
           exportFileName={`Approve_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}`}
           getRowClassName={getRowClassName}
           // toolbarActions={<Button size="sm">Bulk Approve...</Button>} // Placeholder for future actions

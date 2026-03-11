@@ -149,6 +149,8 @@ export default function SRReports() {
     setSearchTerm,
     selectedSearchField,
     setSelectedSearchField,
+    exportAllRows,
+    isExporting,
   } = useServerDataTable<SRReportRowData>({
     // Generic is SRReportRowData
     doctype: `SRReportsClientFilteredVirtual_${selectedReportType || "none"}`, // Virtual name
@@ -227,8 +229,9 @@ export default function SRReports() {
     }`;
   }, [selectedReportType]);
 
-  const handleCustomExport = useCallback(() => {
-    if (!fullyFilteredData || fullyFilteredData.length === 0) {
+  const handleCustomExport = useCallback(async () => {
+    const allRows = await exportAllRows();
+    if (!allRows || allRows.length === 0) {
       toast({
         title: "Export",
         description:
@@ -237,7 +240,7 @@ export default function SRReports() {
       });
       return;
     }
-    const dataToExport = fullyFilteredData.map((row) => ({
+    const dataToExport = allRows.map((row) => ({
       sr_id: row.name,
       creation: formatDate(row.creation),
       project_name: (row as any).projectName || row.project,
@@ -276,7 +279,7 @@ export default function SRReports() {
         variant: "destructive",
       });
     }
-  }, [fullyFilteredData, exportFileName]);
+  }, [exportAllRows, exportFileName]);
 
   const isLoadingOverall = isLoadingInitialData || isTableHookLoading;
   const overallError = initialDataError || tableHookError;
@@ -308,6 +311,7 @@ export default function SRReports() {
           table={table}
           columns={tableColumnsToDisplay}
           isLoading={isLoadingOverall}
+          isExporting={isExporting}
           error={overallError as Error | null}
           // totalCount={totalCount} // From useServerDataTable, reflects currentDisplayData.length
           totalCount={filteredRowCount}

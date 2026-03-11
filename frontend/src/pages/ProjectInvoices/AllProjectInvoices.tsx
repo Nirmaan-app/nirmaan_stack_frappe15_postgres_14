@@ -228,6 +228,8 @@ export const AllProjectInvoices: React.FC<{
     aggregates,
     isAggregatesLoading,
     refetch,
+    exportAllRows,
+    isExporting,
   } = useServerDataTable<ProjectInvoice>({
     doctype: DOCTYPE,
     columns: tableColumns,
@@ -337,6 +339,8 @@ export const AllProjectInvoices: React.FC<{
           dateFilterColumns={PROJECT_INVOICE_DATE_COLUMNS}
           showExportButton={true}
           onExport={"default"}
+          onExportAll={exportAllRows}
+          isExporting={isExporting}
           exportFileName={DOCTYPE}
           showRowSelection={false}
           getRowClassName={getRowClassName}

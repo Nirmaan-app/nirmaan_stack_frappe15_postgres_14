@@ -80,7 +80,9 @@ const SBDataTableWrapper: React.FC<{
             table, totalCount, isLoading: listIsLoading, error: listError,
             selectedSearchField: tableSelectedSearchField, setSelectedSearchField,
             searchTerm: tableSearchTerm, setSearchTerm,
-            columnFilters
+            columnFilters,
+            exportAllRows,
+            isExporting,
         } = useServerDataTable<SentBackCategory>({
             doctype: DOCTYPE,
             columns: columns,
@@ -124,6 +126,8 @@ const SBDataTableWrapper: React.FC<{
                 dateFilterColumns={dateColumns}
                 showExportButton={true} // Optional
                 onExport={'default'}
+                onExportAll={exportAllRows}
+                isExporting={isExporting}
                 exportFileName={exportFileName}
                 getRowClassName={getRowClassName}
             />

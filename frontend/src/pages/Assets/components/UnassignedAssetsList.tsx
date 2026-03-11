@@ -200,6 +200,8 @@ export const UnassignedAssetsList: React.FC<UnassignedAssetsListProps> = ({ onAs
         selectedSearchField,
         setSelectedSearchField,
         refetch: refetchTable,
+        exportAllRows,
+        isExporting,
     } = useServerDataTable<AssetMaster>({
         doctype: ASSET_MASTER_DOCTYPE,
         columns,
@@ -239,6 +241,8 @@ export const UnassignedAssetsList: React.FC<UnassignedAssetsListProps> = ({ onAs
                 dateFilterColumns={ASSET_DATE_COLUMNS}
                 showExportButton={true}
                 onExport="default"
+                onExportAll={exportAllRows}
+                isExporting={isExporting}
                 exportFileName="unassigned_assets_data"
                 showRowSelection={false}
             />

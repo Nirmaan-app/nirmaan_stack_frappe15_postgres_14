@@ -45,6 +45,8 @@ const TDSDataTableWrapper: React.FC<{
         setSelectedSearchField,
         columnFilters,
         refetch,
+        exportAllRows,
+        isExporting,
     } = useServerDataTable<TDSItem>({
         doctype,
         columns,
@@ -117,6 +119,8 @@ const TDSDataTableWrapper: React.FC<{
             onSelectedSearchFieldChange={setSelectedSearchField}
             showExportButton={true}
             onExport="default"
+            onExportAll={exportAllRows}
+            isExporting={isExporting}
             exportFileName="TDS_Repository_Data"
         />
     );

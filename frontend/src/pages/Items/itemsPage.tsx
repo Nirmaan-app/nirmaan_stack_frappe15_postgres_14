@@ -194,6 +194,8 @@ export default function ItemsPage() {
     setSelectedSearchField,
     columnFilters,
     refetch: refetchTable,
+    exportAllRows,
+    isExporting,
   } = useServerDataTable<ItemsType>({
     doctype: ITEM_DOCTYPE,
     columns: columns,
@@ -303,6 +305,8 @@ export default function ItemsPage() {
         dateFilterColumns={ITEM_DATE_COLUMNS}
         showExportButton={true}
         onExport={"default"}
+        onExportAll={exportAllRows}
+        isExporting={isExporting}
         exportFileName="products_master_data"
         showRowSelection={false}
       />

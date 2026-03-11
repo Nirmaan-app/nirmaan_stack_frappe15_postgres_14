@@ -187,7 +187,7 @@ export default function ProcurementOrdersTesting() {
         setGlobalFilter,
         isGlobalSearchEnabled,
         toggleGlobalSearch,
-        refetch // Added refetch in case needed
+        refetch, // Added refetch in case needed
     } = useServerDataTable<ProcurementOrder>({
         doctype: doctype,
         columns: columns,
@@ -202,9 +202,9 @@ export default function ProcurementOrdersTesting() {
 
     // Handle Export (optional)
     const handleExport = () => {
-        const selectedRowsData = table.getSelectedRowModel().rows.map(row => row.original);
-        console.log("Exporting selected PO data:", selectedRowsData);
-        alert(`Exporting ${selectedRowsData.length} selected POs... (Check console)`);
+        const allRows = table.getRowModel().rows.map(row => row.original);
+        console.log("Exporting selected PO data:", allRows);
+        alert(`Exporting ${allRows.length} selected POs... (Check console)`);
         table.resetRowSelection();
     };
 

@@ -570,6 +570,8 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId, vendorName }) 
         selectedSearchField,
         setSelectedSearchField,
         columnFilters,
+        exportAllRows,
+        isExporting,
     } = useServerDataTable<SrInvoiceItem>({
         doctype: '', // Empty - client mode
         columns: columns,
@@ -917,6 +919,8 @@ export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId, vendorName }) 
                 dateFilterColumns={SR_INVOICE_DATE_COLUMNS}
                 showExportButton={true}
                 onExport="default"
+                onExportAll={exportAllRows}
+                isExporting={isExporting}
                 exportFileName={
                     vendorName ? `${vendorName}_SR_Invoices` : "SR_Invoices"
                 }

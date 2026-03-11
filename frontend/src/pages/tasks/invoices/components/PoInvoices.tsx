@@ -570,6 +570,8 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
         selectedSearchField,
         setSelectedSearchField,
         columnFilters,
+        exportAllRows,
+        isExporting,
     } = useServerDataTable<InvoiceItem>({
         doctype: '', // Empty - client mode
         columns: columns,
@@ -913,6 +915,8 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
                 dateFilterColumns={PO_INVOICE_DATE_COLUMNS}
                 showExportButton={true}
                 onExport="default"
+                onExportAll={exportAllRows}
+                isExporting={isExporting}
                 exportFileName={
                     vendorName ? `${vendorName}_PO_Invoices` : "PO_Invoices"
                 }

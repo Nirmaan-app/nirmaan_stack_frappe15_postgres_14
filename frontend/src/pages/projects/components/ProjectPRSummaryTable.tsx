@@ -527,6 +527,8 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
     totalCount,
     isLoading: listIsLoading,
     error: listError,
+    exportAllRows,
+    isExporting,
     searchTerm,
     setSearchTerm,
     selectedSearchField,
@@ -669,6 +671,8 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
           dateFilterColumns={PR_SUMMARY_DATE_COLUMNS}
           showExportButton={true}
           onExport={"default"}
+          onExportAll={exportAllRows}
+          isExporting={isExporting}
           exportFileName={`Project_PR_Summary_${getProjectName(projectId) || "all"}`}
         />
       )}

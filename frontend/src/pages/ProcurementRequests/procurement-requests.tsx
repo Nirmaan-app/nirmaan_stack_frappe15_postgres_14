@@ -110,7 +110,9 @@ const PRDataTableWrapper: React.FC<{
             searchTerm: tableSearchTerm,
             setSearchTerm,
             selectedSearchField: tableSelectedSearchField,
-            setSelectedSearchField
+            setSelectedSearchField,
+            exportAllRows,
+            isExporting,
         } = useServerDataTable<ProcurementRequest>({
             doctype: DOCTYPE,
             columns,
@@ -183,6 +185,8 @@ const PRDataTableWrapper: React.FC<{
                 dateFilterColumns={dateColumns}
                 showExportButton={true}
                 onExport={'default'}
+                onExportAll={exportAllRows}
+                isExporting={isExporting}
                 exportFileName={exportFileName}
                 isNewRow={(row) => notifications.find(n => n.docname === row.original.name && n.seen === "false" && n.event_id === eventIdForNotif) !== undefined}
                 getRowClassName={getRowClassName}

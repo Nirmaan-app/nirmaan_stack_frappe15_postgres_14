@@ -459,6 +459,8 @@ export default function UsersPage() {
     selectedSearchField,
     setSelectedSearchField,
     columnFilters, // Destructure columnFilters
+    exportAllRows,
+    isExporting,
   } = useServerDataTable<NirmaanUsers>({
     doctype: USER_DOCTYPE,
     columns: columns,
@@ -522,6 +524,8 @@ export default function UsersPage() {
           dateFilterColumns={USER_DATE_COLUMNS}
           showExportButton={true}
           onExport={"default"}
+          onExportAll={exportAllRows}
+          isExporting={isExporting}
           exportFileName="nirmaan_users_list"
           showRowSelection={false}
           // toolbarActions={<div>Custom Action Button</div>} // Example for custom actions

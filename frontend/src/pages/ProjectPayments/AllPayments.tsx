@@ -423,6 +423,8 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         searchTerm,
         setSearchTerm,
         columnFilters,
+        exportAllRows,
+        isExporting,
     } = useServerDataTable<ProjectPayments>({
         doctype: DOCTYPE,
         columns: columns,
@@ -525,6 +527,8 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                     dateFilterColumns={dateColumns}
                     showExportButton={true}
                     onExport={'default'}
+                    onExportAll={exportAllRows}
+                    isExporting={isExporting}
                     exportFileName={`${tab.replace(/\s+/g, '_')}_${formatDate(new Date())}`}
                     summaryCard={projectId || customerId ? null : <PaymentSummaryCards totalCount={totalCount} />}
                     getRowClassName={getRowClassName}

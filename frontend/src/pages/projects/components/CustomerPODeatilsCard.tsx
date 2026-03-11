@@ -937,7 +937,9 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
         totalCount,
         isLoading: listIsLoading,
         error: listError,
-        refetch, 
+        exportAllRows,
+        isExporting,
+        refetch,
         searchTerm,
         setSearchTerm,
         selectedSearchField,
@@ -1069,6 +1071,8 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
                         dateFilterColumns={CUSTOMER_PO_DATE_COLUMNS}
                         showExportButton={true}
                         onExport={"default"}
+                        onExportAll={exportAllRows}
+                        isExporting={isExporting}
                         exportFileName={`Customer_PO_Details_${projectDataForDialog?.project_name || projectId || "all"}`}
                         showRowSelection={false}
                     />
