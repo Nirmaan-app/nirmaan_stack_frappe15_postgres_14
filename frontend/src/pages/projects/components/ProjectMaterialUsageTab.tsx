@@ -421,7 +421,6 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
           items={processedItemsWithRemaining}
           remainingReportDate={remainingReportDate}
           remainingSubmittedBy={remainingSubmittedBy}
-          estimatedRowHeight={48}
           categoryOptions={categoryOptions}
           categoryFilter={categoryFilter}
           onSetCategoryFilter={setCategoryFilter}
