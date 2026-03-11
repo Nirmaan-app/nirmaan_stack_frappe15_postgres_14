@@ -318,7 +318,9 @@ function DNDCQuantityReportContent({
 
   // --- Faceted filters ---
   const [vendorFilter, setVendorFilter] = useState<Set<string>>(new Set());
-  const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set());
+  const [statusFilter, setStatusFilter] = useState<Set<string>>(
+    new Set(["mismatch", "no_dc_update"])
+  );
 
   // --- Sort state ---
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
