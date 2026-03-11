@@ -31,9 +31,11 @@ import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import {
   useFrappeFileUpload,
+  useFrappeGetDoc,
   useFrappePostCall,
   useSWRConfig,
 } from "frappe-react-sdk";
+import SITEURL from "@/constants/siteURL";
 import { useCallback, useState, useEffect, useRef } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { KeyedMutator } from "swr";
@@ -45,6 +47,7 @@ import {
   CheckCircle2,
   XCircle,
   Loader2,
+  Eye,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -76,9 +79,17 @@ export function InvoiceDialog<T extends DocumentType>({
   docMutate,
   vendor,
 }: InvoiceDialogProps<T>) {
-  const { toggleNewInvoiceDialog, newInvoiceDialog } = useDialogStore();
+  const { 
+    toggleNewInvoiceDialog, newInvoiceDialog,
+    toggleEditInvoiceDialog, editInvoiceDialog,
+    selectedInvoice, setSelectedInvoice
+  } = useDialogStore();
   const { mutate: globalMutate } = useSWRConfig();
   const userData = useUserData();
+
+  const isEditMode = !!selectedInvoice;
+  const isOpen = newInvoiceDialog || editInvoiceDialog;
+  const toggleDialog = isEditMode ? toggleEditInvoiceDialog : toggleNewInvoiceDialog;
 
   // Form state
   const [selectedAttachment, setSelectedAttachment] = useState<File | null>(
@@ -104,15 +115,38 @@ export function InvoiceDialog<T extends DocumentType>({
   );
   const { upload, loading: uploadLoading } = useFrappeFileUpload();
 
-  // Reset form when dialog closes
+  // Fetch attachment details if in edit mode
+  const { data: attachmentDoc } = useFrappeGetDoc(
+    "Nirmaan Attachments",
+    selectedInvoice?.invoice_attachment,
+    isEditMode && selectedInvoice?.invoice_attachment ? `Nirmaan-Attachment-${selectedInvoice.invoice_attachment}` : null
+  );
+
+  // Reset form when dialog closes or Populate when editing
   useEffect(() => {
-    if (!newInvoiceDialog) {
-      setInvoiceData(initialInvoiceState);
+    if (isOpen) {
+      if (selectedInvoice) {
+        setInvoiceData({
+          invoice_no: selectedInvoice.invoice_no || "",
+          amount: String(selectedInvoice.invoice_amount || ""),
+          date: selectedInvoice.invoice_date || "",
+        });
+      } else {
+        setInvoiceData(initialInvoiceState);
+      }
       setSelectedAttachment(null);
       setDuplicateCheckResult(null);
       setIsCheckingDuplicate(false);
     }
-  }, [newInvoiceDialog]);
+  }, [isOpen, selectedInvoice]);
+
+  // Handle closing manually to clear selectedInvoice
+  const handleClose = useCallback(() => {
+    if (isEditMode) {
+      setSelectedInvoice(null);
+    }
+    toggleDialog();
+  }, [isEditMode, setSelectedInvoice, toggleDialog]);
 
   // Debounced duplicate check on invoice_no change
   useEffect(() => {
@@ -122,6 +156,13 @@ export function InvoiceDialog<T extends DocumentType>({
     }
 
     const trimmedInvoiceNo = invoiceData.invoice_no.trim();
+
+    // Skip duplicate check if in Edit mode and invoice number hasn't changed
+    if (isEditMode && trimmedInvoiceNo === selectedInvoice?.invoice_no) {
+      setDuplicateCheckResult(null);
+      setIsCheckingDuplicate(false);
+      return;
+    }
 
     // Only check if we have at least 3 characters
     if (trimmedInvoiceNo.length < 3) {
@@ -157,7 +198,7 @@ export function InvoiceDialog<T extends DocumentType>({
         clearTimeout(debounceTimerRef.current);
       }
     };
-  }, [invoiceData.invoice_no, docType, docName, vendor, checkDuplicateApi]);
+  }, [invoiceData.invoice_no, docType, docName, vendor, checkDuplicateApi, isEditMode, selectedInvoice]);
 
   const uploadInvoice = useCallback(async () => {
     if (!selectedAttachment || !docName || !docType) return null;
@@ -212,6 +253,7 @@ export function InvoiceDialog<T extends DocumentType>({
         invoice_data: JSON.stringify(invoicePayloadForApi),
         invoice_attachment: attachmentUrl,
         isSR: docType === "Service Requests",
+        invoice_id: selectedInvoice?.name // Pass invoice ID if editing
       };
 
       const response = await updateInvoiceApiCall(apiPayload);
@@ -221,21 +263,21 @@ export function InvoiceDialog<T extends DocumentType>({
           title: "Success!",
           description:
             response.message.message ||
-            `Invoice added for ${docName}.`,
+            `Invoice ${isEditMode ? "updated" : "added"} for ${docName}.`,
           variant: "success",
         });
         await docMutate();
         await globalMutate((key) =>
           typeof key === "string" && key.startsWith("VendorInvoices-")
         );
-        toggleNewInvoiceDialog();
+        handleClose();
       } else {
         throw new Error(
-          response.message?.message || "Failed to add invoice."
+          response.message?.message || `Failed to ${isEditMode ? "update" : "add"} invoice.`
         );
       }
     } catch (error) {
-      console.error("Error adding invoice:", error);
+      console.error(`Error ${isEditMode ? "updating" : "adding"} invoice:`, error);
       toast({
         title: "Failed",
         description:
@@ -253,7 +295,9 @@ export function InvoiceDialog<T extends DocumentType>({
     updateInvoiceApiCall,
     docMutate,
     globalMutate,
-    toggleNewInvoiceDialog,
+    handleClose,
+    isEditMode,
+    selectedInvoice
   ]);
 
   const handleSubmit = useCallback(() => {
@@ -270,6 +314,16 @@ export function InvoiceDialog<T extends DocumentType>({
         variant: "destructive",
       });
       return;
+    }
+
+    // Attachment is optional in Edit mode if one already exists
+    if (!isEditMode && !selectedAttachment) {
+        toast({
+            title: "Validation Error",
+            description: "Please attach an invoice file.",
+            variant: "destructive",
+        });
+        return;
     }
 
     // Block if duplicate in same document
@@ -292,7 +346,7 @@ export function InvoiceDialog<T extends DocumentType>({
 
     // Proceed with submission
     submitInvoice();
-  }, [invoiceData, duplicateCheckResult, docType, submitInvoice]);
+  }, [invoiceData, duplicateCheckResult, docType, submitInvoice, isEditMode, selectedAttachment]);
 
   const handleConfirmDuplicate = useCallback(() => {
     setShowDuplicateConfirmDialog(false);
@@ -306,6 +360,10 @@ export function InvoiceDialog<T extends DocumentType>({
     if (isCheckingDuplicate) return "checking";
     if (!invoiceData.invoice_no.trim() || invoiceData.invoice_no.trim().length < 3)
       return "idle";
+    
+    // If in Edit mode and unchanged, it's valid
+    if (isEditMode && invoiceData.invoice_no.trim() === selectedInvoice?.invoice_no) return "idle";
+
     if (duplicateCheckResult?.exists_in_current_doc) return "error";
     if (duplicateCheckResult?.exists_in_other_doc) return "warning";
     if (duplicateCheckResult && !duplicateCheckResult.exists_in_current_doc && !duplicateCheckResult.exists_in_other_doc) return "valid";
@@ -318,8 +376,8 @@ export function InvoiceDialog<T extends DocumentType>({
     <>
       {/* Main Invoice Dialog */}
       <AlertDialog
-        open={newInvoiceDialog}
-        onOpenChange={!isLoading ? toggleNewInvoiceDialog : undefined}
+        open={isOpen}
+        onOpenChange={(open) => !open && !isLoading ? handleClose() : undefined}
       >
         <AlertDialogContent className="max-w-lg p-0 gap-0 overflow-hidden">
           {/* Header */}
@@ -327,12 +385,15 @@ export function InvoiceDialog<T extends DocumentType>({
             <AlertDialogHeader className="space-y-1">
               <AlertDialogTitle className="flex items-center gap-2 text-lg font-semibold">
                 <FileText className="h-5 w-5 text-primary" />
-                Add Invoice
+                {isEditMode ? "Edit Invoice" : "Add Invoice"}
               </AlertDialogTitle>
               <AlertDialogDescription className="text-sm text-muted-foreground">
-                {docType === "Procurement Orders"
-                  ? "Add vendor invoice for this Purchase Order"
-                  : "Add invoice for this Service Request"}
+                {isEditMode 
+                  ? `Update details for invoice ${selectedInvoice.invoice_no}` 
+                  : docType === "Procurement Orders"
+                    ? "Add vendor invoice for this Purchase Order"
+                    : "Add invoice for this Service Request"
+                }
               </AlertDialogDescription>
             </AlertDialogHeader>
           </div>
@@ -472,16 +533,39 @@ export function InvoiceDialog<T extends DocumentType>({
             <div className="space-y-1.5">
               <Label className="text-sm font-medium">
                 Invoice Attachment
-                <span className="text-red-500">*</span>
+                {!isEditMode && <span className="text-red-500">*</span>}
               </Label>
               <CustomAttachment
                 maxFileSize={20 * 1024 * 1024}
                 selectedFile={selectedAttachment}
                 onFileSelect={setSelectedAttachment}
-                label="Attach Invoice File"
+                label={isEditMode ? "Replace Current Attachment" : "Attach Invoice File"}
                 className="w-full"
                 disabled={isLoading}
               />
+              {isEditMode && (
+                <div className="flex flex-col gap-1 mt-1">
+                  {selectedInvoice?.invoice_attachment ? (
+                    <div className="flex items-center gap-2">
+                       <span className="text-[10px] text-muted-foreground uppercase font-semibold">Current:</span>
+                       <a 
+                         href={`${SITEURL}${attachmentDoc?.attachment}`} 
+                         target="_blank" 
+                         rel="noopener noreferrer"
+                         className="text-[10px] text-blue-600 hover:underline flex items-center gap-1"
+                       >
+                         <Eye className="h-3 w-3" />
+                         View Previous Image
+                       </a>
+                    </div>
+                  ) : (
+                    <span className="text-[10px] text-muted-foreground italic tracking-tight">No existing attachment</span>
+                  )}
+                  <p className="text-[10px] text-muted-foreground italic">
+                      Leave empty to keep existing attachment.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -494,24 +578,22 @@ export function InvoiceDialog<T extends DocumentType>({
               </div>
             ) : (
               <>
-                <AlertDialogCancel asChild>
-                  <Button variant="outline" disabled={isLoading}>
+                <Button variant="outline" onClick={handleClose} disabled={isLoading}>
                     Cancel
-                  </Button>
-                </AlertDialogCancel>
+                </Button>
                 <Button
                   onClick={handleSubmit}
                   disabled={
                     !invoiceData.date ||
                     !invoiceData.invoice_no.trim() ||
                     !invoiceData.amount ||
-                    !selectedAttachment ||
+                    (!isEditMode && !selectedAttachment) ||
                     isLoading ||
                     validationState === "error" ||
                     validationState === "checking"
                   }
                 >
-                  Add Invoice
+                  {isEditMode ? "Update Invoice" : "Add Invoice"}
                 </Button>
               </>
             )}
