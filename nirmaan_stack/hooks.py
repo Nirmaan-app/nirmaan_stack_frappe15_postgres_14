@@ -150,10 +150,7 @@ doc_events = {
         "on_trash": "nirmaan_stack.integrations.controllers.asset_management.on_trash"
     },
     "Projects": {
-        "after_insert": [
-            "nirmaan_stack.nirmaan_stack.doctype.project_work_milestones.project_work_milestones.generate_pwm",
-            "nirmaan_stack.nirmaan_stack.doctype.projects.projects.generateUserPermissions"
-        ],
+        "after_insert": "nirmaan_stack.nirmaan_stack.doctype.project_work_milestones.project_work_milestones.generate_pwm",
         # "on_update": "nirmaan_stack.nirmaan_stack.doctype.project_work_milestones.project_work_milestones.edit_pwm",  # Commented out - PWM doctype no longer in use
         "on_update": "nirmaan_stack.nirmaan_stack.doctype.projects.projects.on_update"
     },
