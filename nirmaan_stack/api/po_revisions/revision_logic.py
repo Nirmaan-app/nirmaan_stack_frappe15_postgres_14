@@ -397,14 +397,17 @@ def sync_original_po_items(revision_doc):
         elif original_po.status in ("Partially Delivered", "Delivered"):
             # All dispatched + had deliveries → recalculate delivery status
             original_po.status = calculate_order_status(updated_items)
+            original_po.po_amount_delivered=calculate_delivered_amount(updated_items)
         else:
             # Was Partially Dispatched, now all dispatched
             # Check if any deliveries exist to determine Dispatched vs PD/D
             has_deliveries = any(flt(getattr(i, 'received_quantity', 0)) > 0 for i in dispatchable)
             if has_deliveries:
                 original_po.status = calculate_order_status(updated_items)
+                original_po.po_amount_delivered=calculate_delivered_amount(updated_items)
             else:
                 original_po.status = "Dispatched"
+                original_po.status = calculate_order_status(updated_items)
          
     original_po.flags.ignore_validate_update_after_submit = True
     original_po.save(ignore_permissions=True)
