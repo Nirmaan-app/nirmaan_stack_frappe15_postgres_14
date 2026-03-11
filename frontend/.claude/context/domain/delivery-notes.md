@@ -103,6 +103,15 @@ Check in `PODetails.tsx`:
  "Nirmaan Procurement Executive Profile"].includes(role)
 ```
 
+## CEO Hold Exemption
+
+DN operations are **exempt** from CEO Hold blocking. When a project is on CEO Hold, users can still create, edit, and return delivery notes. The CEO Hold banner is shown as informational only. This is because deliveries represent fulfillment of already-approved POs — recording them should not be blocked.
+
+- **PO Overview accordion**: `canEdit` and `canReturn` do NOT check CEO Hold
+- **DN detail page** (`deliverynote.tsx`): `canEdit` does NOT check CEO Hold; banner is informational
+- **Backend**: No CEO Hold validation in DN APIs
+- **DC/MIR**: Also NOT blocked by CEO Hold (separate system)
+
 ## Return Notes
 
 Return Notes record items returned to vendor. They use the same `Delivery Notes` doctype with `is_return = 1`.

@@ -104,8 +104,7 @@ This status was added in commit `7c691bff` (2026-02-03) alongside "Created", "WI
 |------|------|------------|-----------------|
 | PO Details | `purchase-order/components/PODetails.tsx` | `useCEOHoldGuard` | Delete attachment, mark delivered (Upload DC/MIR NOT blocked) |
 | Payment Terms | `purchase-order/components/POPaymentTermsCard.tsx` | `useCEOHoldGuard` | Request payment |
-| Delivery Notes | `DeliveryNotes/deliverynote.tsx` | `useCEOHoldGuard` | Banner display |
-| DN Items | `DeliveryNotes/components/deliveryNoteItemsDisplay.tsx` | `useCEOHoldGuard` | Submit delivery updates |
+| Delivery Notes | `DeliveryNotes/deliverynote.tsx` | `useCEOHoldGuard` | **NOT blocked** — DN create/edit/return allowed under CEO Hold (banner shown as informational) |
 
 ### Reports & Trackers
 
