@@ -101,6 +101,7 @@ import { TDSRepositoryTab } from "./TDSRepository/TDSRepositoryTab";
 
 import { KeyedMutator } from "swr";
 import { useUrlParam } from "@/hooks/useUrlParam";
+import { ProjectQueryKeys } from "./queries";
 
 const projectStatuses = [
   { value: "WIP", label: "WIP", color: "text-yellow-500", icon: HardHat },
@@ -154,12 +155,6 @@ export interface FilterParameters {
   limit_start?: number
 }
 
-export const ProjectQueryKeys = {
-  project: (projectId: string) => ['projects', 'single', projectId],
-  customer: (customerId: string) => ['customers', 'single', customerId],
-  quotes: (parameters: FilterParameters) => ['Approved Quotations', 'list', { ...parameters }],
-  estimates: (parameters: FilterParameters) => ['Project Estimates', 'list', { ...parameters }]
-}
 
 const Project: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();

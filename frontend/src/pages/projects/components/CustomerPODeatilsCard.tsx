@@ -475,6 +475,7 @@ import {
 } from "@/components/ui/dialog"; // Import dialog components
 
 import { useUserData } from "@/hooks/useUserData";
+import { ProjectQueryKeys } from "../queries";
 
 
 // --- CONSTANTS ---
@@ -884,7 +885,7 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
     } = useFrappeGetDoc<any>(
         "Projects", 
         projectId,
-        { enabled: !!projectId } 
+        projectId ? ProjectQueryKeys.project(projectId) : null
     );
     
     // Ensure we have an array, even if undefined
