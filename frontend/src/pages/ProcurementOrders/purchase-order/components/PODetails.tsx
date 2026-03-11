@@ -760,6 +760,14 @@ export const PODetails: React.FC<PODetailsProps> = ({
                 <p className="text-sm">{po?.dispatch_date ? formatDate(po?.dispatch_date) : "--"}</p>
               </div>
 
+              {/* Expected Delivery Date */}
+              {["Partially Dispatched", "Dispatched", "Partially Delivered"].includes(po?.status) && (
+                <div className="space-y-0.5">
+                  <p className="text-xs text-gray-500">Expected Delivery</p>
+                  <p className="text-sm">{po?.expected_delivery_date ? formatDate(po?.expected_delivery_date) : "--"}</p>
+                </div>
+              )}
+
               {/* Latest Delivery Date */}
               <div className="space-y-0.5">
                 <p className="text-xs text-gray-500">Latest Delivery</p>

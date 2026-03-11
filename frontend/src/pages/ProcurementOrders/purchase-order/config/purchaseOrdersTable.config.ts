@@ -37,7 +37,7 @@ export const PO_STATUS_OPTIONS = [
 ]
 
 // Date columns commonly used for filtering PO tables
-export const PO_DATE_COLUMNS: string[] = ["creation", "modified"];
+export const PO_DATE_COLUMNS: string[] = ["creation", "modified", "expected_delivery_date", "latest_delivery_date"];
 
 // Function to get static filters based on tab and role for ReleasePOSelect context
 export const getReleasePOSelectStaticFilters = (tab: string, role?: string): Array<[string, string, string | string[]]> => {

@@ -41,7 +41,7 @@ import { urlStateManager } from "@/utils/urlStateManager";
 import { useUsersList } from '../../ProcurementRequests/ApproveNewPR/hooks/useUsersList';
 import { useVendorsList } from '../../ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList';
 import { getProjectListOptions, queryKeys } from '@/config/queryKeys';
-import { DEFAULT_PO_FIELDS_TO_FETCH, getReleasePOSelectStaticFilters, PO_DATE_COLUMNS, PO_SEARCHABLE_FIELDS, PO_STATUS_OPTIONS } from './config/purchaseOrdersTable.config';
+import { DEFAULT_PO_FIELDS_TO_FETCH, getReleasePOSelectStaticFilters, PO_SEARCHABLE_FIELDS, PO_STATUS_OPTIONS } from './config/purchaseOrdersTable.config';
 import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
 
 const ApproveSelectVendor = React.lazy(() => import("../../ProcurementRequests/ApproveVendorQuotes/approve-select-vendor"));
@@ -294,6 +294,10 @@ export const ReleasePOSelect: React.FC = () => {
         // "loading_charges",
         // "freight_charges",
         "invoice_data",
+        ...([PO_TABS.PARTIALLY_DISPATCHED_PO, PO_TABS.DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO].includes(tab as any)
+            ? ["expected_delivery_date"] : []),
+        ...([PO_TABS.PARTIALLY_DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO].includes(tab as any)
+            ? ["latest_delivery_date"] : []),
         ...(tab === PO_TABS.MERGED_POS ? ["merged", "modified_by"] : [])
     ], [tab]);
 
@@ -307,7 +311,16 @@ export const ReleasePOSelect: React.FC = () => {
 
     ]), [tab]);
 
-    const dateColumns = PO_DATE_COLUMNS;
+    const dateColumns = useMemo(() => {
+        const base = ["creation", "modified"];
+        if ([PO_TABS.PARTIALLY_DISPATCHED_PO, PO_TABS.DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO].includes(tab as any)) {
+            base.push("expected_delivery_date");
+        }
+        if ([PO_TABS.PARTIALLY_DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO].includes(tab as any)) {
+            base.push("latest_delivery_date");
+        }
+        return base;
+    }, [tab]);
 
     // --- Filter tabs based on role ---
     const adminTabsFiltered = useMemo(() => isAdmin ? PO_ADMIN_TAB_OPTIONS : [], [isAdmin]);
@@ -517,6 +530,38 @@ export const ReleasePOSelect: React.FC = () => {
                         const invoiceAmount = invoiceTotalsMap.get(row.name) ?? 0;
                         return formatForReport(invoiceAmount);
                     }
+                }
+            } as ColumnDef<ProcurementOrdersType>,
+        ] : []),
+        ...([PO_TABS.PARTIALLY_DISPATCHED_PO, PO_TABS.DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO].includes(tab as any) ? [
+            {
+                accessorKey: "expected_delivery_date",
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Expected Delivery" />,
+                cell: ({ row }) => (
+                    <div className="font-medium whitespace-nowrap">
+                        {row.original.expected_delivery_date ? formatDate(row.original.expected_delivery_date) : "--"}
+                    </div>
+                ),
+                size: 180,
+                meta: {
+                    exportHeaderName: "Expected Delivery Date",
+                    exportValue: (row: ProcurementOrdersType) => row.expected_delivery_date ? formatDate(row.expected_delivery_date) : "--",
+                }
+            } as ColumnDef<ProcurementOrdersType>,
+        ] : []),
+        ...([PO_TABS.PARTIALLY_DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO].includes(tab as any) ? [
+            {
+                accessorKey: "latest_delivery_date",
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Latest Delivery" />,
+                cell: ({ row }) => (
+                    <div className="font-medium whitespace-nowrap">
+                        {row.original.latest_delivery_date ? formatDate(row.original.latest_delivery_date) : "--"}
+                    </div>
+                ),
+                size: 150,
+                meta: {
+                    exportHeaderName: "Latest Delivery Date",
+                    exportValue: (row: ProcurementOrdersType) => row.latest_delivery_date ? formatDate(row.latest_delivery_date) : "--",
                 }
             } as ColumnDef<ProcurementOrdersType>,
         ] : []),
