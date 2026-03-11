@@ -26,7 +26,8 @@ import {
   CreditCard,
   BanknoteIcon,
   Dices,
-  Landmark, PencilRuler,SquareStack
+  Landmark, PencilRuler,SquareStack,
+  Warehouse
 } from "lucide-react";
 
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
@@ -513,6 +514,15 @@ export function NewSidebar() {
         },
       ]
       : []),
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", "Nirmaan Procurement Executive Profile"].includes(role)
+      ? [
+        {
+          key: '/inventory',
+          icon: Warehouse,
+          label: 'Inventory',
+        },
+      ]
+      : []),
        ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Estimates Executive Profile", "Nirmaan Project Lead Profile"].includes(role)
       ? [
         {
@@ -626,6 +636,7 @@ export function NewSidebar() {
     'material-plan-tracker',
     'cashflow-plan-tracker',
     'tds-approval',
+    'inventory',
     'help-repository'
 
   ]), [])
@@ -662,6 +673,7 @@ export function NewSidebar() {
     '/material-plan-tracker': ['material-plan-tracker'],
     '/cashflow-plan-tracker': ['cashflow-plan-tracker'],
     '/tds-approval': ['tds-approval'],
+    '/inventory': ['inventory'],
     '/help-repository': ['help-repository']
   }), []);
 
@@ -740,7 +752,7 @@ export function NewSidebar() {
                 <SidebarMenuItem>
 
                   {new Set(["Dashboard", "Item Price Search", "TDS Repository", "Procurement Requests", "Purchase Orders", "PO Revisions Approval", "Project Payments", "Credit Payments", "Sent Back Requests", "Projects", "Work Orders", "In-Flow Payments", "Vendor Invoice Recon", "Reports",
-                    "Design Tracker", "PO Tracker", "Work Plan Tracker", "Material Plan Tracker", "Cashflow Plan Tracker", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses", "Users", "Assets", "Vendors", "Customers", "Products", "TDS Approval"]).has(item?.label) ? (
+                    "Design Tracker", "PO Tracker", "Work Plan Tracker", "Material Plan Tracker", "Cashflow Plan Tracker", "Project Invoices", "Misc. Project Expenses", "Non Project Expenses", "Users", "Assets", "Vendors", "Customers", "Products", "TDS Approval", "Inventory"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
                         ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"

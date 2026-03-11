@@ -97,6 +97,7 @@ import MaterialPlanTrackerDetail from "@/pages/MaterialPlanTracker/material-plan
 import CashflowPlanTrackerList from "@/pages/CashflowPlanTracker/cashflow-plan-tracker-list";
 import CashflowPlanTrackerDetail from "@/pages/CashflowPlanTracker/cashflow-plan-tracker-detail";
 
+import InventoryItemWisePage from "@/pages/inventory/InventoryItemWisePage";
 import TDSApprovalList from "@/pages/tds/TDSApprovalList";
 import TDSApprovalDetail from "@/pages/tds/TDSApprovalDetail";
 
@@ -626,6 +627,9 @@ export const appRoutes: RouteObject[] = [
           // Commented out routes from original:
           // { path: "delayed-pr", element: <DelayedPRSelect /> },
           // { path: "delayed-pr/:id", element: <DelayedPR /> },
+          // --- Inventory ---
+          { path: "inventory", element: <InventoryItemWisePage /> },
+
           // ======================================================
           // --- START: TDS APPROVAL SECTION ---
           // ======================================================
