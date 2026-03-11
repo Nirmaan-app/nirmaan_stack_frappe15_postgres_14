@@ -340,6 +340,9 @@ export default function POReports() {
         dispatch_date: row.originalDoc.dispatch_date
           ? formatDate(row.originalDoc.dispatch_date)
           : "N/A",
+        expected_delivery_date: row.originalDoc.expected_delivery_date
+          ? formatDate(row.originalDoc.expected_delivery_date)
+          : "N/A",
         latest_delivery_date: row.originalDoc.latest_delivery_date
           ? formatDate(row.originalDoc.latest_delivery_date)
           : "N/A",
@@ -352,6 +355,7 @@ export default function POReports() {
 
     const exportColumnsConfig: ColumnDef<any, any>[] = [
       { header: "#PO", accessorKey: "po_id" },
+      { header: "Expected Delivery Date", accessorKey: "expected_delivery_date" },
       { header: "Latest Delivery Date", accessorKey: "latest_delivery_date" },
       { header: "Latest Payment Date", accessorKey: "latest_payment_date" },
       { header: "Date Created", accessorKey: "creation" },

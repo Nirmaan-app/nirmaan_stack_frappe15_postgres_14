@@ -50,6 +50,29 @@ export const basePOColumns: ColumnDef<POReportRowData>[] = [
   //   filterFn: dateFilterFn,
   // },
   {
+    id: "expected_delivery_date",
+    accessorFn: (row) => row.originalDoc.expected_delivery_date,
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title={
+        <div className="text-left whitespace-normal">
+          Expected Delivery Date
+        </div>
+      } />
+    ),
+    cell: ({ row }) => {
+      const val = row.getValue("expected_delivery_date") as string | undefined;
+      return <div>{val ? formatDate(val) : "N/A"}</div>;
+    },
+    meta: {
+      exportValue: (row: POReportRowData) => {
+        const poDoc = row.originalDoc as ProcurementOrder;
+        return poDoc.expected_delivery_date ? formatDate(poDoc.expected_delivery_date) : "N/A";
+      },
+      exportHeaderName: "Expected Delivery Date",
+    },
+    filterFn: dateFilterFn,
+  },
+  {
     id: "latest_delivery_date",
     accessorFn: (row) => row.originalDoc.latest_delivery_date, // Explicitly tell the table where to get the data
 
@@ -276,6 +299,29 @@ export const basePOColumnsForPM: ColumnDef<POReportRowData>[] = [
     meta: {
       exportValue: (row: POReportRowData) => formatDate(row.creation),
       exportHeaderName: "Date Created",
+    },
+    filterFn: dateFilterFn,
+  },
+  {
+    id: "expected_delivery_date",
+    accessorFn: (row) => row.originalDoc.expected_delivery_date,
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title={
+        <div className="text-left whitespace-normal">
+          Expected Delivery Date
+        </div>
+      } />
+    ),
+    cell: ({ row }) => {
+      const val = row.getValue("expected_delivery_date") as string | undefined;
+      return <div>{val ? formatDate(val) : "N/A"}</div>;
+    },
+    meta: {
+      exportValue: (row: POReportRowData) => {
+        const poDoc = row.originalDoc as ProcurementOrder;
+        return poDoc.expected_delivery_date ? formatDate(poDoc.expected_delivery_date) : "N/A";
+      },
+      exportHeaderName: "Expected Delivery Date",
     },
     filterFn: dateFilterFn,
   },

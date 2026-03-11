@@ -41,6 +41,8 @@ const PO_TABLE_FIELDS: (keyof ProcurementOrder | "name")[] = [
   "tax_amount",
   "total_amount",
   "amount_paid",
+  "expected_delivery_date",
+  "latest_delivery_date",
 ];
 const PO_SEARCHABLE_FIELDS: SearchFieldOption[] = [
   { value: "name", label: "PO ID", default: true },
@@ -365,6 +367,40 @@ export const VendorMaterialOrdersTable: React.FC<
         ),
         size: 180,
       },
+      {
+        accessorKey: "expected_delivery_date",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Expected Delivery" />
+        ),
+        cell: ({ row }) => (
+          <div className="whitespace-nowrap">
+            {row.original.expected_delivery_date ? formatDate(row.original.expected_delivery_date) : "--"}
+          </div>
+        ),
+        size: 180,
+        meta: {
+          exportHeaderName: "Expected Delivery Date",
+          exportValue: (row: ProcurementOrder) =>
+            row.expected_delivery_date ? formatDate(row.expected_delivery_date) : "--",
+        },
+      },
+      {
+        accessorKey: "latest_delivery_date",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Latest Delivery" />
+        ),
+        cell: ({ row }) => (
+          <div className="whitespace-nowrap">
+            {row.original.latest_delivery_date ? formatDate(row.original.latest_delivery_date) : "--"}
+          </div>
+        ),
+        size: 150,
+        meta: {
+          exportHeaderName: "Latest Delivery Date",
+          exportValue: (row: ProcurementOrder) =>
+            row.latest_delivery_date ? formatDate(row.latest_delivery_date) : "--",
+        },
+      },
       // --- CHANGE END ---
       // {
       //     id: "order_financials",
@@ -418,7 +454,7 @@ export const VendorMaterialOrdersTable: React.FC<
       searchTerm={searchTerm}
       onSearchTermChange={setSearchTerm}
       facetFilterOptions={facetFilterOptions}
-      dateFilterColumns={["modified", "creation"]}
+      dateFilterColumns={["modified", "creation", "expected_delivery_date", "latest_delivery_date"]}
       showExportButton={true}
       onExport={"default"}
       exportFileName={`${vendorName}_Material_Orders`}

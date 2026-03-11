@@ -81,6 +81,8 @@ export const PO_SUMMARY_LIST_FIELDS_TO_FETCH: (
   // --- NEW FIELD ---
   "payment_type",
   // -----------------
+  "expected_delivery_date",
+  "latest_delivery_date",
   "custom", // Add custom if used for badge
   // Add invoice_data if needed for a column in this specific summary table
 ];
@@ -119,7 +121,7 @@ export const PO_SUMMARY_SEARCHABLE_FIELDS: SearchFieldOption[] = [
 ];
 
 // Date columns for the PO Summary table
-export const PO_SUMMARY_DATE_COLUMNS: string[] = ["creation", "modified"];
+export const PO_SUMMARY_DATE_COLUMNS: string[] = ["creation", "modified", "expected_delivery_date", "latest_delivery_date"];
 
 // Status options for faceted filter (if needed for this specific summary view)
 export const PO_SUMMARY_STATUS_OPTIONS = [
@@ -527,6 +529,40 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
           exportValue: (row: ProcurementOrder) => {
             return row.status;
           },
+        },
+      },
+      {
+        accessorKey: "expected_delivery_date",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Expected Delivery" />
+        ),
+        cell: ({ row }) => (
+          <div className="font-medium whitespace-nowrap">
+            {row.original.expected_delivery_date ? formatDate(row.original.expected_delivery_date) : "--"}
+          </div>
+        ),
+        size: 180,
+        meta: {
+          exportHeaderName: "Expected Delivery Date",
+          exportValue: (row: ProcurementOrder) =>
+            row.expected_delivery_date ? formatDate(row.expected_delivery_date) : "--",
+        },
+      },
+      {
+        accessorKey: "latest_delivery_date",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Latest Delivery" />
+        ),
+        cell: ({ row }) => (
+          <div className="font-medium whitespace-nowrap">
+            {row.original.latest_delivery_date ? formatDate(row.original.latest_delivery_date) : "--"}
+          </div>
+        ),
+        size: 150,
+        meta: {
+          exportHeaderName: "Latest Delivery Date",
+          exportValue: (row: ProcurementOrder) =>
+            row.latest_delivery_date ? formatDate(row.latest_delivery_date) : "--",
         },
       },
       {
