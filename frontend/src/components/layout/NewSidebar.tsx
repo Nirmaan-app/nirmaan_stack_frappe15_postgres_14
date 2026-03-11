@@ -532,6 +532,15 @@ export function NewSidebar() {
         },
       ]
       : []),
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role)
+      ? [
+        {
+          key: '/tds-approval',
+          icon: ClipboardCheck,
+          label: 'TDS Approval',
+        },
+      ]
+      : []),
     ...(user_id == "Administrator" || ["Nirmaan Design Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Design Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role)
       ? [
         {
@@ -574,15 +583,6 @@ export function NewSidebar() {
           key: '/cashflow-plan-tracker',
           icon: CircleDollarSign,
           label: 'Cashflow Plan Tracker',
-        },
-      ]
-      : []),
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role)
-      ? [
-        {
-          key: '/tds-approval',
-          icon: ClipboardCheck,
-          label: 'TDS Approval',
         },
       ]
       : [])
