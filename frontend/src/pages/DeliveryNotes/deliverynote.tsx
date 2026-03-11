@@ -43,7 +43,6 @@ export default function DeliveryNote() {
     !!data &&
     !!userData?.role &&
     (DELIVERY_EDIT_ROLES as readonly string[]).includes(userData.role) &&
-    !isCEOHold &&
     ["Dispatched", "Partially Delivered", "Delivered"].includes(data.status);
 
   const pageTitle = viewMode === "create"

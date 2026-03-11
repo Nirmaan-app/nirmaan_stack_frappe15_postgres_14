@@ -123,7 +123,6 @@ import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/Reques
 import { DocumentAttachments } from "../invoices-and-dcs/DocumentAttachments";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
-import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { PaymentTerm, POTotals } from "@/types/NirmaanStack/ProcurementOrders";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
@@ -203,7 +202,6 @@ export const PurchaseOrder = ({
 
 
 
-  const { isCEOHold } = useCEOHoldGuard(PO?.project);
 
   useFrappeDocumentEventListener(
     "Procurement Orders",
@@ -1681,8 +1679,8 @@ export const PurchaseOrder = ({
                     dnRecords={dnRecords}
                     onPoMutate={poMutate}
                     onDnRefetch={() => fetchDNs({ procurement_order: poId })}
-                    canEdit={(DELIVERY_EDIT_ROLES as readonly string[]).includes(userData?.role) && !isCEOHold && ["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(PO?.status || "")}
-                    canReturn={(RETURN_NOTE_ROLES as readonly string[]).includes(userData?.role) && !isCEOHold && ["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(PO?.status || "")}
+                    canEdit={(DELIVERY_EDIT_ROLES as readonly string[]).includes(userData?.role) && ["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(PO?.status || "")}
+                    canReturn={(RETURN_NOTE_ROLES as readonly string[]).includes(userData?.role) && ["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(PO?.status || "")}
                     returnCount={dnRecords.filter(dn => dn.is_return === 1).length}
                     isEmbedded
                     isProjectManager={isProjectManager}
