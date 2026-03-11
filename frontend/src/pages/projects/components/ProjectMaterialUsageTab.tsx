@@ -76,7 +76,7 @@ export interface MaterialUsageDisplayItem {
   totalAmount?: number;
   deliveryStatus: DeliveryStatus;
   overallPOPaymentStatus: OverallItemPOStatus;
-  poNumbers?: { po: string, status: POStatus, amount: number, quote?: number, poCalculatedAmount?: string }[];
+  poNumbers?: { po: string, status: POStatus, amount: number, quote?: number, tax?: number, poCalculatedAmount?: string }[];
   vendorNames?: string[];  // Vendor names from all POs for this item
   billingCategory?: string;
   deliveryChallans?: DeliveryDocumentInfo[];
