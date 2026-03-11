@@ -87,9 +87,11 @@ function DashboardCard({
 function DNDownloadButton({
   poId,
   deliveryDate,
+  noteNo,
 }: {
   poId: string;
   deliveryDate: string;
+  noteNo: string | number;
 }) {
   const { downloadDN } = useDownloadDN(poId);
   return (
@@ -97,7 +99,7 @@ function DNDownloadButton({
       variant="ghost"
       size="icon"
       className="h-7 w-7"
-      onClick={() => downloadDN(deliveryDate)}
+      onClick={() => downloadDN(deliveryDate, noteNo)}
     >
       <Download className="h-3.5 w-3.5" />
     </Button>
@@ -554,6 +556,7 @@ const DeliveryNotes: React.FC = () => {
                                                 <DNDownloadButton
                                                   poId={po.name}
                                                   deliveryDate={dn.delivery_date}
+                                                  noteNo={dn.note_no}
                                                 />
                                               </TableCell>
                                             </TableRow>
@@ -637,6 +640,7 @@ const DeliveryNotes: React.FC = () => {
                                         <DNDownloadButton
                                           poId={po.name}
                                           deliveryDate={dn.delivery_date}
+                                          noteNo={dn.note_no}
                                         />
                                       </div>
                                     </div>
