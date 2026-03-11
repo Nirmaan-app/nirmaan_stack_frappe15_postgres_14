@@ -212,6 +212,8 @@ export default function POReports() {
     setSearchTerm,
     selectedSearchField,
     setSelectedSearchField,
+    exportAllRows,
+    isExporting,
   } = useServerDataTable<POReportRowData>({
     doctype: `POReportsClientFilteredVirtual_${selectedReportType || "none"}`, // Unique virtual doctype per report
     columns: tableColumnsToDisplay,
@@ -287,10 +289,8 @@ export default function POReports() {
     return `${prefix}_${reportTypeSuffix}_${formatDate(new Date())}`;
   }, [selectedReportType]);
 
-  const handleCustomExport = useCallback(() => {
-    // We use table.getFilteredRowModel().rows here to respect current filters
-    // Update: Use getSortedRowModel to respect sort order as well
-    const rowsToExport = table.getSortedRowModel().rows.map(r => r.original);
+  const handleCustomExport = useCallback(async () => {
+    const rowsToExport = await exportAllRows();
 
     if (!rowsToExport || rowsToExport.length === 0) {
       toast({
@@ -392,7 +392,7 @@ export default function POReports() {
         variant: "destructive",
       });
     }
-  }, [table, exportFileName, selectedReportType, assignmentsLookup]);
+  }, [exportAllRows, exportFileName, selectedReportType, assignmentsLookup]);
 
   const isLoadingOverall =
     isLoadingInitialData ||
@@ -436,6 +436,7 @@ export default function POReports() {
           table={table}
           columns={tableColumnsToDisplay}
           isLoading={isLoadingOverall}
+          isExporting={isExporting}
           error={overallError as Error | null}
           summaryCard={summaryCardNode}
           // totalCount={totalCount} // From useServerDataTable, now reflects currentDisplayData.length

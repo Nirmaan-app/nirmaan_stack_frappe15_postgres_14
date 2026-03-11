@@ -383,6 +383,8 @@ export const ApproveSelectAmendPO: React.FC = () => {
     // isItemSearchEnabled, toggleItemSearch, showItemSearchToggle,
     refetch, // Get refetch function
     columnFilters, // Extract columnFilters
+    exportAllRows,
+    isExporting,
   } = useServerDataTable<ProcurementOrdersType>({
     doctype: DOCTYPE,
     columns: columns,
@@ -483,6 +485,8 @@ export const ApproveSelectAmendPO: React.FC = () => {
           dateFilterColumns={dateColumns}
           showExportButton={true}
           onExport={"default"}
+          onExportAll={exportAllRows}
+          isExporting={isExporting}
           exportFileName={`Approve_Amended_PO_${new Date().toISOString().split('T')[0]}`}
           getRowClassName={getRowClassName}
           // showExport={true} // Enable if needed

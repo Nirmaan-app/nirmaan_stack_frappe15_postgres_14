@@ -299,6 +299,8 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         isRowSelectionActive,
         refetch,
         columnFilters,
+        exportAllRows,
+        isExporting,
     } = useServerDataTable<ProjectPayments>({
         doctype: DOCTYPE,
         columns: columns,
@@ -446,6 +448,8 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                     dateFilterColumns={dateColumns}
                     showExportButton={true}
                     onExport={tab === "New Payments" ? handlePrepareExport : 'default'}
+                    onExportAll={exportAllRows}
+                    isExporting={isExporting}
                     exportFileName={`${tab.replace(/\s+/g, '_')}_${formatDate(new Date())}`}
                     showRowSelection={isRowSelectionActive}
                     getRowClassName={getRowClassName}

@@ -103,6 +103,8 @@ export default function SR2BReconcileReport() {
         setSearchTerm,
         selectedSearchField,
         setSelectedSearchField,
+        exportAllRows,
+        isExporting,
     } = useServerDataTable<SR2BReconcileRowData>({
         doctype: `SR2BReconcileReportVirtual`,
         columns: tableColumnsToDisplay,
@@ -261,8 +263,9 @@ export default function SR2BReconcileReport() {
         return baseName;
     }, [dateRange]);
 
-    const handleCustomExport = useCallback(() => {
-        if (!fullyFilteredData || fullyFilteredData.length === 0) {
+    const handleCustomExport = useCallback(async () => {
+        const allRows = await exportAllRows();
+        if (!allRows || allRows.length === 0) {
             toast({
                 title: "Export",
                 description: "No data available to export.",
@@ -271,7 +274,7 @@ export default function SR2BReconcileReport() {
             return;
         }
 
-        const dataToExport = fullyFilteredData.map((row) => {
+        const dataToExport = allRows.map((row) => {
             let status = "None";
             if (row.reconciliationStatus === "full") status = "Full";
             else if (row.reconciliationStatus === "partial") status = "Partial";
@@ -321,7 +324,7 @@ export default function SR2BReconcileReport() {
                 variant: "destructive",
             });
         }
-    }, [fullyFilteredData]);
+    }, [exportAllRows]);
 
     const isLoadingOverall =
         isLoadingInitialData ||
@@ -502,6 +505,7 @@ export default function SR2BReconcileReport() {
                         table={table}
                         columns={tableColumnsToDisplay}
                         isLoading={isLoadingOverall}
+                        isExporting={isExporting}
                         error={overallError as Error | null}
                         totalCount={filteredRowCount}
                         searchFieldOptions={SR_2B_RECONCILE_SEARCHABLE_FIELDS}

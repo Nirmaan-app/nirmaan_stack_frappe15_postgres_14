@@ -8,6 +8,7 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 
 | File | Domain | When to Load |
 |------|--------|--------------|
+| [data-tables.md](./data-tables.md) | DataTable System | useServerDataTable hook, DataTable component, export, backend API, search strategies |
 | [coding-standards.md](./coding-standards.md) | Standards | Date formats, react-select patterns, Radix dialog fixes |
 | [react-patterns.md](./react-patterns.md) | React | useEffect anti-patterns, TanStack Table deps, Vercel best practices |
 | [role-access.md](./role-access.md) | Access Control | Role checks, sidebar visibility, page permissions |
@@ -82,6 +83,7 @@ const { role, user_id } = useUserData();
 ├── settings.local.json   # Local Claude settings
 └── context/
     ├── _index.md           # This file
+    ├── data-tables.md      # DataTable system: hook, component, export, backend API
     ├── coding-standards.md # Date formats, react-select, Radix dialog patterns
     ├── react-patterns.md   # useEffect anti-patterns, Vercel best practices
     ├── role-access.md      # Role-based access control reference

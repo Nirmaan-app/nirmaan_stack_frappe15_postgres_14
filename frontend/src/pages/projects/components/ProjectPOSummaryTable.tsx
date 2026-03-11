@@ -735,6 +735,8 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     totalCount,
     isLoading: listIsLoading,
     error: listError,
+    exportAllRows,
+    isExporting,
     aggregates, // NEW
     isAggregatesLoading, // NEW
     groupByResult, // NEW
@@ -950,6 +952,8 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
           dateFilterColumns={PO_SUMMARY_DATE_COLUMNS}
           showExportButton={true}
           onExport={"default"}
+          onExportAll={exportAllRows}
+          isExporting={isExporting}
           exportFileName={`Project_PO_Summary_${getProjectName(projectId) || "all"}`}
           showRowSelection={false} // No selection needed for this summary
           summaryCard={hideSummaryCard ? undefined :

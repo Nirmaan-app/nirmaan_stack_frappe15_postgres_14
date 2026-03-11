@@ -7,7 +7,7 @@ import hashlib
 import traceback
 
 from .constants import (
-    DEFAULT_PAGE_LENGTH, MAX_PAGE_LENGTH, CACHE_EXPIRY,
+    DEFAULT_PAGE_LENGTH, MAX_PAGE_LENGTH, EXPORT_MAX_PAGE_LENGTH, CACHE_EXPIRY,
     JSON_ITEM_SEARCH_DOCTYPE_MAP, CHILD_TABLE_ITEM_SEARCH_MAP,
     LINK_FIELD_MAP
 )
@@ -31,6 +31,7 @@ def get_list_with_count_enhanced_impl(
     to_cache=False,
     aggregates_config=None,
     group_by_config=None,
+    for_export=False,
     **custom_params
 ):
     try:
@@ -38,7 +39,12 @@ def get_list_with_count_enhanced_impl(
         if not frappe.has_permission(doctype, "read"): frappe.throw(_("Not permitted"), frappe.PermissionError)
 
         start = cint(limit_start)
-        page_length = min(cint(limit_page_length or DEFAULT_PAGE_LENGTH), MAX_PAGE_LENGTH)
+        for_export_bool = isinstance(for_export, str) and for_export.lower() == 'true' or for_export is True
+        effective_max = EXPORT_MAX_PAGE_LENGTH if for_export_bool else MAX_PAGE_LENGTH
+        if for_export_bool and cint(limit_page_length) == 0:
+            page_length = EXPORT_MAX_PAGE_LENGTH
+        else:
+            page_length = min(cint(limit_page_length or DEFAULT_PAGE_LENGTH), effective_max)
         is_item_search_bool = isinstance(is_item_search, str) and is_item_search.lower() == 'true' or is_item_search is True
         require_pending_items_bool = isinstance(require_pending_items, str) and require_pending_items.lower() == 'true' or require_pending_items is True
 
@@ -236,8 +242,8 @@ def get_list_with_count_enhanced_impl(
         final_result = {
             "data": data,
             "total_count": total_records,
-            "aggregates": get_aggregates(doctype, final_matching_parent_names, aggregates_config),
-            "group_by_result": get_group_by_results(doctype, final_matching_parent_names, group_by_config)
+            "aggregates": {} if for_export_bool else get_aggregates(doctype, final_matching_parent_names, aggregates_config),
+            "group_by_result": [] if for_export_bool else get_group_by_results(doctype, final_matching_parent_names, group_by_config)
         }
 
         if to_cache: frappe.cache().set_value(cache_key, final_result, expires_in_sec=CACHE_EXPIRY)

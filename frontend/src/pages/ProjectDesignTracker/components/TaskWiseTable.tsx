@@ -483,6 +483,8 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_
                         showExportButton={true}
                         exportFileName="Design_Tasks_Wise"
                         onExport="default"
+                        onExportAll={serverDataTable.exportAllRows}
+                        isExporting={serverDataTable.isExporting}
                         tableHeight="60vh"
                     />
                 </div>

@@ -552,6 +552,8 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
     isRowSelectionActive,
     refetch,
     columnFilters, // NEW
+    exportAllRows,
+    isExporting,
   } = useServerDataTable<ServiceRequests>({
     doctype: DOCTYPE,
     columns: columns,
@@ -685,6 +687,8 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
           dateFilterColumns={dateColumns}
           showExportButton={true}
           onExport={"default"}
+          onExportAll={exportAllRows}
+          isExporting={isExporting}
           exportFileName={
             vendorName ? `${vendorName}_Approved_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}` : `Approved_WO_${new Date().toLocaleDateString("en-GB").replace(/\//g, "-")}`
           }

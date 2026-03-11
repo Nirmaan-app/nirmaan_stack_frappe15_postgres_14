@@ -84,6 +84,8 @@ export default function VendorReports() {
     setSearchTerm,
     selectedSearchField,
     setSelectedSearchField,
+    exportAllRows,
+    isExporting,
   } = useServerDataTable<Vendors>({
     doctype: "Vendors",
     columns: tableColumns,
@@ -97,7 +99,7 @@ export default function VendorReports() {
   const isLoading = isLoadingGlobalDeps || isVendorsLoading;
   const error = globalDepsError || vendorsError;
   // --- 👇 THIS IS THE NEW CUSTOM EXPORT HANDLER ---
-  const handleCustomExport = useCallback(() => {
+  const handleCustomExport = useCallback(async () => {
     if (isLoadingGlobalDeps) {
       toast({
         title: "Export Canceled",
@@ -106,7 +108,9 @@ export default function VendorReports() {
       });
       return;
     }
-    if (!vendorsData || vendorsData.length === 0) {
+
+    const allRows = await exportAllRows();
+    if (!allRows || allRows.length === 0) {
       toast({
         title: "Export Canceled",
         description: "No data available to export.",
@@ -116,7 +120,7 @@ export default function VendorReports() {
     }
 
     // 1. Manually construct the data array for the CSV
-    const dataToExport = vendorsData.map((vendor) => {
+    const dataToExport = allRows.map((vendor) => {
       const calculated = getVendorCalculatedFields(vendor.name);
       return {
         vendor_name: vendor.vendor_name || vendor.name,
@@ -170,7 +174,7 @@ export default function VendorReports() {
         variant: "destructive",
       });
     }
-  }, [vendorsData, getVendorCalculatedFields, isLoadingGlobalDeps]);
+  }, [exportAllRows, getVendorCalculatedFields, isLoadingGlobalDeps]);
 
   console.log("dateRange", dateRange);
 
@@ -210,6 +214,7 @@ export default function VendorReports() {
           table={table}
           columns={tableColumns}
           isLoading={isLoading}
+          isExporting={isExporting}
           error={error as Error | null}
           totalCount={totalCount}
           searchFieldOptions={VENDOR_REPORTS_SEARCHABLE_FIELDS}

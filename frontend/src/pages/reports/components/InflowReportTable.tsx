@@ -219,7 +219,9 @@ export function InflowReportTable() {
         searchTerm, setSearchTerm, selectedSearchField, setSelectedSearchField,
         aggregates, // NEW
         isAggregatesLoading, // NEW
-        columnFilters, setColumnFilters // NEW - Added setColumnFilters
+        columnFilters, setColumnFilters, // NEW - Added setColumnFilters
+        exportAllRows,
+        isExporting,
     } = useServerDataTable<ProjectInflows>({
         doctype: DOCTYPE,
         columns: columns,
@@ -272,6 +274,7 @@ export function InflowReportTable() {
                 table={table}
                 columns={columns}
                 isLoading={listIsLoading}
+                isExporting={isExporting}
                 error={listError}
                 totalCount={totalCount}
                 getRowClassName={getRowClassName}
@@ -284,6 +287,7 @@ export function InflowReportTable() {
                 dateFilterColumns={INFLOW_DATE_COLUMNS}
                 showExportButton={true}
                 onExport={'default'}
+                onExportAll={exportAllRows}
                 exportFileName={'Inflow_Payments_Report'}
                 summaryCard={
                     isAggregatesLoading ? (

@@ -97,6 +97,8 @@ export default function PORevisionsApprovalList() {
         selectedSearchField,
         setSelectedSearchField,
         columnFilters,
+        exportAllRows,
+        isExporting,
     } = useServerDataTable<any>({
         doctype: DOCTYPE,
         columns: tableColumns,
@@ -216,6 +218,8 @@ export default function PORevisionsApprovalList() {
                         dateFilterColumns={PO_REVISION_DATE_COLUMNS}
                         showExportButton={true}
                         onExport={"default"}
+                        onExportAll={exportAllRows}
+                        isExporting={isExporting}
                         exportFileName={DOCTYPE}
                         showRowSelection={false}
                     />

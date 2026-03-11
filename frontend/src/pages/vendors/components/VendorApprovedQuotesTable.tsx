@@ -285,6 +285,8 @@ export const VendorApprovedQuotesTable: React.FC<
     totalCount,
     isLoading: tableLoading,
     error: tableError,
+    exportAllRows,
+    isExporting,
     searchTerm,
     setSearchTerm,
     selectedSearchField,
@@ -321,6 +323,8 @@ export const VendorApprovedQuotesTable: React.FC<
       dateFilterColumns={["modified", "creation"]}
       showExportButton={true}
       onExport={"default"}
+      onExportAll={exportAllRows}
+      isExporting={isExporting}
       exportFileName={
         vendorName ? `${vendorName}_Approved_Quotes` : "Approved_Quotes"
       }

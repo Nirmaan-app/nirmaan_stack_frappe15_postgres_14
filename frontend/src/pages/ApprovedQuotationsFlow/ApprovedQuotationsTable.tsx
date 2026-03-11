@@ -568,6 +568,8 @@ export default function ApprovedQuotationsTable({
     setSearchTerm,
     selectedSearchField: tableSelectedSearchField,
     setSelectedSearchField,
+    exportAllRows,
+    isExporting,
   } = useServerDataTable<ApprovedQuotationsType>({
     doctype: APPROVED_QUOTATION_DOCTYPE,
     columns: columns,
@@ -877,6 +879,8 @@ export default function ApprovedQuotationsTable({
         dateFilterColumns={AQ_DATE_COLUMNS}
         showExportButton={true}
         onExport={"default"}
+        onExportAll={exportAllRows}
+        isExporting={isExporting}
         exportFileName="approved_quotations_data"
       />
     </div>

@@ -190,6 +190,8 @@ export const AssignedAssetsList: React.FC = () => {
         setSearchTerm,
         selectedSearchField,
         setSelectedSearchField,
+        exportAllRows,
+        isExporting,
     } = useServerDataTable<AssetManagement>({
         doctype: ASSET_MANAGEMENT_DOCTYPE,
         columns,
@@ -215,6 +217,8 @@ export const AssignedAssetsList: React.FC = () => {
             dateFilterColumns={ASSET_MANAGEMENT_DATE_COLUMNS}
             showExportButton={true}
             onExport="default"
+            onExportAll={exportAllRows}
+            isExporting={isExporting}
             exportFileName="assigned_assets_data"
             showRowSelection={false}
         />

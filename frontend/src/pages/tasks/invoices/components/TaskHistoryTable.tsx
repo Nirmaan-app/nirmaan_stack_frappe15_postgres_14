@@ -162,6 +162,8 @@ export const TaskHistoryTable: React.FC = () => {
         setSearchTerm,
         selectedSearchField,
         setSelectedSearchField,
+        exportAllRows,
+        isExporting,
     } = useServerDataTable<VendorInvoice>({
         doctype: VENDOR_INVOICES_DOCTYPE,
         columns: columns,
@@ -234,6 +236,8 @@ export const TaskHistoryTable: React.FC = () => {
                     dateFilterColumns={VENDOR_INVOICE_DATE_COLUMNS}
                     showExportButton={true}
                     onExport={"default"}
+                    onExportAll={exportAllRows}
+                    isExporting={isExporting}
                     exportFileName="Vendor_Invoices_History"
                     getRowClassName={getRowClassName}
                 />

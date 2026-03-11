@@ -100,7 +100,7 @@ src/
 
 **Forms:** React Hook Form + Zod schema + shadcn/ui Form components
 
-**Tables:** TanStack Table v8 wrappers in `src/components/data-table/`. Page configs in `config/*.config.ts` files.
+**Tables:** TanStack Table v8 via `useServerDataTable` hook + `DataTable` component in `src/components/data-table/`. See `.claude/context/data-tables.md` for full reference (hook config, export system, backend API, search strategies). Page configs in `config/*.config.ts` files.
 
 **Real-time:** Socket.IO via `src/config/SocketInitializer.tsx` + `src/services/socketListeners.ts`. Firebase push via `src/firebase/firebaseConfig.ts`.
 

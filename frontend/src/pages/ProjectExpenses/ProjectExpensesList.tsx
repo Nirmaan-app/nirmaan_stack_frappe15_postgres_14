@@ -381,6 +381,8 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
     isAggregatesLoading, // NEW
     columnFilters, // NEW
     groupByResult, // NEW
+    exportAllRows,
+    isExporting,
   } = useServerDataTable<ProjectExpenses>({
     doctype: DOCTYPE,
     columns: columns,
@@ -525,6 +527,8 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
         facetFilterOptions={facetFilterOptions}
         showExportButton={true}
         onExport="default"
+        onExportAll={exportAllRows}
+        isExporting={isExporting}
         exportFileName={`Project_Expenses_${projectId ? getProjectName(projectId) : "All"}`}
         getRowClassName={getRowClassName}
         toolbarActions={

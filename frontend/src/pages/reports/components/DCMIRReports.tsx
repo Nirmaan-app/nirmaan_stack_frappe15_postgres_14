@@ -70,6 +70,8 @@ export default function DCMIRReports({ projectId, forcedReportType }: DCMIRRepor
         setSearchTerm,
         selectedSearchField,
         setSelectedSearchField,
+        exportAllRows,
+        isExporting,
     } = useServerDataTable<DCMIRReportRowData>({
         doctype: `DCMIRReportsVirtual_${selectedReportType || "none"}`,
         columns: tableColumnsToDisplay,
@@ -172,13 +174,14 @@ export default function DCMIRReports({ projectId, forcedReportType }: DCMIRRepor
         return projectId ? `${projectId}_${prefix}` : prefix;
     }, [selectedReportType, projectId]);
 
-    const handleCustomExport = useCallback(() => {
-        if (!fullyFilteredData || fullyFilteredData.length === 0) {
+    const handleCustomExport = useCallback(async () => {
+        const allRows = await exportAllRows();
+        if (!allRows || allRows.length === 0) {
             toast({ title: "Export", description: "No data available to export.", variant: "default" });
             return;
         }
 
-        const dataToExport = fullyFilteredData.map((row) => ({
+        const dataToExport = allRows.map((row) => ({
             document_id: row.name,
             project: row.projectName || row.project,
             reference_number: row.reference_number || "",
@@ -219,7 +222,7 @@ export default function DCMIRReports({ projectId, forcedReportType }: DCMIRRepor
             console.error("Export failed:", e);
             toast({ title: "Export Error", description: "Could not generate CSV file.", variant: "destructive" });
         }
-    }, [fullyFilteredData, exportFileName, selectedReportType, projectId]);
+    }, [exportAllRows, exportFileName, selectedReportType, projectId]);
 
     const isLoadingOverall = isLoadingInitialData || projectsUiLoading || isTableHookLoading;
     const overallError = initialDataError || projectsUiError || tableHookError;
@@ -242,6 +245,7 @@ export default function DCMIRReports({ projectId, forcedReportType }: DCMIRRepor
                     table={table}
                     columns={tableColumnsToDisplay}
                     isLoading={isLoadingOverall}
+                    isExporting={isExporting}
                     error={overallError as Error | null}
                     totalCount={filteredRowCount}
                     searchFieldOptions={DCMIR_REPORTS_SEARCHABLE_FIELDS}

@@ -17,6 +17,7 @@ def get_list_with_count_enhanced(
     to_cache: bool = False,
     aggregates_config: str | None = None,
     group_by_config: str | None = None,
+    for_export: bool | str = False,
     **kwargs
 ) -> dict:
     """
@@ -37,6 +38,7 @@ def get_list_with_count_enhanced(
         to_cache=to_cache,
         aggregates_config=aggregates_config,
         group_by_config=group_by_config,
+        for_export=for_export,
         **kwargs
     )
 

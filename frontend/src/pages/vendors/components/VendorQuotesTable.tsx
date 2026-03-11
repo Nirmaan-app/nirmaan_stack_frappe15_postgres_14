@@ -197,6 +197,8 @@ export const VendorQuotesTable: React.FC<VendorQuotesTableProps> = ({ vendorId, 
     totalCount,
     isLoading: tableLoading,
     error: tableError,
+    exportAllRows,
+    isExporting,
     searchTerm,
     setSearchTerm,
     selectedSearchField,
@@ -314,6 +316,8 @@ export const VendorQuotesTable: React.FC<VendorQuotesTableProps> = ({ vendorId, 
       facetFilterOptions={facetFilterOptions}
       showExportButton={true}
       onExport={"default"}
+      onExportAll={exportAllRows}
+      isExporting={isExporting}
       exportFileName={
         vendorName ? `${vendorName}_Quotes` : "Vendor_Quotes"
       }

@@ -242,6 +242,8 @@ export interface ServerDataTableResult<TData> {
     // --- NEW: Expose the actual enableRowSelection value used ---
     isRowSelectionActive: boolean; // Indicates if selection features are enabled in the table instance
     isClientSideMode: boolean
+    exportAllRows: () => Promise<TData[]>;
+    isExporting: boolean;
 }
 
 
@@ -361,6 +363,7 @@ export function useServerDataTable<TData extends { name: string }>({
     // Use custom endpoint if provided, otherwise default to generic enhanced list
     const apiEndpoint = customApiEndpoint || 'nirmaan_stack.api.data-table.get_list_with_count_enhanced';
     const { call: triggerFetch, loading: isCallingApi, error: apiError, reset: resetApiState } = useFrappePostCall<{ message: { data: TData[]; total_count: number; aggregates: any, group_by_result: any } }>(apiEndpoint); // Get Frappe call method from context
+    const { call: triggerExportFetch } = useFrappePostCall<{ message: { data: TData[]; total_count: number; aggregates: any, group_by_result: any } }>(apiEndpoint);
 
     // --- SWR Mutate for Cache Invalidation ---
     const { mutate } = useSWRConfig();
@@ -432,6 +435,7 @@ export function useServerDataTable<TData extends { name: string }>({
     const [totalCount, setTotalCount] = useState<number>(clientTotalCount ?? (clientData?.length || 0));
     const [error, setError] = useState<Error | null>(null);
     const [isLoading, setIsLoading] = useState(false); // Manual loading state
+    const [isExporting, setIsExporting] = useState(false);
     // const [internalTrigger, setInternalTrigger] = useState<number>(0); // To manually refetch
 
 
@@ -860,6 +864,62 @@ export function useServerDataTable<TData extends { name: string }>({
 
     // -----------------------------------
 
+    const exportAllRows = useCallback(async (): Promise<TData[]> => {
+        // Client-side mode: return all sorted rows directly
+        if (isClientSideMode) {
+            return table.getSortedRowModel().rows.map(row => row.original);
+        }
+
+        // Server-side mode: make a separate API call with no pagination
+        setIsExporting(true);
+        try {
+            const orderByForApi = sorting.length > 0
+                ? `${sorting[0].id} ${sorting[0].desc ? 'desc' : 'asc'}`
+                : defaultSort;
+
+            const tanstackGeneratedFilters = convertTanstackFiltersToFrappe(columnFilters);
+            let combinedBaseFilters = [...additionalFilters];
+            if (Array.isArray(tanstackGeneratedFilters) && tanstackGeneratedFilters.length > 0) {
+                combinedBaseFilters.push(...tanstackGeneratedFilters);
+            }
+
+            const searchTermForApi = debouncedSearchTermForApi;
+            const currentSearchFieldConfig = searchableFields.find(f => f.value === selectedSearchField);
+            const isJsonField = currentSearchFieldConfig?.is_json === true;
+
+            const payload = {
+                doctype,
+                fields: JSON.stringify(fetchFields),
+                filters: JSON.stringify(combinedBaseFilters.length > 0 ? combinedBaseFilters : []),
+                order_by: orderByForApi,
+                limit_start: 0,
+                limit_page_length: 0,
+                for_export: true,
+                search_term: searchTermForApi || undefined,
+                current_search_fields: searchTermForApi && selectedSearchField ? JSON.stringify([selectedSearchField]) : undefined,
+                is_item_search: searchTermForApi && isJsonField,
+                require_pending_items: requirePendingItems,
+                to_cache: false,
+                ...customParams,
+            };
+
+            const response = await triggerExportFetch(payload);
+            if (response.message) {
+                return response.message.data;
+            }
+            return [];
+        } catch (err: any) {
+            console.error("Error fetching export data:", err);
+            throw err;
+        } finally {
+            setIsExporting(false);
+        }
+    }, [
+        isClientSideMode, table, sorting, defaultSort, columnFilters,
+        additionalFilters, debouncedSearchTermForApi, searchableFields,
+        selectedSearchField, doctype, fetchFields, requirePendingItems,
+        customParams, triggerExportFetch
+    ]);
 
     // --- Return Value ---
     return {
@@ -894,5 +954,7 @@ export function useServerDataTable<TData extends { name: string }>({
         isAggregatesLoading,
         groupByResult, // NEW
         // ----------------------------------------------------
+        exportAllRows,
+        isExporting,
     };
 }

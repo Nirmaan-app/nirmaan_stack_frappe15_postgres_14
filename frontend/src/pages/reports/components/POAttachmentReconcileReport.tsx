@@ -75,6 +75,8 @@ export default function POAttachmentReconcileReport() {
         setSearchTerm,
         selectedSearchField,
         setSelectedSearchField,
+        exportAllRows,
+        isExporting,
     } = useServerDataTable<POAttachmentReconcileRowData>({
         doctype: `POAttachmentReconcileReportVirtual`,
         columns: tableColumnsToDisplay,
@@ -208,8 +210,8 @@ export default function POAttachmentReconcileReport() {
 
     const exportFileName = "po_attachment_reconciliation_report";
 
-    const handleCustomExport = useCallback(() => {
-        const rowsToExport = table.getSortedRowModel().rows.map((row) => row.original);
+    const handleCustomExport = useCallback(async () => {
+        const rowsToExport = await exportAllRows();
 
         if (!rowsToExport || rowsToExport.length === 0) {
             toast({
@@ -293,7 +295,7 @@ export default function POAttachmentReconcileReport() {
                 variant: "destructive",
             });
         }
-    }, [table, assignmentsLookup]);
+    }, [exportAllRows, assignmentsLookup]);
 
     const isLoadingOverall =
         isLoadingInitialData ||
@@ -523,6 +525,7 @@ export default function POAttachmentReconcileReport() {
                         table={table}
                         columns={tableColumnsToDisplay}
                         isLoading={isLoadingOverall}
+                        isExporting={isExporting}
                         error={overallError as Error | null}
                         totalCount={filteredRowCount}
                         searchFieldOptions={PO_ATTACHMENT_RECONCILE_SEARCHABLE_FIELDS}
