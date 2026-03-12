@@ -44,6 +44,7 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | Bulk Download Wizard | `src/pages/BulkDownload/` | `BulkDownloadPage.tsx` wizard, `FilterBar.tsx` for vendor/date, step components in `steps/` (PO, WO, Invoice, DC, MIR, DN) |
 | Bulk PDF Button | `src/components/common/BulkPdfDownloadButton.tsx` | Reusable button with `useBulkPdfDownload.ts` hook |
 | Remaining Items (Inventory) | `src/pages/remaining-items/` | `index.tsx`, `components/RemainingItemsForm.tsx`, `hooks/useRemainingItemsForm.ts`, cooldown + declaration |
+| Inventory Item-Wise | `src/pages/inventory/` | `InventoryItemWisePage.tsx`, `hooks/useInventoryItemWise.ts`, `inventory.types.ts` — cross-project aggregation with estimated cost |
 | Reports | `src/pages/reports/` | `hooks/usePO*.ts` for data, `components/columns/*.tsx` for columns, `config/*.config.ts` for table config |
 | Reports: DCs & MIRs | `src/pages/reports/` | `DCMIRReports.tsx`, `InventoryReport.tsx` sub-types with facet filters, HoverCard item popover, Critical PO column |
 | Vendor Data Hooks | `src/pages/vendors/data/` | `useVendorQueries.ts`, `useVendorMutations.ts` — centralized vendor CRUD with Sentry error capturing |
