@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { useFacetValues } from "@/hooks/useFacetValues";
 import {
   DataTable,
@@ -9,15 +9,21 @@ import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { Badge } from "@/components/ui/badge";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
-import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
+import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { useServerDataTable } from "@/hooks/useServerDataTable"; // Your main hook
+import { useFrappeGetDocList, FrappeDoc, GetDocListArgs } from "frappe-react-sdk";
+import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { useVendorInvoices } from "../data/useVendorQueries";
 import { formatDate } from "@/utils/FormatDate";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { parseNumber } from "@/utils/parseNumber";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Info } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { InvoiceDataDialog } from "@/pages/ProcurementOrders/purchase-order/components/InvoiceDataDialog";
+import { PaymentsDataDialog } from "@/pages/ProjectPayments/PaymentsDataDialog";
 
 // src/components/cells/OrderCategoriesCell.tsx
 
@@ -41,6 +47,7 @@ const PO_TABLE_FIELDS: (keyof ProcurementOrder | "name")[] = [
   "tax_amount",
   "total_amount",
   "amount_paid",
+  "vendor_name",
   "expected_delivery_date",
   "latest_delivery_date",
 ];
@@ -60,7 +67,10 @@ const PO_SEARCHABLE_FIELDS: SearchFieldOption[] = [
 export const VendorMaterialOrdersTable: React.FC<
   VendorMaterialOrdersTableProps
 > = ({ vendorId, vendorName, projectOptions, procurementRequests }) => {
-  //  console.log("projectOptions",projectOptions)
+  // --- State for Dialogs ---
+  const [selectedInvoicePO, setSelectedInvoicePO] = useState<ProcurementOrder | undefined>();
+  const [selectedPaymentPO, setSelectedPaymentPO] = useState<ProcurementOrder | undefined>();
+
   const getWorkPackage = useCallback(
     (prName?: string) => {
       if (!prName || !procurementRequests) return "--";
@@ -92,6 +102,20 @@ export const VendorMaterialOrdersTable: React.FC<
       return acc;
     }, new Map<string, number>());
   }, [vendorInvoices]);
+
+  // Fetch Project Payments for this vendor (for payments dialog)
+  const { data: projectPayments } = useFrappeGetDocList<ProjectPayments>(
+    "Project Payments",
+    {
+      filters: [["vendor", "=", vendorId]],
+      fields: [
+        "name", "document_name", "document_type", "status", "amount",
+        "tds", "payment_date", "creation", "utr", "payment_attachment",
+      ],
+      limit: 0,
+    } as GetDocListArgs<FrappeDoc<ProjectPayments>>,
+    `ProjectPayments-vendor-${vendorId}`
+  );
 
   // --- Dynamic Facet Values ---
   const {
@@ -307,6 +331,10 @@ export const VendorMaterialOrdersTable: React.FC<
           </div>
         ),
         size: 180,
+        meta: {
+          exportHeaderName: "PO Amount (Excl. GST)",
+          exportValue: (row: ProcurementOrder) => parseNumber(row.amount) || 0,
+        },
       },
       {
         accessorKey: "total_amount",
@@ -323,6 +351,10 @@ export const VendorMaterialOrdersTable: React.FC<
           </div>
         ),
         size: 180,
+        meta: {
+          exportHeaderName: "PO Amount (Incl. GST)",
+          exportValue: (row: ProcurementOrder) => parseNumber(row.total_amount) || 0,
+        },
       },
       {
         id: "total_invoiced",
@@ -336,7 +368,10 @@ export const VendorMaterialOrdersTable: React.FC<
         cell: ({ row }) => {
           const invoiceTotal = invoiceTotalsMap.get(row.original.name) ?? 0;
           return (
-            <div className="text-center font-medium text-blue-600">
+            <div
+              className={cn("text-center font-medium", invoiceTotal ? "underline cursor-pointer text-blue-600 hover:text-blue-800" : "")}
+              onClick={() => invoiceTotal && setSelectedInvoicePO(row.original)}
+            >
               {formatToRoundedIndianRupee(invoiceTotal)}
             </div>
           );
@@ -347,7 +382,7 @@ export const VendorMaterialOrdersTable: React.FC<
           exportHeaderName: "Total Invoiced",
           exportValue: (row: ProcurementOrder) => {
             const invoiceTotal = invoiceTotalsMap.get(row.name) ?? 0;
-            return formatToRoundedIndianRupee(invoiceTotal);
+            return invoiceTotal;
           },
         },
       },
@@ -360,12 +395,46 @@ export const VendorMaterialOrdersTable: React.FC<
             className="justify-end"
           />
         ),
-        cell: ({ row }) => (
-          <div className="text-center font-medium text-green-700">
-            {formatToRoundedIndianRupee(row.original.amount_paid || 0)}
-          </div>
-        ),
+        cell: ({ row }) => {
+          const amountPaid = parseNumber(row.original.amount_paid) || 0;
+          return (
+            <div
+              className={cn("text-center font-medium", amountPaid ? "underline cursor-pointer text-blue-600 hover:text-blue-800" : "text-green-700")}
+              onClick={() => amountPaid && setSelectedPaymentPO(row.original)}
+            >
+              {formatToRoundedIndianRupee(amountPaid)}
+            </div>
+          );
+        },
         size: 180,
+        meta: {
+          exportHeaderName: "Amount Paid",
+          exportValue: (row: ProcurementOrder) => parseNumber(row.amount_paid) || 0,
+        },
+      },
+      {
+        id: "amount_due",
+        header: "Amount Due",
+        cell: ({ row }) => {
+          const invoiced = invoiceTotalsMap.get(row.original.name) ?? 0;
+          const paid = parseNumber(row.original.amount_paid) || 0;
+          const value = invoiced - paid;
+          return (
+            <div className={cn("text-center font-medium", value < 0 ? "text-red-600" : "text-amber-600")}>
+              {formatToRoundedIndianRupee(value)}
+            </div>
+          );
+        },
+        enableSorting: false,
+        size: 150,
+        meta: {
+          exportHeaderName: "Amount Due",
+          exportValue: (row: ProcurementOrder) => {
+            const invoiced = invoiceTotalsMap.get(row.name) ?? 0;
+            const paid = parseNumber(row.amount_paid) || 0;
+            return invoiced - paid;
+          },
+        },
       },
       {
         accessorKey: "expected_delivery_date",
@@ -445,24 +514,49 @@ export const VendorMaterialOrdersTable: React.FC<
   if (tableError) return <AlertDestructive error={tableError} />;
 
   return (
-    <DataTable<ProcurementOrder>
-      table={table}
-      columns={columns} // Pass the actual column defs for rendering
-      isLoading={tableLoading}
-      totalCount={totalCount}
-      searchFieldOptions={PO_SEARCHABLE_FIELDS}
-      selectedSearchField={selectedSearchField}
-      onSelectedSearchFieldChange={setSelectedSearchField}
-      searchTerm={searchTerm}
-      onSearchTermChange={setSearchTerm}
-      facetFilterOptions={facetFilterOptions}
-      dateFilterColumns={["modified", "creation", "expected_delivery_date", "latest_delivery_date"]}
-      showExportButton={true}
-      onExport={"default"}
-      onExportAll={exportAllRows}
-      isExporting={isExporting}
-      exportFileName={`${vendorName}_Material_Orders`}
-    />
+    <>
+      <Alert className="bg-blue-50 border-blue-200 mb-2">
+        <Info className="h-4 w-4 text-blue-600" />
+        <AlertDescription className="text-blue-800 text-sm">
+          <strong>Note:</strong> Amount Due = Total Invoiced − Amount Paid
+        </AlertDescription>
+      </Alert>
+      <DataTable<ProcurementOrder>
+        table={table}
+        columns={columns} // Pass the actual column defs for rendering
+        isLoading={tableLoading}
+        totalCount={totalCount}
+        searchFieldOptions={PO_SEARCHABLE_FIELDS}
+        selectedSearchField={selectedSearchField}
+        onSelectedSearchFieldChange={setSelectedSearchField}
+        searchTerm={searchTerm}
+        onSearchTermChange={setSearchTerm}
+        facetFilterOptions={facetFilterOptions}
+        dateFilterColumns={["modified", "creation", "expected_delivery_date", "latest_delivery_date"]}
+        showExportButton={true}
+        onExport={"default"}
+        onExportAll={exportAllRows}
+        isExporting={isExporting}
+        exportFileName={`${vendorName}_Material_Orders`}
+      />
+
+      <InvoiceDataDialog
+        open={!!selectedInvoicePO}
+        onOpenChange={(open) => !open && setSelectedInvoicePO(undefined)}
+        vendorInvoices={vendorInvoices?.filter(inv => inv.document_name === selectedInvoicePO?.name)}
+        project={selectedInvoicePO?.project_name}
+        poNumber={selectedInvoicePO?.name}
+        vendor={selectedInvoicePO?.vendor_name}
+      />
+
+      <PaymentsDataDialog
+        open={!!selectedPaymentPO}
+        onOpenChange={(open) => !open && setSelectedPaymentPO(undefined)}
+        payments={projectPayments}
+        data={selectedPaymentPO}
+        isPO
+      />
+    </>
   );
 };
 
